@@ -14,8 +14,8 @@ import ReactFlow, {
   getMarkerEnd,
   getSmoothStepPath,
 } from 'react-flow-renderer'
-import styles from './DialogueEditor.module.scss'
-import { downloadFile, uploadFile } from '../utils/localFileManip'
+import './DialogueEditor.css'
+import { downloadFile, uploadFile } from './localFileManip'
 
 interface DialogueEntry {
   portrait?: string
@@ -56,11 +56,11 @@ const AppCtx = React.createContext<AppState>(
 const DialogueEntryNode = (props: NodeProps<DialogueEntryNodeData>) => {
   const appCtx = React.useContext(AppCtx)
   return (
-    <div className={styles.dialogueEntryNode}>
+    <div className={"dialogueEntryNode"}>
       <Handle
         type="target"
         position="top"
-        className={styles.handle}
+        className={"handle"}
         isConnectable
       />
       <label>
@@ -78,7 +78,7 @@ const DialogueEntryNode = (props: NodeProps<DialogueEntryNodeData>) => {
         </select>
         {props.data.portrait && (
           <img
-            className={styles.portraitImg}
+            className={"portraitImg"}
             src={appCtx.portraits.get(props.data.portrait)}
             alt={props.data.portrait}
           />
@@ -104,14 +104,14 @@ const DialogueEntryNode = (props: NodeProps<DialogueEntryNodeData>) => {
           defaultValue={props.data.text}
         />
       </label>
-      <button onClick={props.data.onDelete} className={styles.deleteButton}>
+      <button onClick={props.data.onDelete} className={"deleteButton"}>
         &times;
       </button>
       {/* will dynamically add handles potentially... */}
       <Handle
         type="source"
         position="bottom"
-        className={styles.handle}
+        className={"handle"}
         isConnectable
       />
     </div>
@@ -193,8 +193,8 @@ const DialogueEditor = () => {
   const [portraits, setPortraits] = React.useState(new Map<string, string>())
 
   return (
-    <div className={styles.page} onContextMenu={onRightClick}>
-      <div className={styles.toolbar}>
+    <div className={"page"} onContextMenu={onRightClick}>
+      <div className={"toolbar"}>
         <button
           onClick={() => {
             downloadFile({
@@ -225,7 +225,7 @@ const DialogueEditor = () => {
       </div>
       {/* TODO: must memoize the context value */}
       <AppCtx.Provider value={{ portraits }}>
-        <div className={styles.graph}>
+        <div className={"graph"}>
           <ReactFlow
             elements={elements}
             onConnect={params => setElements(e => addEdge(params, e))}

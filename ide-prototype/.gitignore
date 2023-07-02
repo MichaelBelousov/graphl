@@ -1,2 +1,8 @@
 # node
 node_modules
+
+# typescript
+lib
+
+# vite
+dist

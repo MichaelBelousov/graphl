@@ -1,27 +1,28 @@
-$toolbarHeight: 60px;
-
-.page {
+:root {
+  --toolbarHeight: 60px;
 }
+
+.page {}
 
 .toolbar {
   box-sizing: border-box;
-  height: $toolbarHeight;
+  height: var(--toolbarHeight);
   display: flex;
   padding: 11px 22px 11px 22px;
   gap: 22px;
 }
 
 .graph {
-  height: calc(100vh - #{$toolbarHeight});
+  height: calc(100vh - var(--toolbarHeight));
 }
 
 .deleteButton {
   position: absolute;
   top: 0;
-  $size: 25px;
-  height: $size;
-  width: $size;
-  left: calc(100% - #{$size});
+  --size: 25px;
+  height: var(--size);
+  width: var(--size);
+  left: calc(100% - var(--size));
   border: solid 1px black;
   box-sizing: border-box;
   background-color: #f00;
@@ -37,11 +38,12 @@ $toolbarHeight: 60px;
   color: black;
   padding: 22px;
 
-  > label {
-    display: flex;
-    gap: 11px;
-    align-items: center;
-  }
+}
+
+.dialogueEntryNode > label {
+  display: flex;
+  gap: 11px;
+  align-items: center;
 }
 
 .handle {
