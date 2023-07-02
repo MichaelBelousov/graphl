@@ -1,0 +1,22 @@
+digraph {
+  //splines="FALSE";
+  compound=true
+  packmode="clust"
+
+  subgraph cluster_frame_1 {
+    // FIXME: cluster option isn't working, forced to use the "cluster*" prefix on the name
+    cluster=true
+    label="my frame"
+    RGBA1; RGBA2; MixRGB
+  }
+
+  // defaults
+  //node [label="shortName", shape="square"]
+
+  RGBA1 [label="RGBA(0.5, 0.5, 0.5, 0.0)"]
+
+  RGBA1 -> MixRGB
+  RGBA2 -> MixRGB
+  MixRGB -> "Principled BSDF" [taillabel="Output" headlabel="Base Color"]
+  "Principled BSDF" -> "Material Output" [taillabel="Output" headlabel="Surface"]
+}

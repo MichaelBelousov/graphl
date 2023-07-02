@@ -1,0 +1,13 @@
+# node
+node_modules
+
+### tree-sitter
+# I'm not very happy about this one
+src
+binding.gyp
+bindings
+# or this
+Cargo.toml
+Cargo.lock
+target
+

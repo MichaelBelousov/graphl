@@ -1,0 +1,11 @@
+
+group 'my frame' {
+  param RGBA2 = []
+  const MixRGB: f4 = mix([0.5, 0.5, 0.5, 0.0], RGBA2, alpha=0.5)
+}
+
+// One tough question is when to namify expressions
+// In this sample, we do it at frame boundaries otherwise you'd have an inline mix call
+const 'Principled BSDF': bsdf = rough_metal_pbr_bsdf(.base_color='my frame'.MixRGB)
+
+SURFACE_OUTPUT('Principled BSDF')
