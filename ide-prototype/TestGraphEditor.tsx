@@ -14,7 +14,7 @@ import ReactFlow, {
   getMarkerEnd,
   getSmoothStepPath,
 } from 'react-flow-renderer'
-import './TestGraphEditor.css'
+import styles from './TestGraphEditor.module.css'
 import { downloadFile, uploadFile } from './localFileManip'
 
 interface DialogueEntry {
@@ -56,11 +56,11 @@ const AppCtx = React.createContext<AppState>(
 const DialogueEntryNode = (props: NodeProps<DialogueEntryNodeData>) => {
   const appCtx = React.useContext(AppCtx)
   return (
-    <div className={"dialogueEntryNode"}>
+    <div className={styles.dialogueEntryNode}>
       <Handle
         type="target"
         position="top"
-        className={"handle"}
+        className={styles.handle}
         isConnectable
       />
       <label>
@@ -78,7 +78,7 @@ const DialogueEntryNode = (props: NodeProps<DialogueEntryNodeData>) => {
         </select>
         {props.data.portrait && (
           <img
-            className={"portraitImg"}
+            className={styles.portraitImg}
             src={appCtx.portraits.get(props.data.portrait)}
             alt={props.data.portrait}
           />
@@ -87,7 +87,7 @@ const DialogueEntryNode = (props: NodeProps<DialogueEntryNodeData>) => {
       <label>
         title
         <input
-          className="nodrag"
+          className={styles.nodrag}
           onChange={e =>
             props.data.onChange({ ...props.data, title: e.currentTarget.value })
           }
@@ -97,21 +97,21 @@ const DialogueEntryNode = (props: NodeProps<DialogueEntryNodeData>) => {
       <label>
         text
         <textarea
-          className="nodrag"
+          className={styles.nodrag}
           onChange={e =>
             props.data.onChange({ ...props.data, text: e.currentTarget.value })
           }
           defaultValue={props.data.text}
         />
       </label>
-      <button onClick={props.data.onDelete} className={"deleteButton"}>
+      <button onClick={props.data.onDelete} className={styles.deleteButton}>
         &times;
       </button>
       {/* will dynamically add handles potentially... */}
       <Handle
         type="source"
         position="bottom"
-        className={"handle"}
+        className={styles.handle}
         isConnectable
       />
     </div>
@@ -193,8 +193,8 @@ const TestGraphEditor = () => {
   const [portraits, setPortraits] = React.useState(new Map<string, string>())
 
   return (
-    <div className={"page"} onContextMenu={onRightClick}>
-      <div className={"toolbar"}>
+    <div className={styles.page} onContextMenu={onRightClick}>
+      <div className={styles.toolbar}>
         <button
           onClick={() => {
             downloadFile({
@@ -225,7 +225,7 @@ const TestGraphEditor = () => {
       </div>
       {/* TODO: must memoize the context value */}
       <AppCtx.Provider value={{ portraits }}>
-        <div className={"graph"}>
+        <div className={styles.graph}>
           <ReactFlow
             elements={elements}
             onConnect={params => setElements(e => addEdge(params, e))}

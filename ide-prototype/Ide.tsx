@@ -1,8 +1,9 @@
 import React from "react";
 import TestGraphEditor from "./TestGraphEditor";
+import styles from "./Ide.module.css"
 
 export function Ide(_props: Ide.Props) {
-  return <div className="ide_columns">
+  return <div className={styles.split}>
     <textarea id="editor" />
     <TestGraphEditor />
   </div>;

@@ -1,6 +1,6 @@
 
 import React from "react";
 import ReactDOM from "react-dom";
-import TestGraphEditor from "./TestGraphEditor";
+import Ide from "./Ide";
 
-ReactDOM.render(<TestGraphEditor />, document.querySelector("#react-app"));
+ReactDOM.render(<Ide />, document.querySelector("#react-app"));
