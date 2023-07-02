@@ -57,36 +57,6 @@ The above solution is somewhat unaligned with achieving parity but more aligned 
     (define y (+ 10 x)))
   (group)
   )
-
-
-fn SubGraph(a: i32[4], b: b1[4]) f32[2] {
-  /// group: 1
-  // regular comment
-  const simpleVariable = 52.f;
-  const 'long variable' = 10.f;
-  const 'eye length' = atan2('var ref', simpleVariable);
-  /// end group
-  
-  /// group: group with a more interesting comment
-  const 'var ref' = 'long variable' * a; // referenced above
-  /// end group
-
-  // OR
-
-  group X {
-    const 'my var' = 5f;
-  }
-
-  group Y {
-    const 'my var' = 10u32 + X.'my var'
-  }
-}
-
-fn main(ctx: Context) Result {
-  return Result {
-    .surface = Glossy * SubGraph(ctx.uv ++ ctx.uv, {true, false ,false, false});
-  };
-}
 ```
 
 ### Intended competition
@@ -102,9 +72,55 @@ fn main(ctx: Context) Result {
 
 ### node-group conversions:
 
-```txt
-digraph branch {
+#### simple branch
 
+```dot
+digraph branch {
+  # FIXME: need internal nodes or something
+  branch [label="exec<br/>cond"];
+  branch -> A;
+  branch -> B;
 }
+```
+
+```lisp
+(if cond
+  A
+  B)
+```
+
+#### segment sequence
+
+```dot
+digraph segmentSequence {
+  X -> A
+  A -> B
+  B -> C
+  sequence -> A
+  sequence -> D
+}
+```
+
+idea 1:
+
+```lisp
+;; segment is duplicated... this makes idiomatic code in visual mode
+;; look gross in text mode
+(begin (x)
+       (a)
+       (b)
+       (c))
+(begin (begin (a) (b) (c))
+       (begin (d)))
+```
+
+idea 2:
+```lisp
+(define A (a) (b) (c))
+(begin (x)
+       (A))
+;; double begin (sequence) is not idiomatic
+(begin (begin (A))
+       (begin (d)))
 ```
 
