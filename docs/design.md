@@ -72,24 +72,34 @@ The above solution is somewhat unaligned with achieving parity but more aligned 
 
 ### node-group conversions:
 
-#### simple branch
+#### branch then join
 
 ```dot
 digraph branch {
-  # FIXME: need internal nodes or something
   branch [label="exec<br/>cond"];
   branch -> A;
   branch -> B;
+  A -> C
+  B -> C
+  C -> D
+  D -> E
 }
 ```
 
 ```lisp
+
 (if cond
   A
   B)
+C
+D
+E
 ```
 
 #### segment sequence
+
+This is hard because `a->b->c` is different in the visual realm from `sequence(->a ->b ->c)`,
+but in the text realm those are mostly the same
 
 ```dot
 digraph segmentSequence {
@@ -104,8 +114,7 @@ digraph segmentSequence {
 idea 1:
 
 ```lisp
-;; segment is duplicated... this makes idiomatic code in visual mode
-;; look gross in text mode
+;; segment is duplicated... not idiomatic in text realm...
 (begin (x)
        (a)
        (b)
@@ -115,6 +124,7 @@ idea 1:
 ```
 
 idea 2:
+
 ```lisp
 (define A (a) (b) (c))
 (begin (x)
@@ -124,3 +134,31 @@ idea 2:
        (begin (d)))
 ```
 
+##### how about backwards?
+
+Maybe it's OK if we consider that integrating this technology into existing blueprints
+will change them slightly... doubly-entered segments can be extracted to a function or macro
+for better composability if they do not have clean rejoins
+<!-- TODO: better define which kinds of double-entered segments can't be rejoined...
+     maybe an early return will suffice in most cases so that remaining paths
+     can join. -->
+
+```lisp
+(begin
+  (f)
+  (g)
+  ;!
+  (set! x 10)
+  (h x))
+```
+
+idea 1:
+```dot
+digraph segmentSequenceBackwards {
+  f -> g
+  g -> setx
+  setx -> h
+}
+```
+
+Maybe instead of supporting sequences we can do vertical reroutes?
