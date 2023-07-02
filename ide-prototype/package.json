@@ -1,0 +1,31 @@
+{
+  "name": "graph-lang-ide-prototype",
+  "scripts": {
+    "build": "tsc -p src/tsconfig.json",
+    "dev": "pnpm run dev:frontend & pnpm run dev:backend &",
+    "dev:frontend": "vite",
+    "dev:backend": "tsc -p src/tsconfig.json --watch",
+    "test": "mocha --config ./.mocharc.js tests/unit/**/*.test.ts",
+    "test:e2e": "playwright test tests/e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.30.0",
+    "@types/chai": "^4.3.4",
+    "@types/jsdom-global": "^3.0.4",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "^18.11.18",
+    "@types/sinon": "^10.0.13",
+    "@vitejs/plugin-react": "^3.0.1",
+    "chai": "^4.3.7",
+    "jsdom": "^21.1.0",
+    "jsdom-global": "^3.0.2",
+    "mocha": "^10.2.0",
+    "playwright-core": "^1.30.0",
+    "rollup-plugin-visualizer": "^5.9.0",
+    "sinon": "^15.0.1",
+    "ts-node": "^10.9.1",
+    "typescript": "5.0.0-beta",
+    "vite": "^4.0.4",
+    "vite-plugin-inspect": "^0.7.15"
+  }
+}

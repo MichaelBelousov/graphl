@@ -1,0 +1,85 @@
+<!-- Created by 0 with vim6 -->
+<html>
+  <body>
+    <title>Dialogue Checker</title>
+    <h5>Godot JSON Dialogue Schema Verifier</h5>
+    <input id="file-input" type="file"></input>
+    <div id="result"> </div>
+  </body>
+  <script type="module">
+
+    function checkAllNexts(dialogue, checkCtx) {
+      for (const [key, entry] of Object.entries(dialogue)) {
+        if (entry.next && !(entry.next in dialogue))
+          checkCtx.errors.push(
+            `entry "${key}" declares a next entry of "${entry.next}", but it could not be found`
+          )
+        for (const response of dialogue.responses || []) {
+          if (response.next && !(response.next in dialogue))
+            checkCtx.errors.push(
+              `reponse "${response.nick}" in entry "${key}" declares a next entry of "${entry.next}", but it could not be found`
+            )
+        }
+      }
+    }
+
+    function checkAllLocks(dialogue, ctx) {
+      let locks = []
+      let unlocks = []
+
+      Object.entries(dialogue).forEach(([key, entry]) => {
+        // use concat to support single strings and arrays
+        if (entry.unlocks) unlocks = unlocks.concat(entry.unlocks)
+        if (entry.locked) locks = locks.concat(entry.unlocks)
+        for (const response of entry.responses || []) {
+          if (response.unlocks) unlocks = unlocks.concat(response.unlocks)
+          if (response.locked) locks = locks.concat(response.unlocks)
+        }
+      })
+
+      locks = new Set(locks)
+      unlocks = new Set(unlocks)
+
+      for (const lock in locks)
+        if (!unlocks.has(lock))
+          ctx.errors.push(`lock ${lock} cannot be unlocked, it has ho corresponding unlock`)
+
+      for (const unlock in unlocks)
+        if (!locks.has(unlock))
+          ctx.errors.push(`unlockable ${unlock} does not corresond to any known locks`)
+
+      return ctx
+    }
+
+    function displayResult(ctx) {
+      result.innerHTML = (`
+        <div class="summary">
+          <p> There were ${ctx.errors.length} errors, ${ctx.warnings.length} warnings, and ${ctx.infos.length} messages </p>
+        </div>
+        <div class="errors">${ctx.errors.map(err => `<p>Error: ${err}</p>`).join('')}</div>
+        <div class="warnings">${ctx.warnings.map(warn => `<p>Warning: ${warn}</p>`).join('')}</div>
+        <div class="infos">${ctx.infos.map(info => `<p>Info: ${info}</p>`).join('')}</div>
+      `);
+    }
+
+    const fileInput = document.getElementById("file-input")
+
+    document.getElementById("file-input").addEventListener("change", (ev) => {
+      const file = fileInput.files[0]
+      const reader = new FileReader()
+      reader.onload = evt => {
+        const content = JSON.parse(evt.target.result)
+        const ctx = { errors: [], warnings: [], infos: [] }
+        checkAllNexts(content, ctx)
+        checkAllLocks(content, ctx)
+        displayResult(ctx)
+      }
+      reader.onerror = err => {
+        alert('there was an error reading that file', err)
+      }
+      reader.readAsText(file, "UTF-8")
+    })
+
+  </script>
+</html>
+

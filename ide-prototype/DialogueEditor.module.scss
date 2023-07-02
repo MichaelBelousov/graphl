@@ -1,0 +1,55 @@
+$toolbarHeight: 60px;
+
+.page {
+}
+
+.toolbar {
+  box-sizing: border-box;
+  height: $toolbarHeight;
+  display: flex;
+  padding: 11px 22px 11px 22px;
+  gap: 22px;
+}
+
+.graph {
+  height: calc(100vh - #{$toolbarHeight});
+}
+
+.deleteButton {
+  position: absolute;
+  top: 0;
+  $size: 25px;
+  height: $size;
+  width: $size;
+  left: calc(100% - #{$size});
+  border: solid 1px black;
+  box-sizing: border-box;
+  background-color: #f00;
+  color: #fff;
+  font-size: 16pt;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.dialogueEntryNode {
+  border: solid 1px black;
+  background-color: white;
+  color: black;
+  padding: 22px;
+
+  > label {
+    display: flex;
+    gap: 11px;
+    align-items: center;
+  }
+}
+
+.handle {
+  width: 16px;
+  height: 16px;
+}
+
+.portraitImage {
+  height: 50px;
+  width: 50px;
+}
