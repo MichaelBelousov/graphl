@@ -14,6 +14,7 @@ specifiers:
   jsdom: ^21.1.0
   jsdom-global: ^3.0.2
   mocha: ^10.2.0
+  monaco-editor: ^0.39.0
   playwright-core: ^1.30.0
   react: ^18.2.0
   react-dom: ^18.2.0
@@ -39,6 +40,7 @@ devDependencies:
   jsdom: 21.1.2
   jsdom-global: 3.0.2_jsdom@21.1.2
   mocha: 10.2.0
+  monaco-editor: 0.39.0
   playwright-core: 1.35.1
   react: 18.2.0
   react-dom: 18.2.0_react@18.2.0
@@ -1754,6 +1756,10 @@ packages:
       yargs: 16.2.0
       yargs-parser: 20.2.4
       yargs-unparser: 2.0.0
+    dev: true
+
+  /monaco-editor/0.39.0:
+    resolution: {integrity: sha512-zhbZ2Nx93tLR8aJmL2zI1mhJpsl87HMebNBM6R8z4pLfs8pj604pIVIVwyF1TivcfNtIPpMXL+nb3DsBmE/x6Q==}
     dev: true
 
   /mrmime/1.0.1:

@@ -4,6 +4,6 @@
   grid-template-columns: 1fr 1fr;
 }
 
-.split > .editor {
-
+.textEditor {
+  margin: 10px;
 }

@@ -2,6 +2,7 @@
   "name": "graph-lang-ide-prototype",
   "scripts": {
     "build": "vite build --mode production",
+    "preview": "vite preview",
     "dev": "pnpm run dev:frontend & pnpm run dev:backend &",
     "dev:frontend": "vite",
     "dev:backend": "tsc -p src/tsconfig.json --watch",
@@ -22,6 +23,7 @@
     "jsdom": "^21.1.0",
     "jsdom-global": "^3.0.2",
     "mocha": "^10.2.0",
+    "monaco-editor": "^0.39.0",
     "playwright-core": "^1.30.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
