@@ -1,10 +1,10 @@
 import React from "react";
-import DialogueEditor from "./DialogueEditor";
+import TestGraphEditor from "./TestGraphEditor";
 
 export function Ide(_props: Ide.Props) {
   return <div className="ide_columns">
     <textarea id="editor" />
-    <DialogueEditor />
+    <TestGraphEditor />
   </div>;
 }
 

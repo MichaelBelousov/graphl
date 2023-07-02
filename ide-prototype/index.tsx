@@ -1,6 +1,6 @@
 
 import React from "react";
 import ReactDOM from "react-dom";
-import DialogueEditor from "./DialogueEditor";
+import TestGraphEditor from "./TestGraphEditor";
 
-ReactDOM.render(<DialogueEditor />, document.querySelector("#react-app"));
+ReactDOM.render(<TestGraphEditor />, document.querySelector("#react-app"));

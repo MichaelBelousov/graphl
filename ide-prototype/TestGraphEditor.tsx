@@ -14,7 +14,7 @@ import ReactFlow, {
   getMarkerEnd,
   getSmoothStepPath,
 } from 'react-flow-renderer'
-import './DialogueEditor.css'
+import './TestGraphEditor.css'
 import { downloadFile, uploadFile } from './localFileManip'
 
 interface DialogueEntry {
@@ -148,7 +148,7 @@ const edgeTypes = {
   default: CustomDefaultEdge,
 } as const
 
-const DialogueEditor = () => {
+const TestGraphEditor = () => {
   const [elements, setElements] = React.useState(initial)
   const onRightClick = React.useCallback(
     (e: React.MouseEvent) => {
@@ -252,4 +252,4 @@ const DialogueEditor = () => {
   )
 }
 
-export default DialogueEditor
+export default TestGraphEditor
