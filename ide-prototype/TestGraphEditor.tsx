@@ -16,6 +16,8 @@ import ReactFlow, {
 } from 'react-flow-renderer'
 import styles from './TestGraphEditor.module.css'
 import { downloadFile, uploadFile } from './localFileManip'
+import classNames from './classnames'
+import { useValidatedInput } from "@bentley/react-hooks"
 
 interface DialogueEntry {
   portrait?: string
@@ -53,79 +55,116 @@ const AppCtx = React.createContext<AppState>(
   })
 )
 
-const DialogueEntryNode = (props: NodeProps<DialogueEntryNodeData>) => {
-  const appCtx = React.useContext(AppCtx)
+type PinType = "string" | "number" | "exec"
+
+interface NodeDesc {
+  inputs:
+    | { variadic: true, type: PinType }
+    | { name: string, type: PinType, default?: any }[]
+  outputs: { name: string, type: PinType }[]
+}
+
+const pinTypeColorMap: Record<PinType, string> = {
+  number: "#ff0000",
+  string: "#0000ff",
+  exec: "#000000",
+};
+
+const pinTypeInputValidatorMap: Record<PinType, Parameters<typeof useValidatedInput<any>>> = {
+  number: [],
+  string: [],
+  exec: [],
+};
+
+const NodeHandle = (props: {
+  direction: "input" | "output";
+  type: PinType;
+  name: string;
+  index: number;
+  siblingCount: number;
+  setInputStatus?: (status: InputStatus, reason: string) => void;
+}) => {
+  const isInput = props.direction === "input"
+  // FIXME
+  const isConnected = false;
+  const [literalValue, literalValueInput, setLiteralValueInput, errorStatus, errorReason] = useValidatedInput();
+
+  return <Handle
+    type="target"
+    position={isInput ? "left" : "right"}
+    className={classNames(styles.handle, isInput ? styles.inputHandle : styles.outputHandle)}
+    style={{
+      backgroundColor: pinTypeColorMap[props.type],
+      top: `${100 * (props.index + 0.5) / props.siblingCount}%`,
+    }}
+    isConnectable
+  >
+    <div>
+      <label>{props.name}</label>
+      {isInput && !isConnected
+        && <input
+          value={literalValueInput}
+          onChange={(e) => setLiteralValueInput(e.currentTarget.value)}
+          style={{width: "8em"}}
+        />
+      }
+    </div>
+  </Handle>
+};
+
+function assert(condition: any, message?: string): asserts condition {
+  if (!condition)
+    throw Error(message ?? "Assertion error, condition was falsey");
+}
+
+const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<DialogueEntryNodeData>) => {
+  const inputs = "variadic" in nodeDesc.inputs
+    ? assert("variadic not yet supported") as never
+    : nodeDesc.inputs;
+
   return (
-    <div className={styles.dialogueEntryNode}>
-      <Handle
-        type="target"
-        position="top"
-        className={styles.handle}
-        isConnectable
-      />
-      <label>
-        portrait
-        <select
-          onChange={e =>
-            props.data.onChange({ portrait: e.currentTarget.value })
-          }
-        >
-          {[...appCtx.portraits]
-            .map(([imageName]) => (
-              <option value={imageName}>{imageName}</option>
-            ))
-            .concat(<option>none</option>)}
-        </select>
-        {props.data.portrait && (
-          <img
-            className={styles.portraitImg}
-            src={appCtx.portraits.get(props.data.portrait)}
-            alt={props.data.portrait}
-          />
-        )}
-      </label>
-      <label>
-        title
-        <input
-          className={styles.nodrag}
-          onChange={e =>
-            props.data.onChange({ ...props.data, title: e.currentTarget.value })
-          }
-          defaultValue={props.data.title}
+    <div
+      className={styles.node}
+      style={{
+        height: 30 * inputs.length,
+        width: 150,
+      }}
+    >
+      {inputs.map((input, i) =>
+        <NodeHandle
+          {...input}
+          key={i}
+          direction="input"
+          index={i}
+          siblingCount={inputs.length}
         />
-      </label>
-      <label>
-        text
-        <textarea
-          className={styles.nodrag}
-          onChange={e =>
-            props.data.onChange({ ...props.data, text: e.currentTarget.value })
-          }
-          defaultValue={props.data.text}
-        />
-      </label>
+      )}
       <button onClick={props.data.onDelete} className={styles.deleteButton}>
         &times;
       </button>
-      {/* will dynamically add handles potentially... */}
-      <Handle
-        type="source"
-        position="bottom"
-        className={styles.handle}
-        isConnectable
-      />
+      {nodeDesc.outputs.map((output, i) =>
+        <NodeHandle
+          {...output}
+          key={i}
+          direction="output"
+          index={i}
+          siblingCount={nodeDesc.outputs.length}
+        />
+      )}
     </div>
   )
-}
+};
 
-enum nodeTypeNames {
-  dialogueEntry = 'dialogueEntry',
-}
+import _nodeTypes from "./test-editor-nodes.json"
+import { InputStatus } from '@bentley/react-hooks/lib/useValidatedInput'
 
 const nodeTypes = {
-  // TODO: could just make this the "default" node
-  [nodeTypeNames.dialogueEntry]: DialogueEntryNode,
-} as const
+  //default: makeNodeComponent({}),
+  ...Object.fromEntries(
+    Object.entries(_nodeTypes)
+      .map(([k, v]) => [k, makeNodeComponent(v as NodeDesc)])
+  )
+};
 
 const CustomDefaultEdge = (props: EdgeProps) => {
   const edgePath = getSmoothStepPath(props)
@@ -150,6 +189,7 @@ const edgeTypes = {
 
 const TestGraphEditor = () => {
   const [elements, setElements] = React.useState(initial)
+
   const onRightClick = React.useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault()
@@ -157,7 +197,7 @@ const TestGraphEditor = () => {
       setElements(prev =>
         prev.concat({
           id: newId,
-          type: nodeTypeNames.dialogueEntry,
+          type: "add",
           data: {
             title: 'test title',
             text: 'test text',

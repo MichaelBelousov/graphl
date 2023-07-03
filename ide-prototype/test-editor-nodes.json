@@ -1,1 +1,12 @@
-{}
+{
+  "add": {
+    "inputs": [
+      { "name": "a", "type": "number", "default": 0.0 },
+      { "name": "b", "type": "number", "default": 0.0 }
+    ],
+    "outputs": [
+      { "name": "sum", "type": "number" }
+    ],
+    "pure": true
+  }
+}

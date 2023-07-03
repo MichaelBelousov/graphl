@@ -34,5 +34,8 @@
     "typescript": "5.0.0-beta",
     "vite": "^4.0.4",
     "vite-plugin-inspect": "^0.7.15"
+  },
+  "dependencies": {
+    "@bentley/react-hooks": "^1.2.0"
   }
 }

@@ -32,7 +32,7 @@
   cursor: pointer;
 }
 
-.dialogueEntryNode {
+.node {
   border: solid 1px black;
   background-color: white;
   color: black;
@@ -40,18 +40,28 @@
 
 }
 
-.dialogueEntryNode > label {
+.node > label {
   display: flex;
   gap: 11px;
   align-items: center;
 }
 
 .handle {
-  width: 16px;
-  height: 16px;
+  color: white;
+  font-weight: bold;
+  width: fit-content;
+  height: fit-content;
+  border: 1px solid black;
+  border-radius: 5px;
+  padding: 5px;
 }
 
-.portraitImage {
-  height: 50px;
-  width: 50px;
+.handle > div > input {
+  margin-left: 5px;
+}
+
+.inputHandle {
+}
+
+.outputHandle {
 }
