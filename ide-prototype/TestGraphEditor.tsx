@@ -18,6 +18,7 @@ import styles from './TestGraphEditor.module.css'
 import { downloadFile, uploadFile } from './localFileManip'
 import classNames from './classnames'
 import { useValidatedInput } from "@bentley/react-hooks"
+import { InputStatus } from '@bentley/react-hooks/lib/useValidatedInput'
 
 interface DialogueEntry {
   portrait?: string
@@ -58,6 +59,7 @@ const AppCtx = React.createContext<AppState>(
 type PinType = "string" | "number" | "exec"
 
 interface NodeDesc {
+  label: string,
   inputs:
     | { variadic: true, type: PinType }
     | { name: string, type: PinType, default?: any }[]
@@ -139,6 +141,7 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<DialogueEntr
           siblingCount={inputs.length}
         />
       )}
+      <strong style={{ top: "50%", left: "50%", position: "absolute" }}>{nodeDesc.label}</strong>
       <button onClick={props.data.onDelete} className={styles.deleteButton}>
         &times;
       </button>
@@ -156,7 +159,6 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<DialogueEntr
 };
 
 import _nodeTypes from "./test-editor-nodes.json"
-import { InputStatus } from '@bentley/react-hooks/lib/useValidatedInput'
 
 const nodeTypes = {
   //default: makeNodeComponent({}),
@@ -223,8 +225,8 @@ const TestGraphEditor = () => {
                 )
               ),
           },
-          position: { x: e.clientX - 0, y: e.clientY - 50 },
-        } as Node<DialogueEntryNodeData>)
+          position: { x: e.clientX, y: e.clientY },
+        })
       )
     },
     [setElements]
@@ -253,14 +255,6 @@ const TestGraphEditor = () => {
           }}
         >
           Load
-        </button>
-        <button
-          onClick={async () => {
-            const file = await uploadFile({ type: 'dataurl' })
-            setPortraits(prev => new Map([...prev, [file.name, file.content]]))
-          }}
-        >
-          Upload Portrait
         </button>
       </div>
       {/* TODO: must memoize the context value */}
