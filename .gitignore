@@ -14,5 +14,12 @@ __pycache__
 zig-out
 zig-cache
 
+# clangd
+compile_commands.json
+.cache
+
+# typescript
+lib
+
 # node
 node_modules

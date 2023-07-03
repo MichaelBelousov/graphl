@@ -1,0 +1,31 @@
+{
+  "name": "graph-lang-rest-api",
+  "version": "0.1.0",
+  "description": "RESTful server for graph-lang editing",
+  "main": "index.ts",
+  "scripts": {
+    "start": "node ./lib/index.mjs",
+    "build": "zig build && node-gyp build && tsc -b tsconfig.json",
+    "rebuild": "zig build && node-gyp rebuild && tsc -b tsconfig.json",
+    "build:dev": "zig build && bear --append -- node-gyp build --debug && tsc -b tsconfig.json",
+    "build:ts": "tsc -b tsconfig.json",
+    "native-debug": "gdb node -ex 'run lib/index.ts'",
+    "native-debug:cgdb": "cgdb node -ex 'run lib/index.ts'",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Mike Belousov",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.17",
+    "@types/node": "^17.0.21",
+    "bindings": "^1.5.0",
+    "node-addon-api": "^4.3.0",
+    "node-gyp": "^9.0.0",
+    "ts-node": "^10.5.0",
+    "typescript": "^4.6.2"
+  }
+}
