@@ -113,12 +113,15 @@ const GraphToSourceResult = Result(Slice, GraphToSourceErr.C);
 
 /// call c free on result
 export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
-    var parser = json.Parser.init(std.heap.c_allocator, false);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+
+    var parser = json.Parser.init(arena_alloc, false);
     defer parser.deinit();
-    const err: GraphToSourceErr = GraphToSourceErr.jsonParseFailure;
-    _ = err.toC();
+
     var json_doc = parser.parse(graph_json.to_zig())
-        catch return .{.err = (GraphToSourceErr{.jsonParseFailure={}}).toC()};
+        catch return .{.err = @as(GraphToSourceErr, .jsonParseFailure).toC()};
     defer json_doc.deinit();
 
     const nodes = switch (json_doc.root) {
@@ -138,6 +141,26 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
     return .{.ok = Slice.from_zig("")};
 }
 
+test "basic graph_to_source" {
+    try testing.expectEqualStrings(
+        \\(hello)
+        ,
+        Slice.to_zig(source_to_graph(Slice.from_zig(
+        \\{
+        \\  "nodes": {
+        \\    "node_1": {
+        \\      "type": "add",
+        \\      "inputs": ["node_2", "node_1"]
+        \\    },
+        \\    "node_2": {
+        \\      "type": "value"
+        \\    }
+        \\  }
+        \\}
+        )).ok)
+    );
+}
+
 
 /// call c free on result
 export fn source_to_graph(source: Slice) SourceToGraphResult {
@@ -145,7 +168,5 @@ export fn source_to_graph(source: Slice) SourceToGraphResult {
     return .{.ok = Slice.from_zig("")};
 }
 
-test "basic add functionality" {
-    try testing.expectEqualStrings(source_to_graph(""), "");
-    try testing.expectEqualStrings(graph_to_source(""), "");
-}
+// test "source_to_graph" {
+// }
