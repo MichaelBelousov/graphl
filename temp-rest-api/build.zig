@@ -8,8 +8,8 @@ pub fn build(b: *std.build.Builder) void {
     const lib = b.addStaticLibrary("graph-lang", "main.zig");
     lib.setBuildMode(mode);
     lib.install();
-    lib.pie = true;
     lib.force_pic = true;
+    lib.linkLibC();
 
     const main_tests = b.addTest("main.zig");
     main_tests.setBuildMode(mode);

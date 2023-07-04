@@ -3,6 +3,10 @@
 #include "graph-lang.h"
 #include <string>
 
+// using C++ and including libstd for just this marshalling to zig is a bad idea
+// SEE: https://github.com/staltz/zig-nodejs-example
+// for removing the dependency eventually
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports["graph_to_source"] = Napi::Function::New(env, [](const Napi::CallbackInfo& info) -> Napi::Value {
     const auto graph = info[0].As<Napi::String>().Utf8Value();
