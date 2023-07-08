@@ -1,10 +1,9 @@
 const std = @import("std");
 const FileBuffer = @import("./FileBuffer.zig");
+const PageWriter = @import("./PageWriter.zig").PageWriter;
 const io = std.io;
 const testing = std.testing;
 const json = std.json;
-
-//var alloc = (std.heap.GeneralPurposeAllocator(.{}){}).allocator;
 
 // TODO: give better name... C slice?
 const Slice = extern struct {
@@ -68,20 +67,36 @@ const SourceToGraphResult = Result(Slice, SourceToGraphErr);
 
 // FIXME: need a tag :/
 const GraphToSourceErr = union (enum) {
-    jsonNodesDoesntExist: void,
+    jsonImportedBindingAliasNotString: void,
+    jsonImportedBindingNoRef: void,
+    jsonImportedBindingNotObject: void,
+    jsonImportedBindingRefNotString: void,
+    jsonImportedBindingsNotArray: void,
+    jsonImportsNotAMap: void,
     jsonNodesNotAMap: void,
-    jsonRootNotObject: void,
+    jsonNoImports: void,
+    jsonNoNodes: void,
     jsonParseFailure: void,
+    jsonRootNotObject: void,
     ioErr: void,
+    OutOfMemory: void,
 
     pub const C = extern struct {
         tag: u8,
         payload: extern union {
-            jsonNodesDoesntExist: void,
+            jsonImportedBindingAliasNotString: void,
+            jsonImportedBindingNoRef: void,
+            jsonImportedBindingNotObject: void,
+            jsonImportedBindingRefNotString: void,
+            jsonImportedBindingsNotArray: void,
+            jsonImportsNotAMap: void,
             jsonNodesNotAMap: void,
-            jsonRootNotObject: void,
+            jsonNoImports: void,
+            jsonNoNodes: void,
             jsonParseFailure: void,
+            jsonRootNotObject: void,
             ioErr: void,
+            OutOfMemory: void,
         },
     };
 
@@ -123,6 +138,7 @@ const Sexp = union (enum) {
     fn deinit(self: Self, alloc: std.mem.Allocator) void {
         switch (self) {
             .ownedString => |v| alloc.free(v),
+            .call => |v| v.args.deinit(),
             else => {},
         }
     }
@@ -181,6 +197,13 @@ test "write sexp" {
     );
 }
 
+const syms = struct {
+    const import = Sexp{.symbol = "import"};
+    const define = Sexp{.symbol = "define"};
+    const as = Sexp{.symbol = "as"};
+};
+
+// TODO: add a json schema to document this instead... and petition zig for support of JSON maps
 // interface graph {
 //   nodes: {
 //     [nodeId: string]: {
@@ -209,9 +232,77 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
         catch return .{.err = @as(GraphToSourceErr, .jsonParseFailure).toC()};
     defer json_doc.deinit();
 
+    const json_imports = switch (json_doc.root) {
+        .Object => |root| switch (root.get("imports")
+            orelse return .{.err = @as(GraphToSourceErr, .jsonNoImports).toC() }) {
+            .Object => |a| a,
+            else => return .{.err = @as(GraphToSourceErr, .jsonImportsNotAMap).toC()},
+        },
+        else => return .{.err = @as(GraphToSourceErr, .jsonRootNotObject).toC()},
+    };
+
+    // TODO: is it worth using a segmented list if an array list will do? Will graphs really
+    // ever be that large?
+    var import_exprs = std.SegmentedList(Sexp, 16){};
+
+    {
+        var json_imports_iter = json_imports.iterator();
+        while (json_imports_iter.next()) |json_import_entry| {
+            const json_import_name = json_import_entry.key_ptr.*;
+            const json_import_bindings = json_import_entry.value_ptr.*;
+
+            const new_import = import_exprs.addOne(arena_alloc)
+                catch return .{.err = @as(GraphToSourceErr, .OutOfMemory).toC()};
+
+            // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
+            new_import.* = Sexp{.call = .{
+                .callee = &syms.import,
+                .args = std.ArrayList(Sexp).init(arena_alloc),
+            }};
+            (new_import.*.call.args.addOne()
+                catch return .{.err = @as(GraphToSourceErr, .OutOfMemory).toC()}
+            ).* = Sexp{.symbol = json_import_name};
+
+            if (json_import_bindings != .Array)
+                return .{.err = @as(GraphToSourceErr, .jsonImportedBindingsNotArray).toC()};
+
+            for (json_import_bindings.Array.items) |json_imported_binding| {
+                if (json_imported_binding != .Object)
+                    return .{.err = @as(GraphToSourceErr, .jsonImportedBindingNotObject).toC()};
+
+                const ref = json_imported_binding.Object.get("ref")
+                    orelse return .{.err = @as(GraphToSourceErr, .jsonImportedBindingNoRef).toC()};
+                if (ref != .String)
+                    return .{.err = @as(GraphToSourceErr, .jsonImportedBindingRefNotString).toC()};
+
+                const maybe_alias = json_imported_binding.Object.get("alias");
+
+                const added = new_import.call.args.addOne()
+                    catch return .{.err = @as(GraphToSourceErr, .OutOfMemory).toC()};
+
+                if (maybe_alias) |alias| {
+                    if (alias != .String)
+                        return .{.err = @as(GraphToSourceErr, .jsonImportedBindingAliasNotString).toC()};
+                    added.* = Sexp{.call = .{
+                        .callee = &syms.as,
+                        .args = std.ArrayList(Sexp).init(arena_alloc),
+                    }};
+                    (added.*.call.args.addOne()
+                        catch return .{.err = @as(GraphToSourceErr, .OutOfMemory).toC()}
+                    ).* = Sexp{.symbol = ref.String};
+                    (added.*.call.args.addOne()
+                        catch return .{.err = @as(GraphToSourceErr, .OutOfMemory).toC()}
+                    ).* = Sexp{.symbol = alias.String};
+                } else {
+                    added.* = Sexp{.symbol = ref.String};
+                }
+            }
+        }
+    }
+
     const nodes = switch (json_doc.root) {
         .Object => |root| switch (root.get("nodes")
-            orelse return .{.err = @as(GraphToSourceErr, .jsonNodesDoesntExist).toC() }) {
+            orelse return .{.err = @as(GraphToSourceErr, .jsonNoNodes).toC() }) {
             .Object => |a| a,
             else => return .{.err = @as(GraphToSourceErr, .jsonNodesNotAMap).toC()},
         },
@@ -223,12 +314,27 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
             catch return .{.err = (GraphToSourceErr{.ioErr={}}).toC()};
     }
 
-    // TODO: create a writer that keeps track of a list of pages, and always buffered writes to a fresh page,
-    // until we're done, then we can iterate over the pages, allocate the required linear memory, and combine
-    // the chunks.
-    //const chunks_writer = std.io.bufferedWriter(std.io.Writer)
+    var page_writer = PageWriter.init(std.heap.page_allocator)
+        catch return .{.err = (GraphToSourceErr{.OutOfMemory={}}).toC()};
+    defer page_writer.deinit();
 
-    return .{.ok = Slice.from_zig("")};
+    {
+        var import_iter = import_exprs.constIterator(0);
+        while (import_iter.next()) |import| {
+            _ = import.write(page_writer.writer())
+                catch return .{.err = (GraphToSourceErr{.ioErr={}}).toC()};
+            _ = page_writer.writer().write("\n")
+                catch return .{.err = (GraphToSourceErr{.ioErr={}}).toC()};
+        }
+    }
+    _ = page_writer.writer().write("\n")
+        catch return .{.err = (GraphToSourceErr{.ioErr={}}).toC()};
+
+    return .{.ok = Slice.from_zig(
+        // FIXME: make sure we can free this
+        page_writer.concat(std.heap.c_allocator)
+            catch return .{.err = @as(GraphToSourceErr, .OutOfMemory).toC()}
+    )};
 }
 
 test "big graph_to_source" {
@@ -241,9 +347,12 @@ test "big graph_to_source" {
     // variable definitions... can variables be declared at any point in the node graph?
     // will variables in the source have to have "global" names?
     // Does synchronizing graph changes into the source affect those?
+
+    const result = graph_to_source(Slice.from_zig(graph_json.buffer));
+    testing.expect(result == .ok);
     try testing.expectEqualStrings(
         source.buffer,
-        Slice.to_zig(source_to_graph(Slice.from_zig(graph_json.buffer)).ok)
+        Slice.to_zig()
     );
 }
 

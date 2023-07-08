@@ -7,7 +7,7 @@ const Page = [page_size]u8;
 /// appending a new page to the list every time the end is reached.
 /// can be used to efficiently write data of unknown length and then you
 /// may call `concat` to get one buffer with of the pages copied linearly
-const PageWriter = struct {
+pub const PageWriter = struct {
     page_size: usize = page_size,
     pages: std.SegmentedList(Page, 0),
     writeable_page: []u8,
@@ -37,7 +37,7 @@ const PageWriter = struct {
         return buff;
     }
 
-    fn init(alloc: std.mem.Allocator) !Self {
+    pub fn init(alloc: std.mem.Allocator) !Self {
         var pages = std.SegmentedList(Page, 0){};
         var first_page = try pages.addOne(alloc);
         return Self {
@@ -47,11 +47,11 @@ const PageWriter = struct {
         };
     }
 
-    fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self) void {
         self.pages.deinit(self.alloc);
     }
 
-    const WriteError = error {} || std.mem.Allocator.Error;
+    pub const WriteError = error {} || std.mem.Allocator.Error;
 
     fn writeFn(self: *Self, bytes: []const u8) WriteError!usize {
         var remaining_bytes = bytes;
@@ -93,4 +93,3 @@ test "write some pages" {
 
     _ = try writer.write(data);
 }
-
