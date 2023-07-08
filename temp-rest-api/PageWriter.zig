@@ -16,7 +16,7 @@ const PageWriter = struct {
 
     const Self = @This();
 
-    /// return a linear memory slice of all the written chunks, allocated by the passed in allocator
+    /// return a linear memory slice of all the written pages, allocated by the passed in allocator
     /// you must free it yourself
     pub fn concat(self: Self, alloc: std.mem.Allocator) ![]u8 {
         var pages_iter = self.pages.constIterator(0); 
@@ -81,13 +81,13 @@ test "write some pages" {
     defer std.testing.allocator.free(data);
     std.mem.set(u8, data, 'a');
 
-    var chunk_writer = try PageWriter.init(std.testing.allocator);
-    defer chunk_writer.deinit();
-    const writer = chunk_writer.writer();
+    var page_writer = try PageWriter.init(std.testing.allocator);
+    defer page_writer.deinit();
+    const writer = page_writer.writer();
 
     _ = try writer.write(data);
 
-    const concated = try chunk_writer.concat(std.testing.allocator);
+    const concated = try page_writer.concat(std.testing.allocator);
     defer std.testing.allocator.free(concated);
     try std.testing.expectEqualSlices(u8, data, concated);
 
