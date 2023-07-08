@@ -1,0 +1,15 @@
+{
+  "imports": {
+    "utils": [{ "ref": "define-ranged" }]
+  },
+  "nodes": {
+    "node_1": {
+      "type": "define-ranged",
+      "inputs": [{ "value": 1 }, { "value": 100 }, { "value": 42 }],
+    },
+    "node_2": {
+      "type": "add",
+      "inputs": [{ "value": 11 }, { "link": "node_1" }]
+    }
+  }
+}

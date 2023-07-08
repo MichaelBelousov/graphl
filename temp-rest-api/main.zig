@@ -1,4 +1,5 @@
 const std = @import("std");
+const FileBuffer = @import("./FileBuffer.zig");
 const io = std.io;
 const testing = std.testing;
 const json = std.json;
@@ -102,15 +103,6 @@ const GraphToSourceErr = union (enum) {
 
 const GraphToSourceResult = Result(Slice, GraphToSourceErr.C);
 
-// interface graph {
-//   nodes: {
-//     [nodeId: string]: {
-//       type: string
-//       inputs: string[]
-//     }
-//   }
-// }
-
 const Sexp = union (enum) {
     call: struct {
         callee: *const Sexp,
@@ -189,8 +181,22 @@ test "write sexp" {
     );
 }
 
+// interface graph {
+//   nodes: {
+//     [nodeId: string]: {
+//       type: string
+//       inputs: string[]
+//     }
+//   }
+//   imports: {
+//     [packageName: string]: {
+//       ref: string
+//       alias?: string
+//     }[]
+//   }
+// }
 
-/// caller must free result
+/// caller must free result with {TBD}
 export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -217,32 +223,27 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
             catch return .{.err = (GraphToSourceErr{.ioErr={}}).toC()};
     }
 
+    // TODO: create a writer that keeps track of a list of pages, and always buffered writes to a fresh page,
+    // until we're done, then we can iterate over the pages, allocate the required linear memory, and combine
+    // the chunks.
+    //const chunks_writer = std.io.bufferedWriter(std.io.Writer)
+
     return .{.ok = Slice.from_zig("")};
 }
 
-test "basic graph_to_source" {
+test "big graph_to_source" {
+    const alloc = std.testing.allocator;
+    const source = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/large1/source.scm");
+    defer source.free(alloc);
+    const graph_json = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/large1/graph.json");
+    defer graph_json.free(alloc);
+    // NOTE: it is extremely vague how we're going to isomorphically convert
+    // variable definitions... can variables be declared at any point in the node graph?
+    // will variables in the source have to have "global" names?
+    // Does synchronizing graph changes into the source affect those?
     try testing.expectEqualStrings(
-        \\(define a (range-picker 1 42 100))
-        \\(+ 11 a)
-        ,
-        Slice.to_zig(source_to_graph(Slice.from_zig(
-        \\{
-        \\  "nodes": {
-        \\    "node_1": {
-        \\      "type": "ranged-picker",
-        \\      "inputs": [{ value: 42 }],
-        \\      "props": {
-        \\        "min": "1",
-        \\        "max": "100"
-        \\      }
-        \\    },
-        \\    "node_2": {
-        \\      "type": "add",
-        \\      "inputs": [{ value: 11 }, { link: "node_1" }]
-        \\    }
-        \\  }
-        \\}
-        )).ok)
+        source.buffer,
+        Slice.to_zig(source_to_graph(Slice.from_zig(graph_json.buffer)).ok)
     );
 }
 
