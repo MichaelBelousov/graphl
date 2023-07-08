@@ -17,17 +17,17 @@ const ChunkWriter = struct {
     pub fn concat(self: Self, alloc: std.mem.Allocator) ![]u8 {
         var pages_iter = self.pages.constIterator(0); 
         const last_page_written_num = page_size - self.writeable_page.len;
-        const buff_size = self.pages.count() * page_size + last_page_written_num;
+        const buff_size = (self.pages.count() - 1) * page_size + last_page_written_num;
         const buff = try alloc.alloc(u8, buff_size);
-        const cursor: usize = 0;
+        var cursor: usize = 0;
         
         var index: usize = 0;
         while (pages_iter.next()) |page| {
             const is_last = index == self.pages.count() - 1;
             const copy_size = if (is_last) last_page_written_num else page_size;
             std.mem.copy(u8, buff[cursor..cursor + copy_size], page[0..copy_size]);
-            std.debug.print("total: {}, from: {}, to: {}\n", .{buff_size, cursor, cursor + copy_size});
             index += 1;
+            cursor += copy_size;
         }
 
         return buff;
