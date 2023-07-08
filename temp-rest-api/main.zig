@@ -20,9 +20,23 @@ const Slice = extern struct {
 };
 
 fn Result(comptime R: type, comptime E: type) type {
-    return extern union {
-        ok: R,
-        err: E,
+    return extern struct {
+        val: extern union {
+            ok: R,
+            err: E,
+        },
+        tag: enum (u8) {
+            ok,
+            err,
+        },
+
+        fn ok(r: R) @This() {
+            return @This(){.val = .{.ok = r}, .tag = .ok};
+        }
+
+        fn err(e: E) @This() {
+            return @This(){.val = .{.err = e},  .tag = .err};
+        }
     };
 }
 
@@ -229,16 +243,16 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
     defer parser.deinit();
 
     var json_doc = parser.parse(graph_json.to_zig())
-        catch return .{.err = @as(GraphToSourceErr, .jsonParseFailure).toC()};
+        catch return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonParseFailure).toC());
     defer json_doc.deinit();
 
     const json_imports = switch (json_doc.root) {
         .Object => |root| switch (root.get("imports")
-            orelse return .{.err = @as(GraphToSourceErr, .jsonNoImports).toC() }) {
+            orelse return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonNoImports).toC())) {
             .Object => |a| a,
-            else => return .{.err = @as(GraphToSourceErr, .jsonImportsNotAMap).toC()},
+            else => return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportsNotAMap).toC()),
         },
-        else => return .{.err = @as(GraphToSourceErr, .jsonRootNotObject).toC()},
+        else => return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonRootNotObject).toC()),
     };
 
     // TODO: is it worth using a segmented list if an array list will do? Will graphs really
@@ -252,7 +266,7 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
             const json_import_bindings = json_import_entry.value_ptr.*;
 
             const new_import = import_exprs.addOne(arena_alloc)
-                catch return .{.err = @as(GraphToSourceErr, .OutOfMemory).toC()};
+                catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC());
 
             // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
             new_import.* = Sexp{.call = .{
@@ -260,38 +274,38 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
                 .args = std.ArrayList(Sexp).init(arena_alloc),
             }};
             (new_import.*.call.args.addOne()
-                catch return .{.err = @as(GraphToSourceErr, .OutOfMemory).toC()}
+                catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC())
             ).* = Sexp{.symbol = json_import_name};
 
             if (json_import_bindings != .Array)
-                return .{.err = @as(GraphToSourceErr, .jsonImportedBindingsNotArray).toC()};
+                return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportedBindingsNotArray).toC());
 
             for (json_import_bindings.Array.items) |json_imported_binding| {
                 if (json_imported_binding != .Object)
-                    return .{.err = @as(GraphToSourceErr, .jsonImportedBindingNotObject).toC()};
+                    return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportedBindingNotObject).toC());
 
                 const ref = json_imported_binding.Object.get("ref")
-                    orelse return .{.err = @as(GraphToSourceErr, .jsonImportedBindingNoRef).toC()};
+                    orelse return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportedBindingNoRef).toC());
                 if (ref != .String)
-                    return .{.err = @as(GraphToSourceErr, .jsonImportedBindingRefNotString).toC()};
+                    return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportedBindingRefNotString).toC());
 
                 const maybe_alias = json_imported_binding.Object.get("alias");
 
                 const added = new_import.call.args.addOne()
-                    catch return .{.err = @as(GraphToSourceErr, .OutOfMemory).toC()};
+                    catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC());
 
                 if (maybe_alias) |alias| {
                     if (alias != .String)
-                        return .{.err = @as(GraphToSourceErr, .jsonImportedBindingAliasNotString).toC()};
+                        return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportedBindingAliasNotString).toC());
                     added.* = Sexp{.call = .{
                         .callee = &syms.as,
                         .args = std.ArrayList(Sexp).init(arena_alloc),
                     }};
                     (added.*.call.args.addOne()
-                        catch return .{.err = @as(GraphToSourceErr, .OutOfMemory).toC()}
+                        catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC())
                     ).* = Sexp{.symbol = ref.String};
                     (added.*.call.args.addOne()
-                        catch return .{.err = @as(GraphToSourceErr, .OutOfMemory).toC()}
+                        catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC())
                     ).* = Sexp{.symbol = alias.String};
                 } else {
                     added.* = Sexp{.symbol = ref.String};
@@ -302,39 +316,39 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
 
     const nodes = switch (json_doc.root) {
         .Object => |root| switch (root.get("nodes")
-            orelse return .{.err = @as(GraphToSourceErr, .jsonNoNodes).toC() }) {
+            orelse return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonNoNodes).toC())) {
             .Object => |a| a,
-            else => return .{.err = @as(GraphToSourceErr, .jsonNodesNotAMap).toC()},
+            else => return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonNodesNotAMap).toC()),
         },
-        else => return .{.err = @as(GraphToSourceErr, .jsonRootNotObject).toC()},
+        else => return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonRootNotObject).toC()),
     };
 
     for (nodes.keys()) |k| {
         std.fmt.format(std.io.getStdOut().writer(), "test {any}", .{k})
-            catch return .{.err = (GraphToSourceErr{.ioErr={}}).toC()};
+            catch return GraphToSourceResult.err((GraphToSourceErr{.ioErr={}}).toC());
     }
 
     var page_writer = PageWriter.init(std.heap.page_allocator)
-        catch return .{.err = (GraphToSourceErr{.OutOfMemory={}}).toC()};
+        catch return GraphToSourceResult.err((GraphToSourceErr{.OutOfMemory={}}).toC());
     defer page_writer.deinit();
 
     {
         var import_iter = import_exprs.constIterator(0);
         while (import_iter.next()) |import| {
             _ = import.write(page_writer.writer())
-                catch return .{.err = (GraphToSourceErr{.ioErr={}}).toC()};
+                catch return GraphToSourceResult.err((GraphToSourceErr{.ioErr={}}).toC());
             _ = page_writer.writer().write("\n")
-                catch return .{.err = (GraphToSourceErr{.ioErr={}}).toC()};
+                catch return GraphToSourceResult.err((GraphToSourceErr{.ioErr={}}).toC());
         }
     }
     _ = page_writer.writer().write("\n")
-        catch return .{.err = (GraphToSourceErr{.ioErr={}}).toC()};
+        catch return GraphToSourceResult.err((GraphToSourceErr{.ioErr={}}).toC());
 
-    return .{.ok = Slice.from_zig(
+    return GraphToSourceResult.ok(Slice.from_zig(
         // FIXME: make sure we can free this
         page_writer.concat(std.heap.c_allocator)
-            catch return .{.err = @as(GraphToSourceErr, .OutOfMemory).toC()}
-    )};
+            catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC())
+    ));
 }
 
 test "big graph_to_source" {
@@ -349,10 +363,10 @@ test "big graph_to_source" {
     // Does synchronizing graph changes into the source affect those?
 
     const result = graph_to_source(Slice.from_zig(graph_json.buffer));
-    testing.expect(result == .ok);
+    try testing.expect(result.tag == .ok);
     try testing.expectEqualStrings(
         source.buffer,
-        Slice.to_zig()
+        Slice.to_zig(result.val.ok)
     );
 }
 
@@ -360,7 +374,7 @@ test "big graph_to_source" {
 /// call c free on result
 export fn source_to_graph(source: Slice) SourceToGraphResult {
     _ = source;
-    return .{.ok = Slice.from_zig("")};
+    return SourceToGraphResult.ok(Slice.from_zig(""));
 }
 
 // test "source_to_graph" {
