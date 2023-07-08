@@ -3,11 +3,15 @@ const page_size = std.mem.page_size;
 
 const Page = [page_size]u8;
 
-/// TODO: consider renaming... PagedWriter?
-const ChunkWriter = struct {
+/// A writer that writes to the last page in a list of pages,
+/// appending a new page to the list every time the end is reached.
+/// can be used to efficiently write data of unknown length and then you
+/// may call `concat` to get one buffer with of the pages copied linearly
+const PageWriter = struct {
     page_size: usize = page_size,
     pages: std.SegmentedList(Page, 0),
     writeable_page: []u8,
+    // TODO: default to system page allocator?
     alloc: std.mem.Allocator,
 
     const Self = @This();
@@ -65,8 +69,8 @@ const ChunkWriter = struct {
         return bytes.len;
     }
 
-    pub fn writer(self: *Self) std.io.Writer(*ChunkWriter, WriteError, writeFn) {
-        return std.io.Writer(*ChunkWriter, WriteError, writeFn){
+    pub fn writer(self: *Self) std.io.Writer(*PageWriter, WriteError, writeFn) {
+        return std.io.Writer(*PageWriter, WriteError, writeFn){
             .context = self,
         };
     }
@@ -77,7 +81,7 @@ test "write some pages" {
     defer std.testing.allocator.free(data);
     std.mem.set(u8, data, 'a');
 
-    var chunk_writer = try ChunkWriter.init(std.testing.allocator);
+    var chunk_writer = try PageWriter.init(std.testing.allocator);
     defer chunk_writer.deinit();
     const writer = chunk_writer.writer();
 
