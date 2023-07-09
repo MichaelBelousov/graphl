@@ -1,0 +1,80 @@
+{
+  "imports": {
+    "ue": [{ "ref": "do-once" }]
+  },
+  "nodes": [
+    {
+      "type": "define-event",
+      "defines": "tick",
+      "outputs": [0]
+    },
+    {
+      "type": "set!",
+      "comment": "Update OverTime because because we are moving",
+      "inputs": [0, 2],
+      "outputs": [1]
+    },
+    {
+      "type": "/",
+      "inputs": [4, 3],
+      "outputs": [2]
+    },
+    {
+      "type": "GET_VAR",
+      "variable": "speed",
+      "outputs": [3]
+    },
+    {
+      "type": "vector-length",
+      "inputs": [5],
+      "outputs": [4]
+    },
+    {
+      "type": "-",
+      "inputs": [6, 7],
+      "outputs": []
+    },
+    {
+      "type": "get-actor-location",
+      "inputs": [{ "value": "self" }]
+    },
+    {
+      "type": "get-actor-location",
+      "inputs": [{ "link": "8" }]
+    },
+    {
+      "type": "GET_VAR",
+      "variable": "CurrentSpawnPoint"
+    },
+
+    {
+      "type": "delay",
+      "inputs": [{ "value": 0.1 }]
+    },
+
+    {
+      "type": "switch",
+      "inputs": [{ "link": "10" }]
+    },
+    {
+      "type": "GET_VAR",
+      "variable": "DroneState"
+    },
+
+    {
+      "type": "sequence",
+      "comment": "",
+      "outputs": [12]
+    },
+
+    {
+      "type": "do-once",
+      "variable": "DroneState"
+      "inputs": [{ "link": "11" }]
+    },
+    {
+      "type": "single-line-trace-by-channel",
+      "inputs": [{ "link": "11", "" }]
+    },
+  ]
+}

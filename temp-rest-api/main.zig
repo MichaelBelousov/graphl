@@ -338,7 +338,9 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
         }
     }
 
-    const nodes = switch (json_doc.root) {
+    var node_exprs = std.SegmentedList(Sexp, 64){};
+
+    const json_nodes = switch (json_doc.root) {
         .Object => |root| switch (root.get("nodes")
             orelse return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonNoNodes).toC())) {
             .Object => |a| a,
@@ -347,9 +349,24 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
         else => return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonRootNotObject).toC()),
     };
 
-    for (nodes.keys()) |k| {
-        std.fmt.format(std.io.getStdOut().writer(), "test {any}", .{k})
-            catch return GraphToSourceResult.err((GraphToSourceErr{.ioErr={}}).toC());
+    {
+        var json_nodes_iter = json_nodes.iterator();
+        while (json_nodes_iter.next()) |json_node_entry| {
+            const json_node_name = json_node_entry.key_ptr.*;
+            const json_node_data = json_node_entry.value_ptr.*;
+
+            const new_node = node_exprs.addOne(arena_alloc)
+                catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC());
+
+            // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
+            new_node.* = Sexp{.call = .{
+                .callee = &syms.import,
+                .args = std.ArrayList(Sexp).init(arena_alloc),
+            }};
+            (new_node.*.call.args.addOne()
+                catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC())
+            ).* = Sexp{.symbol = json_node_name};
+        }
     }
 
     var page_writer = PageWriter.init(std.heap.page_allocator)
