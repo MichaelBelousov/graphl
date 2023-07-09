@@ -6,7 +6,7 @@ const testing = std.testing;
 const json = std.json;
 
 // TODO: give better name... C slice?
-const Slice = extern struct {
+pub const Slice = extern struct {
     ptr: [*]const u8,
     len: usize,
 
@@ -19,7 +19,8 @@ const Slice = extern struct {
     }
 };
 
-fn Result(comptime R: type, comptime E: type) type {
+pub fn Result(comptime R: type, comptime E: type) type {
+    // TODO: move c-like tagging to utility
     return extern struct {
         val: extern union {
             ok: R,
@@ -86,6 +87,7 @@ const GraphToSourceErr = union (enum) {
     jsonImportedBindingNotObject: void,
     jsonImportedBindingRefNotString: void,
     jsonImportedBindingsNotArray: void,
+    jsonImportedBindingsEmpty: void,
     jsonImportsNotAMap: void,
     jsonNodesNotAMap: void,
     jsonNoImports: void,
@@ -103,6 +105,7 @@ const GraphToSourceErr = union (enum) {
             jsonImportedBindingNotObject: void,
             jsonImportedBindingRefNotString: void,
             jsonImportedBindingsNotArray: void,
+            jsonImportedBindingsEmpty: void,
             jsonImportsNotAMap: void,
             jsonNodesNotAMap: void,
             jsonNoImports: void,
@@ -215,6 +218,7 @@ const syms = struct {
     const import = Sexp{.symbol = "import"};
     const define = Sexp{.symbol = "define"};
     const as = Sexp{.symbol = "as"};
+    const VOID = Sexp{.symbol = "__VOID__"};
 };
 
 // TODO: add a json schema to document this instead... and petition zig for support of JSON maps
@@ -277,8 +281,21 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
                 catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC())
             ).* = Sexp{.symbol = json_import_name};
 
+            const first_binding_empty = "";
+            var first_binding = Sexp{.symbol = first_binding_empty};
+
+            const imported_bindings = new_import.*.call.args.addOne()
+                catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC());
+            imported_bindings.* = Sexp{.call = .{
+                .callee = &first_binding,
+                .args = std.ArrayList(Sexp).init(arena_alloc),
+            }};
+
             if (json_import_bindings != .Array)
                 return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportedBindingsNotArray).toC());
+
+            if (json_import_bindings.Array.items.len == 0)
+                return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportedBindingsEmpty).toC());
 
             for (json_import_bindings.Array.items) |json_imported_binding| {
                 if (json_imported_binding != .Object)
@@ -291,8 +308,13 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
 
                 const maybe_alias = json_imported_binding.Object.get("alias");
 
-                const added = new_import.call.args.addOne()
-                    catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC());
+
+                var added =
+                    if (std.mem.eql(u8, imported_bindings.*.call.callee.symbol, first_binding_empty))
+                        &first_binding
+                    else
+                        imported_bindings.*.call.args.addOne()
+                            catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC());
 
                 if (maybe_alias) |alias| {
                     if (alias != .String)
@@ -311,6 +333,8 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
                     added.* = Sexp{.symbol = ref.String};
                 }
             }
+
+            std.debug.assert(!std.mem.eql(u8, imported_bindings.*.call.callee.symbol, first_binding_empty));
         }
     }
 
