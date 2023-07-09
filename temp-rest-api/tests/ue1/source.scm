@@ -27,7 +27,7 @@
         ;; we need to fire MoveComponent only ONCE
         ((do-once reset-do-once1
             (move-component-to-move component: capsule-component
-                                    target-relative-location: (get-actor-location self)
+                                    target-relative-location: (get-actor-location current-spawn-point)
                                     target-relative-rotation: (get-actor-rotation self)
                                     over-time: over-time)))
         ;; check if obstacle is forward to drone

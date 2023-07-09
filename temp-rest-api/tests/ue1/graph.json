@@ -1,6 +1,8 @@
 {
   "imports": {
-    "ue": [{ "ref": "do-once" }]
+    "ue": [{ "ref": "do-once" }],
+    "ue/physics": [{ "ref": "single-line-trace-by-channel" }],
+    "other": [{ "ref": "move-component-to" }]
   },
   "nodes": [
     {
@@ -11,6 +13,7 @@
     {
       "type": "set!",
       "comment": "Update OverTime because because we are moving",
+      "variable": "OverTime",
       "inputs": [0, 2],
       "outputs": [1]
     },
@@ -32,49 +35,88 @@
     {
       "type": "-",
       "inputs": [6, 7],
-      "outputs": []
+      "outputs": [5]
     },
     {
       "type": "get-actor-location",
-      "inputs": [{ "value": "self" }]
+      "inputs": [{ "value": "self" }],
+      "outputs": [6]
     },
     {
       "type": "get-actor-location",
-      "inputs": [{ "link": "8" }]
+      "inputs": [9],
+      "outputs": [7]
     },
     {
       "type": "GET_VAR",
-      "variable": "CurrentSpawnPoint"
+      "variable": "CurrentSpawnPoint",
+      "outputs": [9]
     },
 
     {
       "type": "delay",
-      "inputs": [{ "value": 0.1 }]
+      "inputs": [1, { "value": 0.1 }],
+      "outputs": [10]
     },
 
     {
       "type": "switch",
-      "inputs": [{ "link": "10" }]
+      "inputs": [10, 11],
+      "outputs": [12, 13, 14]
     },
     {
       "type": "GET_VAR",
-      "variable": "DroneState"
+      "variable": "DroneState",
+      "outputs": [11]
     },
 
     {
       "type": "sequence",
-      "comment": "",
-      "outputs": [12]
+      "comment": "first move to target and then check if something is near",
+      "inputs": [12],
+      "outputs": [15, 16]
     },
 
     {
       "type": "do-once",
-      "variable": "DroneState"
-      "inputs": [{ "link": "11" }]
+      "inputs": [15],
+      "outputs": [17]
     },
     {
-      "type": "single-line-trace-by-channel",
-      "inputs": [{ "link": "11", "" }]
+      "type": "move-component-to",
+      "comment": "Move Drone to TargetPoint",
+      "inputs": [17, { "exec-stop": "I haven't set this up yet"}, { "default": null }, 18, 20, 21, false, false, 22]
     },
+    {
+      "type": "GET_VAR",
+      "variable": "CapsuleComponent",
+      "outputs": [18]
+    },
+    {
+      "type": "GET_VAR",
+      "variable": "CurrentSpawnPoint",
+      "outputs": [19]
+    },
+    {
+      "type": "get-actor-location",
+      "inputs": [19],
+      "outputs": [20]
+    },
+    {
+      "type": "get-actor-rotation",
+      "inputs": [{ "value": "self" }],
+      "outputs": [21]
+    },
+    {
+      "type": "GET_VAR",
+      "variable": "OverTime",
+      "outputs": [22]
+    },
+
+    {
+      "type": "single-line-trace-by-channel",
+      "inputs": [16],
+      "outputs": [12]
+    }
   ]
 }

@@ -3,27 +3,33 @@
 import json
 import sys
 from subprocess import run
+from textwrap import dedent
 
 if __name__ == '__main__':
     node_data = json.load(sys.stdin)
 
     outputs = {}
-    for n in node_data["nodes"]:
-        for o in node_data["outputs"]:
-            outputs[o] = n
+    for ni, n in enumerate(node_data["nodes"]):
+        for o in n.get("outputs", []):
+            outputs[o] = ni
 
-    nodes = { n:f"{n.type}-{i}" for i, n in enumerate(node_data["nodes"])}
+    # nodes = { n.items():n["type"]+f"-{i}" for i, n in enumerate(node_data["nodes"])}
+    nodes = { i:f'{n["type"]} (#{i})' for i, n in enumerate(node_data["nodes"])}
     edges = []
 
-    for n in node_data["nodes"]:
-        for i in n["inputs"]:
-            edges.append((outputs[i], n))
+    for ni, n in enumerate(node_data["nodes"]):
+        for i in n.get("inputs", []):
+            if isinstance(i, int):
+                edges.append((outputs[i], ni))
 
-    dot_proc = run(["dot", "-Tsvg"], input=bytes(f'''
-                   digraph graph {{
-                       {"".join((f"{a} -> {b};" for a,b in edges))}
-                   }}
-                   ''', 'utf8'), capture_output=True);
+    NL = "\n"
+    graph_src = dedent(f'''
+        digraph out {{
+            {(NL + " "*12).join((f'"{nodes[a]}" -> "{nodes[b]}";' for a,b in edges))}
+        }}
+    ''')
+
+    dot_proc = run(["dot", "-Tsvg"], input=bytes(graph_src, 'utf8'), capture_output=True);
 
     sys.stderr.buffer.write(dot_proc.stderr)
     sys.stdout.buffer.write(dot_proc.stdout)
