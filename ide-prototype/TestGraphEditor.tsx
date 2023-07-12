@@ -158,10 +158,9 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<DialogueEntr
   )
 };
 
-import _nodeTypes from "./test-editor-nodes.json"
+import { nodes as _nodeTypes } from "../libs/std/builtin.json"
 
 const nodeTypes = {
-  //default: makeNodeComponent({}),
   ...Object.fromEntries(
     Object.entries(_nodeTypes)
       .map(([k, v]) => [k, makeNodeComponent(v as NodeDesc)])
@@ -189,7 +188,7 @@ const edgeTypes = {
   default: CustomDefaultEdge,
 } as const
 
-const TestGraphEditor = () => {
+const TestGraphEditor = (props: TestGraphEditor.Props) => {
   const [elements, setElements] = React.useState(initial)
 
   const onRightClick = React.useCallback(
@@ -199,7 +198,7 @@ const TestGraphEditor = () => {
       setElements(prev =>
         prev.concat({
           id: newId,
-          type: "add",
+          type: "+",
           data: {
             title: 'test title',
             text: 'test text',
@@ -249,6 +248,13 @@ const TestGraphEditor = () => {
         </button>
         <button
           onClick={async () => {
+            props.onSyncGraph(elements);
+          }}
+        >
+          Sync
+        </button>
+        <button
+          onClick={async () => {
             const file = await uploadFile({ type: 'text' })
             const json = JSON.parse(file.content)
             setElements(json)
@@ -284,6 +290,12 @@ const TestGraphEditor = () => {
       </AppCtx.Provider>
     </div>
   )
+}
+
+namespace TestGraphEditor {
+  export interface Props {
+    onSyncGraph: (graph: any) => Promise<void>;
+  }
 }
 
 export default TestGraphEditor

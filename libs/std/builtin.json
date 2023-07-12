@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "package-name": "builtin"
+  },
+  "types": {
+    "num //(native with conversion rules)": { "union": ["f64", "f32", "i32", "i64", "u32", "u64"] }
+  },
+  "nodes": {
+    "max": {
+      "label": "max",
+      "typevars": [{ "name": "T", "extends": { "union": ["num", "bool", "str"] } }],
+      "inputs": [
+        { "label": "", "type": "T" },
+        { "label": "", "type": "T" }
+      ],
+      "outputs": [
+        { "label": "", "type": "T" }
+      ]
+    },
+    "+": {
+      "description": "",
+      "label": "add",
+      "inputs": [
+        { "label": "", "type": "num", "default": 0.0 },
+        { "label": "", "type": "num", "default": 0.0 }
+      ],
+      "outputs": [
+        { "label": "", "type": "num" }
+      ]
+    },
+    "-": {
+      "label": "sub",
+      "inputs": [
+        { "label": "", "type": "num", "default": 0.0 },
+        { "label": "", "type": "num", "default": 0.0 }
+      ],
+      "outputs": [
+        { "label": "", "type": "num" }
+      ]
+    },
+    "*": {
+      "label": "mul",
+      "inputs": [
+        { "label": "", "type": "num", "default": 1.0 },
+        { "label": "", "type": "num", "default": 1.0 }
+      ],
+      "outputs": [
+        { "label": "", "type": "num" }
+      ]
+    },
+    "/": {
+      "label": "div",
+      "inputs": [
+        { "label": "", "type": "num", "default": 1.0 },
+        { "label": "", "type": "num", "default": 1.0 }
+      ],
+      "outputs": [
+        { "label": "", "type": "num" }
+      ]
+    }
+  }
+}

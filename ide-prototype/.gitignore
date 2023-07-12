@@ -6,3 +6,4 @@ lib
 
 # vite
 dist
+.vite-inspect

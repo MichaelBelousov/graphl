@@ -52,7 +52,6 @@
       "variable": "CurrentSpawnPoint",
       "outputs": [9]
     },
-
     {
       "type": "delay",
       "inputs": [1, { "value": 0.1 }],
