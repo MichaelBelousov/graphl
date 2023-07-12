@@ -2,4 +2,6 @@
 .contextMenuRoot {
   display: initial;
   position: fixed;
+  pointer-events: all;
+  z-index: 100;
 }

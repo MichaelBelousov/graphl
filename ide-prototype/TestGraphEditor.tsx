@@ -193,13 +193,12 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
   const [elements, setElements] = React.useState(initial)
 
   const addNode = React.useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault()
+    (nodeType: string, position: {x: number, y:number}) => {
       const newId = `${Math.round(Math.random() * Number.MAX_SAFE_INTEGER)}`
       setElements(prev =>
         prev.concat({
           id: newId,
-          type: "+",
+          type: nodeType,
           data: {
             title: 'test title',
             text: 'test text',
@@ -225,7 +224,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
                 )
               ),
           },
-          position: { x: e.clientX, y: e.clientY },
+          position: position,
         })
       )
     },
@@ -237,7 +236,9 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
   return (
     <div className={styles.page}>
       <ContextMenu>
-        <div style={{width:100, height: 100, backgroundColor: "cyan"}} />
+        {Object.keys(nodeTypes).map((nodeType) =>
+          <button key={nodeType} onClick={(e) => addNode(nodeType, { x: e.pageX, y: e.pageY })}>{nodeType}</button>)
+        }
       </ContextMenu>
       <div className={styles.rightClickMenu} />
       <div className={styles.toolbar}>

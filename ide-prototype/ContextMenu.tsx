@@ -4,9 +4,9 @@ import styles from './ContextMenu.module.css'
 export const ContextMenu = (props: ContextMenu.Props) => {
   const rootElem = useRef<HTMLDivElement>(null);
 
-  const parentElement = rootElem.current?.parentElement;
-
   useLayoutEffect(() => {
+    const parentElement = rootElem.current?.parentElement;
+    
     // FIXME: this does in fact not happen before mount first paint
     rootElem.current!.style.display = "none";
 
@@ -36,7 +36,7 @@ export const ContextMenu = (props: ContextMenu.Props) => {
       parentElement?.removeEventListener("contextmenu", onRightClick);
       parentElement?.removeEventListener("click", onLeftClick);
     };
-  }, [parentElement]);
+  }, []);
 
   return <div ref={rootElem} className={styles.contextMenuRoot}>{props.children}</div>;
 }
