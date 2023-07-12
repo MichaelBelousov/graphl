@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import ReactFlow, {
   addEdge,
   Elements,
@@ -159,6 +159,7 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<DialogueEntr
 };
 
 import { nodes as _nodeTypes } from "../libs/std/builtin.json"
+import { ContextMenu } from './ContextMenu'
 
 const nodeTypes = {
   ...Object.fromEntries(
@@ -191,7 +192,7 @@ const edgeTypes = {
 const TestGraphEditor = (props: TestGraphEditor.Props) => {
   const [elements, setElements] = React.useState(initial)
 
-  const onRightClick = React.useCallback(
+  const addNode = React.useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault()
       const newId = `${Math.round(Math.random() * Number.MAX_SAFE_INTEGER)}`
@@ -234,7 +235,11 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
   const [portraits, setPortraits] = React.useState(new Map<string, string>())
 
   return (
-    <div className={styles.page} onContextMenu={onRightClick}>
+    <div className={styles.page}>
+      <ContextMenu>
+        <div style={{width:100, height: 100, backgroundColor: "cyan"}} />
+      </ContextMenu>
+      <div className={styles.rightClickMenu} />
       <div className={styles.toolbar}>
         <button
           onClick={() => {
