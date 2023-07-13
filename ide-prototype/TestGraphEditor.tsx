@@ -19,6 +19,7 @@ import { downloadFile, uploadFile } from './localFileManip'
 import classNames from './classnames'
 import { useValidatedInput } from "@bentley/react-hooks"
 import { InputStatus } from '@bentley/react-hooks/lib/useValidatedInput'
+import { Center } from "./Center";
 
 interface DialogueEntry {
   portrait?: string
@@ -141,7 +142,9 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<DialogueEntr
           siblingCount={inputs.length}
         />
       )}
-      <strong style={{ top: "50%", left: "50%", position: "absolute" }}>{nodeDesc.label}</strong>
+      <Center>
+        <strong>{nodeDesc.label}</strong>
+      </Center>
       <button onClick={props.data.onDelete} className={styles.deleteButton}>
         &times;
       </button>
