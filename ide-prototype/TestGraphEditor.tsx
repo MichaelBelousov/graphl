@@ -24,6 +24,8 @@ import { useValidatedInput, useStable } from "@bentley/react-hooks"
 import { InputStatus } from '@bentley/react-hooks/lib/useValidatedInput'
 import { Center } from "./Center";
 import { persistentData } from "./AppPersistentState";
+//import { NoderContext } from "./NoderContext";
+import "./NoderContext";
 
 interface DialogueEntry {
   portrait?: string
