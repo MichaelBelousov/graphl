@@ -24,11 +24,13 @@ export function TextEditor(props: TextEditor.Props) {
   useEffect(() => {
     if (monacoElem.current)
       setEditor((editor) => {
-        return editor ?? monaco.editor.create(monacoElem.current!, {
+        const result = editor ?? monaco.editor.create(monacoElem.current!, {
           value: localStorage.getItem(editorProgramKey) ?? "",
           language: "scheme",
           theme: "vs-dark",
         })
+        result.onDidChangeModelContent(() => localStorage.setItem(editorProgramKey, result.getValue()));
+        return result;
       })
   }, [monacoElem.current]);
   return <div className={styles.textEditor} ref={monacoElem} />
