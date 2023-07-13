@@ -89,20 +89,22 @@ const NodeHandle = (props: {
   setInputStatus?: (status: InputStatus, reason: string) => void;
 }) => {
   const isInput = props.direction === "input"
-  // FIXME
-  const [isConnected, setIsConnected] = React.useState(false);
+  const id = `${isInput}-${props.index}`;
+  const graph = useReactFlow();
+  // FIXME: do this way more efficiently...
+  const isConnected = graph.getEdges().find(e => e.source === id || e.target === id);
+  // TODO: highlight bad values and explain
   const [literalValue, literalValueInput, setLiteralValueInput, errorStatus, errorReason] = useValidatedInput();
 
   return <Handle
-    type="target"
+    id={id}
+    type={isInput ? "source" : "target"}
     position={isInput ? "left" : "right"}
     className={classNames(styles.handle, isInput ? styles.inputHandle : styles.outputHandle)}
     style={{
       backgroundColor: pinTypeColorMap[props.type],
       top: `${100 * (props.index + 0.5) / props.siblingCount}%`,
     }}
-    isConnectable
-    onConnect={(connectInfo) => setIsConnected(!!connectInfo)}
   >
     <div>
       <label>{props.name}</label>
@@ -185,21 +187,19 @@ const edgeTypes = {
 } as const
 
 const TestGraphEditor = (props: TestGraphEditor.Props) => {
-  const [nodes, setNodes] = React.useState<Node[]>(initial)
-  const [edges, setEdges] = React.useState<Edge[]>([])
+  const graph = useReactFlow();
 
   const addNode = React.useCallback(
     (nodeType: string, position: {x: number, y:number}) => {
       const newId = `${Math.round(Math.random() * Number.MAX_SAFE_INTEGER)}`
-      setNodes(prev =>
-        prev.concat({
+      graph.addNodes({
           id: newId,
           type: nodeType,
           data: {
             title: 'test title',
             text: 'test text',
             onChange: (newVal: Partial<DialogueEntryNodeData>) =>
-              setNodes(prev => {
+              graph.setNodes(prev => {
                 const copy = prev.slice()
                 const index = copy.findIndex(elem => elem.id === newId)
                 const elem = copy[index]
@@ -212,32 +212,31 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
                 }
                 return copy
               }),
-            /*
-            onDelete: () =>
-              setElements(prev =>
-                removeElements(
-                  prev.filter(e => e.id === newId),
-                  prev
-                )
-              ),
-            */
+            onDelete: () => graph.deleteElements({ nodes: [{ id: newId }] }),
           },
           position: position,
-        })
+        }
       )
     },
-    [setNodes, setEdges]
+    []
   )
 
   const [portraits, setPortraits] = React.useState(new Map<string, string>())
 
-  const graph = useReactFlow();
+  const connectingNodeId = React.useRef<string>();
+  const graphContainerElem = React.useRef<HTMLDivElement>(null);
 
   return (
     <div className={styles.page}>
       <ContextMenu>
         {Object.keys(nodeTypes).map((nodeType) =>
-          <button key={nodeType} onClick={(e) => addNode(nodeType, { x: e.pageX, y: e.pageY })}>{nodeType}</button>)
+          <button key={nodeType} onClick={(e) => {
+            const { top, left } = graphContainerElem.current!.getBoundingClientRect();
+            addNode(nodeType, graph.project({
+              x: e.clientX - left - 150/2,
+              y: e.clientY - top,
+            }))}
+          }>{nodeType}</button>)
         }
       </ContextMenu>
       <div className={styles.rightClickMenu} />
@@ -246,7 +245,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
           onClick={() => {
             downloadFile({
               fileName: 'out.dialogue.json',
-              content: JSON.stringify({ nodes, edges }),
+              content: JSON.stringify({ nodes: graph.getNodes(), edges: graph.getEdges() }),
             })
           }}
         >
@@ -254,7 +253,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
         </button>
         <button
           onClick={async () => {
-            props.onSyncGraph({ nodes, edges });
+            //props.onSyncGraph({ nodes, edges });
           }}
         >
           Sync
@@ -263,8 +262,8 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
           onClick={async () => {
             const file = await uploadFile({ type: 'text' })
             const json = JSON.parse(file.content)
-            setNodes(json.nodes)
-            setEdges(json.edges)
+            graph.setNodes(json.nodes)
+            graph.setEdges(json.edges)
           }}
         >
           Load
@@ -272,14 +271,11 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
       </div>
       {/* TODO: must memoize the context value */}
       <AppCtx.Provider value={{ portraits }}>
-        <div className={styles.graph}>
+        <div className={styles.graph} ref={graphContainerElem}>
           <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onConnect={connection => setEdges(e => addEdge(connection, e))}
             defaultNodes={initial}
             defaultEdges={[]}
-            deleteKeyCode={"DELETE"} /*DELETE key*/
+            deleteKeyCode={"Delete"} /*DELETE key*/
             snapToGrid
             snapGrid={[15, 15]}
             nodeTypes={nodeTypes}
@@ -287,6 +283,9 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
             onEdgeClick={(_evt, edge) => {
               graph.deleteElements({edges: [edge]})
             }}
+            onConnectStart={(_, { nodeId }) => connectingNodeId.current = nodeId ?? undefined}
+            // TODO: context menu on edge drop
+            onConnectEnd={() => connectingNodeId.current = undefined}
           >
             <Controls />
             <MiniMap />
