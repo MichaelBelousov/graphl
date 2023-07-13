@@ -2,8 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import TestGraphEditor from "./TestGraphEditor";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api"
 import styles from "./Ide.module.css"
-
-const editorProgramKey = "editorProgram"
+import { persistentData } from "./AppPersistentState";
 
 const apiBaseUrl = "http://localhost:3001"
 
@@ -25,11 +24,11 @@ export function TextEditor(props: TextEditor.Props) {
     if (monacoElem.current)
       setEditor((editor) => {
         const result = editor ?? monaco.editor.create(monacoElem.current!, {
-          value: localStorage.getItem(editorProgramKey) ?? "",
+          value: persistentData.editorProgram,
           language: "scheme",
           theme: "vs-dark",
         })
-        result.onDidChangeModelContent(() => localStorage.setItem(editorProgramKey, result.getValue()));
+        result.onDidChangeModelContent(() => persistentData.editorProgram = result.getValue());
         return result;
       })
   }, [monacoElem.current]);

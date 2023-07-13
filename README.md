@@ -18,9 +18,15 @@
 
 ## things we need
 
+- a VM for executing lisp expressions
 - a package manager
 - C ffi/binding API
 - an IDE (https://github.com/jnmaloney/WebGui) (also see IMNodes)
+
+## things I need to do now
+
+- write a program that reads the language and outputs json node types for all top level
+  definitions
 
 ## Potential names
 

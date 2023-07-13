@@ -14,6 +14,7 @@ import ReactFlow, {
   MarkerType,
   BaseEdge,
   useEdges,
+  useNodes,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import styles from './TestGraphEditor.module.css'
@@ -22,6 +23,7 @@ import classNames from './classnames'
 import { useValidatedInput, useStable } from "@bentley/react-hooks"
 import { InputStatus } from '@bentley/react-hooks/lib/useValidatedInput'
 import { Center } from "./Center";
+import { persistentData } from "./AppPersistentState";
 
 interface DialogueEntry {
   portrait?: string
@@ -34,17 +36,6 @@ interface DialogueEntryNodeData extends DialogueEntry {
   onChange(newData: Partial<DialogueEntry>): void
   onDelete(): void
 }
-
-const initial: Node<{} | DialogueEntryNodeData>[] = [
-  {
-    id: '1',
-    type: 'input',
-    data: {
-      label: 'entry',
-    },
-    position: { x: 540, y: 100 },
-  },
-]
 
 interface AppState {
   graph: {
@@ -59,7 +50,7 @@ const AppCtx = React.createContext<AppState>(
   })
 )
 
-type PinType = "string" | "number" | "exec"
+type PinType = "string" | "num" | "exec"
 
 interface NodeDesc {
   label: string,
@@ -70,13 +61,13 @@ interface NodeDesc {
 }
 
 const pinTypeColorMap: Record<PinType, string> = {
-  number: "#ff0000",
+  num: "#ff0000",
   string: "#0000ff",
   exec: "#000000",
 };
 
 const pinTypeInputValidatorMap: Record<PinType, Parameters<typeof useValidatedInput<any>>[1]> = {
-  number: undefined,
+  num: undefined,
   string: {},
   exec: {},
 };
@@ -199,6 +190,13 @@ const edgeTypes = {
 
 const TestGraphEditor = (props: TestGraphEditor.Props) => {
   const graph = useReactFlow();
+  const edges = useEdges<{}>();
+  const nodes = useNodes<{}>();
+
+  React.useEffect(() => {
+    persistentData.initialNodes = nodes;
+    persistentData.initialEdges = edges;
+  }, [nodes, edges]);
 
   const addNode = React.useCallback(
     (nodeType: string, position: {x: number, y:number}) => {
@@ -232,7 +230,6 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
     []
   )
 
-
   const connectingNodeId = React.useRef<string>();
   const graphContainerElem = React.useRef<HTMLDivElement>(null);
 
@@ -240,7 +237,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
     <div className={styles.page}>
       <ContextMenu>
         {Object.keys(nodeTypes).map((nodeType) =>
-          <button key={nodeType} onClick={(e) => {
+          <button style={{ display: "block" }} key={nodeType} onClick={(e) => {
             const { top, left } = graphContainerElem.current!.getBoundingClientRect();
             addNode(nodeType, graph.project({
               x: e.clientX - left - 150/2,
@@ -283,8 +280,8 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
       <AppCtx.Provider value={{graph: {}}}>
         <div className={styles.graph} ref={graphContainerElem}>
           <ReactFlow
-            defaultNodes={initial}
-            defaultEdges={[]}
+            defaultNodes={persistentData.initialNodes}
+            defaultEdges={persistentData.initialEdges}
             deleteKeyCode={"Delete"} /*DELETE key*/
             snapToGrid
             snapGrid={[15, 15]}
