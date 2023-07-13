@@ -13,12 +13,13 @@ import ReactFlow, {
   useReactFlow,
   MarkerType,
   BaseEdge,
+  useEdges,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import styles from './TestGraphEditor.module.css'
 import { downloadFile, uploadFile } from './localFileManip'
 import classNames from './classnames'
-import { useValidatedInput } from "@bentley/react-hooks"
+import { useValidatedInput, useStable } from "@bentley/react-hooks"
 import { InputStatus } from '@bentley/react-hooks/lib/useValidatedInput'
 import { Center } from "./Center";
 
@@ -46,8 +47,8 @@ const initial: Node<{} | DialogueEntryNodeData>[] = [
 ]
 
 interface AppState {
-  /** map of portrait file name to its [data]url */
-  portraits: Map<string, string>
+  graph: {
+  }
 }
 
 const AppCtx = React.createContext<AppState>(
@@ -74,25 +75,33 @@ const pinTypeColorMap: Record<PinType, string> = {
   exec: "#000000",
 };
 
-const pinTypeInputValidatorMap: Record<PinType, Parameters<typeof useValidatedInput<any>>> = {
-  number: [],
-  string: [],
-  exec: [],
+const pinTypeInputValidatorMap: Record<PinType, Parameters<typeof useValidatedInput<any>>[1]> = {
+  number: undefined,
+  string: {},
+  exec: {},
 };
+
+function useForceUpdate() {
+  const [, setFakeState] = React.useState(1);
+  return useStable(() => () => setFakeState(prev => ++prev));
+}
 
 const NodeHandle = (props: {
   direction: "input" | "output";
   type: PinType;
   name: string;
+  owningNodeId: string;
   index: number;
   siblingCount: number;
   setInputStatus?: (status: InputStatus, reason: string) => void;
 }) => {
   const isInput = props.direction === "input"
-  const id = `${isInput}-${props.index}`;
-  const graph = useReactFlow();
-  // FIXME: do this way more efficiently...
-  const isConnected = graph.getEdges().find(e => e.source === id || e.target === id);
+  const id = `${props.owningNodeId}_${isInput}_${props.index}`;
+  const edges = useEdges();
+  const isConnected = React.useMemo(() =>
+    edges.find(e => e.sourceHandle === id || e.targetHandle === id),
+    [edges]
+  );
   // TODO: highlight bad values and explain
   const [literalValue, literalValueInput, setLiteralValueInput, errorStatus, errorReason] = useValidatedInput();
 
@@ -141,6 +150,7 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<DialogueEntr
         <NodeHandle
           {...input}
           key={i}
+          owningNodeId={props.id}
           direction="input"
           index={i}
           siblingCount={inputs.length}
@@ -156,6 +166,7 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<DialogueEntr
         <NodeHandle
           {...output}
           key={i}
+          owningNodeId={props.id}
           direction="output"
           index={i}
           siblingCount={nodeDesc.outputs.length}
@@ -221,7 +232,6 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
     []
   )
 
-  const [portraits, setPortraits] = React.useState(new Map<string, string>())
 
   const connectingNodeId = React.useRef<string>();
   const graphContainerElem = React.useRef<HTMLDivElement>(null);
@@ -262,15 +272,15 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
           onClick={async () => {
             const file = await uploadFile({ type: 'text' })
             const json = JSON.parse(file.content)
-            graph.setNodes(json.nodes)
-            graph.setEdges(json.edges)
+            graph.setNodes(json.nodes);
+            graph.setEdges(json.edges);
           }}
         >
           Load
         </button>
       </div>
       {/* TODO: must memoize the context value */}
-      <AppCtx.Provider value={{ portraits }}>
+      <AppCtx.Provider value={{graph: {}}}>
         <div className={styles.graph} ref={graphContainerElem}>
           <ReactFlow
             defaultNodes={initial}
@@ -286,6 +296,16 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
             onConnectStart={(_, { nodeId }) => connectingNodeId.current = nodeId ?? undefined}
             // TODO: context menu on edge drop
             onConnectEnd={() => connectingNodeId.current = undefined}
+            onEdgesDelete={(edges) => {
+              for (const edge of edges) {
+                graph.setNodes(nodes => nodes.map(n => {
+                  if (n === edge.sourceNode)
+                    n.data = {...n.data}; // force update
+                  return n;
+                }));
+                const source = edge.sourceNode
+              }
+            }}
           >
             <Controls />
             <MiniMap />
