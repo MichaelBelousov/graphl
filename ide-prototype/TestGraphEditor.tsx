@@ -89,7 +89,7 @@ const NodeHandle = (props: {
 }) => {
   const isInput = props.direction === "input"
   // FIXME
-  const isConnected = false;
+  const [isConnected, setIsConnected] = React.useState(false);
   const [literalValue, literalValueInput, setLiteralValueInput, errorStatus, errorReason] = useValidatedInput();
 
   return <Handle
@@ -101,6 +101,7 @@ const NodeHandle = (props: {
       top: `${100 * (props.index + 0.5) / props.siblingCount}%`,
     }}
     isConnectable
+    onConnect={(connectInfo) => setIsConnected(!!connectInfo)}
   >
     <div>
       <label>{props.name}</label>
@@ -188,7 +189,6 @@ const CustomDefaultEdge = (props: EdgeProps) => {
 }
 
 const edgeTypes = {
-  // TODO: could just make this the "default" node
   default: CustomDefaultEdge,
 } as const
 
