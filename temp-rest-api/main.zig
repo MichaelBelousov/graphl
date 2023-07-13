@@ -221,6 +221,11 @@ const syms = struct {
     const VOID = Sexp{.symbol = "__VOID__"};
 };
 
+
+// FIXME use wasm known memory limits or something
+var result_buffer: [std.mem.page_size * 512]u8 = undefined;
+var fixed_alloc = std.heap.FixedBufferAllocator.init(&result_buffer);
+
 // TODO: add a json schema to document this instead... and petition zig for support of JSON maps
 // interface graph {
 //   nodes: {
@@ -353,7 +358,7 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
         var json_nodes_iter = json_nodes.iterator();
         while (json_nodes_iter.next()) |json_node_entry| {
             const json_node_name = json_node_entry.key_ptr.*;
-            const json_node_data = json_node_entry.value_ptr.*;
+            //const json_node_data = json_node_entry.value_ptr.*;
 
             const new_node = node_exprs.addOne(arena_alloc)
                 catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC());
@@ -387,7 +392,8 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
 
     return GraphToSourceResult.ok(Slice.from_zig(
         // FIXME: make sure we can free this
-        page_writer.concat(std.heap.c_allocator)
+        page_writer.concat(fixed_alloc.allocator())
+        //page_writer.concat(std.heap.c_allocator)
             catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC())
     ));
 }
@@ -420,3 +426,6 @@ export fn source_to_graph(source: Slice) SourceToGraphResult {
 
 // test "source_to_graph" {
 // }
+
+pub fn main() void {}
+
