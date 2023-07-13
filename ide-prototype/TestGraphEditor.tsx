@@ -1,19 +1,20 @@
 import React, { useRef } from 'react'
 import ReactFlow, {
   addEdge,
-  Elements,
   Handle,
   NodeProps,
   Node,
-  removeElements,
   Controls,
   MiniMap,
-  isEdge,
   EdgeProps,
-  getBezierPath,
   getMarkerEnd,
-  getSmoothStepPath,
-} from 'react-flow-renderer'
+  getBezierPath,
+  Edge,
+  useReactFlow,
+  MarkerType,
+  BaseEdge,
+} from 'reactflow'
+import 'reactflow/dist/style.css'
 import styles from './TestGraphEditor.module.css'
 import { downloadFile, uploadFile } from './localFileManip'
 import classNames from './classnames'
@@ -33,7 +34,7 @@ interface DialogueEntryNodeData extends DialogueEntry {
   onDelete(): void
 }
 
-const initial: Elements<{} | DialogueEntryNodeData> = [
+const initial: Node<{} | DialogueEntryNodeData>[] = [
   {
     id: '1',
     type: 'input',
@@ -172,33 +173,25 @@ const nodeTypes = {
   )
 };
 
-const CustomDefaultEdge = (props: EdgeProps) => {
-  const edgePath = getSmoothStepPath(props)
-  const markerEnd = getMarkerEnd(props.arrowHeadType, props.markerEndId)
-  return (
-    <>
-      <path
-        id={props.id}
-        style={{ ...props.style, strokeWidth: 3 }}
-        className="react-flow__edge-path"
-        d={edgePath}
-        markerEnd={markerEnd}
-      />
-    </>
-  )
+const CustomEdge = (props: EdgeProps) => {
+  //const edgePath = getSmoothStepPath(props)
+  const [edgePath] = getBezierPath(props)
+  const markerEnd = getMarkerEnd(MarkerType.Arrow, props.markerEnd)
+  return <BaseEdge path={edgePath} markerEnd={markerEnd} {...props} />
 }
 
 const edgeTypes = {
-  default: CustomDefaultEdge,
+  default: CustomEdge,
 } as const
 
 const TestGraphEditor = (props: TestGraphEditor.Props) => {
-  const [elements, setElements] = React.useState(initial)
+  const [nodes, setNodes] = React.useState<Node[]>(initial)
+  const [edges, setEdges] = React.useState<Edge[]>([])
 
   const addNode = React.useCallback(
     (nodeType: string, position: {x: number, y:number}) => {
       const newId = `${Math.round(Math.random() * Number.MAX_SAFE_INTEGER)}`
-      setElements(prev =>
+      setNodes(prev =>
         prev.concat({
           id: newId,
           type: nodeType,
@@ -206,7 +199,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
             title: 'test title',
             text: 'test text',
             onChange: (newVal: Partial<DialogueEntryNodeData>) =>
-              setElements(prev => {
+              setNodes(prev => {
                 const copy = prev.slice()
                 const index = copy.findIndex(elem => elem.id === newId)
                 const elem = copy[index]
@@ -219,6 +212,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
                 }
                 return copy
               }),
+            /*
             onDelete: () =>
               setElements(prev =>
                 removeElements(
@@ -226,15 +220,18 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
                   prev
                 )
               ),
+            */
           },
           position: position,
         })
       )
     },
-    [setElements]
+    [setNodes, setEdges]
   )
 
   const [portraits, setPortraits] = React.useState(new Map<string, string>())
+
+  const graph = useReactFlow();
 
   return (
     <div className={styles.page}>
@@ -249,7 +246,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
           onClick={() => {
             downloadFile({
               fileName: 'out.dialogue.json',
-              content: JSON.stringify(elements),
+              content: JSON.stringify({ nodes, edges }),
             })
           }}
         >
@@ -257,7 +254,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
         </button>
         <button
           onClick={async () => {
-            props.onSyncGraph(elements);
+            props.onSyncGraph({ nodes, edges });
           }}
         >
           Sync
@@ -266,7 +263,8 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
           onClick={async () => {
             const file = await uploadFile({ type: 'text' })
             const json = JSON.parse(file.content)
-            setElements(json)
+            setNodes(json.nodes)
+            setEdges(json.edges)
           }}
         >
           Load
@@ -276,20 +274,18 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
       <AppCtx.Provider value={{ portraits }}>
         <div className={styles.graph}>
           <ReactFlow
-            elements={elements}
-            onConnect={params => setElements(e => addEdge(params, e))}
-            onElementsRemove={toRemove =>
-              setElements(e => removeElements(toRemove, e))
-            }
-            deleteKeyCode={46} /*DELETE key*/
+            nodes={nodes}
+            edges={edges}
+            onConnect={connection => setEdges(e => addEdge(connection, e))}
+            defaultNodes={initial}
+            defaultEdges={[]}
+            deleteKeyCode={"DELETE"} /*DELETE key*/
             snapToGrid
             snapGrid={[15, 15]}
             nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            onElementClick={(_evt, elem) => {
-              if (isEdge(elem)) {
-                setElements(elems => removeElements([elem], elems))
-              }
+            //edgeTypes={edgeTypes}
+            onEdgeClick={(_evt, edge) => {
+              graph.deleteElements({edges: [edge]})
             }}
           >
             <Controls />
