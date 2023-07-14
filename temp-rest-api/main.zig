@@ -19,24 +19,27 @@ pub const Slice = extern struct {
     }
 };
 
-pub fn Result(comptime R: type, comptime E: type) type {
+pub fn Result(comptime R: type) type {
     // TODO: move c-like tagging to utility
     return extern struct {
-        val: extern union {
-            ok: R,
-            err: E,
-        },
-        tag: enum (u8) {
-            ok,
-            err,
-        },
+        result: R,
+        err: ?[*:0]const u8,
+        errCode: u8,
 
         fn ok(r: R) @This() {
-            return @This(){.val = .{.ok = r}, .tag = .ok};
+            return @This() {
+                .result = r,
+                .err = null,
+                .errCode = 0,
+            };
         }
 
-        fn err(e: E) @This() {
-            return @This(){.val = .{.err = e},  .tag = .err};
+        fn err(e: [*:0]const u8) @This() {
+            return @This() {
+                .result = undefined,
+                .err = e,
+                .errCode = 1, // FIXME: not used
+            };
         }
     };
 }
@@ -53,34 +56,8 @@ const SourceToGraphErr = extern union {
     unexpectedEof: Loc,
 };
 
-const SourceToGraphResult = Result(Slice, SourceToGraphErr);
+const SourceToGraphResult = Result(Slice);
 
-// TODO
-// fn UnionWithCType(comptime Union: type) type {
-//     var result = Union;
-//     const CType = struct {
-//         tag: tag_type,
-//         payload: union_type,
-//     };
-
-//     const Impl = struct {
-//         fn toC(in: Union) CType {
-//             return .{ tag = 5, .payload = in },
-//         }
-//     };
-
-//     var CType = @Type(.{
-//         .@"enum" = .{
-//             .tag_type = c_int,
-//             .payload: @typeInfo(GraphToSourceErr).Union.fields,
-//         },
-//     });
-
-//     Union.functions = Union.functions ++ .{Impl.toC};
-//     return result;
-// }
-
-// FIXME: need a tag :/
 const GraphToSourceErr = union (enum) {
     jsonImportedBindingAliasNotString: void,
     jsonImportedBindingNoRef: void,
@@ -97,43 +74,20 @@ const GraphToSourceErr = union (enum) {
     ioErr: void,
     OutOfMemory: void,
 
-    pub const C = extern struct {
-        tag: u8,
-        payload: extern union {
-            jsonImportedBindingAliasNotString: void,
-            jsonImportedBindingNoRef: void,
-            jsonImportedBindingNotObject: void,
-            jsonImportedBindingRefNotString: void,
-            jsonImportedBindingsNotArray: void,
-            jsonImportedBindingsEmpty: void,
-            jsonImportsNotAMap: void,
-            jsonNodesNotAMap: void,
-            jsonNoImports: void,
-            jsonNoNodes: void,
-            jsonParseFailure: void,
-            jsonRootNotObject: void,
-            ioErr: void,
-            OutOfMemory: void,
-        },
-    };
-
-    fn toC(self: @This()) C {
+    /// caller must free the result
+    pub fn explain(self: @This(), al: std.mem.Allocator) ![*:0]const u8 {
         return switch (self) {
-            inline else => |val, tag| .{
-                .tag = @enumToInt(self),
-                .payload = @unionInit(
-                    // TODO: compileError assert that this is the field named "payload"
-                    @typeInfo(C).Struct.fields[1].field_type,
-                    // requires enum tags/names are the same
-                    @tagName(tag),
-                    val
-                ),
-            },
+            inline else => |v| try std.fmt.allocPrintZ(al, "Error: '{s}', {}", .{@tagName(self), v}),
         };
     }
 };
 
-const GraphToSourceResult = Result(Slice, GraphToSourceErr.C);
+const GraphToSourceResult = Result(Slice);
+
+fn err_explain(comptime R: type, e: GraphToSourceErr) R {
+    return R.err(GraphToSourceErr.explain(e, global_alloc.allocator())
+        catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
+}
 
 const Sexp = union (enum) {
     call: struct {
@@ -224,7 +178,7 @@ const syms = struct {
 
 // FIXME use wasm known memory limits or something
 var result_buffer: [std.mem.page_size * 512]u8 = undefined;
-var fixed_alloc = std.heap.FixedBufferAllocator.init(&result_buffer);
+var global_alloc = std.heap.FixedBufferAllocator.init(&result_buffer);
 
 // TODO: add a json schema to document this instead... and petition zig for support of JSON maps
 // interface graph {
@@ -252,16 +206,16 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
     defer parser.deinit();
 
     var json_doc = parser.parse(graph_json.to_zig())
-        catch return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonParseFailure).toC());
+        catch return err_explain(GraphToSourceResult, .jsonParseFailure);
     defer json_doc.deinit();
 
     const json_imports = switch (json_doc.root) {
         .Object => |root| switch (root.get("imports")
-            orelse return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonNoImports).toC())) {
+            orelse return err_explain(GraphToSourceResult, .jsonNoImports)) {
             .Object => |a| a,
-            else => return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportsNotAMap).toC()),
+            else => return err_explain(GraphToSourceResult, .jsonImportsNotAMap),
         },
-        else => return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonRootNotObject).toC()),
+        else => return err_explain(GraphToSourceResult, .jsonRootNotObject),
     };
 
     // TODO: is it worth using a segmented list if an array list will do? Will graphs really
@@ -275,7 +229,7 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
             const json_import_bindings = json_import_entry.value_ptr.*;
 
             const new_import = import_exprs.addOne(arena_alloc)
-                catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC());
+                catch return err_explain(GraphToSourceResult, .OutOfMemory);
 
             // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
             new_import.* = Sexp{.call = .{
@@ -283,33 +237,33 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
                 .args = std.ArrayList(Sexp).init(arena_alloc),
             }};
             (new_import.*.call.args.addOne()
-                catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC())
+                catch return err_explain(GraphToSourceResult, .OutOfMemory)
             ).* = Sexp{.symbol = json_import_name};
 
             const first_binding_empty = "";
             var first_binding = Sexp{.symbol = first_binding_empty};
 
             const imported_bindings = new_import.*.call.args.addOne()
-                catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC());
+                catch return err_explain(GraphToSourceResult, .OutOfMemory);
             imported_bindings.* = Sexp{.call = .{
                 .callee = &first_binding,
                 .args = std.ArrayList(Sexp).init(arena_alloc),
             }};
 
             if (json_import_bindings != .Array)
-                return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportedBindingsNotArray).toC());
+                return err_explain(GraphToSourceResult, .jsonImportedBindingsNotArray);
 
             if (json_import_bindings.Array.items.len == 0)
-                return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportedBindingsEmpty).toC());
+                return err_explain(GraphToSourceResult, .jsonImportedBindingsEmpty);
 
             for (json_import_bindings.Array.items) |json_imported_binding| {
                 if (json_imported_binding != .Object)
-                    return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportedBindingNotObject).toC());
+                    return err_explain(GraphToSourceResult, .jsonImportedBindingNotObject);
 
                 const ref = json_imported_binding.Object.get("ref")
-                    orelse return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportedBindingNoRef).toC());
+                    orelse return err_explain(GraphToSourceResult, .jsonImportedBindingNoRef);
                 if (ref != .String)
-                    return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportedBindingRefNotString).toC());
+                    return err_explain(GraphToSourceResult, .jsonImportedBindingRefNotString);
 
                 const maybe_alias = json_imported_binding.Object.get("alias");
 
@@ -319,20 +273,20 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
                         &first_binding
                     else
                         imported_bindings.*.call.args.addOne()
-                            catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC());
+                            catch return err_explain(GraphToSourceResult, .OutOfMemory);
 
                 if (maybe_alias) |alias| {
                     if (alias != .String)
-                        return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonImportedBindingAliasNotString).toC());
+                        return err_explain(GraphToSourceResult, .jsonImportedBindingAliasNotString);
                     added.* = Sexp{.call = .{
                         .callee = &syms.as,
                         .args = std.ArrayList(Sexp).init(arena_alloc),
                     }};
                     (added.*.call.args.addOne()
-                        catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC())
+                        catch return err_explain(GraphToSourceResult, .OutOfMemory)
                     ).* = Sexp{.symbol = ref.String};
                     (added.*.call.args.addOne()
-                        catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC())
+                        catch return err_explain(GraphToSourceResult, .OutOfMemory)
                     ).* = Sexp{.symbol = alias.String};
                 } else {
                     added.* = Sexp{.symbol = ref.String};
@@ -347,11 +301,11 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
 
     const json_nodes = switch (json_doc.root) {
         .Object => |root| switch (root.get("nodes")
-            orelse return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonNoNodes).toC())) {
+            orelse return err_explain(GraphToSourceResult, .jsonNoNodes)) {
             .Object => |a| a,
-            else => return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonNodesNotAMap).toC()),
+            else => return err_explain(GraphToSourceResult, .jsonNodesNotAMap),
         },
-        else => return GraphToSourceResult.err(@as(GraphToSourceErr, .jsonRootNotObject).toC()),
+        else => return err_explain(GraphToSourceResult, .jsonRootNotObject),
     };
 
     {
@@ -361,7 +315,7 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
             //const json_node_data = json_node_entry.value_ptr.*;
 
             const new_node = node_exprs.addOne(arena_alloc)
-                catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC());
+                catch return err_explain(GraphToSourceResult, .OutOfMemory);
 
             // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
             new_node.* = Sexp{.call = .{
@@ -369,32 +323,31 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
                 .args = std.ArrayList(Sexp).init(arena_alloc),
             }};
             (new_node.*.call.args.addOne()
-                catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC())
+                catch return err_explain(GraphToSourceResult, .OutOfMemory)
             ).* = Sexp{.symbol = json_node_name};
         }
     }
 
     var page_writer = PageWriter.init(std.heap.page_allocator)
-        catch return GraphToSourceResult.err((GraphToSourceErr{.OutOfMemory={}}).toC());
+        catch return err_explain(GraphToSourceResult, .OutOfMemory);
     defer page_writer.deinit();
 
     {
         var import_iter = import_exprs.constIterator(0);
         while (import_iter.next()) |import| {
             _ = import.write(page_writer.writer())
-                catch return GraphToSourceResult.err((GraphToSourceErr{.ioErr={}}).toC());
+                catch return err_explain(GraphToSourceResult, .ioErr);
             _ = page_writer.writer().write("\n")
-                catch return GraphToSourceResult.err((GraphToSourceErr{.ioErr={}}).toC());
+                catch return err_explain(GraphToSourceResult, .ioErr);
         }
     }
     _ = page_writer.writer().write("\n")
-        catch return GraphToSourceResult.err((GraphToSourceErr{.ioErr={}}).toC());
+        catch return err_explain(GraphToSourceResult, .ioErr);
 
     return GraphToSourceResult.ok(Slice.from_zig(
         // FIXME: make sure we can free this
-        page_writer.concat(fixed_alloc.allocator())
-        //page_writer.concat(std.heap.c_allocator)
-            catch return GraphToSourceResult.err(@as(GraphToSourceErr, .OutOfMemory).toC())
+        page_writer.concat(global_alloc.allocator())
+            catch return err_explain(GraphToSourceResult, .OutOfMemory)
     ));
 }
 
@@ -431,13 +384,13 @@ export fn source_to_graph(source: Slice) SourceToGraphResult {
 // NOTE: terrible name
 export fn alloc_string(byte_count: usize) [*:0]u8 {
     return (
-        fixed_alloc.allocator().allocSentinel(u8, byte_count, 0)
+        global_alloc.allocator().allocSentinel(u8, byte_count, 0)
         catch |e| return std.debug.panic("alloc error: {}", .{e})
     ).ptr;
 }
 
 export fn free_string(str: [*:0]u8) void {
-    return fixed_alloc.allocator().free(str[0..std.mem.len(str)]);
+    return global_alloc.allocator().free(str[0..std.mem.len(str)]);
 }
 
 // TODO: only export in wasi
