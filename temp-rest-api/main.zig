@@ -21,10 +21,11 @@ pub const Slice = extern struct {
 };
 
 pub fn Result(comptime R: type) type {
-    // TODO: move c-like tagging to utility
     return extern struct {
+        /// not initialized if err is not 0/null
         result: R,
         err: ?[*:0]const u8,
+        /// 0 if result is valid
         errCode: u8,
 
         fn ok(r: R) @This() {
@@ -220,8 +221,8 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
         else => return err_explain(GraphToSourceResult, .jsonRootNotObject),
     };
 
-    // TODO: is it worth using a segmented list if an array list will do? Will graphs really
-    // ever be that large?
+    // FIXME: shouldn't we know node and import counts from the graph after parsing? Can
+    // potentially allocate one big arraylist
     var import_exprs = std.SegmentedList(Sexp, 16){};
 
     {

@@ -27,15 +27,13 @@ import { persistentData } from "./AppPersistentState";
 //import { NoderContext } from "./NoderContext";
 import "./NoderContext";
 
-interface DialogueEntry {
-  portrait?: string
-  title: string
-  text: string
+interface NodeData {
+  literalInputs: Record<number, any>;
 }
 
-interface DialogueEntryNodeData extends DialogueEntry {
+interface NodeState extends NodeData {
   /** shallow merges in a patch to the data for that entry */
-  onChange(newData: Partial<DialogueEntry>): void
+  onChange(newData: Partial<NodeData>): void
   onDelete(): void
 }
 
@@ -58,8 +56,8 @@ interface NodeDesc {
   label: string,
   inputs:
     | { variadic: true, type: PinType }
-    | { name: string, type: PinType, default?: any }[]
-  outputs: { name: string, type: PinType }[]
+    | { label: string, type: PinType, default?: any }[]
+  outputs: { label: string, type: PinType }[]
 }
 
 const pinTypeColorMap: Record<PinType, string> = {
@@ -74,29 +72,41 @@ const pinTypeInputValidatorMap: Record<PinType, Parameters<typeof useValidatedIn
   exec: {},
 };
 
-function useForceUpdate() {
-  const [, setFakeState] = React.useState(1);
-  return useStable(() => () => setFakeState(prev => ++prev));
-}
-
 const NodeHandle = (props: {
   direction: "input" | "output";
   type: PinType;
-  name: string;
+  label: string;
   owningNodeId: string;
   index: number;
+  default?: any;
   siblingCount: number;
   setInputStatus?: (status: InputStatus, reason: string) => void;
-}) => {
+} & NodeData) => {
   const isInput = props.direction === "input"
   const id = `${props.owningNodeId}_${isInput}_${props.index}`;
   const edges = useEdges();
+  const graph = useReactFlow();
   const isConnected = React.useMemo(() =>
     edges.find(e => e.sourceHandle === id || e.targetHandle === id),
     [edges]
   );
+
+  if (!(props.index in props.literalInputs))
+    props.literalInputs[props.index] = props.default;
+
   // TODO: highlight bad values and explain
-  const [literalValue, literalValueInput, setLiteralValueInput, errorStatus, errorReason] = useValidatedInput();
+  const [literalValue, literalValueInput, setLiteralValueInput, _errorStatus, _errorReason]
+    = useValidatedInput(props.literalInputs[props.index]);
+
+  React.useEffect(() => {
+    graph.setNodes(prev => prev.map((n: Node<NodeData>) => {
+      if (n.id === props.owningNodeId) {
+        n.data = { ...n.data };
+        n.data.literalInputs[props.index] = literalValue;
+      }
+      return n;
+    }));
+  }, [literalValue, props.owningNodeId]);
 
   return <Handle
     id={id}
@@ -109,7 +119,7 @@ const NodeHandle = (props: {
     }}
   >
     <div>
-      <label>{props.name}</label>
+      <label>{props.label}</label>
       {isInput && !isConnected
         && <input
           value={literalValueInput}
@@ -126,7 +136,7 @@ function assert(condition: any, message?: string): asserts condition {
     throw Error(message ?? "Assertion error, condition was falsey");
 }
 
-const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<DialogueEntryNodeData>) => {
+const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) => {
   const inputs = "variadic" in nodeDesc.inputs
     ? assert("variadic not yet supported") as never
     : nodeDesc.inputs;
@@ -142,6 +152,7 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<DialogueEntr
       {inputs.map((input, i) =>
         <NodeHandle
           {...input}
+          literalInputs={props.data.literalInputs}
           key={i}
           owningNodeId={props.id}
           direction="input"
@@ -158,6 +169,7 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<DialogueEntr
       {nodeDesc.outputs.map((output, i) =>
         <NodeHandle
           {...output}
+          literalInputs={props.data.literalInputs}
           key={i}
           owningNodeId={props.id}
           direction="output"
@@ -207,9 +219,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
           id: newId,
           type: nodeType,
           data: {
-            title: 'test title',
-            text: 'test text',
-            onChange: (newVal: Partial<DialogueEntryNodeData>) =>
+            onChange: (newVal: Partial<NodeState>) =>
               graph.setNodes(prev => {
                 const copy = prev.slice()
                 const index = copy.findIndex(elem => elem.id === newId)
@@ -224,6 +234,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
                 return copy
               }),
             onDelete: () => graph.deleteElements({ nodes: [{ id: newId }] }),
+            literalInputs: {},
           },
           position: position,
         }
@@ -322,3 +333,7 @@ namespace TestGraphEditor {
 }
 
 export default TestGraphEditor
+function useGraph() {
+    throw new Error('Function not implemented.')
+}
+
