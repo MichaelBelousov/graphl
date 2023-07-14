@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const FileBuffer = @import("./FileBuffer.zig");
 const PageWriter = @import("./PageWriter.zig").PageWriter;
 const io = std.io;
@@ -84,6 +85,7 @@ const GraphToSourceErr = union (enum) {
 
 const GraphToSourceResult = Result(Slice);
 
+/// TODO: infer the error type from the result
 fn err_explain(comptime R: type, e: GraphToSourceErr) R {
     return R.err(GraphToSourceErr.explain(e, global_alloc.allocator())
         catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
@@ -380,17 +382,22 @@ export fn source_to_graph(source: Slice) SourceToGraphResult {
     return SourceToGraphResult.ok(Slice.from_zig(""));
 }
 
-// TODO: only export in wasi
-// NOTE: terrible name
-export fn alloc_string(byte_count: usize) [*:0]u8 {
+fn alloc_string(byte_count: usize) callconv(.C) [*:0]u8 {
     return (
         global_alloc.allocator().allocSentinel(u8, byte_count, 0)
         catch |e| return std.debug.panic("alloc error: {}", .{e})
     ).ptr;
 }
 
-export fn free_string(str: [*:0]u8) void {
+fn free_string(str: [*:0]u8) callconv(.C) void {
     return global_alloc.allocator().free(str[0..std.mem.len(str)]);
+}
+
+comptime {
+    if (builtin.target.cpu.arch == .wasm32) {
+        @export(alloc_string, .{ .name = "alloc_string", .linkage = .Strong });
+        @export(free_string, .{ .name = "free_string", .linkage = .Strong });
+    }
 }
 
 // TODO: only export in wasi
