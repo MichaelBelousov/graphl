@@ -417,6 +417,9 @@ test "big graph_to_source" {
     );
 }
 
+test "source_to_graph" {
+}
+
 
 /// call c free on result
 export fn source_to_graph(source: Slice) SourceToGraphResult {
@@ -424,8 +427,19 @@ export fn source_to_graph(source: Slice) SourceToGraphResult {
     return SourceToGraphResult.ok(Slice.from_zig(""));
 }
 
-// test "source_to_graph" {
-// }
+// TODO: only export in wasi
+// NOTE: terrible name
+export fn alloc_string(byte_count: usize) [*:0]u8 {
+    return (
+        fixed_alloc.allocator().allocSentinel(u8, byte_count, 0)
+        catch |e| return std.debug.panic("alloc error: {}", .{e})
+    ).ptr;
+}
 
+export fn free_string(str: [*:0]u8) void {
+    return fixed_alloc.allocator().free(str[0..std.mem.len(str)]);
+}
+
+// TODO: only export in wasi
 pub fn main() void {}
 
