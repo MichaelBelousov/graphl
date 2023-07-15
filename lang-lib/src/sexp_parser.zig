@@ -25,10 +25,9 @@ pub const Loc = extern struct {
     }
 };
 
-fn peek(stack: std.SegmentedList(Sexp, 32)) ?*Sexp {
+fn peek(stack: *std.SegmentedList(Sexp, 32)) ?*Sexp {
     if (stack.len == 0) return null;
-    const result = stack.uncheckedAt(stack.len - 1);
-    return result;
+    return stack.uncheckedAt(stack.len - 1);
 }
 
 pub const Parser = struct {
@@ -74,17 +73,12 @@ pub const Parser = struct {
             stack: std.SegmentedList(Sexp, 32),
             alloc: std.mem.Allocator,
 
-            pub fn init(_alloc: std.mem.Allocator, _src: []const u8) !@This() {
-                var expr_arena = std.heap.ArenaAllocator.init(_alloc);
-
-                var self = .{
+            pub fn init(_src: []const u8) !@This() {
+                return .{
                     .p_src = _src,
                     .stack = std.SegmentedList(Sexp, 32){},
-                    .alloc = expr_arena.allocator(),
+                    .alloc = undefined,
                 };
-
-                (try self.stack.addOne(self.alloc)).* = Sexp{.list = std.ArrayList(Sexp).init(self.alloc)};
-                return self;
             }
 
             fn deinit(self: *@This()) void {
@@ -102,7 +96,7 @@ pub const Parser = struct {
                     },
                     ')' => {
                         const old_top = self.stack.pop() orelse unreachable;
-                        const new_top = peek(self.stack) orelse unreachable;
+                        const new_top = peek(&self.stack) orelse unreachable;
                         (new_top.list.addOne()
                             catch return .OutOfMemory
                         ).* = old_top;
@@ -120,13 +114,18 @@ pub const Parser = struct {
             }
         };
 
-        var algo_state = @call(.{ .modifier = .never_inline }, AlgoState.init, .{alloc, src})
-             catch return Result.err(.OutOfMemory);
-        //var algo_state = AlgoState.init(alloc, src)
-             //catch return Result.err(.OutOfMemory);
+        var algo_state = AlgoState.init(src) catch return Result.err(.OutOfMemory);
 
+        // FIXME: had to move this out of AlgoState.init due to a zig compiler bug
+        var expr_arena = std.heap.ArenaAllocator.init(alloc);
+        algo_state.alloc = expr_arena.allocator();
+        (algo_state.stack.addOne(algo_state.alloc)
+             catch return Result.err(.OutOfMemory)
+        ).* = Sexp{.list = std.ArrayList(Sexp).init(algo_state.alloc)};
         // FIXME: does errdefer even work here? perhaps I a helper function handle defer... or a mutable arg
-        errdefer algo_state.deinit();
+        //errdefer algo_state.deinit();
+        errdefer algo_state.alloc.deinit();
+        errdefer algo_state.stack.deinit();
 
         while (algo_state.loc.index < src.len) : (algo_state.loc.increment(src[algo_state.loc.index])) {
             const c = src[algo_state.loc.index];
@@ -136,7 +135,7 @@ pub const Parser = struct {
                 .between => if (algo_state.onNextCharAfterTok()) |err| return Result.err(err),
                 .symbol => switch (c) {
                     ' ','\n','\t' => {
-                        const top = peek(algo_state.stack) orelse unreachable;
+                        const top = peek(&algo_state.stack) orelse unreachable;
                         const last = top.list.addOne() catch return Result.err(.OutOfMemory);
                         last.* = Sexp{.symbol = tok_slice};
                         algo_state.tok_start = algo_state.loc.index;
@@ -148,7 +147,7 @@ pub const Parser = struct {
                 .string => switch (c) {
                     // TODO: handle escapes
                     '"' => {
-                        const top = peek(algo_state.stack) orelse unreachable;
+                        const top = peek(&algo_state.stack) orelse unreachable;
                         const last = top.list.addOne() catch return Result.err(.OutOfMemory);
                         last.* = Sexp{.borrowedString = tok_slice};
                         algo_state.tok_start = algo_state.loc.index;
@@ -162,7 +161,7 @@ pub const Parser = struct {
                     '.' => algo_state.state = .float_fraction_start,
                     ')' => {},
                     ' ','\n','\t' => {
-                        const top = peek(algo_state.stack) orelse unreachable;
+                        const top = peek(&algo_state.stack) orelse unreachable;
                         const last = top.list.addOne() catch return Result.err(.OutOfMemory);
                         const int = std.fmt.parseInt(i64, tok_slice, 10)
                             catch return Result{.err = .{.badInteger = tok_slice}};
@@ -193,7 +192,7 @@ pub const Parser = struct {
             }
         }
 
-        const top = peek(algo_state.stack) orelse unreachable;
+        const top = peek(&algo_state.stack) orelse unreachable;
 
         return .{.ok = top.list};
     }
