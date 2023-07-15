@@ -192,8 +192,8 @@ const nodeTypes = {
 };
 
 const CustomEdge = (props: EdgeProps) => {
-  //const edgePath = getSmoothStepPath(props)
-  const [edgePath] = getBezierPath(props)
+  // TODO: draw path from boundary of handle box
+  const [edgePath] = getBezierPath({ ...props })
   const markerEnd = getMarkerEnd(MarkerType.Arrow, props.markerEnd)
   return <BaseEdge path={edgePath} markerEnd={markerEnd} {...props} />
 }
