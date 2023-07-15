@@ -1,5 +1,5 @@
 import React from "react";
-import initLangLogic from "../temp-rest-api/zig-out/bin/graph-lang.wasm?init";
+import initLangLogic from "../lang-lib/zig-out/bin/graph-lang.wasm?init";
 import { makeWasmHelper } from "./wasm";
 
 // FIXME: show loading
