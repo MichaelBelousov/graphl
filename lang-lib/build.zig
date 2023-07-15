@@ -37,8 +37,8 @@ pub fn build(b: *std.build.Builder) void {
     const ide_json_gen_step = b.step("ide-json-gen", "Build ide-json-gen");
     const ide_json_gen = b.addExecutable("ide-json-gen", "src/ide_json_gen.zig");
     ide_json_gen.setBuildMode(mode);
-    ide_json_gen.setTarget(target);
-    ide_json_gen.linkLibC();
+    ide_json_gen.setTarget(target); // TODO: require native target?
+    ide_json_gen.linkLibC(); // for mmap on linux
     ide_json_gen.install();
     ide_json_gen_step.dependOn(&ide_json_gen.install_step.?.step);
 }

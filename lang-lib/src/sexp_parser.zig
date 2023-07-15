@@ -30,6 +30,7 @@ pub const Parser = struct {
         expectedFraction: Loc,
         unknownToken: Loc,
         OutOfMemory: void,
+        badInteger: []const u8,
 
         pub fn _format(self: @This(), alloc: std.mem.Allocator) []const u8 {
             _ = self;
@@ -63,9 +64,9 @@ pub const Parser = struct {
         var stack = std.SegmentedList(Sexp, 16){};
         defer stack.deinit(stack_alloc);
 
-        //var tok_start = 0;
+        var tok_start: usize = 0;
 
-        const state: enum {
+        var state: enum {
             symbol, integer,
             float, float_fraction_start,
             bool, char,
@@ -75,9 +76,10 @@ pub const Parser = struct {
         var loc: Loc = .{};
         while (loc.index < src.len) : (loc.increment(src[loc.index])) {
             const c = src[loc.index];
-            //const tok_slice = src[tok_start..loc.index];
+            const tok_slice = src[tok_start..loc.index];
             switch (state) {
                 .between => switch (c) {
+                    '1'...'9' => state = .integer,
                     '(' => {
                         var top = stack.addOne(stack_alloc) catch return Result.err(.OutOfMemory);
                         // FIXME: .call isn't necessary
@@ -103,17 +105,26 @@ pub const Parser = struct {
 
                 },
                 .integer => switch (c) {
+                    '0'...'9' => {},
                     '.' => state = .float_fraction_start,
-                    else => return Result{.err={}},
+                    ' ','\n','\t' => {
+                        const last = exprs.addOne(expr_alloc) catch return Result.err(.OutOfMemory);
+                        const int = std.fmt.parseInt(i64, tok_slice, 10)
+                            catch return Result{.err = .{.badInteger = tok_slice}};
+                        last.* = Sexp{.int = int};
+                        tok_start = loc.index;
+                        state = .between;
+                    },
+                    else => return Result{.err=.{.unknownToken = loc}},
                 },
                 .float_fraction_start => switch (c) {
                     '0'...'9' => state = .float,
-                    else => return Result{.err=.{.unexpectedFrac = loc}},
+                    else => return Result{.err=.{.expectedFraction = loc}},
                 },
                 .float => switch (c) {
-
+                    else => unreachable
                 },
-                .bool => stack.pop(),
+                .bool => unreachable,
                 // FIXME: unimplemented
                 else => {},
             }
@@ -121,7 +132,7 @@ pub const Parser = struct {
 
         // FIXME: is this efficient?
         var exprs_list = std.ArrayList(Sexp).init(expr_alloc);
-        // FIXME: does errdefer even work here?
+        // FIXME: does errdefer even work here? perhaps I a helper function handle defer... or a pointer...
         errdefer exprs_list.deinit();
         exprs_list.ensureTotalCapacity(exprs.count())
             catch return Result.err(.OutOfMemory);
@@ -138,3 +149,15 @@ pub const Parser = struct {
     }
 };
 
+const t = std.testing;
+
+test "parse 1" {
+    const result = std.ArrayList(Sexp).init(t.allocator);
+    const expected = Parser.Result{.ok = result};
+    const actual = Parser.parse(t.allocator,
+        \\2
+        \\(+ 3 2)
+    );
+    std.debug.print("\n{any}\n", .{actual});
+    try t.expectEqual(expected, actual);
+}
