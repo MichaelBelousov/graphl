@@ -26,24 +26,44 @@ pub const Loc = extern struct {
 
 
 pub const Parser = struct {
-    pub const Result = union (enum) {
-        ok: Sexp,
-        err: union (enum) {
-            expectedFraction: Loc,
-            expectedDecimal: void,
+    pub const Error = union (enum) {
+        expectedFraction: Loc,
+        unknownToken: Loc,
+        OutOfMemory: void,
 
-            pub fn format(self: @This(), alloc: std.mem.Allocator) []const u8 {}
-        },
+        pub fn _format(self: @This(), alloc: std.mem.Allocator) []const u8 {
+            _ = self;
+            _ = alloc;
+            return "";
+        }
     };
 
+    pub const Result = union (enum) {
+        ok: std.ArrayList(Sexp),
+        err: Error,
+
+        fn err(e: Error) @This() {
+            return Result{.err = e};
+        }
+    };
+
+    /// takes an allocator to base an arena allocator off of
     pub fn parse(alloc: std.mem.Allocator, src: []const u8) Result {
-        var arena = std.heap.ArenaAllocator.init(alloc);
-        defer arena.deinit();
-        const arena_alloc = arena.allocator();
+        var expr_arena = std.heap.ArenaAllocator.init(alloc);
+        errdefer expr_arena.deinit();
+        const expr_alloc = expr_arena.allocator();
 
-        const stack = std.SegmentedList(Sexp, 16){};
+        var exprs = std.SegmentedList(Sexp, 64){};
+        errdefer exprs.deinit(expr_alloc);
 
-        var tok_start = 0;
+        var stack_arena = std.heap.ArenaAllocator.init(alloc);
+        defer stack_arena.deinit();
+        const stack_alloc = stack_arena.allocator();
+
+        var stack = std.SegmentedList(Sexp, 16){};
+        defer stack.deinit(stack_alloc);
+
+        //var tok_start = 0;
 
         const state: enum {
             symbol, integer,
@@ -55,10 +75,26 @@ pub const Parser = struct {
         var loc: Loc = .{};
         while (loc.index < src.len) : (loc.increment(src[loc.index])) {
             const c = src[loc.index];
-            const tok_slice = src[tok_start..loc.index];
+            //const tok_slice = src[tok_start..loc.index];
             switch (state) {
-                .between => {
-
+                .between => switch (c) {
+                    '(' => {
+                        var top = stack.addOne(stack_alloc) catch return Result.err(.OutOfMemory);
+                        // FIXME: .call isn't necessary
+                        top.* = Sexp{.call = .{
+                            .callee = undefined,
+                            .args = std.ArrayList(Sexp).init(stack_alloc),
+                        }};
+                    },
+                    ')' => {
+                        var should_be_expr = stack.pop();
+                        if (should_be_expr) |expr| {
+                            const last = exprs.addOne(expr_alloc) catch return Result.err(.OutOfMemory);
+                            last.* = expr;
+                        } else unreachable;
+                    },
+                    ' ', '\t', '\n' => {},
+                    else => return Result{.err=.{.unknownToken = loc}},
                 },
                 .symbol => {
 
@@ -77,8 +113,28 @@ pub const Parser = struct {
                 .float => switch (c) {
 
                 },
+                .bool => stack.pop(),
+                // FIXME: unimplemented
+                else => {},
             }
         }
+
+        // FIXME: is this efficient?
+        var exprs_list = std.ArrayList(Sexp).init(expr_alloc);
+        // FIXME: does errdefer even work here?
+        errdefer exprs_list.deinit();
+        exprs_list.ensureTotalCapacity(exprs.count())
+            catch return Result.err(.OutOfMemory);
+
+        {
+            var expr_iter = exprs.constIterator(0);
+            while (expr_iter.next()) |expr| {
+                var next = exprs_list.addOne() catch unreachable;
+                next.* = expr.*;
+            }
+        }
+
+        return .{.ok = exprs_list};
     }
 };
 
