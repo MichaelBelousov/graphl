@@ -5,12 +5,12 @@ pub fn build(b: *std.build.Builder) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const mode = b.standardReleaseOptions();
 
-    const lib = b.addStaticLibrary("graph-lang", "main.zig");
+    const lib = b.addStaticLibrary("graph-lang", "src/main.zig");
     lib.setBuildMode(mode);
     lib.install();
     lib.force_pic = true;
 
-    const main_tests = b.addTest("main.zig");
+    const main_tests = b.addTest("src/main.zig");
     // test use file buffer
     main_tests.linkLibC();
     main_tests.setBuildMode(mode);
@@ -19,7 +19,7 @@ pub fn build(b: *std.build.Builder) void {
     test_step.dependOn(&main_tests.step);
 
     const web_step = b.step("web", "Build for web");
-    const web_lib = b.addExecutable("graph-lang", "main.zig");
+    const web_lib = b.addExecutable("graph-lang", "src/main.zig");
     web_lib.setBuildMode(mode);
     const web_target = b.standardTargetOptions(.{
         .default_target = std.zig.CrossTarget{

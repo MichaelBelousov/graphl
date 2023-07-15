@@ -6,6 +6,10 @@ const io = std.io;
 const testing = std.testing;
 const json = std.json;
 
+const sexp = @import("./sexp.zig");
+const Sexp = sexp.Sexp;
+const syms = sexp.syms;
+
 // TODO: give better name... C slice?
 pub const Slice = extern struct {
     ptr: [*]const u8,
@@ -86,98 +90,12 @@ const GraphToSourceErr = union (enum) {
 
 const GraphToSourceResult = Result(Slice);
 
+// TODO: usingnamespace to add this to GraphToSourceResult directly
 /// TODO: infer the error type from the result
 fn err_explain(comptime R: type, e: GraphToSourceErr) R {
     return R.err(GraphToSourceErr.explain(e, global_alloc.allocator())
         catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
 }
-
-const Sexp = union (enum) {
-    call: struct {
-        callee: *const Sexp,
-        args: std.ArrayList(Sexp),
-    },
-    int: i64,
-    float: f64,
-    /// this Sexp owns the referenced memory, it must be freed
-    ownedString: []const u8,
-    /// this Sexp is borrowing the referenced memory, it should not be freed
-    borrowedString: []const u8,
-    /// always borrowed
-    symbol: []const u8,
-    // TODO: quote/quasiquote, etc
-
-    const Self = @This();
-
-    fn deinit(self: Self, alloc: std.mem.Allocator) void {
-        switch (self) {
-            .ownedString => |v| alloc.free(v),
-            .call => |v| v.args.deinit(),
-            else => {},
-        }
-    }
-
-    fn write(self: Self, writer: anytype) !usize {
-        var total_bytes_written: usize = 0;
-        switch (self) {
-            .call => |v| {
-                total_bytes_written += try writer.write("(");
-                total_bytes_written += try v.callee.write(writer);
-                if (v.args.items.len > 0)
-                    total_bytes_written += try writer.write(" ");
-                for (v.args.items) |arg, i| {
-                    total_bytes_written += try arg.write(writer);
-                    if (i != v.args.items.len - 1)
-                        total_bytes_written += try writer.write(" ");
-                }
-                total_bytes_written += try writer.write(")");
-            },
-            // FIXME: the bytecounts here are ignored!
-            .float => |v| try std.fmt.format(writer, "{d}", .{v}),
-            .int => |v| try std.fmt.format(writer, "{d}", .{v}),
-            .ownedString, .borrowedString => |v| try std.fmt.format(writer, "\"{s}\"", .{v}),
-            .symbol => |v| try std.fmt.format(writer, "{s}", .{v}),
-        }
-        return total_bytes_written;
-    }
-};
-
-test "free sexp" {
-    const alloc = std.testing.allocator;
-    const str = Sexp{.ownedString = try alloc.alloc(u8, 10)};
-    defer str.deinit(alloc);
-}
-
-test "write sexp" {
-    var root_args = std.ArrayList(Sexp).init(std.testing.allocator);
-    const arg1 = try root_args.addOne();
-    arg1.* = Sexp{.float = 0.5};
-    defer root_args.deinit();
-    var root_sexp = Sexp{.call = .{
-        .callee=&Sexp{.symbol="hello"},
-        .args=root_args,
-    }};
-
-    var buff: [1024]u8 = undefined;
-    var fixedBufferStream = std.io.fixedBufferStream(&buff);
-    var writer = fixedBufferStream.writer();
-
-    _ = try root_sexp.write(writer);
-
-    try testing.expectEqualStrings(
-        \\(hello 0.5)
-        ,
-        buff[0..11] // not using result of write because it is currently wrong
-    );
-}
-
-const syms = struct {
-    const import = Sexp{.symbol = "import"};
-    const define = Sexp{.symbol = "define"};
-    const as = Sexp{.symbol = "as"};
-    const VOID = Sexp{.symbol = "__VOID__"};
-};
-
 
 // FIXME use wasm known memory limits or something
 var result_buffer: [std.mem.page_size * 512]u8 = undefined;
