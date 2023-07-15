@@ -7,10 +7,7 @@ const testing = std.testing;
 const json = std.json;
 
 pub const Sexp = union (enum) {
-    call: struct {
-        callee: *const Sexp,
-        args: std.ArrayList(Sexp),
-    },
+    list: std.ArrayList(Sexp),
     int: i64,
     float: f64,
     /// this Sexp owns the referenced memory, it must be freed
@@ -26,7 +23,7 @@ pub const Sexp = union (enum) {
     pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
         switch (self) {
             .ownedString => |v| alloc.free(v),
-            .call => |v| v.args.deinit(),
+            .list => |v| v.deinit(),
             else => {},
         }
     }
@@ -34,14 +31,11 @@ pub const Sexp = union (enum) {
     pub fn write(self: Self, writer: anytype) !usize {
         var total_bytes_written: usize = 0;
         switch (self) {
-            .call => |v| {
+            .list => |v| {
                 total_bytes_written += try writer.write("(");
-                total_bytes_written += try v.callee.write(writer);
-                if (v.args.items.len > 0)
-                    total_bytes_written += try writer.write(" ");
-                for (v.args.items) |arg, i| {
-                    total_bytes_written += try arg.write(writer);
-                    if (i != v.args.items.len - 1)
+                for (v.items) |item, i| {
+                    total_bytes_written += try item.write(writer);
+                    if (i != v.items.len - 1)
                         total_bytes_written += try writer.write(" ");
                 }
                 total_bytes_written += try writer.write(")");
@@ -63,14 +57,11 @@ test "free sexp" {
 }
 
 test "write sexp" {
-    var root_args = std.ArrayList(Sexp).init(std.testing.allocator);
-    const arg1 = try root_args.addOne();
-    arg1.* = Sexp{.float = 0.5};
-    defer root_args.deinit();
-    var root_sexp = Sexp{.call = .{
-        .callee=&Sexp{.symbol="hello"},
-        .args=root_args,
-    }};
+    var list = std.ArrayList(Sexp).init(std.testing.allocator);
+    (try list.addOne()).* = Sexp{.symbol="hello"};
+    (try list.addOne()).* = Sexp{.float = 0.5};
+    defer list.deinit();
+    var root_sexp = Sexp{.list = list};
 
     var buff: [1024]u8 = undefined;
     var fixedBufferStream = std.io.fixedBufferStream(&buff);
@@ -89,6 +80,5 @@ pub const syms = struct {
     pub const import = Sexp{.symbol = "import"};
     pub const define = Sexp{.symbol = "define"};
     pub const as = Sexp{.symbol = "as"};
-    pub const VOID = Sexp{.symbol = "__VOID__"};
 };
 

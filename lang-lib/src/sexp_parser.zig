@@ -81,7 +81,7 @@ pub const Parser = struct {
             std.debug.print("loc: {any}, state: {any}\n", .{loc, state});
             switch (state) {
                 .between => switch (c) {
-                    '1'...'9' => state = .integer,
+                    '1'...'9' => { tok_start = loc.index; state = .integer; },
                     '(' => {
                         var top = stack.addOne(stack_alloc) catch return Result.err(.OutOfMemory);
                         // FIXME: .call isn't necessary
@@ -98,17 +98,35 @@ pub const Parser = struct {
                         } else unreachable;
                     },
                     ' ', '\t', '\n' => {},
-                    else => return Result{.err=.{.unknownToken = loc}},
+                    '"' => { tok_start = loc.index; state = .string; },
+                    else => { tok_start = loc.index; state = .symbol; },
+                    //else => return Result{.err=.{.unknownToken = loc}},
                 },
-                .symbol => {
-
+                .symbol => switch (c) {
+                    ' ','\n','\t' => {
+                        const last = exprs.addOne(expr_alloc) catch return Result.err(.OutOfMemory);
+                        last.* = Sexp{.symbol = tok_slice};
+                        tok_start = loc.index;
+                        state = .between;
+                    },
+                    // TODO: should reject or finish on '('/')'?
+                    else => {},
                 },
-                .string => {
-
+                .string => switch (c) {
+                    // TODO: handle escapes
+                    '"' => {
+                        const last = exprs.addOne(expr_alloc) catch return Result.err(.OutOfMemory);
+                        last.* = Sexp{.borrowedString = tok_slice};
+                        tok_start = loc.index;
+                        state = .between;
+                    },
+                    // TODO: should reject or finish on '('/')'?
+                    else => {},
                 },
                 .integer => switch (c) {
                     '0'...'9' => {},
                     '.' => state = .float_fraction_start,
+                    ')' => {},
                     ' ','\n','\t' => {
                         const last = exprs.addOne(expr_alloc) catch return Result.err(.OutOfMemory);
                         const int = std.fmt.parseInt(i64, tok_slice, 10)

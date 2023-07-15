@@ -147,23 +147,17 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
                 catch return err_explain(GraphToSourceResult, .OutOfMemory);
 
             // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-            new_import.* = Sexp{.call = .{
-                .callee = &syms.import,
-                .args = std.ArrayList(Sexp).init(arena_alloc),
-            }};
-            (new_import.*.call.args.addOne()
+            new_import.* = Sexp{.list = std.ArrayList(Sexp).init(arena_alloc),};
+            (new_import.*.list.addOne()
+                catch return err_explain(GraphToSourceResult, .OutOfMemory)
+            ).* = syms.import;
+            (new_import.*.list.addOne()
                 catch return err_explain(GraphToSourceResult, .OutOfMemory)
             ).* = Sexp{.symbol = json_import_name};
 
-            const first_binding_empty = "";
-            var first_binding = Sexp{.symbol = first_binding_empty};
-
-            const imported_bindings = new_import.*.call.args.addOne()
+            const imported_bindings = new_import.*.list.addOne()
                 catch return err_explain(GraphToSourceResult, .OutOfMemory);
-            imported_bindings.* = Sexp{.call = .{
-                .callee = &first_binding,
-                .args = std.ArrayList(Sexp).init(arena_alloc),
-            }};
+            imported_bindings.* = Sexp{.list = std.ArrayList(Sexp).init(arena_alloc) };
 
             if (json_import_bindings != .Array)
                 return err_explain(GraphToSourceResult, .jsonImportedBindingsNotArray);
@@ -183,32 +177,25 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
                 const maybe_alias = json_imported_binding.Object.get("alias");
 
 
-                var added =
-                    if (std.mem.eql(u8, imported_bindings.*.call.callee.symbol, first_binding_empty))
-                        &first_binding
-                    else
-                        imported_bindings.*.call.args.addOne()
-                            catch return err_explain(GraphToSourceResult, .OutOfMemory);
+                var added = imported_bindings.*.list.addOne()
+                    catch return err_explain(GraphToSourceResult, .OutOfMemory);
 
                 if (maybe_alias) |alias| {
                     if (alias != .String)
                         return err_explain(GraphToSourceResult, .jsonImportedBindingAliasNotString);
-                    added.* = Sexp{.call = .{
-                        .callee = &syms.as,
-                        .args = std.ArrayList(Sexp).init(arena_alloc),
-                    }};
-                    (added.*.call.args.addOne()
+                    (added.*.list.addOne()
+                        catch return err_explain(GraphToSourceResult, .OutOfMemory)
+                    ).* = syms.as;
+                    (added.*.list.addOne()
                         catch return err_explain(GraphToSourceResult, .OutOfMemory)
                     ).* = Sexp{.symbol = ref.String};
-                    (added.*.call.args.addOne()
+                    (added.*.list.addOne()
                         catch return err_explain(GraphToSourceResult, .OutOfMemory)
                     ).* = Sexp{.symbol = alias.String};
                 } else {
                     added.* = Sexp{.symbol = ref.String};
                 }
             }
-
-            std.debug.assert(!std.mem.eql(u8, imported_bindings.*.call.callee.symbol, first_binding_empty));
         }
     }
 
@@ -233,11 +220,11 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
                 catch return err_explain(GraphToSourceResult, .OutOfMemory);
 
             // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-            new_node.* = Sexp{.call = .{
-                .callee = &syms.import,
-                .args = std.ArrayList(Sexp).init(arena_alloc),
-            }};
-            (new_node.*.call.args.addOne()
+            new_node.* = Sexp{.list = std.ArrayList(Sexp).init(arena_alloc)};
+            (new_node.*.list.addOne()
+                catch return err_explain(GraphToSourceResult, .OutOfMemory)
+            ).* = syms.import;
+            (new_node.*.list.addOne()
                 catch return err_explain(GraphToSourceResult, .OutOfMemory)
             ).* = Sexp{.symbol = json_node_name};
         }
