@@ -15,6 +15,7 @@ pub const Loc = extern struct {
             '\n' => {
                 self.line += 1;
                 self.col = 1;
+                self.index += 1;
             },
             else => {
                 self.index += 1;
@@ -77,6 +78,7 @@ pub const Parser = struct {
         while (loc.index < src.len) : (loc.increment(src[loc.index])) {
             const c = src[loc.index];
             const tok_slice = src[tok_start..loc.index];
+            std.debug.print("loc: {any}, state: {any}\n", .{loc, state});
             switch (state) {
                 .between => switch (c) {
                     '1'...'9' => state = .integer,
