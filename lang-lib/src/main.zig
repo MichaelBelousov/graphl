@@ -50,13 +50,7 @@ pub fn Result(comptime R: type) type {
     };
 }
 
-const Loc = extern struct {
-    /// 1-indexed
-    line: usize,
-    /// 1-indexed
-    col: usize,
-    index: usize,
-};
+const Loc = @import("./sexp_parser.zig").Loc;
 
 const SourceToGraphErr = extern union {
     unexpectedEof: Loc,
