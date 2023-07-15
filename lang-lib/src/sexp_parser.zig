@@ -110,7 +110,7 @@ pub const Parser = struct {
             }
 
             fn unimplemented(_: @This(), feature: [] const u8) noreturn {
-                return std.debug.panic("'{}' unimplemented!", .{feature});
+                return std.debug.panic("'{s}' unimplemented!", .{feature});
             }
         };
 
@@ -184,7 +184,7 @@ pub const Parser = struct {
                     else => return Result{.err=.{.unknownToken = algo_state.loc}},
                 },
                 .bool => switch (c) {
-                    ' ', '\n', '\t' => algo_state.onNextCharAfterTok(), // TODO: use token
+                    ' ', '\n', '\t' => if (algo_state.onNextCharAfterTok()) |err| return Result.err(err), // TODO: use token
                     else => return Result{.err=.{.unknownToken = algo_state.loc}},
                 },
                 .char => algo_state.unimplemented("char literals"),
