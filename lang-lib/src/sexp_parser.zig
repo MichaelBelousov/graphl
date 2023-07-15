@@ -25,6 +25,11 @@ pub const Loc = extern struct {
     }
 };
 
+fn peek(stack: std.SegmentedList(Sexp, 32)) ?*Sexp {
+    if (stack.len == 0) return null;
+    const result = stack.uncheckedAt(stack.len - 1);
+    return result;
+}
 
 pub const Parser = struct {
     pub const Error = union (enum) {
@@ -51,63 +56,91 @@ pub const Parser = struct {
 
     /// takes an allocator to base an arena allocator off of
     pub fn parse(alloc: std.mem.Allocator, src: []const u8) Result {
-        var expr_arena = std.heap.ArenaAllocator.init(alloc);
-        errdefer expr_arena.deinit();
-        const expr_alloc = expr_arena.allocator();
-
-        var exprs = std.SegmentedList(Sexp, 64){};
-        errdefer exprs.deinit(expr_alloc);
-
-        var stack_arena = std.heap.ArenaAllocator.init(alloc);
-        defer stack_arena.deinit();
-        const stack_alloc = stack_arena.allocator();
-
-        var stack = std.SegmentedList(Sexp, 16){};
-        defer stack.deinit(stack_alloc);
-
-        var tok_start: usize = 0;
-
-        var state: enum {
-            symbol, integer,
+        const State = enum {
+            symbol,
+            integer,
             float, float_fraction_start,
-            bool, char,
-            string, between, line_comment, multiline_comment,
-        } = .between;
+            bool, char, bool_or_char,
+            string,
+            between,
+            line_comment, multiline_comment,
+        };
 
-        var loc: Loc = .{};
-        while (loc.index < src.len) : (loc.increment(src[loc.index])) {
-            const c = src[loc.index];
-            const tok_slice = src[tok_start..loc.index];
-            std.debug.print("loc: {any}, state: {any}\n", .{loc, state});
-            switch (state) {
-                .between => switch (c) {
-                    '1'...'9' => { tok_start = loc.index; state = .integer; },
+        const AlgoState = struct {
+            loc: Loc = .{},
+            state: State = .between,
+            p_src: []const u8,
+            tok_start: usize = 0,
+            stack: std.SegmentedList(Sexp, 32),
+            alloc: std.mem.Allocator,
+
+            pub fn init(_alloc: std.mem.Allocator, _src: []const u8) !@This() {
+                var expr_arena = std.heap.ArenaAllocator.init(_alloc);
+
+                var self = .{
+                    .p_src = _src,
+                    .stack = std.SegmentedList(Sexp, 32){},
+                    .alloc = expr_arena.allocator(),
+                };
+
+                (try self.stack.addOne(self.alloc)).* = Sexp{.list = std.ArrayList(Sexp).init(self.alloc)};
+                return self;
+            }
+
+            fn deinit(self: *@This()) void {
+                self.stack.deinit();
+                self.alloc.deinit();
+            }
+
+            fn onNextCharAfterTok(self: *@This()) ?Error {
+                const c = self.p_src[self.loc.index];
+                switch (c) {
+                    '1'...'9' => { self.tok_start = self.loc.index; self.state = .integer; },
                     '(' => {
-                        var top = stack.addOne(stack_alloc) catch return Result.err(.OutOfMemory);
-                        // FIXME: .call isn't necessary
-                        top.* = Sexp{.call = .{
-                            .callee = undefined,
-                            .args = std.ArrayList(Sexp).init(stack_alloc),
-                        }};
+                        var top = self.stack.addOne(self.alloc) catch return .OutOfMemory;
+                        top.* = Sexp{.list = std.ArrayList(Sexp).init(self.alloc)};
                     },
                     ')' => {
-                        var should_be_expr = stack.pop();
-                        if (should_be_expr) |expr| {
-                            const last = exprs.addOne(expr_alloc) catch return Result.err(.OutOfMemory);
-                            last.* = expr;
-                        } else unreachable;
+                        const old_top = self.stack.pop() orelse unreachable;
+                        const new_top = peek(self.stack) orelse unreachable;
+                        (new_top.list.addOne()
+                            catch return .OutOfMemory
+                        ).* = old_top;
                     },
-                    ' ', '\t', '\n' => {},
-                    '"' => { tok_start = loc.index; state = .string; },
-                    else => { tok_start = loc.index; state = .symbol; },
-                    //else => return Result{.err=.{.unknownToken = loc}},
-                },
+                    ' ', '\t', '\n' => self.state = .between,
+                    '"' => { self.tok_start = self.loc.index; self.state = .string; },
+                    '#' => { self.tok_start = self.loc.index; self.state = .bool_or_char; },
+                    else => { self.tok_start = self.loc.index; self.state = .symbol; },
+                }
+                return null;
+            }
+
+            fn unimplemented(_: @This(), feature: [] const u8) noreturn {
+                return std.debug.panic("'{}' unimplemented!", .{feature});
+            }
+        };
+
+        var algo_state = @call(.{ .modifier = .never_inline }, AlgoState.init, .{alloc, src})
+             catch return Result.err(.OutOfMemory);
+        //var algo_state = AlgoState.init(alloc, src)
+             //catch return Result.err(.OutOfMemory);
+
+        // FIXME: does errdefer even work here? perhaps I a helper function handle defer... or a mutable arg
+        errdefer algo_state.deinit();
+
+        while (algo_state.loc.index < src.len) : (algo_state.loc.increment(src[algo_state.loc.index])) {
+            const c = src[algo_state.loc.index];
+            const tok_slice = src[algo_state.tok_start..algo_state.loc.index];
+            std.debug.print("loc: {any}, state: {any}\n", .{algo_state.loc, algo_state.state});
+            switch (algo_state.state) {
+                .between => if (algo_state.onNextCharAfterTok()) |err| return Result.err(err),
                 .symbol => switch (c) {
                     ' ','\n','\t' => {
-                        const last = exprs.addOne(expr_alloc) catch return Result.err(.OutOfMemory);
+                        const top = peek(algo_state.stack) orelse unreachable;
+                        const last = top.list.addOne() catch return Result.err(.OutOfMemory);
                         last.* = Sexp{.symbol = tok_slice};
-                        tok_start = loc.index;
-                        state = .between;
+                        algo_state.tok_start = algo_state.loc.index;
+                        algo_state.state = .between;
                     },
                     // TODO: should reject or finish on '('/')'?
                     else => {},
@@ -115,57 +148,54 @@ pub const Parser = struct {
                 .string => switch (c) {
                     // TODO: handle escapes
                     '"' => {
-                        const last = exprs.addOne(expr_alloc) catch return Result.err(.OutOfMemory);
+                        const top = peek(algo_state.stack) orelse unreachable;
+                        const last = top.list.addOne() catch return Result.err(.OutOfMemory);
                         last.* = Sexp{.borrowedString = tok_slice};
-                        tok_start = loc.index;
-                        state = .between;
+                        algo_state.tok_start = algo_state.loc.index;
+                        algo_state.state = .between;
                     },
-                    // TODO: should reject or finish on '('/')'?
+                    // TODO: should post-string reject or finish on /[()]/?
                     else => {},
                 },
                 .integer => switch (c) {
                     '0'...'9' => {},
-                    '.' => state = .float_fraction_start,
+                    '.' => algo_state.state = .float_fraction_start,
                     ')' => {},
                     ' ','\n','\t' => {
-                        const last = exprs.addOne(expr_alloc) catch return Result.err(.OutOfMemory);
+                        const top = peek(algo_state.stack) orelse unreachable;
+                        const last = top.list.addOne() catch return Result.err(.OutOfMemory);
                         const int = std.fmt.parseInt(i64, tok_slice, 10)
                             catch return Result{.err = .{.badInteger = tok_slice}};
                         last.* = Sexp{.int = int};
-                        tok_start = loc.index;
-                        state = .between;
+                        algo_state.tok_start = algo_state.loc.index;
+                        algo_state.state = .between;
                     },
-                    else => return Result{.err=.{.unknownToken = loc}},
+                    else => return Result{.err=.{.unknownToken = algo_state.loc}},
                 },
                 .float_fraction_start => switch (c) {
-                    '0'...'9' => state = .float,
-                    else => return Result{.err=.{.expectedFraction = loc}},
+                    '0'...'9' => algo_state.state = .float,
+                    else => return Result{.err=.{.expectedFraction = algo_state.loc}},
                 },
                 .float => switch (c) {
                     else => unreachable
                 },
-                .bool => unreachable,
-                // FIXME: unimplemented
-                else => {},
+                .bool_or_char => switch (c) {
+                    't', 'f' => algo_state.state = .bool,
+                    '\\' => algo_state.state = .char,
+                    else => return Result{.err=.{.unknownToken = algo_state.loc}},
+                },
+                .bool => switch (c) {
+                    ' ', '\n', '\t' => algo_state.onNextCharAfterTok(), // TODO: use token
+                    else => return Result{.err=.{.unknownToken = algo_state.loc}},
+                },
+                .char => algo_state.unimplemented("char literals"),
+                else => algo_state.unimplemented("unhandled case"),
             }
         }
 
-        // FIXME: is this efficient?
-        var exprs_list = std.ArrayList(Sexp).init(expr_alloc);
-        // FIXME: does errdefer even work here? perhaps I a helper function handle defer... or a pointer...
-        errdefer exprs_list.deinit();
-        exprs_list.ensureTotalCapacity(exprs.count())
-            catch return Result.err(.OutOfMemory);
+        const top = peek(algo_state.stack) orelse unreachable;
 
-        {
-            var expr_iter = exprs.constIterator(0);
-            while (expr_iter.next()) |expr| {
-                var next = exprs_list.addOne() catch unreachable;
-                next.* = expr.*;
-            }
-        }
-
-        return .{.ok = exprs_list};
+        return .{.ok = top.list};
     }
 };
 
