@@ -60,6 +60,7 @@ pub const Parser = struct {
             }
         }
 
+        /// for testing only for now
         fn recursive_eq(self: @This(), other: @This()) bool {
             if (self == .err or other == .err)
                 @panic("comparing errors not supported");
@@ -107,7 +108,6 @@ pub const Parser = struct {
 
             fn deinit(self: *@This()) void {
                 self.stack.deinit();
-                self.alloc.deinit();
             }
 
             fn onNextCharAfterTok(self: *@This()) ?Error {
@@ -144,21 +144,17 @@ pub const Parser = struct {
         var algo_state = AlgoState.init(src) catch return Result.err(.OutOfMemory);
 
         // FIXME: had to move this out of AlgoState.init due to a zig compiler bug
-        var expr_arena = std.heap.ArenaAllocator.init(alloc);
-        algo_state.alloc = expr_arena.allocator();
+        algo_state.alloc = alloc;
         (algo_state.stack.addOne(algo_state.alloc)
              catch return Result.err(.OutOfMemory)
         ).* = Sexp{.list = std.ArrayList(Sexp).init(algo_state.alloc)};
+
         // FIXME: does errdefer even work here? perhaps I a helper function handle defer... or a mutable arg
-        //errdefer algo_state.deinit();
-        errdefer algo_state.alloc.deinit();
-        errdefer algo_state.stack.deinit();
+        errdefer algo_state.deinit();
 
         while (algo_state.loc.index < src.len) : (algo_state.loc.increment(src[algo_state.loc.index])) {
             const c = src[algo_state.loc.index];
             const tok_slice = src[algo_state.tok_start..algo_state.loc.index];
-
-            std.debug.print("c: {c}, ts: {}, loc: {any}, state: {any}\n", .{c, algo_state.tok_start, algo_state.loc, algo_state.state});
 
             switch (algo_state.state) {
                 .between => if (algo_state.onNextCharAfterTok()) |err| return Result.err(err),
@@ -250,23 +246,21 @@ test "parse 1" {
     var expected = Parser.Result{.ok = expected_list};
     defer expected.deinit();
 
-    // TODO: deinit result AND every item in it...
     var actual = Parser.parse(t.allocator,
         \\2
         \\"hel\"lo
         \\world" ;; comment
         \\(+ 3(- 210 5))
     );
-    // FIXME: double free?
-    // defer actual.deinit();
+    defer actual.deinit();
 
-    std.debug.print("\n{any}\n", .{actual});
-    std.debug.print("=========================\n", .{});
-    for (actual.ok.items) |expr| {
-        _ = try expr.write(std.io.getStdErr().writer());
-        std.debug.print("\n", .{});
-    }
-    std.debug.print("=========================\n", .{});
+    // std.debug.print("\n{any}\n", .{actual});
+    // std.debug.print("=========================\n", .{});
+    // for (actual.ok.items) |expr| {
+    //     _ = try expr.write(std.io.getStdErr().writer());
+    //     std.debug.print("\n", .{});
+    // }
+    // std.debug.print("=========================\n", .{});
 
     try t.expect(expected == .ok);
     try t.expect(actual == .ok);

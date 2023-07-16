@@ -23,7 +23,10 @@ pub const Sexp = union (enum) {
     pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
         switch (self) {
             .ownedString => |v| alloc.free(v),
-            .list => |v| v.deinit(),
+            .list => |v| {
+                for (v.items) |item| item.deinit(alloc);
+                v.deinit();
+            },
             else => {},
         }
     }
