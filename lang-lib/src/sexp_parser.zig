@@ -147,7 +147,7 @@ pub const Parser = struct {
                     ' ','\n','\t',')','(' => {
                         const top = peek(&algo_state.stack) orelse unreachable;
                         const last = top.list.addOne() catch return Result.err(.OutOfMemory);
-                        last.* = Sexp{.borrowedString = tok_slice};
+                        last.* = Sexp{.symbol = tok_slice};
                         algo_state.tok_start = algo_state.loc.index;
                         if (algo_state.onNextCharAfterTok()) |err| return Result.err(err);
                     },
@@ -209,15 +209,26 @@ pub const Parser = struct {
 const t = std.testing;
 
 test "parse 1" {
-    const expected_list = std.ArrayList(Sexp).init(t.allocator);
-    // TODO: must also deinit
-    defer expected_list.deinit();
-    const expected = Parser.Result{.ok = expected_list};
+    var expected_list = std.ArrayList(Sexp).init(t.allocator);
+    (try expected_list.addOne()).* = Sexp{.int = 2};
+    (try expected_list.addOne()).* = Sexp{.borrowedString = "hello\nworld"};
+    (try expected_list.addOne()).* = Sexp{.list = std.ArrayList(Sexp).init(t.allocator)};
+    (try expected_list.items[2].list.addOne()).* = Sexp{.symbol = "+"};
+    (try expected_list.items[2].list.addOne()).* = Sexp{.int = 3};
+    (try expected_list.items[2].list.addOne()).* = Sexp{.list = std.ArrayList(Sexp).init(t.allocator)};
+    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{.symbol = "-"};
+    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{.int = 2};
+    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{.int = 5};
+
+    var expected = Parser.Result{.ok = expected_list};
+    defer expected.deinit();
 
     // TODO: deinit result AND every item in it...
     var actual = Parser.parse(t.allocator,
         \\2
-        \\(+ 3 2)
+        \\"hello
+        \\world"
+        \\(+ 3(- 2 5))
     );
     defer actual.deinit();
 
