@@ -4,12 +4,7 @@ pub fn build(b: *std.build.Builder) void {
     // Standard release options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const mode = b.standardReleaseOptions();
-    const target = b.standardTargetOptions(.{
-        .default_target = std.zig.CrossTarget{
-            .cpu_arch = .wasm32,
-            .os_tag = .freestanding,
-        },
-    });
+    const target = b.standardTargetOptions(.{});
 
     const lib = b.addStaticLibrary("graph-lang", "src/main.zig");
     lib.setBuildMode(mode);
@@ -37,7 +32,7 @@ pub fn build(b: *std.build.Builder) void {
     const ide_json_gen_step = b.step("ide-json-gen", "Build ide-json-gen");
     const ide_json_gen = b.addExecutable("ide-json-gen", "src/ide_json_gen.zig");
     ide_json_gen.setBuildMode(mode);
-    ide_json_gen.setTarget(target); // TODO: require native target?
+    ide_json_gen.setTarget(target);
     ide_json_gen.linkLibC(); // for mmap on linux
     ide_json_gen.install();
     ide_json_gen_step.dependOn(&ide_json_gen.install_step.?.step);

@@ -78,7 +78,6 @@ pub const Parser = struct {
         }
     };
 
-    /// takes an allocator to base an arena allocator off of
     pub fn parse(alloc: std.mem.Allocator, src: []const u8) Result {
         const State = enum {
             symbol,
