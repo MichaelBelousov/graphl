@@ -155,6 +155,10 @@ pub const Parser = struct {
             const c = src[algo_state.loc.index];
             const tok_slice = src[algo_state.tok_start..algo_state.loc.index];
 
+            if (std.os.getenv("DEBUG") != null) {
+                std.debug.print("c: {c}, loc: {any}, state: {any}\n", .{c, algo_state.loc, algo_state.state});
+            }
+
             switch (algo_state.state) {
                 .between => if (algo_state.onNextCharAfterTok()) |err| return Result.err(err),
                 .line_comment => switch (c) {
@@ -209,7 +213,7 @@ pub const Parser = struct {
                     else => return Result{.err=.{.unknownToken = algo_state.loc}},
                 },
                 .bool => switch (c) {
-                    ' ', '\n', '\t' => {
+                    ' ','\n','\t','(',')' => {
                         const top = peek(&algo_state.stack) orelse unreachable;
                         const last = top.list.addOne() catch return Result.err(.OutOfMemory);
                         last.* = if (c == 't') sexp.syms.@"true" else sexp.syms.@"false";

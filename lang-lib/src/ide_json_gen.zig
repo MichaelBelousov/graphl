@@ -175,12 +175,18 @@ pub fn main() !void {
     const alloc = arena.allocator();
 
     var args_iter = std.process.args();
+    _ = args_iter.next(); // skip first arg since it is our own program
+
     while (args_iter.next()) |arg| {
+        if (std.os.getenv("DEBUG") != null)
+            std.debug.print("input_file: {s}\n", .{arg});
+
         const file = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), arg);
         defer file.free(alloc);
 
         const parse_result = Parser.parse(alloc, file.buffer);
-        if (parse_result != .err) {
+
+        if (parse_result == .err) {
             std.debug.print("error reading '{s}':\n{}\n", .{arg, parse_result.err});
             continue;
         }
@@ -188,6 +194,7 @@ pub fn main() !void {
         const stdout_writer = std.io.getStdOut().writer();
         var write_stream = json.writeStream(stdout_writer, 6);
         try write_stream.beginObject();
+
 
         for (parse_result.ok.items) |expr| {
             const maybe_node = try readTopLevelExpr(alloc, expr);
@@ -198,6 +205,7 @@ pub fn main() !void {
         }
 
         try write_stream.endObject();
+        _ = try stdout_writer.write("\n");
     }
 }
 
