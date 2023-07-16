@@ -244,7 +244,7 @@ test "parse 1" {
     (try expected_list.items[2].list.addOne()).* = Sexp{.int = 3};
     (try expected_list.items[2].list.addOne()).* = Sexp{.list = std.ArrayList(Sexp).init(t.allocator)};
     (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{.symbol = "-"};
-    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{.int = 2};
+    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{.int = 210};
     (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{.int = 5};
 
     var expected = Parser.Result{.ok = expected_list};
