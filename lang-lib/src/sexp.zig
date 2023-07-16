@@ -48,6 +48,29 @@ pub const Sexp = union (enum) {
         }
         return total_bytes_written;
     }
+
+    pub fn recursive_eq(self: Self, other: Self) bool {
+        if (std.meta.activeTag(self) != std.meta.activeTag(other))
+            return false;
+
+        switch (self) {
+            .list => |v| {
+                if (v.items.len != other.list.items.len)
+                    return false;
+                for (v.items) |item, i| {
+                    const other_item = other.list.items[i];
+                    if (!item.recursive_eq(other_item))
+                        return false;
+                }
+                return true;
+            },
+            .float => |v| return v == other.float,
+            .int => |v| return v == other.int,
+            .ownedString => |v| return std.mem.eql(u8, v, other.ownedString),
+            .borrowedString => |v| return std.mem.eql(u8, v, other.borrowedString),
+            .symbol => |v| return std.mem.eql(u8, v, other.symbol),
+        }
+    }
 };
 
 test "free sexp" {
@@ -80,5 +103,8 @@ pub const syms = struct {
     pub const import = Sexp{.symbol = "import"};
     pub const define = Sexp{.symbol = "define"};
     pub const as = Sexp{.symbol = "as"};
+    // FIXME: is this really a symbol?
+    pub const @"true" = Sexp{.symbol = "#t"};
+    pub const @"false" = Sexp{.symbol = "#f"};
 };
 
