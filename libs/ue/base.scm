@@ -47,12 +47,16 @@
 (define-enum draw-debug-types
   ('none 'line 'arrow))
 
+;; HACK: workaround for not yet evaluating stuff
+(define actor-list (list (actor)))
+
 (define (single-line-trace-by-channel
           (vector start)
           (vector end)
           (trace-channels channel)
           (bool trace-complex)
-          ((list actor) actors-to-ignore)
+          ;; ((list actor) actors-to-ignore)
+          (actor-list actors-to-ignore)
           (draw-debug-types draw-debug-type 'none)
           (bool ignore-self #t))
   (cpp-call "UKismetMathLibrary::SingleLineTraceByChannel" start end channel trace-complex actors-to-ignore

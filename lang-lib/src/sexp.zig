@@ -74,6 +74,29 @@ pub const Sexp = union (enum) {
             .symbol => |v| return std.mem.eql(u8, v, other.symbol),
         }
     }
+
+    pub fn jsonValue(self: @This(), alloc: std.mem.Allocator) !json.Value {
+        return switch (self) {
+            .list => |v| _: {
+                var result = json.Array.init(alloc);
+                try result.ensureTotalCapacityPrecise(v.items.len);
+                for (v.items) |item| {
+                    (try result.addOne()).* = try item.jsonValue(alloc);
+                }
+                break :_ json.Value{.Array = result};
+            },
+            .float => |v| json.Value{.Float = v},
+            .int => |v| json.Value{.Integer = v},
+            .ownedString => |v| json.Value{.String = v},
+            .borrowedString => |v| json.Value{.String = v},
+            .symbol => |v| _: {
+                var result = json.ObjectMap.init(alloc);
+                // TODO: ensureTotalCapacityPrecise
+                try result.put("symbol", json.Value{.String = v});
+                break :_ json.Value{.Object = result};
+            }
+        };
+    }
 };
 
 test "free sexp" {

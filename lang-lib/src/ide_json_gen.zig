@@ -13,7 +13,7 @@ const syms = @import("./sexp.zig").syms;
 const Input = struct {
     label: []const u8,
     type: []const u8,
-    default: ?json.Value,
+    default: ?json.Value = null,
 
     fn emitJson(self: @This(), stream: anytype) !void {
         try stream.beginObject();
@@ -87,13 +87,15 @@ const NodeDef = struct {
     }
 };
 
-fn readDefineFunc(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
+fn readDefineFuncPrototype(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
     if (defined != .list)
         return null;
     if (defined.list.items.len < 1)
         return null;
-    if (defined.list.items[0] != .symbol) // FIXME: should be an error?
+    if (defined.list.items[0] != .symbol) {
+        std.debug.print("prototype name not a symbol", .{});
         return null;
+    }
 
     const name = defined.list.items[0].symbol;
 
@@ -102,11 +104,43 @@ fn readDefineFunc(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
     errdefer inputs.deinit();
     try inputs.ensureTotalCapacityPrecise(defined.list.items.len - 1);
 
+    for (defined.list.items[1..]) |arg| {
+        switch (arg) {
+            // FIXME: this is a simplification of what should actually happen...
+            // (i32 x) is a real macro that returns a typed slot...
+            .symbol => |v| (try inputs.addOne()).* = .{ .label = v, .type = "T" }, // FIXME: unevaled type
+            .list => |v| {
+                if (v.items.len < 2)
+                    std.debug.panic("unsupported type syntax: {s}", .{name});
+                if (v.items[0] != .symbol)
+                    std.debug.panic("unsupported type syntax type: {s}", .{name});
+                if (v.items[1] != .symbol)
+                    std.debug.panic("unsupported type syntax name: {s}", .{name});
+                (try inputs.addOne()).* = .{
+                    .label = v.items[1].symbol,
+                    .type = v.items[0].symbol,
+                    .default = if (v.items.len >= 3) try v.items[2].jsonValue(alloc) else null,
+                };
+            },
+            else => {
+                // FIXME: should return error
+                std.debug.print("non-list/symbol binding def\n", .{});
+                return null;
+            }
+        }
+    }
+
     // need to evaluate to know the type
     var outputs = std.ArrayList(Output).init(alloc);
     errdefer outputs.deinit();
-    // NOTE: how do we determine if something is pure? contains a "set!"?
-    try outputs.ensureTotalCapacityPrecise(1);
+    // NOTE: how do we determine if something is pure? contains no "set!"?
+    try outputs.ensureTotalCapacityPrecise(1); // for now one
+
+    // FIXME: this is completely fake, we need to evaluate (the types of the definition expression)
+    // to get the result type
+    (try outputs.addOne()).* =
+        if (inputs.items.len >= 1) .{ .label = inputs.items[0].label, .type = inputs.items[0].type }
+        else .{ .label = "next", .type = "exec" };
 
     return NodeDef{
         .id = name,
@@ -119,7 +153,7 @@ fn readDefineFunc(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
     };
 }
 
-fn readDefineVar(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
+fn readDefineVarPrototype(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
     if (defined != .symbol)
         return null;
 
@@ -136,8 +170,8 @@ fn readDefineVar(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
 }
 
 fn readDefine(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
-    return try readDefineVar(alloc, defined)
-    orelse try readDefineFunc(alloc, defined);
+    return try readDefineVarPrototype(alloc, defined)
+    orelse try readDefineFuncPrototype(alloc, defined);
 }
 
 /// NOTE: this does not yet expand macros to find top-level defines
