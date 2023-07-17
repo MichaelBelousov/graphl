@@ -207,43 +207,48 @@ pub fn readTopLevelExpr(alloc: std.mem.Allocator, expr: Sexp) !?NodeDef {
     return null;
 }
 
-pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
+pub fn readSrc(alloc: std.mem.Allocator, src: []const u8) !void {
+    const parse_result = Parser.parse(alloc, src);
 
-    var args_iter = std.process.args();
-    _ = args_iter.next(); // skip first arg since it is our own program
-
-    while (args_iter.next()) |arg| {
-        if (std.os.getenv("DEBUG") != null)
-            std.debug.print("input_file: {s}\n", .{arg});
-
-        const file = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), arg);
-        defer file.free(alloc);
-
-        const parse_result = Parser.parse(alloc, file.buffer);
-
-        if (parse_result == .err) {
-            std.debug.print("error reading '{s}':\n{}\n", .{arg, parse_result.err});
-            continue;
-        }
-
-        const stdout_writer = std.io.getStdOut().writer();
-        var write_stream = json.writeStream(stdout_writer, 6);
-        try write_stream.beginObject();
-
-
-        for (parse_result.ok.items) |expr| {
-            const maybe_node = try readTopLevelExpr(alloc, expr);
-            if (maybe_node) |node| {
-                try write_stream.objectField(node.id);
-                try node.emitDef(&write_stream);
-            }
-        }
-
-        try write_stream.endObject();
-        _ = try stdout_writer.write("\n");
+    if (parse_result == .err) {
+        std.debug.print("error reading:\n{}\n", .{parse_result.err});
+        return error.ParseError;
     }
+
+    const stdout_writer = std.io.getStdOut().writer();
+    var write_stream = json.writeStream(stdout_writer, 6);
+    try write_stream.beginObject();
+
+
+    for (parse_result.ok.items) |expr| {
+        const maybe_node = try readTopLevelExpr(alloc, expr);
+        if (maybe_node) |node| {
+            try write_stream.objectField(node.id);
+            try node.emitDef(&write_stream);
+        }
+    }
+
+    try write_stream.endObject();
+    _ = try stdout_writer.write("\n");
 }
+
+// pub fn main() !void {
+//     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+//     defer arena.deinit();
+//     const alloc = arena.allocator();
+
+//     var args_iter = std.process.args();
+//     _ = args_iter.next(); // skip first arg since it is our own program
+
+//     while (args_iter.next()) |arg| {
+//         if (std.os.getenv("DEBUG") != null)
+//             std.debug.print("input_file: {s}\n", .{arg});
+
+//         const file = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), arg);
+//         defer file.free(alloc);
+
+//         readSrc(alloc, file.buffer)
+//             catch continue;
+//     }
+// }
 
