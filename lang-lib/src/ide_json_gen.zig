@@ -164,7 +164,9 @@ fn readDefineVarPrototype(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
         .def = .{
             .label = try std.fmt.allocPrint(alloc, "get_{s}", .{name}),
             .inputs = &.{},
-            .outputs = &.{},
+            .outputs = &.{
+                .{ .label = "get", .type = "T" } // FIXME: stub
+            },
         },
     };
 }
