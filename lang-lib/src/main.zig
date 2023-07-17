@@ -9,6 +9,7 @@ const json = std.json;
 const sexp = @import("./sexp.zig");
 const Sexp = sexp.Sexp;
 const syms = sexp.syms;
+const ide_json_gen = @import("./ide_json_gen.zig");
 
 // TODO: give better name... C slice?
 pub const Slice = extern struct {
@@ -298,6 +299,29 @@ comptime {
         @export(alloc_string, .{ .name = "alloc_string", .linkage = .Strong });
         @export(free_string, .{ .name = "free_string", .linkage = .Strong });
     }
+}
+
+
+export fn readSrc(src: [*:0]const u8, in_status: ?*c_int) [*:0]const u8 {
+    var ignored_status: c_int = 0;
+    const out_status = in_status orelse &ignored_status;
+
+    var page_writer = PageWriter.init(std.heap.page_allocator)
+        catch { out_status.* = 1; return "Error: allocation err"; };
+    defer page_writer.deinit();
+
+    ide_json_gen.readSrc(global_alloc.allocator(), src[0..std.mem.len(src)], page_writer.writer())
+        catch { out_status.* = 1; return "Error: parse error"; };
+
+    page_writer.writer().writeByte(0)
+        catch { out_status.* = 1; return "Error: write error"; };
+
+    // FIXME: leak
+    return @ptrCast([*:0]const u8,
+        (
+            page_writer.concat(global_alloc.allocator())
+            catch { out_status.* = 1; return "Error: alloc concat error"; }
+        ).ptr);
 }
 
 // TODO: only export in wasi

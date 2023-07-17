@@ -2,6 +2,7 @@
 //! Given a set of input Lisp files
 
 const std = @import("std");
+const builtin = @import("builtin");
 const json = std.json;
 
 const Parser = @import("./sexp_parser.zig").Parser;
@@ -93,7 +94,8 @@ fn readDefineFuncPrototype(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
     if (defined.list.items.len < 1)
         return null;
     if (defined.list.items[0] != .symbol) {
-        std.debug.print("prototype name not a symbol", .{});
+        if (builtin.os.tag != .freestanding)
+            std.debug.print("prototype name not a symbol", .{});
         return null;
     }
 
@@ -124,7 +126,8 @@ fn readDefineFuncPrototype(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
             },
             else => {
                 // FIXME: should return error
-                std.debug.print("non-list/symbol binding def\n", .{});
+                if (builtin.os.tag != .freestanding)
+                    std.debug.print("non-list/symbol binding def\n", .{});
                 return null;
             }
         }
@@ -207,16 +210,16 @@ pub fn readTopLevelExpr(alloc: std.mem.Allocator, expr: Sexp) !?NodeDef {
     return null;
 }
 
-pub fn readSrc(alloc: std.mem.Allocator, src: []const u8) !void {
+pub fn readSrc(alloc: std.mem.Allocator, src: []const u8, writer: anytype) !void {
     const parse_result = Parser.parse(alloc, src);
 
     if (parse_result == .err) {
-        std.debug.print("error reading:\n{}\n", .{parse_result.err});
+        if (builtin.os.tag != .freestanding)
+            std.debug.print("error reading:\n{}\n", .{parse_result.err});
         return error.ParseError;
     }
 
-    const stdout_writer = std.io.getStdOut().writer();
-    var write_stream = json.writeStream(stdout_writer, 6);
+    var write_stream = json.writeStream(writer, 6);
     try write_stream.beginObject();
 
 
@@ -229,7 +232,7 @@ pub fn readSrc(alloc: std.mem.Allocator, src: []const u8) !void {
     }
 
     try write_stream.endObject();
-    _ = try stdout_writer.write("\n");
+    _ = try writer.write("\n");
 }
 
 // pub fn main() !void {
@@ -247,7 +250,8 @@ pub fn readSrc(alloc: std.mem.Allocator, src: []const u8) !void {
 //         const file = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), arg);
 //         defer file.free(alloc);
 
-//         readSrc(alloc, file.buffer)
+//         const stdout_writer = std.io.getStdOut().writer();
+//         readSrc(alloc, file.buffer, stdout_writer)
 //             catch continue;
 //     }
 // }

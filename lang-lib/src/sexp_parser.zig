@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const sexp = @import("./sexp.zig");
 const Sexp = sexp.Sexp;
 const syms = sexp.syms;
@@ -156,7 +157,7 @@ pub const Parser = struct {
             const c = src[algo_state.loc.index];
             const tok_slice = src[algo_state.tok_start..algo_state.loc.index];
 
-            if (std.os.getenv("DEBUG") != null) {
+            if (std.os.getenv("DEBUG") != null and builtin.os.tag != .freestanding) {
                 std.debug.print("c: {c}, loc: {any}, state: {any}\n", .{c, algo_state.loc, algo_state.state});
             }
 
