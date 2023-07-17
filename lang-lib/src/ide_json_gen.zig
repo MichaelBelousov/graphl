@@ -15,7 +15,7 @@ const Input = struct {
     type: []const u8,
     default: ?json.Value,
 
-    fn emitAsJsonObject(self: @This(), stream: anytype) !void {
+    fn emitJson(self: @This(), stream: anytype) !void {
         try stream.beginObject();
         try stream.objectField("label");
         try stream.emitString(self.label);
@@ -33,7 +33,7 @@ const Output = struct {
     label: []const u8,
     type: []const u8,
 
-    fn emitAsJsonObject(self: @This(), stream: anytype) !void {
+    fn emitJson(self: @This(), stream: anytype) !void {
         try stream.beginObject();
         try stream.objectField("label");
         try stream.emitString(self.label);
@@ -52,34 +52,36 @@ const NodeDef = struct {
     },
 
     // TODO: use new json utils in zig 0.11.0 to generate this...
-    fn emitAsJsonObject(self: @This(), stream: anytype) !void {
+    fn emitJson(self: @This(), stream: anytype) !void {
         try stream.beginObject();
         try stream.objectField("id");
         try stream.emitString(self.id);
         try stream.objectField("def");
+        self.emitDef();
+        try stream.endObject();
+    }
+
+    fn emitDef(self: @This(), stream: anytype) !void {
+        try stream.beginObject();
+        try stream.objectField("label");
+        try stream.emitString(self.def.label);
+        try stream.objectField("inputs");
         {
-            try stream.beginObject();
-            try stream.objectField("label");
-            try stream.emitString(self.def.label);
-            try stream.objectField("inputs");
-            {
-                try stream.beginArray();
-                for (self.def.inputs) |input| {
-                    try stream.arrayElem();
-                    try input.emitAsJsonObject(stream);
-                }
-                try stream.endArray();
+            try stream.beginArray();
+            for (self.def.inputs) |input| {
+                try stream.arrayElem();
+                try input.emitJson(stream);
             }
-            try stream.objectField("outputs");
-            {
-                try stream.beginArray();
-                for (self.def.outputs) |output| {
-                    try stream.arrayElem();
-                    try output.emitAsJsonObject(stream);
-                }
-                try stream.endArray();
+            try stream.endArray();
+        }
+        try stream.objectField("outputs");
+        {
+            try stream.beginArray();
+            for (self.def.outputs) |output| {
+                try stream.arrayElem();
+                try output.emitJson(stream);
             }
-            try stream.endObject();
+            try stream.endArray();
         }
         try stream.endObject();
     }
@@ -200,7 +202,7 @@ pub fn main() !void {
             const maybe_node = try readTopLevelExpr(alloc, expr);
             if (maybe_node) |node| {
                 try write_stream.objectField(node.id);
-                try node.emitAsJsonObject(&write_stream);
+                try node.emitDef(&write_stream);
             }
         }
 

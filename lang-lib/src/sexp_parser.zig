@@ -86,7 +86,8 @@ pub const Parser = struct {
             bool, char, bool_or_char,
             string, string_escaped_quote,
             between,
-            line_comment, multiline_comment,
+            line_comments,
+            multiline_comment,
         };
 
         const AlgoState = struct {
@@ -129,7 +130,7 @@ pub const Parser = struct {
                     ' ', '\t', '\n' => self.state = .between,
                     '"' => { self.tok_start = self.loc.index + 1; self.state = .string; },
                     '#' => { self.tok_start = self.loc.index; self.state = .bool_or_char; },
-                    ';' => { self.tok_start = self.loc.index; self.state = .line_comment; },
+                    ';' => { self.tok_start = self.loc.index; self.state = .line_comments; },
                     else => { self.tok_start = self.loc.index; self.state = .symbol; },
                 }
                 return null;
@@ -161,7 +162,7 @@ pub const Parser = struct {
 
             switch (algo_state.state) {
                 .between => if (algo_state.onNextCharAfterTok()) |err| return Result.err(err),
-                .line_comment => switch (c) {
+                .line_comments => switch (c) {
                     '\n' => algo_state.state = .between,
                     else => {},
                 },
