@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import TestGraphEditor from "./TestGraphEditor";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api"
 import styles from "./Ide.module.css"
 import { persistentData } from "./AppPersistentState";
+import { NoderContext } from "./NoderContext";
 
 const apiBaseUrl = "http://localhost:3001"
 
@@ -20,6 +21,19 @@ export function TextEditor(props: TextEditor.Props) {
   const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoElem = useRef<HTMLDivElement>(null);
 
+  const [editorProgram, setEditorProgram] = useState(persistentData.editorProgram);
+
+  const noder = useContext(NoderContext);
+
+  useEffect(() => {
+    const marshalledSrc = noder.wasmUtils.marshalString(editorProgram);
+    const resultPtr = noder.noder.exports.readSrc(marshalledSrc._ptr);
+    // FIXME: ptrToStr creates a botched string
+    const result = noder.wasmUtils.ptrToStr(resultPtr);
+    marshalledSrc.free();
+    //console.log(result);
+  }, [editorProgram]);
+
   useEffect(() => {
     if (monacoElem.current)
       setEditor((editor) => {
@@ -28,7 +42,10 @@ export function TextEditor(props: TextEditor.Props) {
           language: "scheme",
           theme: "vs-dark",
         })
-        result.onDidChangeModelContent(() => persistentData.editorProgram = result.getValue());
+        result.onDidChangeModelContent(() => {
+          setEditorProgram(result.getValue());
+          persistentData.editorProgram = result.getValue()
+        });
         return result;
       })
   }, [monacoElem.current]);
