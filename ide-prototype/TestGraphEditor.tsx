@@ -108,6 +108,8 @@ const NodeHandle = (props: {
     }));
   }, [literalValue, props.owningNodeId]);
 
+  const label = <label>{props.label}</label>;
+
   return (
     <div 
       className={classNames(styles.handle, isInput ? styles.inputHandle : styles.outputHandle)}
@@ -115,22 +117,24 @@ const NodeHandle = (props: {
         top: `${100 * (props.index + (isInput ? 0.9 : 0.5)) / props.siblingCount}%`,
       }}
     >
+      {!isInput && label}
       <Handle
         id={id}
         type={isInput ? "source" : "target"}
         position={isInput ? "left" : "right"}
-        className={styles.knob}
+        // FIXME: figure out if it's an exec knob
+        className={classNames(styles.knob, isInput ? styles.inputHandle : styles.outputHandle)}
         style={{
           backgroundColor: pinTypeColorMap[props.type] ?? "black",
         }}
       />
-      <label>{props.label}</label>
+      {isInput && label}
       {isInput && !isConnected
         && <input
-          value={literalValueInput}
-          onChange={(e) => setLiteralValueInput(e.currentTarget.value)}
-          style={{width: "8em"}}
-        />
+            value={literalValueInput}
+            onChange={(e) => setLiteralValueInput(e.currentTarget.value)}
+            style={{width: "8em"}}
+           />
       }
     </div>
   );
@@ -204,7 +208,7 @@ const UnknownNode = (props: NodeProps<NodeState>) => {
       <Handle
         type="source"
         position="left"
-        className={classNames(styles.handle, styles.inputHandle)}
+        className={styles.handle}
         style={{ top: `50%` }}
       />
       <Center>

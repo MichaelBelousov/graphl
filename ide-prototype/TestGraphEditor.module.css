@@ -53,6 +53,7 @@
 
   display: inline-flex;
   align-items: center;
+  gap: 4px;
 }
 
 .handle > label {
@@ -65,16 +66,24 @@
   min-width: 18px;
   position: initial;
   transform: initial;
-  margin-right: 6px;
+}
+
+.execKnob {
 }
 
 .handle > input {
   margin-left: 5px;
 }
 
-.inputHandle {}
+.inputHandle {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
 
-.outputHandle {}
+.outputHandle {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
 
 .connectionsGrid {
   display: grid;
