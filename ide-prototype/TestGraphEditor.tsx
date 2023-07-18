@@ -24,11 +24,11 @@ import { useValidatedInput, useStable } from "@bentley/react-hooks"
 import { InputStatus } from '@bentley/react-hooks/lib/useValidatedInput'
 import { Center } from "./Center";
 import { persistentData } from "./AppPersistentState";
-//import { NoderContext } from "./NoderContext";
-import "./NoderContext";
 
 interface NodeData {
   literalInputs: Record<number, any>;
+  // FIXME: probably need all input data to be duplicated here so that we can preserve connections
+  typeIfDefaulted: string;
 }
 
 interface NodeState extends NodeData {
@@ -181,6 +181,33 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
   )
 };
 
+const UnknownNode = (props: NodeProps<NodeState>) => {
+  return (
+    <div
+      style={{ height: 50, width: 100, }}
+    >
+      <Handle
+        type="source"
+        position="left"
+        className={classNames(styles.handle, styles.inputHandle)}
+        style={{ top: `50%` }}
+      />
+      <Center>
+        <strong>Unknown type '{props.data.typeIfDefaulted}'</strong>
+      </Center>
+      <button onClick={props.data.onDelete} className={styles.deleteButton}>
+        &times;
+      </button>
+      <Handle
+        type="target"
+        position="right"
+        className={classNames(styles.handle, styles.outputHandle)}
+        style={{ top: `50%` }}
+      />
+    </div>
+  )
+};
+
 import { nodes as builtinNodeTypes } from "../libs/std/builtin.json"
 import { ContextMenu } from './ContextMenu'
 import { NoderContext } from './NoderContext'
@@ -229,6 +256,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
               }),
             onDelete: () => graph.deleteElements({ nodes: [{ id: newId }] }),
             literalInputs: {},
+            typeIfDefaulted: nodeType,
           },
           position: position,
         }
@@ -243,23 +271,31 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
   const noder = React.useContext(NoderContext);
 
   const nodeTypes = React.useMemo(() => {
-    return Object.fromEntries(
-      Object.entries({...builtinNodeTypes, ...noder.lastNodeTypes})
-        .map(([k, v]) => [k, makeNodeComponent(v as NodeDesc)])
-    );
+    return {
+      ...Object.fromEntries(
+        Object.entries({...noder.lastNodeTypes, ...builtinNodeTypes})
+          .map(([k, v]) => [k, makeNodeComponent(v as NodeDesc)])
+      ),
+      default: UnknownNode,
+    }
   }, [noder.lastNodeTypes]);
 
   return (
     <div className={styles.page}>
       <ContextMenu>
-        {Object.keys(nodeTypes).map((nodeType) =>
-          <button style={{ display: "block" }} key={nodeType} onClick={(e) => {
-            const { top, left } = graphContainerElem.current!.getBoundingClientRect();
-            addNode(nodeType, graph.project({
-              x: e.clientX - left - 150/2,
-              y: e.clientY - top,
-            }))}
-          }>{nodeType}</button>)
+        {Object.keys(nodeTypes)
+          .filter(key => key !== "default")
+          .map((nodeType) =>
+            <button style={{ display: "block" }} key={nodeType} onClick={(e) => {
+              const { top, left } = graphContainerElem.current!.getBoundingClientRect();
+              addNode(nodeType, graph.project({
+                x: e.clientX - left - 150/2,
+                y: e.clientY - top,
+              }))}
+            }>
+              {nodeType}
+            </button>
+          )
         }
       </ContextMenu>
       <div className={styles.rightClickMenu} />
