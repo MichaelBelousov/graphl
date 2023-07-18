@@ -181,15 +181,9 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
   )
 };
 
-import { nodes as _nodeTypes } from "../libs/std/builtin.json"
+import { nodes as builtinNodeTypes } from "../libs/std/builtin.json"
 import { ContextMenu } from './ContextMenu'
-
-const nodeTypes = {
-  ...Object.fromEntries(
-    Object.entries(_nodeTypes)
-      .map(([k, v]) => [k, makeNodeComponent(v as NodeDesc)])
-  )
-};
+import { NoderContext } from './NoderContext'
 
 const CustomEdge = (props: EdgeProps) => {
   // TODO: draw path from boundary of handle box
@@ -245,6 +239,15 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
 
   const connectingNodeId = React.useRef<string>();
   const graphContainerElem = React.useRef<HTMLDivElement>(null);
+
+  const noder = React.useContext(NoderContext);
+
+  const nodeTypes = React.useMemo(() => {
+    return Object.fromEntries(
+      Object.entries({...builtinNodeTypes, ...noder.lastNodeTypes})
+        .map(([k, v]) => [k, makeNodeComponent(v as NodeDesc)])
+    );
+  }, [noder.lastNodeTypes]);
 
   return (
     <div className={styles.page}>

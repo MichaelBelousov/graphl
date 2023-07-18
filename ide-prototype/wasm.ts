@@ -10,10 +10,11 @@ type CompatibleWebAssemblyInstance = WebAssembly.Instance & {
   }
 }
 
-type Str = string & {
-  _ptr: number;
+interface Str {
+  value: string;
+  ptr: number;
   free(): void;
-};
+}
 
 export function assertCompatibleWasmInstance(w: WebAssembly.Instance): asserts w is CompatibleWebAssemblyInstance {
   assert(w.exports.memory instanceof WebAssembly.Memory);
@@ -25,7 +26,7 @@ export function makeWasmHelper(wasmInst: WebAssembly.Instance) {
   assertCompatibleWasmInstance(wasmInst);
 
   return {
-    ptrToStr(ptr: number, encoding?: string): string {
+    ptrToStr(ptr: number, encoding?: string): Str {
       const slice = new Uint8Array(wasmInst.exports.memory.buffer.slice(ptr));
       let i = 0;
       for (; i < slice.byteLength; ++i) {
@@ -36,11 +37,11 @@ export function makeWasmHelper(wasmInst: WebAssembly.Instance) {
 
     ptrAndLenToStr(ptr: number, len: number, encoding = "utf8"): Str {
       const slice = wasmInst.exports.memory.buffer.slice(ptr, ptr + len);
-      //console.log(new Uint8Array(slice));
-      const str = new String(new TextDecoder(encoding).decode(slice)) as Partial<Str>;
-      str._ptr = ptr;
-      str.free = function (this: Str) { wasmInst.exports.free_string(this._ptr); }
-      return str as Str;
+      return {
+        value: new TextDecoder(encoding).decode(slice),
+        ptr,
+        free(this: Str) { wasmInst.exports.free_string(this.ptr); },
+      };
     },
 
     marshalString(str: string): Str {

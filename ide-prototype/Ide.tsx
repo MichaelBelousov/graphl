@@ -25,13 +25,9 @@ export function TextEditor(props: TextEditor.Props) {
 
   const noder = useContext(NoderContext);
 
+  // TODO: do this in a worker with cancellation cuz it's slow...
   useEffect(() => {
-    const marshalledSrc = noder.wasmUtils.marshalString(editorProgram);
-    const resultPtr = noder.noder.exports.readSrc(marshalledSrc._ptr);
-    // FIXME: ptrToStr creates a botched string
-    const result = noder.wasmUtils.ptrToStr(resultPtr);
-    marshalledSrc.free();
-    //console.log(result);
+    const result = noder.sourceDefinesToNodeTypes(editorProgram);
   }, [editorProgram]);
 
   useEffect(() => {
