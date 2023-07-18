@@ -108,17 +108,22 @@ const NodeHandle = (props: {
     }));
   }, [literalValue, props.owningNodeId]);
 
-  return <Handle
-    id={id}
-    type={isInput ? "source" : "target"}
-    position={isInput ? "left" : "right"}
-    className={classNames(styles.handle, isInput ? styles.inputHandle : styles.outputHandle)}
-    style={{
-      backgroundColor: pinTypeColorMap[props.type],
-      top: `${100 * (props.index + 0.5) / props.siblingCount}%`,
-    }}
-  >
-    <div>
+  return (
+    <div 
+      className={classNames(styles.handle, isInput ? styles.inputHandle : styles.outputHandle)}
+      style={{
+        top: `${100 * (props.index + (isInput ? 0.9 : 0.5)) / props.siblingCount}%`,
+      }}
+    >
+      <Handle
+        id={id}
+        type={isInput ? "source" : "target"}
+        position={isInput ? "left" : "right"}
+        className={styles.knob}
+        style={{
+          backgroundColor: pinTypeColorMap[props.type] ?? "black",
+        }}
+      />
       <label>{props.label}</label>
       {isInput && !isConnected
         && <input
@@ -128,7 +133,7 @@ const NodeHandle = (props: {
         />
       }
     </div>
-  </Handle>
+  );
 };
 
 function assert(condition: any, message?: string): asserts condition {
@@ -141,42 +146,52 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
     ? assert("variadic not yet supported") as never
     : nodeDesc.inputs;
 
+  const width = Math.max(160, 50 + 9 * Math.max(
+    nodeDesc.label.length,
+    ...inputs.map(i => i.label.length),
+    ...nodeDesc.outputs.map(o => o.label.length)
+  ));
+
   return (
     <div
       className={styles.node}
       style={{
-        height: 30 * inputs.length,
-        width: 150,
+        height: 30 + 30 * inputs.length,
+        width,
       }}
     >
-      {inputs.map((input, i) =>
-        <NodeHandle
-          {...input}
-          literalInputs={props.data.literalInputs}
-          key={i}
-          owningNodeId={props.id}
-          direction="input"
-          index={i}
-          siblingCount={inputs.length}
-        />
-      )}
-      <Center>
-        <strong>{nodeDesc.label}</strong>
-      </Center>
+      <strong>{nodeDesc.label}</strong>
       <button onClick={props.data.onDelete} className={styles.deleteButton}>
         &times;
       </button>
-      {nodeDesc.outputs.map((output, i) =>
-        <NodeHandle
-          {...output}
-          literalInputs={props.data.literalInputs}
-          key={i}
-          owningNodeId={props.id}
-          direction="output"
-          index={i}
-          siblingCount={nodeDesc.outputs.length}
-        />
-      )}
+      <div className={styles.connectionsGrid}>
+        <div className={styles.inputsColumn}>
+          {inputs.map((input, i) =>
+            <NodeHandle
+              {...input}
+              {...props.data}
+              key={i}
+              owningNodeId={props.id}
+              direction="input"
+              index={i}
+              siblingCount={inputs.length}
+            />
+          )}
+        </div>
+        <div className={styles.outputsColumn}>
+          {nodeDesc.outputs.map((output, i) =>
+            <NodeHandle
+              {...output}
+              {...props.data}
+              key={i}
+              owningNodeId={props.id}
+              direction="output"
+              index={i}
+              siblingCount={nodeDesc.outputs.length}
+            />
+          )}
+        </div>
+      </div>
     </div>
   )
 };
