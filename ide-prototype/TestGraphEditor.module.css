@@ -61,6 +61,7 @@
 }
 
 .knob {
+  border: initial;
   border-radius: 50%;
   min-height: 18px;
   min-width: 18px;

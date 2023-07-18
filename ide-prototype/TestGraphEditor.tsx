@@ -152,7 +152,7 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
 
   const width = Math.max(160, 50 + 9 * Math.max(
     nodeDesc.label.length,
-    ...inputs.map(i => i.label.length),
+    ...inputs.map(i => i.label.length), // inputs can have literals, need to consider that
     ...nodeDesc.outputs.map(o => o.label.length)
   ));
 
