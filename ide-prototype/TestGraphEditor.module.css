@@ -45,6 +45,8 @@
   width: var(--size);
   left: calc(100% - var(--size));
   border: solid 1px black;
+  border-top: 0;
+  border-right: 0;
   box-sizing: border-box;
   background-color: #f00;
   color: #fff;

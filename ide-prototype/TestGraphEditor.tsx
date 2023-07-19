@@ -160,7 +160,9 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
       <div className={styles.nodeHeader}>
         <strong>{nodeDesc.label}</strong>
         <button onClick={props.data.onDelete} className={classNames(styles.deleteButton, styles.clickable)}>
-          &times;
+          <Center>
+            &times;
+          </Center>
         </button>
       </div>
       <div className={styles.connectionsGrid}>
