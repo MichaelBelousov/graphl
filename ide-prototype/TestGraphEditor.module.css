@@ -16,23 +16,6 @@
   height: calc(100vh - var(--toolbarHeight));
 }
 
-.deleteButton {
-  position: absolute;
-  top: 0;
-  --size: 25px;
-  height: var(--size);
-  width: var(--size);
-  left: calc(100% - var(--size));
-  border: solid 1px black;
-  box-sizing: border-box;
-  background-color: #f00;
-  color: #fff;
-  font-size: 16pt;
-  font-weight: 500;
-
-  cursor: pointer;
-}
-
 .node {
   border: solid 1px black;
   background-color: white;
@@ -43,6 +26,30 @@
   display: flex;
   gap: 11px;
   align-items: center;
+}
+
+.nodeHeader {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.deleteButton {
+  --size: 25px;
+  height: var(--size);
+  width: var(--size);
+  left: calc(100% - var(--size));
+  border: solid 1px black;
+  box-sizing: border-box;
+  background-color: #f00;
+  color: #fff;
+  font-size: 16pt;
+  font-weight: 500;
 }
 
 .handle {

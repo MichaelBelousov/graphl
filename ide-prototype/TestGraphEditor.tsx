@@ -157,10 +157,12 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
         width: "max-content",
       }}
     >
-      <strong>{nodeDesc.label}</strong>
-      <button onClick={props.data.onDelete} className={styles.deleteButton}>
-        &times;
-      </button>
+      <div className={styles.nodeHeader}>
+        <strong>{nodeDesc.label}</strong>
+        <button onClick={props.data.onDelete} className={classNames(styles.deleteButton, styles.clickable)}>
+          &times;
+        </button>
+      </div>
       <div className={styles.connectionsGrid}>
         <div className={styles.inputsColumn}>
           {inputs.map((input, i) =>
