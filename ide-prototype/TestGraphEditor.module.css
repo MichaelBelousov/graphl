@@ -88,9 +88,13 @@
 
 .connectionsGrid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: auto auto;
 }
 
-.inputsColumn {}
+.inputsColumn {
+  display: grid;
+}
 
-.outputsColumn {}
+.outputsColumn {
+  display: grid;
+}

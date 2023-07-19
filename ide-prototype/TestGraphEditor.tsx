@@ -150,18 +150,11 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
     ? assert("variadic not yet supported") as never
     : nodeDesc.inputs;
 
-  const width = Math.max(160, 50 + 9 * Math.max(
-    nodeDesc.label.length,
-    ...inputs.map(i => i.label.length), // inputs can have literals, need to consider that
-    ...nodeDesc.outputs.map(o => o.label.length)
-  ));
-
   return (
     <div
       className={styles.node}
       style={{
-        height: 30 + 30 * inputs.length,
-        width,
+        width: "max-content",
       }}
     >
       <strong>{nodeDesc.label}</strong>
