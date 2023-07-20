@@ -3,7 +3,7 @@
     "package-name": "builtin"
   },
   "types": {
-    "num //(native with conversion rules)": { "union": ["f64", "f32", "i32", "i64", "u32", "u64"] }
+    "num //(native with conversion rules)": { "union": ["f64", "f32", "i32", "i64", "u32", "u64", "b"] }
   },
   "nodes": {
     "max": {
@@ -56,6 +56,51 @@
       ],
       "outputs": [
         { "label": "", "type": "num" }
+      ]
+    },
+    "if": {
+      "label": "if",
+      "inputs": [
+        { "label": "", "type": "exec" },
+        { "label": "condition", "type": "bool" }
+      ],
+      "outputs": [
+        { "label": "then", "type": "exec" },
+        { "label": "else", "type": "exec" }
+      ]
+    },
+    "sequence": {
+      "label": "sequence",
+      "inputs": [
+        { "label": "", "type": "exec" }
+      ],
+      "outputs": [
+        { "varidic": true, "type": "exec" }
+      ]
+    },
+    "set!": {
+      "label": "set!",
+      "data": {
+        "variable": {
+          "name": null,
+          "type": null
+        }
+      },
+      "inputs": [
+        { "label": "value", "type": "T" }
+      ],
+      "outputs": [
+        { "label": "value", "type": "T" }
+      ]
+    },
+    "cast": {
+      "label": "set!",
+      "typevars": [{ "name": "T" }],
+      "inputs": [
+        { "label": "value", "type": "T" }
+      ],
+      "outputs": [
+        { "label": "value", "type": "T" }
       ]
     }
   }

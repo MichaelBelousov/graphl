@@ -34,7 +34,6 @@ interface NodeData {
 interface NodeState extends NodeData {
   /** shallow merges in a patch to the data for that entry */
   onChange(newData: Partial<NodeData>): void
-  onDelete(): void
 }
 
 interface AppState {
@@ -50,14 +49,27 @@ const AppCtx = React.createContext<AppState>(
   })
 )
 
-type PinType = "string" | "num" | "exec" | "boolean" | string;
+type Type =
+  | "num"
+  | "string"
+  | "exec"
+  | "bool"
+  | "i32" | "i64" | "f32" | "f64" | "u32" | "u64"
+  | { enum: any[] }
+  | { struct: Record<string, string> };
+
+const typesRegistry: Record<string, Type> = {};
+
+type PinType = "string" | "num" | "exec" | "bool" | string;
 
 interface NodeDesc {
   label: string,
   inputs:
     | { variadic: true, type: PinType }
     | { label: string, type: PinType, default?: any }[]
-  outputs: { label: string, type: PinType }[]
+  outputs:
+    | { variadic: true, type: PinType }
+    | { label: string, type: PinType }[]
 }
 
 function colorForPinType(pinType: PinType) {
@@ -119,6 +131,8 @@ const LiteralInput = (props: {
     )}
     </select>
   }
+
+  return null;
 };
 
 const NodeHandle = (props: {
@@ -191,6 +205,8 @@ function assert(condition: any, message?: string): asserts condition {
 }
 
 const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) => {
+  const graph = useReactFlow();
+
   const inputs = "variadic" in nodeDesc.inputs
     ? assert("variadic not yet supported") as never
     : nodeDesc.inputs;
@@ -204,7 +220,10 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
     >
       <div className={styles.nodeHeader}>
         <strong>{nodeDesc.label}</strong>
-        <button onClick={props.data.onDelete} className={classNames(styles.deleteButton, styles.clickable)}>
+        <button
+          onClick={() => graph.deleteElements({ nodes: [{ id: props.id }] })}
+          className={classNames(styles.deleteButton, styles.clickable)}
+        >
           <Center>
             &times;
           </Center>
@@ -315,7 +334,6 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
                 }
                 return copy
               }),
-            onDelete: () => graph.deleteElements({ nodes: [{ id: newId }] }),
             literalInputs: {},
             typeIfDefaulted: nodeType,
           },
@@ -466,7 +484,4 @@ namespace TestGraphEditor {
 }
 
 export default TestGraphEditor
-function useGraph() {
-    throw new Error('Function not implemented.')
-}
 
