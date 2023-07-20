@@ -50,7 +50,7 @@ const AppCtx = React.createContext<AppState>(
   })
 )
 
-type PinType = "string" | "num" | "exec"
+type PinType = "string" | "num" | "exec" | string;
 
 interface NodeDesc {
   label: string,
@@ -60,16 +60,58 @@ interface NodeDesc {
   outputs: { label: string, type: PinType }[]
 }
 
-const pinTypeColorMap: Record<PinType, string> = {
-  num: "#ff0000",
-  string: "#0000ff",
-  exec: "#000000",
-};
+function colorForPinType(pinType: PinType) {
+    if (pinType.length === 0) return "#000000";
+    pinType = pinType.repeat(6);
+    const charCodes = [
+        48 + pinType.charCodeAt(0) % 16,
+        48 + pinType.charCodeAt(1) % 16,
+        48 + pinType.charCodeAt(2) % 16,
+        48 + pinType.charCodeAt(3) % 16,
+        48 + pinType.charCodeAt(4) % 16,
+        48 + pinType.charCodeAt(5) % 16,
+    ];
+    for (let i = 0; i < charCodes.length; ++i) {
+        if (charCodes[i] > 57)
+            charCodes[i] = 65 + charCodes[i] - 58; // shift from 0-9 utf-8 to A-F
+    }
+    console.log("#" + String.fromCharCode(...charCodes));
+    return "#" + String.fromCharCode(...charCodes);
+}
 
 const pinTypeInputValidatorMap: Record<PinType, Parameters<typeof useValidatedInput<any>>[1]> = {
   num: undefined,
   string: {},
   exec: {},
+};
+
+const LiteralInput = (props: {
+  type: PinType,
+  literalInputs: NodeData["literalInputs"]
+  default: any,
+  index: number,
+}) => {
+  if (!(props.index in props.literalInputs))
+    props.literalInputs[props.index] = props.default;
+
+  // TODO: highlight bad values and explain
+  const [literalValue, literalValueInput, setLiteralValueInput, _errorStatus, _errorReason]
+    = useValidatedInput(props.literalInputs[props.index]);
+
+  if (props.type === "num")
+    return <input
+      value={literalValueInput}
+      onChange={(e) => setLiteralValueInput(e.currentTarget.value)}
+      style={{width: "8em"}}
+    />;
+
+  if (typeof props.type === "object" && "enum" in props.type) {
+    return <select>
+      {props.type.enum.values.map((v) =>
+        <option value={v}>{v}</option>
+    )}
+    </select>
+  }
 };
 
 const NodeHandle = (props: {
@@ -79,7 +121,6 @@ const NodeHandle = (props: {
   owningNodeId: string;
   index: number;
   default?: any;
-  siblingCount: number;
   setInputStatus?: (status: InputStatus, reason: string) => void;
 } & NodeData) => {
   const isInput = props.direction === "input"
@@ -113,9 +154,6 @@ const NodeHandle = (props: {
   return (
     <div 
       className={classNames(styles.handle, isInput ? styles.inputHandle : styles.outputHandle)}
-      style={{
-        top: `${100 * (props.index + (isInput ? 0.9 : 0.5)) / props.siblingCount}%`,
-      }}
     >
       {!isInput && label}
       <Handle
@@ -125,7 +163,7 @@ const NodeHandle = (props: {
         // FIXME: figure out if it's an exec knob
         className={classNames(styles.knob, isInput ? styles.inputHandle : styles.outputHandle)}
         style={{
-          backgroundColor: pinTypeColorMap[props.type] ?? "black",
+          backgroundColor: colorForPinType(props.type),
         }}
       />
       {isInput && label}
@@ -287,13 +325,16 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
   const noder = React.useContext(NoderContext);
 
   const nodeTypes = React.useMemo(() => {
-    return {
+    const result = {
       ...Object.fromEntries(
         Object.entries({...noder.lastNodeTypes, ...builtinNodeTypes})
           .map(([k, v]) => [k, makeNodeComponent(v as NodeDesc)])
       ),
       default: UnknownNode,
-    }
+    };
+    // HACK: to avoid implementing the language yet, explicitly set outputs:
+    //result["get-actor-location"].outputs = [{label: "a", type: "vector"}]
+    return result;
   }, [noder.lastNodeTypes]);
 
   return (
