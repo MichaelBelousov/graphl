@@ -21,11 +21,50 @@ function sourceDefinesToNodeTypes(source: string) {
   return value;
 }
 
+type Value = any;
+
+type Type =
+  | "num"
+  | "string"
+  | "exec"
+  | "bool"
+  | "i32" | "i64" | "f32" | "f64" | "u32" | "u64"
+  | { enum: Value }
+  | { union: string[] }
+  | { struct: Record<string, string> }
+  | "ptr-to-opaque";
+
+const defaultTypes: Record<string, Type> = {
+  "num": "num",
+  "string": "string",
+  "exec": "exec",
+  "bool": "bool",
+  "i32" : "i32" ,
+  "i64" : "i64" ,
+  "f32" : "f32" ,
+  "f64" : "f64" ,
+  "u32" : "u32" ,
+  "u64": "u64",
+  // FIXME: fake ue types
+  "actor": "ptr-to-opaque", 
+  "vector": { struct: { x: "f32", y: "f32", z: "f32" }},
+  "drone-state": { enum: ["move-up", "move-to-player", "dead"] },
+  "trace-channels": { enum: ["visibility", "collision"] },
+  "draw-debug-types": { enum: ["none", "line", "arrow"] },
+};
+
 interface NoderContextType {
   langLib: WebAssembly.Instance;
   wasmUtils: ReturnType<typeof makeWasmHelper>;
   sourceDefinesToNodeTypes(source: string): string;
+  // TODO: move mutating state into their own hooks
   lastNodeTypes: any;
+  lastFunctionDefs: {
+    [name: string]: {
+      variables: string[];
+    }
+  },
+  lastTypeDefs: { [name: string]: Type };
 }
 
 const defaultContext: NoderContextType = {
@@ -33,6 +72,8 @@ const defaultContext: NoderContextType = {
   wasmUtils,
   sourceDefinesToNodeTypes,
   lastNodeTypes: {},
+  lastFunctionDefs: {},
+  lastTypeDefs: defaultTypes
 };
 
 export const NoderContext = React.createContext<NoderContextType>(defaultContext);

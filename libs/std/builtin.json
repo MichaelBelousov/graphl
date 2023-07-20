@@ -87,20 +87,41 @@
         }
       },
       "inputs": [
-        { "label": "value", "type": "T" }
+        { "label": "value", "type": "data.variable.type" }
       ],
       "outputs": [
-        { "label": "value", "type": "T" }
+        { "label": "value", "type": "data.variable.type" }
       ]
     },
     "cast": {
-      "label": "set!",
-      "typevars": [{ "name": "T" }],
+      "label": "cast",
+      "data": {
+        "toType": null
+      },
       "inputs": [
-        { "label": "value", "type": "T" }
+        { "label": "value", "type": "data.toType" }
       ],
       "outputs": [
-        { "label": "value", "type": "T" }
+        { "label": "success", "type": "exec" },
+        { "label": "failed", "type": "exec" },
+        { "label": "value", "type": "data.toType" }
+      ]
+    },
+
+    "switch": {
+      "label": "switch",
+      "data": {
+        "variable": {
+          "name": null,
+          "type": null
+        }
+      },
+      "inputs": [
+        { "label": "", "type": "exec" },
+        { "label": "value", "type": "data.toType" }
+      ],
+      "outputs": [
+        { "label": "fake-case1", "type": "data.variable.type" }
       ]
     }
   }

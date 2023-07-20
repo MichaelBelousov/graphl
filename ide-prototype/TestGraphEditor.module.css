@@ -114,3 +114,11 @@
 .outputsColumn {
   display: grid;
 }
+
+.addNodeMenuOption {
+  display: block;
+}
+
+.addNodeMenuOption:hover {
+  font-weight: bold;
+}

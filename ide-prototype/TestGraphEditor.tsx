@@ -49,17 +49,6 @@ const AppCtx = React.createContext<AppState>(
   })
 )
 
-type Type =
-  | "num"
-  | "string"
-  | "exec"
-  | "bool"
-  | "i32" | "i64" | "f32" | "f64" | "u32" | "u64"
-  | { enum: any[] }
-  | { struct: Record<string, string> };
-
-const typesRegistry: Record<string, Type> = {};
-
 type PinType = "string" | "num" | "exec" | "bool" | string;
 
 interface NodeDesc {
@@ -117,6 +106,8 @@ const LiteralInput = (props: {
   const [literalValue, literalValueInput, setLiteralValueInput, _errorStatus, _errorReason]
     = useValidatedInput(props.literalInputs[props.index]);
 
+  const typeDescriptor = typesRegistry[props.type];
+
   if (props.type === "num")
     return <input
       value={literalValueInput}
@@ -124,11 +115,9 @@ const LiteralInput = (props: {
       style={{width: "8em"}}
     />;
 
-  if (typeof props.type === "object" && "enum" in props.type) {
+  if (typeof typeDescriptor === "object" && typeDescriptor && "enum" in typeDescriptor) {
     return <select>
-      {props.type.enum.values.map((v) =>
-        <option value={v}>{v}</option>
-    )}
+      {typeDescriptor.enum.values.map((v) => <option value={v}>{v}</option>)}
     </select>
   }
 
@@ -379,6 +368,25 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
         { label: "hit bone name", type: "string" },
       ]
     };
+
+    result["break hit result"] = {
+      description: "break a hit result struct",
+      label: "add",
+      inputs: [
+        { label: "hit", type: "Hit" },
+      ],
+      outputs: [
+        { label: "location", type: "vector" },
+        { label: "normal", type: "vector" },
+        { label: "impact point", type: "vector" },
+        { label: "impact normal", type: "vector" },
+        { label: "physical material", type: "physical materials" },
+        { label: "hit actor", type: "actor" },
+        { label: "hit component", type: "scene-component" },
+        { label: "hit bone name", type: "string" },
+      ]
+    };
+
     return result;
   }, [noder.lastNodeTypes]);
 
@@ -398,7 +406,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
         {Object.keys(nodeTypes)
           .filter(key => key !== "default")
           .map((nodeType) =>
-            <button style={{ display: "block" }} key={nodeType} onClick={(e) => {
+            <em className={styles.addNodeMenuOption} key={nodeType} onClick={(e) => {
               const { top, left } = graphContainerElem.current!.getBoundingClientRect();
               addNode(nodeType, graph.project({
                 x: e.clientX - left - 150/2,
@@ -406,7 +414,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
               }))}
             }>
               {nodeType}
-            </button>
+            </em>
           )
         }
       </ContextMenu>
@@ -415,7 +423,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
         <button
           onClick={() => {
             downloadFile({
-              fileName: 'out.dialogue.json',
+              fileName: 'graph.json',
               content: JSON.stringify({ nodes: graph.getNodes(), edges: graph.getEdges() }),
             })
           }}
