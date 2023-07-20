@@ -29,7 +29,7 @@ type Type =
   | "exec"
   | "bool"
   | "i32" | "i64" | "f32" | "f64" | "u32" | "u64"
-  | { enum: Value }
+  | { enum: Value[] }
   | { union: string[] }
   | { struct: Record<string, string> }
   | "ptr-to-opaque";
@@ -46,7 +46,7 @@ const defaultTypes: Record<string, Type> = {
   "u32" : "u32" ,
   "u64": "u64",
   // FIXME: fake ue types
-  "actor": "ptr-to-opaque", 
+  "actor": "ptr-to-opaque",
   "vector": { struct: { x: "f32", y: "f32", z: "f32" }},
   "drone-state": { enum: ["move-up", "move-to-player", "dead"] },
   "trace-channels": { enum: ["visibility", "collision"] },

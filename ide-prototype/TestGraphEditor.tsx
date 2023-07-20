@@ -24,6 +24,7 @@ import { useValidatedInput, useStable } from "@bentley/react-hooks"
 import { InputStatus } from '@bentley/react-hooks/lib/useValidatedInput'
 import { Center } from "./Center";
 import { persistentData } from "./AppPersistentState";
+import { NoderContext } from './NoderContext'
 
 interface NodeData {
   literalInputs: Record<number, any>;
@@ -36,9 +37,9 @@ interface NodeState extends NodeData {
   onChange(newData: Partial<NodeData>): void
 }
 
+// FIXME: remove
 interface AppState {
-  graph: {
-  }
+  graph: {}
 }
 
 const AppCtx = React.createContext<AppState>(
@@ -67,11 +68,13 @@ function colorForPinType(pinType: PinType) {
     "exec": "#ffffff",
     "num": "#ff0000",
     "string": "#00ff00",
+    "bool": "#0000ff",
   };
   const maybeSpecificPinColor = specificPinColors[pinType]
   if (maybeSpecificPinColor !== undefined)
     return maybeSpecificPinColor;
-  pinType = pinType.repeat(6); // FIXME: this causes grayscale values for "T"
+
+  pinType = pinType.repeat(6); // FIXME: this causes grayscale values for like "T"
   const charCodes = [
     48 + pinType.charCodeAt(0) % 16,
     48 + pinType.charCodeAt(1) % 16,
@@ -96,8 +99,9 @@ const pinTypeInputValidatorMap: Record<PinType, Parameters<typeof useValidatedIn
 const LiteralInput = (props: {
   type: PinType,
   literalInputs: NodeData["literalInputs"]
-  default: any,
+  default?: any,
   index: number,
+  owningNodeId: string,
 }) => {
   if (!(props.index in props.literalInputs))
     props.literalInputs[props.index] = props.default;
@@ -106,7 +110,20 @@ const LiteralInput = (props: {
   const [literalValue, literalValueInput, setLiteralValueInput, _errorStatus, _errorReason]
     = useValidatedInput(props.literalInputs[props.index]);
 
-  const typeDescriptor = typesRegistry[props.type];
+  const graph = useReactFlow();
+  const noder = React.useContext(NoderContext);
+
+  React.useEffect(() => {
+    graph.setNodes(prev => prev.map((n: Node<NodeData>) => {
+      if (n.id === props.owningNodeId) {
+        n.data = { ...n.data };
+        n.data.literalInputs[props.index] = literalValue;
+      }
+      return n;
+    }));
+  }, [literalValue, props.owningNodeId]);
+
+  const typeDescriptor = noder.lastTypeDefs[props.type];
 
   if (props.type === "num")
     return <input
@@ -117,7 +134,7 @@ const LiteralInput = (props: {
 
   if (typeof typeDescriptor === "object" && typeDescriptor && "enum" in typeDescriptor) {
     return <select>
-      {typeDescriptor.enum.values.map((v) => <option value={v}>{v}</option>)}
+      {typeDescriptor.enum.map((v) => <option value={v}>{v}</option>)}
     </select>
   }
 
@@ -136,7 +153,6 @@ const NodeHandle = (props: {
   const isInput = props.direction === "input"
   const id = `${props.owningNodeId}_${isInput}_${props.index}`;
   const edges = useEdges();
-  const graph = useReactFlow();
   const isConnected = React.useMemo(() =>
     edges.find(e => e.sourceHandle === id || e.targetHandle === id),
     [edges]
@@ -144,20 +160,6 @@ const NodeHandle = (props: {
 
   if (!(props.index in props.literalInputs))
     props.literalInputs[props.index] = props.default;
-
-  // TODO: highlight bad values and explain
-  const [literalValue, literalValueInput, setLiteralValueInput, _errorStatus, _errorReason]
-    = useValidatedInput(props.literalInputs[props.index]);
-
-  React.useEffect(() => {
-    graph.setNodes(prev => prev.map((n: Node<NodeData>) => {
-      if (n.id === props.owningNodeId) {
-        n.data = { ...n.data };
-        n.data.literalInputs[props.index] = literalValue;
-      }
-      return n;
-    }));
-  }, [literalValue, props.owningNodeId]);
 
   const label = <label>{props.label}</label>;
 
@@ -170,19 +172,21 @@ const NodeHandle = (props: {
         id={id}
         type={isInput ? "source" : "target"}
         position={isInput ? "left" : "right"}
-        // FIXME: figure out if it's an exec knob
-        className={classNames(styles.knob, isInput ? styles.inputHandle : styles.outputHandle)}
+        className={classNames(
+          styles.knob,
+          props.type === "exec"
+            ? styles.arrowRight
+            : isInput
+              ? styles.inputHandle
+              : styles.outputHandle,
+        )}
         style={{
           backgroundColor: colorForPinType(props.type),
         }}
       />
       {isInput && label}
       {isInput && !isConnected
-        && <input
-            value={literalValueInput}
-            onChange={(e) => setLiteralValueInput(e.currentTarget.value)}
-            style={{width: "8em"}}
-           />
+        && <LiteralInput {...props} />
       }
     </div>
   );
@@ -279,7 +283,6 @@ const UnknownNode = (props: NodeProps<NodeState>) => {
 
 import { nodes as builtinNodeTypes } from "../libs/std/builtin.json"
 import { ContextMenu } from './ContextMenu'
-import { NoderContext } from './NoderContext'
 
 const CustomEdge = (props: EdgeProps) => {
   // TODO: draw path from boundary of handle box
@@ -340,7 +343,6 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
 
   const nodeDescs = React.useMemo(() => {
     const result = { ...noder.lastNodeTypes, ...builtinNodeTypes };
-    //
     // HACK: to avoid implementing the language (return is inferred), explicitly set outputs:
     if (result["get-actor-location"])
       result["get-actor-location"].outputs = [{label: "a", type: "vector"}];
@@ -350,6 +352,11 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
 
     if (result["single-line-trace-by-channel"])
       result["single-line-trace-by-channel"].outputs = [{label: "next", type: "exec"}, {label:"Out Hit", type: "Hit"}, {label:"DidHit", type: "bool"}];
+
+    if (result["delay"]) {
+      result["delay"].inputs = [{ label: "", type: "exec"}, { label: "seconds", type: "num" }];
+      result["delay"].outputs = [{ label: "", type: "exec" }];
+    }
 
     result["break hit result"] = {
       description: "break a hit result struct",
@@ -403,20 +410,22 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
   return (
     <div className={styles.page}>
       <ContextMenu>
-        {Object.keys(nodeTypes)
-          .filter(key => key !== "default")
-          .map((nodeType) =>
-            <em className={styles.addNodeMenuOption} key={nodeType} onClick={(e) => {
-              const { top, left } = graphContainerElem.current!.getBoundingClientRect();
-              addNode(nodeType, graph.project({
-                x: e.clientX - left - 150/2,
-                y: e.clientY - top,
-              }))}
-            }>
-              {nodeType}
-            </em>
-          )
-        }
+        <div className={styles.addNodeMenu}>
+          {Object.keys(nodeTypes)
+            .filter(key => key !== "default")
+            .map((nodeType) =>
+              <em className={styles.addNodeMenuOption} key={nodeType} onClick={(e) => {
+                const { top, left } = graphContainerElem.current!.getBoundingClientRect();
+                addNode(nodeType, graph.project({
+                  x: e.clientX - left - 150/2,
+                  y: e.clientY - top,
+                }))}
+              }>
+                {nodeType}
+              </em>
+            )
+          }
+        </div>
       </ContextMenu>
       <div className={styles.rightClickMenu} />
       <div className={styles.toolbar}>
