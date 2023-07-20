@@ -50,7 +50,7 @@ const AppCtx = React.createContext<AppState>(
   })
 )
 
-type PinType = "string" | "num" | "exec" | string;
+type PinType = "string" | "num" | "exec" | "boolean" | string;
 
 interface NodeDesc {
   label: string,
@@ -61,22 +61,29 @@ interface NodeDesc {
 }
 
 function colorForPinType(pinType: PinType) {
-    if (pinType.length === 0) return "#000000";
-    pinType = pinType.repeat(6);
-    const charCodes = [
-        48 + pinType.charCodeAt(0) % 16,
-        48 + pinType.charCodeAt(1) % 16,
-        48 + pinType.charCodeAt(2) % 16,
-        48 + pinType.charCodeAt(3) % 16,
-        48 + pinType.charCodeAt(4) % 16,
-        48 + pinType.charCodeAt(5) % 16,
-    ];
-    for (let i = 0; i < charCodes.length; ++i) {
-        if (charCodes[i] > 57)
-            charCodes[i] = 65 + charCodes[i] - 58; // shift from 0-9 utf-8 to A-F
-    }
-    console.log("#" + String.fromCharCode(...charCodes));
-    return "#" + String.fromCharCode(...charCodes);
+  const specificPinColors = {
+    "": "#000000",
+    "exec": "#ffffff",
+    "num": "#ff0000",
+    "string": "#00ff00",
+  };
+  const maybeSpecificPinColor = specificPinColors[pinType]
+  if (maybeSpecificPinColor !== undefined)
+    return maybeSpecificPinColor;
+  pinType = pinType.repeat(6); // FIXME: this causes grayscale values for "T"
+  const charCodes = [
+    48 + pinType.charCodeAt(0) % 16,
+    48 + pinType.charCodeAt(1) % 16,
+    48 + pinType.charCodeAt(2) % 16,
+    48 + pinType.charCodeAt(3) % 16,
+    48 + pinType.charCodeAt(4) % 16,
+    48 + pinType.charCodeAt(5) % 16,
+  ];
+  for (let i = 0; i < charCodes.length; ++i) {
+    if (charCodes[i] > 57)
+      charCodes[i] = 65 + charCodes[i] - 58; // shift from 0-9 utf-8 to A-F
+  }
+  return "#" + String.fromCharCode(...charCodes);
 }
 
 const pinTypeInputValidatorMap: Record<PinType, Parameters<typeof useValidatedInput<any>>[1]> = {
@@ -324,18 +331,48 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
 
   const noder = React.useContext(NoderContext);
 
+  const nodeDescs = React.useMemo(() => {
+    const result = { ...noder.lastNodeTypes, ...builtinNodeTypes };
+    //
+    // HACK: to avoid implementing the language (return is inferred), explicitly set outputs:
+    if (result["get-actor-location"])
+      result["get-actor-location"].outputs = [{label: "a", type: "vector"}];
+
+    if (result["single-line-trace-by-channel"])
+      result["single-line-trace-by-channel"].outputs = [{label: "next", type: "exec"}, {label:"Out Hit", type: "Hit"}, {label:"DidHit", type: "bool"}];
+
+    if (result["single-line-trace-by-channel"])
+      result["single-line-trace-by-channel"].outputs = [{label: "next", type: "exec"}, {label:"Out Hit", type: "Hit"}, {label:"DidHit", type: "bool"}];
+
+    result["break hit result"] = {
+      description: "break a hit result struct",
+      label: "add",
+      inputs: [
+        { label: "hit", type: "Hit" },
+      ],
+      outputs: [
+        { label: "location", type: "vector" },
+        { label: "normal", type: "vector" },
+        { label: "impact point", type: "vector" },
+        { label: "impact normal", type: "vector" },
+        { label: "physical material", type: "physical materials" },
+        { label: "hit actor", type: "actor" },
+        { label: "hit component", type: "scene-component" },
+        { label: "hit bone name", type: "string" },
+      ]
+    };
+    return result;
+  }, [noder.lastNodeTypes]);
+
   const nodeTypes = React.useMemo(() => {
-    const result = {
+    return {
       ...Object.fromEntries(
-        Object.entries({...noder.lastNodeTypes, ...builtinNodeTypes})
+        Object.entries(nodeDescs)
           .map(([k, v]) => [k, makeNodeComponent(v as NodeDesc)])
       ),
       default: UnknownNode,
     };
-    // HACK: to avoid implementing the language yet, explicitly set outputs:
-    //result["get-actor-location"].outputs = [{label: "a", type: "vector"}]
-    return result;
-  }, [noder.lastNodeTypes]);
+  }, [nodeDescs]);
 
   return (
     <div className={styles.page}>
