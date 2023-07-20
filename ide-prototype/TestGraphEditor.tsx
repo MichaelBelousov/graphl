@@ -52,14 +52,25 @@ const AppCtx = React.createContext<AppState>(
 
 type PinType = "string" | "num" | "exec" | "bool" | string;
 
+interface Input {
+  label: string
+  type: PinType
+  default?: any
+}
+
+interface Output {
+  label: string
+  type: PinType
+}
+
 interface NodeDesc {
   label: string,
   inputs:
     | { variadic: true, type: PinType }
-    | { label: string, type: PinType, default?: any }[]
+    | Input[]
   outputs:
     | { variadic: true, type: PinType }
-    | { label: string, type: PinType }[]
+    | Output[]
 }
 
 function colorForPinType(pinType: PinType) {
@@ -96,6 +107,17 @@ const pinTypeInputValidatorMap: Record<PinType, Parameters<typeof useValidatedIn
   exec: {},
 };
 
+const useForceUpdateNode = () => {
+  const graph = useReactFlow();
+  return (nodeId: string) => {
+    graph.setNodes(nodes => nodes.map(n => {
+      if (n.id === nodeId)
+        n.data = {...n.data}; // force update
+      return n;
+    }));
+  };
+}
+
 const LiteralInput = (props: {
   type: PinType,
   literalInputs: NodeData["literalInputs"]
@@ -131,6 +153,21 @@ const LiteralInput = (props: {
       onChange={(e) => setLiteralValueInput(e.currentTarget.value)}
       style={{width: "8em"}}
     />;
+
+  const forceUpdateNode = useForceUpdateNode();
+
+  if (props.type === "bool") {
+    return <input
+      type="checkbox"
+      checked={!!literalValueInput}
+      onChange={() => {
+        setLiteralValueInput(prev => prev === "" ? "true" : "")
+        // FIXME: not working
+        forceUpdateNode(props.owningNodeId);
+      }}
+      style={{width: "8em"}}
+    />;
+  }
 
   if (typeof typeDescriptor === "object" && typeDescriptor && "enum" in typeDescriptor) {
     return <select>
@@ -185,9 +222,7 @@ const NodeHandle = (props: {
         }}
       />
       {isInput && label}
-      {isInput && !isConnected
-        && <LiteralInput {...props} />
-      }
+      {isInput && !isConnected && <LiteralInput {...props} />}
     </div>
   );
 };
@@ -200,9 +235,15 @@ function assert(condition: any, message?: string): asserts condition {
 const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) => {
   const graph = useReactFlow();
 
-  const inputs = "variadic" in nodeDesc.inputs
-    ? assert("variadic not yet supported") as never
-    : nodeDesc.inputs;
+  const [inputs, setInputs] = "variadic" in nodeDesc.inputs
+    ? React.useState<Input[]>([])
+    : [nodeDesc.inputs, undefined] as const;
+
+  const [outputs, setOutputs] = "variadic" in nodeDesc.outputs
+    ? React.useState<Output[]>([])
+    : [nodeDesc.outputs, undefined] as const;
+
+  const variadicType = nodeDesc.inputs.type || nodeDesc.outputs.type;
 
   return (
     <div
@@ -221,6 +262,17 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
             &times;
           </Center>
         </button>
+        {variadicType && 
+        <button
+          onClick={() => (setOutputs ?? setInputs)?.(prev =>
+              prev.concat({label: `${prev.length}`, type: variadicType })
+            )}
+          className={classNames(styles.deleteButton, styles.clickable)}
+        >
+          <Center>
+            +
+          </Center>
+        </button>}
       </div>
       <div className={styles.connectionsGrid}>
         <div className={styles.inputsColumn}>
@@ -232,12 +284,11 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
               owningNodeId={props.id}
               direction="input"
               index={i}
-              siblingCount={inputs.length}
             />
           )}
         </div>
         <div className={styles.outputsColumn}>
-          {nodeDesc.outputs.map((output, i) =>
+          {outputs.map((output, i) =>
             <NodeHandle
               {...output}
               {...props.data}
@@ -245,7 +296,6 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
               owningNodeId={props.id}
               direction="output"
               index={i}
-              siblingCount={nodeDesc.outputs.length}
             />
           )}
         </div>
@@ -376,21 +426,16 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
       ]
     };
 
-    result["break hit result"] = {
-      description: "break a hit result struct",
-      label: "add",
+    result["do-once"] = {
+      description: "do something once",
+      label: "Do once",
       inputs: [
-        { label: "hit", type: "Hit" },
+        { label: "reset", type: "exec" },
+        { label: "reset", type: "exec" },
+        { label: "Start Closed", type: "bool", default: false },
       ],
       outputs: [
-        { label: "location", type: "vector" },
-        { label: "normal", type: "vector" },
-        { label: "impact point", type: "vector" },
-        { label: "impact normal", type: "vector" },
-        { label: "physical material", type: "physical materials" },
-        { label: "hit actor", type: "actor" },
-        { label: "hit component", type: "scene-component" },
-        { label: "hit bone name", type: "string" },
+        { label: "completed", type: "exec" },
       ]
     };
 

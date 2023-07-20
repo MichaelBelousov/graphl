@@ -74,9 +74,7 @@
       "inputs": [
         { "label": "", "type": "exec" }
       ],
-      "outputs": [
-        { "varidic": true, "type": "exec" }
-      ]
+      "outputs": { "variadic": true, "type": "exec" }
     },
     "set!": {
       "label": "set!",
