@@ -26,17 +26,6 @@ import { Center } from "./Center";
 import { persistentData } from "./AppPersistentState";
 import { NoderContext } from './NoderContext'
 
-interface NodeData {
-  literalInputs: Record<number, any>;
-  // FIXME: probably need all input data to be duplicated here so that we can preserve connections
-  typeIfDefaulted: string;
-}
-
-interface NodeState extends NodeData {
-  /** shallow merges in a patch to the data for that entry */
-  onChange(newData: Partial<NodeData>): void
-}
-
 // FIXME: remove
 interface AppState {
   graph: {}
@@ -71,6 +60,19 @@ interface NodeDesc {
   outputs:
     | { variadic: true, type: PinType }
     | Output[]
+}
+
+interface NodeData {
+  literalInputs: Record<number, any>;
+  variadicInputs?: Input[];
+  variadicOutputs?: Output[];
+  // FIXME: probably need all input data to be duplicated here so that we can preserve connections
+  typeIfDefaulted: string;
+}
+
+interface NodeState extends NodeData {
+  /** shallow merges in a patch to the data for that entry */
+  onChange(newData: Partial<NodeData>): void
 }
 
 function colorForPinType(pinType: PinType) {
@@ -236,14 +238,15 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
   const graph = useReactFlow();
 
   const [inputs, setInputs] = "variadic" in nodeDesc.inputs
-    ? React.useState<Input[]>([])
-    : [nodeDesc.inputs, undefined] as const;
+    ? React.useState<Input[]>(props.data.variadicInputs ?? [])
+    : [nodeDesc.inputs];
 
   const [outputs, setOutputs] = "variadic" in nodeDesc.outputs
-    ? React.useState<Output[]>([])
-    : [nodeDesc.outputs, undefined] as const;
+    ? React.useState<Output[]>(props.data.variadicOutputs ?? [])
+    : [nodeDesc.outputs];
 
-  const variadicType = nodeDesc.inputs.type || nodeDesc.outputs.type;
+  const variadicType = "variadic" in nodeDesc.inputs && nodeDesc.inputs.type
+                    || "variadic" in nodeDesc.outputs && nodeDesc.outputs.type;
 
   return (
     <div
@@ -254,6 +257,21 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
     >
       <div className={styles.nodeHeader}>
         <strong>{nodeDesc.label}</strong>
+        {variadicType &&
+          <button
+            onClick={() => (setOutputs ?? setInputs)?.(prev => {
+                const result = prev.concat({label: `${prev.length}`, type: variadicType });
+                if (setOutputs) props.data.variadicOutputs = result;
+                else props.data.variadicInputs = result;
+                return result;
+              })}
+            className={classNames(styles.deleteButton, styles.clickable)}
+          >
+            <Center>
+              +
+            </Center>
+          </button>
+        }
         <button
           onClick={() => graph.deleteElements({ nodes: [{ id: props.id }] })}
           className={classNames(styles.deleteButton, styles.clickable)}
@@ -262,17 +280,6 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
             &times;
           </Center>
         </button>
-        {variadicType && 
-        <button
-          onClick={() => (setOutputs ?? setInputs)?.(prev =>
-              prev.concat({label: `${prev.length}`, type: variadicType })
-            )}
-          className={classNames(styles.deleteButton, styles.clickable)}
-        >
-          <Center>
-            +
-          </Center>
-        </button>}
       </div>
       <div className={styles.connectionsGrid}>
         <div className={styles.inputsColumn}>
