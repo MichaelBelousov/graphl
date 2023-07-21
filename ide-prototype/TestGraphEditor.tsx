@@ -66,8 +66,7 @@ interface NodeData {
   literalInputs: Record<number, any>;
   variadicInputs?: Input[];
   variadicOutputs?: Output[];
-  // FIXME: probably need all input data to be duplicated here so that we can preserve connections
-  typeIfDefaulted: string;
+  fullDesc: NodeDesc;
 }
 
 interface NodeState extends NodeData {
@@ -82,6 +81,7 @@ function colorForPinType(pinType: PinType) {
     "num": "#ff0000",
     "string": "#00ff00",
     "bool": "#0000ff",
+    "vector": "#ffff00",
   };
   const maybeSpecificPinColor = specificPinColors[pinType]
   if (maybeSpecificPinColor !== undefined)
@@ -133,8 +133,8 @@ const LiteralInput = (props: {
   // TODO: highlight bad values and explain
   const [literalValue, literalValueInput, setLiteralValueInput, _errorStatus, _errorReason]
     = useValidatedInput(props.literalInputs[props.index], {
-    parse: props.type === "bool" ? (x) => ({ value: !!x }) : undefined,
-    validate: props.type === "bool" ? () => ({ valid: true }) : undefined,
+    ...props.type === "bool" && { parse: (x) => ({ value: !!x }) },
+    ...props.type === "bool" && { validate: () => ({ valid: true }) },
   });
 
   const graph = useReactFlow();
@@ -152,14 +152,14 @@ const LiteralInput = (props: {
 
   const typeDescriptor = noder.lastTypeDefs[props.type];
 
+  const forceUpdateNode = useForceUpdateNode();
+
   if (props.type === "num")
     return <input
       value={literalValueInput}
       onChange={(e) => setLiteralValueInput(e.currentTarget.value)}
       style={{width: "8em"}}
     />;
-
-  const forceUpdateNode = useForceUpdateNode();
 
   if (props.type === "bool") {
     return <input
@@ -238,6 +238,7 @@ function assert(condition: any, message?: string): asserts condition {
 
 const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) => {
   const graph = useReactFlow();
+  const edges = useEdges();
 
   const [inputs, setInputs] = "variadic" in nodeDesc.inputs
     ? React.useState<Input[]>(props.data.variadicInputs ?? [])
@@ -249,6 +250,23 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
 
   const variadicType = "variadic" in nodeDesc.inputs && nodeDesc.inputs.type
                     || "variadic" in nodeDesc.outputs && nodeDesc.outputs.type;
+
+  const firstHandleId = `${props.id}_true_0`;
+
+  const inferredType = React.useMemo(() => {
+    if (inputs?.[0]?.type !== "T")
+      return undefined;
+    // FIXME: why are these directions backwards?
+    const firstSourceEdge = edges.find(e => firstHandleId === e.sourceHandle);
+    if (firstSourceEdge === undefined)
+      return undefined;
+    const targetOutputIndex = parseInt(firstSourceEdge.targetHandle!.split("_")[2]);
+    const targetNode = graph.getNode(firstSourceEdge.target);
+    if (!targetNode)
+      return undefined;
+    const targetOutput = targetNode.data.fullDesc.outputs[targetOutputIndex] as Output;
+    return targetOutput.type;
+  }, [edges, graph]);
 
   return (
     <div
@@ -289,6 +307,7 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
             <NodeHandle
               {...input}
               {...props.data}
+              type={inferredType ?? input.type}
               key={i}
               owningNodeId={props.id}
               direction="input"
@@ -301,6 +320,7 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
             <NodeHandle
               {...output}
               {...props.data}
+              type={inferredType ?? output.type}
               key={i}
               owningNodeId={props.id}
               direction="output"
@@ -323,7 +343,7 @@ const UnknownNode = (props: NodeProps<NodeState>) => {
         </button>
       </div>
       <Center>
-        <strong>Unknown type '{props.data.typeIfDefaulted}'</strong>
+        <strong>Unknown type '{props.data.fullDesc.label}'</strong>
       </Center>
     </div>
   )
@@ -352,40 +372,6 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
     persistentData.initialNodes = nodes;
     persistentData.initialEdges = edges;
   }, [nodes, edges]);
-
-  const addNode = React.useCallback(
-    (nodeType: string, position: {x: number, y:number}) => {
-      const newId = `${Math.round(Math.random() * Number.MAX_SAFE_INTEGER)}`
-      graph.addNodes({
-          id: newId,
-          type: nodeType,
-          data: {
-            onChange: (newVal: Partial<NodeState>) =>
-              graph.setNodes(prev => {
-                const copy = prev.slice()
-                const index = copy.findIndex(elem => elem.id === newId)
-                const elem = copy[index]
-                copy[index] = {
-                  ...elem,
-                  data: {
-                    ...elem.data,
-                    ...newVal,
-                  },
-                }
-                return copy
-              }),
-            literalInputs: {},
-            typeIfDefaulted: nodeType,
-          },
-          position: position,
-        }
-      )
-    },
-    []
-  )
-
-  const connectingNodeId = React.useRef<string>();
-  const graphContainerElem = React.useRef<HTMLDivElement>(null);
 
   const noder = React.useContext(NoderContext);
 
@@ -437,8 +423,60 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
       ]
     };
 
+    result["CustomTick"] = {
+      label: "CustomTick",
+      description: "custom tick I guess",
+      inputs: [
+        { label: "", type: "exec" },
+        { label: "target", type: "Pawn", default: "self" },
+      ],
+      outputs: [
+        { label: "", type: "exec" },
+      ]
+    };
+
+    if (result["get-socket-location"])
+      result["get-socket-location"].outputs = [
+        { label: "return", type: "vector" },
+      ];
+
     return result;
   }, [noder.lastNodeTypes]);
+
+  const addNode = React.useCallback(
+    (nodeType: string, position: {x: number, y:number}) => {
+      const newId = `${Math.round(Math.random() * Number.MAX_SAFE_INTEGER)}`
+      graph.addNodes({
+          id: newId,
+          type: nodeType,
+          data: {
+            onChange: (newVal: Partial<NodeState>) =>
+              graph.setNodes(prev => {
+                const copy = prev.slice()
+                const index = copy.findIndex(elem => elem.id === newId)
+                const elem = copy[index]
+                copy[index] = {
+                  ...elem,
+                  data: {
+                    ...elem.data,
+                    ...newVal,
+                  },
+                }
+                return copy
+              }),
+            literalInputs: {},
+            typeIfDefaulted: nodeType,
+            fullDesc: nodeDescs[nodeType],
+          },
+          position: position,
+        }
+      )
+    },
+    [nodeDescs]
+  )
+
+  const connectingNodeId = React.useRef<string>();
+  const graphContainerElem = React.useRef<HTMLDivElement>(null);
 
   const nodeTypes = React.useMemo(() => {
     return {
