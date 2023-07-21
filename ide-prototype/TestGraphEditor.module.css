@@ -63,6 +63,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  box-sizing: border-box;
 }
 
 .handle > label {

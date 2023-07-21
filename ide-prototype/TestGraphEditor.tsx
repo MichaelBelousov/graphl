@@ -132,7 +132,10 @@ const LiteralInput = (props: {
 
   // TODO: highlight bad values and explain
   const [literalValue, literalValueInput, setLiteralValueInput, _errorStatus, _errorReason]
-    = useValidatedInput(props.literalInputs[props.index]);
+    = useValidatedInput(props.literalInputs[props.index], {
+    parse: props.type === "bool" ? (x) => ({ value: !!x }) : undefined,
+    validate: props.type === "bool" ? () => ({ valid: true }) : undefined,
+  });
 
   const graph = useReactFlow();
   const noder = React.useContext(NoderContext);
@@ -167,7 +170,6 @@ const LiteralInput = (props: {
         // FIXME: not working
         forceUpdateNode(props.owningNodeId);
       }}
-      style={{width: "8em"}}
     />;
   }
 
@@ -312,28 +314,17 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
 };
 
 const UnknownNode = (props: NodeProps<NodeState>) => {
+  // TODO: store connections on data in case the correct type is restored
   return (
-    <div
-      style={{ height: 50, width: 100, }}
-    >
-      <Handle
-        type="source"
-        position="left"
-        className={styles.handle}
-        style={{ top: `50%` }}
-      />
+    <div className={styles.node} style={{ height: 50, width: 100 }}>
+      <div className={styles.nodeHeader}>
+        <button className={styles.deleteButton}>
+          &times;
+        </button>
+      </div>
       <Center>
         <strong>Unknown type '{props.data.typeIfDefaulted}'</strong>
       </Center>
-      <button onClick={props.data.onDelete} className={styles.deleteButton}>
-        &times;
-      </button>
-      <Handle
-        type="target"
-        position="right"
-        className={classNames(styles.handle, styles.outputHandle)}
-        style={{ top: `50%` }}
-      />
     </div>
   )
 };
@@ -415,9 +406,9 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
       result["delay"].outputs = [{ label: "", type: "exec" }];
     }
 
-    result["break hit result"] = {
+    result["break-hit-result"] = {
       description: "break a hit result struct",
-      label: "add",
+      label: "Break Hit Result",
       inputs: [
         { label: "hit", type: "Hit" },
       ],
@@ -434,8 +425,8 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
     };
 
     result["do-once"] = {
+      label: "Do Once",
       description: "do something once",
-      label: "Do once",
       inputs: [
         { label: "reset", type: "exec" },
         { label: "reset", type: "exec" },
