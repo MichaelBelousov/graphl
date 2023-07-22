@@ -3,45 +3,70 @@ const builtin = @import("builtin");
 const sexp = @import("./sexp.zig");
 const Sexp = sexp.Sexp;
 const syms = sexp.syms;
-
-pub const Loc = extern struct {
-    /// 1-indexed
-    line: usize = 1,
-    /// 1-indexed
-    col: usize = 1,
-    index: usize = 0,
-
-    fn increment(self: *@This(), c: u8) void {
-        switch (c) {
-            '\n' => {
-                self.line += 1;
-                self.col = 1;
-                self.index += 1;
-            },
-            else => {
-                self.index += 1;
-                self.col += 1;
-            }
-        }
-    }
-};
+const Loc = @import("./loc.zig").Loc;
 
 fn peek(stack: *std.SegmentedList(Sexp, 32)) ?*Sexp {
     if (stack.len == 0) return null;
     return stack.uncheckedAt(stack.len - 1);
 }
 
+pub const SpacePrint = struct {
+    spaces: usize = 0,
+
+    pub fn init(spaces: usize) @This() {
+        return @This(){.spaces = spaces};
+    }
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        var i: usize = self.spaces;
+        while (i != 0) : (i -= 1) {
+            _ = try writer.write(" ");
+        }
+    }
+};
+
 pub const Parser = struct {
     pub const Error = union (enum) {
         expectedFraction: Loc,
+        unmatchedCloser: Loc,
         unknownToken: Loc,
         OutOfMemory: void,
         badInteger: []const u8,
 
-        pub fn _format(self: @This(), alloc: std.mem.Allocator) []const u8 {
-            _ = self;
-            _ = alloc;
-            return "";
+        /// returned slice must be freed by the passed in allocator
+        pub fn contextualize(self: @This(), alloc: std.mem.Allocator, source: []const u8) ![]const u8 {
+            return switch (self) {
+                .expectedFraction => |loc| {
+                    return try std.fmt.allocPrint(
+                        alloc,
+                        \\There is a decimal point here so expected a fraction:
+                        \\ at {}
+                        \\   {s}
+                        \\   {}^
+                        , .{loc, try loc.containing_line(source), SpacePrint.init(loc.col - 1)}
+                    );
+                },
+                .unmatchedCloser => |loc| {
+                    return try std.fmt.allocPrint(
+                        alloc,
+                        \\Closing parenthesis with no opener
+                        \\ at {}
+                        \\  | {s}
+                        \\    {}^
+                        , .{loc, try loc.containing_line(source), SpacePrint.init(loc.col - 1)}
+                    );
+                },
+                .unknownToken => "Fatal: unknownToken: '{s}'",
+                .OutOfMemory => "Fatal: System out of memory",
+                .badInteger => "Fatal: parser thought this token was an integer: '{s}'",
+            };
         }
     };
 
@@ -122,7 +147,7 @@ pub const Parser = struct {
                     },
                     ')' => {
                         const old_top = self.stack.pop() orelse unreachable;
-                        const new_top = peek(&self.stack) orelse unreachable;
+                        const new_top = peek(&self.stack) orelse return Error{.unmatchedCloser = self.loc};
                         (new_top.list.addOne()
                             catch return .OutOfMemory
                         ).* = old_top;
@@ -270,4 +295,25 @@ test "parse 1" {
     try t.expect(expected == .ok);
     try t.expect(actual == .ok);
     try t.expect(expected.recursive_eq(actual));
+}
+
+test "parse recovery" {
+    const source =
+        \\
+        \\(+ ('extra 5)))
+    ;
+    var actual = Parser.parse(t.allocator, source);
+    defer actual.deinit();
+
+    try t.expect(actual == .err);
+    const err_str = try actual.err.contextualize(t.allocator, source);
+    defer actual.deinit();
+
+    try t.expectEqualStrings(
+        \\Closing parenthesis with no opener
+        \\ at unknown:2:14
+        \\  | (+ ('extra 5)))
+        \\                 ^
+        , err_str
+    );
 }
