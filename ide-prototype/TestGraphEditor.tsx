@@ -68,6 +68,7 @@ interface NodeData {
   variadicOutputs?: Output[];
   fullDesc: NodeDesc;
   setTarget?: string;
+  comment?: string;
 }
 
 interface NodeState extends NodeData {
@@ -176,7 +177,7 @@ const LiteralInput = (props: {
 
   if (typeof typeDescriptor === "object" && typeDescriptor && "enum" in typeDescriptor) {
     return <select>
-      {typeDescriptor.enum.map((v) => <option value={v}>{v}</option>)}
+      {typeDescriptor.enum.map((v) => <option value={v} key={v}>{v}</option>)}
     </select>
   }
 
@@ -271,6 +272,7 @@ const makeNodeComponent = (nodeId: string, nodeDesc: NodeDesc) => (props: NodePr
   }, [edges, graph]);
 
   const noder = React.useContext(NoderContext);
+  const commentElem = React.useRef<HTMLElement>(null);
 
   return (
     <div
@@ -281,6 +283,21 @@ const makeNodeComponent = (nodeId: string, nodeDesc: NodeDesc) => (props: NodePr
     >
       <div className={styles.nodeHeader}>
         <strong>{nodeDesc.label}</strong>
+        <em className={classNames(styles.nodeComment, !props.data.comment && styles.nodeCommentEmpty)}
+            ref={commentElem}
+            contentEditable
+            // TODO: use onFocus/onBlur
+            onInput={e => {
+              const value = e.currentTarget.textContent
+              if (value) {
+                props.data.comment = value;
+                commentElem.current?.classList.remove(styles.nodeCommentEmpty);
+              } else {
+                commentElem.current?.classList.add(styles.nodeCommentEmpty);
+              }
+            }}>
+            {props.data.comment}
+        </em>
         {variadicType &&
           <button
             onClick={() => (setOutputs ?? setInputs)?.(prev => {
@@ -300,7 +317,7 @@ const makeNodeComponent = (nodeId: string, nodeDesc: NodeDesc) => (props: NodePr
           <select defaultValue={props.data.setTarget} onChange={e => { props.data.setTarget = e.currentTarget.value }}>
             {/* noder.lastVarDefs */}
             {Object.entries({...noder.lastFunctionDefs, x: 0, y: 10}).map(([name, _func]) =>
-              <option value={name}>{name}</option>
+              <option value={name} key={name}>{name}</option>
             )}
           </select>
         </>}
@@ -429,12 +446,12 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
       label: "Do Once",
       description: "do something once",
       inputs: [
-        { label: "reset", type: "exec" },
-        { label: "reset", type: "exec" },
+        { label: "", type: "exec" },
+        { label: "Reset", type: "exec" },
         { label: "Start Closed", type: "bool", default: false },
       ],
       outputs: [
-        { label: "completed", type: "exec" },
+        { label: "Completed", type: "exec" },
       ]
     };
 
@@ -464,6 +481,29 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
       result["get-socket-location"].outputs = [
         { label: "return", type: "vector" },
       ];
+
+    result["Move Component To"] = {
+      label: "Move Component To",
+      description: "local function",
+      data: {
+        isAsync: true,
+      },
+      inputs: [
+        { label: "Move", type: "exec" },
+        { label: "Stop", type: "exec" },
+        { label: "Return", type: "exec" },
+        { label: "Component", type: "scene-component" },
+        { label: "Target Relative Location", type: "vector" },
+        { label: "Target Relative Rotation", type: "rotator" },
+        { label: "Ease Out", type: "bool" },
+        { label: "Ease In", type: "bool" },
+        { label: "Over Time", type: "f32" },
+      ],
+      outputs: [
+        { label: "Completed", type: "exec" },
+      ],
+    };
+
 
     return result;
   }, [noder.lastNodeTypes]);

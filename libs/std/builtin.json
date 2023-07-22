@@ -109,7 +109,7 @@
       ]
     },
 
-    "switch": {
+    "fake-switch": {
       "label": "switch",
       "data": {
         "variable": {
@@ -119,10 +119,12 @@
       },
       "inputs": [
         { "label": "", "type": "exec" },
-        { "label": "value", "type": "data.toType" }
+        { "label": "value", "type": "data.variable.type" }
       ],
       "outputs": [
-        { "label": "fake-case1", "type": "data.variable.type" }
+        { "label": "Move to Player", "type": "exec" },
+        { "label": "Move Up", "type": "exec" },
+        { "label": "Dead", "type": "exec" }
       ]
     }
   }
