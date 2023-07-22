@@ -26,6 +26,10 @@ import { Center } from "./Center";
 import { persistentData } from "./AppPersistentState";
 import { NoderContext } from './NoderContext'
 
+function sortedKeys<T>(t: T): T {
+  return Object.fromEntries(Object.entries(t).sort(([ka], [kb]) => ka.localeCompare(kb)));
+}
+
 // FIXME: remove
 interface AppState {
   graph: {}
@@ -134,9 +138,24 @@ const LiteralInput = (props: {
 
   // TODO: highlight bad values and explain
   const [literalValue, literalValueInput, setLiteralValueInput, _errorStatus, _errorReason]
-    = useValidatedInput(props.literalInputs[props.index], {
-    ...props.type === "bool" && { parse: (x) => ({ value: !!x }) },
-    ...props.type === "bool" && { validate: () => ({ valid: true }) },
+    = useValidatedInput<boolean | string | number>(props.literalInputs[props.index], {
+    ...props.type === "bool" ? {
+      parse: (x) => ({ value: !!x }),
+      validate: () => ({ valid: true }),
+      pattern: /.*/ // BUG: some idiot didn't make pattern/validate mutually exclusive
+    } : props.type === "number" ? {
+      // BUG: copy and pasted from useValidatedInput because some idiot forgot to make export the defaults
+      parse: (text) => {
+        const result = parseFloat(text);
+        if (Number.isNaN(result)) return { value: null, status: "invalid number" };
+        else return { value: result };
+      },
+      pattern: /^-?(0|[1-9]\d*)(\.\d+)?$/i,
+    } : {
+      parse: (x) => ({ value: x }),
+      validate: () => ({ valid: true }),
+      pattern: /.*/
+    },
   });
 
   const graph = useReactFlow();
@@ -163,6 +182,14 @@ const LiteralInput = (props: {
       style={{width: "8em"}}
     />;
 
+  if (props.type === "string")
+    return <input
+      value={literalValueInput}
+      onChange={(e) => setLiteralValueInput(e.currentTarget.value)}
+      style={{width: "8em"}}
+    />;
+
+
   if (props.type === "bool") {
     return <input
       type="checkbox"
@@ -176,8 +203,17 @@ const LiteralInput = (props: {
   }
 
   if (typeof typeDescriptor === "object" && typeDescriptor && "enum" in typeDescriptor) {
-    return <select>
-      {typeDescriptor.enum.map((v) => <option value={v} key={v}>{v}</option>)}
+    return <select defaultValue={props.literalInputs[props.index]} value={literalValueInput} onChange={e => setLiteralValueInput(e.currentTarget.value)}>
+      //<option value=""/>
+      {typeDescriptor.enum.map((v) =>
+        <option
+          defaultValue={props.literalInputs[props.index]}
+          value={v}
+          key={v}
+        >
+          {v}
+        </option>
+      )}
     </select>
   }
 
@@ -286,6 +322,7 @@ const makeNodeComponent = (nodeId: string, nodeDesc: NodeDesc) => (props: NodePr
         <em className={classNames(styles.nodeComment, !props.data.comment && styles.nodeCommentEmpty)}
             ref={commentElem}
             contentEditable
+            defaultValue={props.data.comment}
             // TODO: use onFocus/onBlur
             onInput={e => {
               const value = e.currentTarget.textContent
@@ -293,10 +330,11 @@ const makeNodeComponent = (nodeId: string, nodeDesc: NodeDesc) => (props: NodePr
                 props.data.comment = value;
                 commentElem.current?.classList.remove(styles.nodeCommentEmpty);
               } else {
+                props.data.comment = "";
                 commentElem.current?.classList.add(styles.nodeCommentEmpty);
               }
-            }}>
-            {props.data.comment}
+        }}>
+          {props.data.comment /* this warns but defaultValue doesn't work */}
         </em>
         {variadicType &&
           <button
@@ -413,11 +451,19 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
     if (result["vector-length"])
       result["vector-length"].outputs = [{label: "a", type: "f64"}];
 
-    if (result["single-line-trace-by-channel"])
-      result["single-line-trace-by-channel"].outputs = [{label: "next", type: "exec"}, {label:"Out Hit", type: "Hit"}, {label:"DidHit", type: "bool"}];
-
-    if (result["single-line-trace-by-channel"])
-      result["single-line-trace-by-channel"].outputs = [{label: "next", type: "exec"}, {label:"Out Hit", type: "Hit"}, {label:"DidHit", type: "bool"}];
+    if (result["single-line-trace-by-channel"]) {
+      result["single-line-trace-by-channel"].inputs = [
+        { "label": "", "type": "exec" },
+        { "label": "start", "type": "vector" },
+        { "label": "end", "type": "vector" },
+        { "label": "channel", "type": "trace-channels" },
+        { "label": "trace-complex", "type": "bool" },
+        { "label": "actors-to-ignore", "type": "actor-list" },
+        { "label": "draw-debug-type", "type": "draw-debug-types", "default": { "symbol": "'none" } },
+        { "label": "ignore-self", "type": "bool", "default": false }
+      ];
+      result["single-line-trace-by-channel"].outputs = [{label: "", type: "exec"}, {label:"Out Hit", type: "Hit"}, {label:"DidHit", type: "bool"}];
+    }
 
     if (result["delay"]) {
       result["delay"].inputs = [{ label: "", type: "exec"}, { label: "seconds", type: "num" }];
@@ -504,8 +550,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
       ],
     };
 
-
-    return result;
+    return sortedKeys(result);
   }, [noder.lastNodeTypes]);
 
   const addNode = React.useCallback(
