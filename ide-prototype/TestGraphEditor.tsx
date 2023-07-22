@@ -150,7 +150,7 @@ const LiteralInput = (props: {
         if (Number.isNaN(result)) return { value: null, status: "invalid number" };
         else return { value: result };
       },
-      pattern: /^-?(0|[1-9]\d*)(\.\d+)?$/i,
+      pattern: /^-?\d*(\.\d+)?$/i,
     } : {
       parse: (x) => ({ value: x }),
       validate: () => ({ valid: true }),
@@ -354,7 +354,11 @@ const makeNodeComponent = (nodeId: string, nodeDesc: NodeDesc) => (props: NodePr
         {nodeId === "set!" && <>
           <select defaultValue={props.data.setTarget} onChange={e => { props.data.setTarget = e.currentTarget.value }}>
             {/* noder.lastVarDefs */}
-            {Object.entries({...noder.lastFunctionDefs, x: 0, y: 10}).map(([name, _func]) =>
+            {Object.entries({
+              ...noder.lastFunctionDefs,
+              DroneState: {},
+              OverTime: {},
+            }).map(([name, _func]) =>
               <option value={name} key={name}>{name}</option>
             )}
           </select>

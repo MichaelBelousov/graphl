@@ -48,7 +48,14 @@
   position: absolute;
   min-width: 10px;
   border: 1px solid black;
-  overflow-x: visible;
+  max-width: 100%;
+  width: max-content;
+  max-height: 1.2em;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
 }
 
 .nodeCommentEmpty {
