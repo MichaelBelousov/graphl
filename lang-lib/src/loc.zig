@@ -11,18 +11,21 @@ pub const Loc = struct {
 
     fn find_backwards(haystack: []const u8, needle: u8, start: ?usize) ?usize {
         var i = start orelse std.mem.len(haystack) - 1;
-        while (i > 0) : (i -= 1) {
+        while (true) {
             if (haystack[i] == needle) return i;
+            // FIXME: this reeks
+            if (i == 0) break;
+            i -= 1;
+
         }
         return null;
     }
 
     pub fn containing_line(self: @This(), source: []const u8) ![]const u8 {
         const line_start =
-            if (self.index > 0)
-                if (find_backwards(source, '\n', self.index - 1)) |i|
-                    i + 1
-                else 0
+            if (self.index == 0) 0
+            else if (find_backwards(source, '\n', self.index - 1)) |i|
+                i + 1
             else 0;
         const line_end =  std.mem.sliceTo(source[self.index..], '\n').len + self.index;
         return source[line_start..line_end];
@@ -76,6 +79,14 @@ test "containing_line" {
     try std.testing.expectEqualStrings(
         "",
         try (Loc{ .col = 1, .line = 3, .index=18 }).containing_line(src)
+    );
+    const source2 =
+        \\
+        \\(+ ('extra 5))
+    ;
+    try std.testing.expectEqualStrings(
+        "(+ ('extra 5))",
+        try (Loc{ .col = 15, .line = 2, .index=15 }).containing_line(source2)
     );
 }
 

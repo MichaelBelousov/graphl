@@ -48,15 +48,15 @@ pub const Parser = struct {
                         alloc,
                         \\There is a decimal point here so expected a fraction:
                         \\ at {}
-                        \\   {s}
-                        \\   {}^
+                        \\  | {s}
+                        \\    {}^
                         , .{loc, try loc.containing_line(source), SpacePrint.init(loc.col - 1)}
                     );
                 },
                 .unmatchedCloser => |loc| {
                     return try std.fmt.allocPrint(
                         alloc,
-                        \\Closing parenthesis with no opener
+                        \\Closing parenthesis with no opener:
                         \\ at {}
                         \\  | {s}
                         \\    {}^
@@ -105,6 +105,9 @@ pub const Parser = struct {
     };
 
     pub fn parse(alloc: std.mem.Allocator, src: []const u8) Result {
+        // NOTE: tagged union errdefer hack
+        var result: Result = undefined;
+
         const State = enum {
             symbol,
             integer,
@@ -133,7 +136,7 @@ pub const Parser = struct {
             }
 
             fn deinit(self: *@This()) void {
-                self.stack.deinit();
+                self.stack.deinit(self.alloc);
             }
 
             fn onNextCharAfterTok(self: *@This()) ?Error {
@@ -175,8 +178,8 @@ pub const Parser = struct {
              catch return Result.err(.OutOfMemory)
         ).* = Sexp{.list = std.ArrayList(Sexp).init(algo_state.alloc)};
 
-        // FIXME: does errdefer even work here? perhaps I a helper function handle defer... or a mutable arg
-        errdefer algo_state.deinit();
+        // FIXME: does errdefer even work here? perhaps a helper function handle defer... or a mutable arg
+        defer if (result == .err) algo_state.deinit();
 
         while (algo_state.loc.index < src.len) : (algo_state.loc.increment(src[algo_state.loc.index])) {
             const c = src[algo_state.loc.index];
@@ -187,7 +190,7 @@ pub const Parser = struct {
             }
 
             switch (algo_state.state) {
-                .between => if (algo_state.onNextCharAfterTok()) |err| return Result.err(err),
+                .between => if (algo_state.onNextCharAfterTok()) |err| { result = Result.err(err); return result; },
                 .line_comments => switch (c) {
                     '\n' => algo_state.state = .between,
                     else => {},
@@ -198,7 +201,7 @@ pub const Parser = struct {
                         const last = top.list.addOne() catch return Result.err(.OutOfMemory);
                         last.* = Sexp{.symbol = tok_slice};
                         algo_state.tok_start = algo_state.loc.index;
-                        if (algo_state.onNextCharAfterTok()) |err| return Result.err(err);
+                        if (algo_state.onNextCharAfterTok()) |err| { result = Result.err(err); return result; }
                     },
                     else => {},
                 },
@@ -210,7 +213,7 @@ pub const Parser = struct {
                         last.* = Sexp{.borrowedString = tok_slice};
                         algo_state.tok_start = algo_state.loc.index;
                         algo_state.loc.increment(src[algo_state.loc.index]); // skip ending quote
-                        if (algo_state.onNextCharAfterTok()) |err| return Result.err(err);
+                        if (algo_state.onNextCharAfterTok()) |err| { result = Result.err(err); return result; }
                     },
                     '\\' => algo_state.state = .string_escaped_quote,
                     else => {},
@@ -225,7 +228,7 @@ pub const Parser = struct {
                         const int = std.fmt.parseInt(i64, tok_slice, 10)
                             catch return Result{.err = .{.badInteger = tok_slice}};
                         last.* = Sexp{.int = int};
-                        if (algo_state.onNextCharAfterTok()) |err| return Result.err(err);
+                        if (algo_state.onNextCharAfterTok()) |err| { result = Result.err(err); return result; }
                     },
                     else => return Result{.err=.{.unknownToken = algo_state.loc}},
                 },
@@ -244,7 +247,7 @@ pub const Parser = struct {
                         const top = peek(&algo_state.stack) orelse unreachable;
                         const last = top.list.addOne() catch return Result.err(.OutOfMemory);
                         last.* = if (c == 't') sexp.syms.@"true" else sexp.syms.@"false";
-                        if (algo_state.onNextCharAfterTok()) |err| return Result.err(err);
+                        if (algo_state.onNextCharAfterTok()) |err| { result = Result.err(err); return result; }
                     }, // TODO: use token
                     else => return Result{.err=.{.unknownToken = algo_state.loc}},
                 },
@@ -302,18 +305,20 @@ test "parse recovery" {
         \\
         \\(+ ('extra 5)))
     ;
+
     var actual = Parser.parse(t.allocator, source);
     defer actual.deinit();
 
     try t.expect(actual == .err);
+
     const err_str = try actual.err.contextualize(t.allocator, source);
-    defer actual.deinit();
+    defer t.allocator.free(err_str);
 
     try t.expectEqualStrings(
-        \\Closing parenthesis with no opener
-        \\ at unknown:2:14
+        \\Closing parenthesis with no opener:
+        \\ at unknown:2:15
         \\  | (+ ('extra 5)))
-        \\                 ^
+        \\                  ^
         , err_str
     );
 }
