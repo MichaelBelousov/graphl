@@ -20,7 +20,7 @@ import 'reactflow/dist/style.css'
 import styles from './TestGraphEditor.module.css'
 import { downloadFile, uploadFile } from './localFileManip'
 import classNames from './classnames'
-import { useValidatedInput, useStable } from "@bentley/react-hooks"
+import { useValidatedInput, useStable, useOnMount } from "@bentley/react-hooks"
 import { InputStatus } from '@bentley/react-hooks/lib/useValidatedInput'
 import { Center } from "./Center";
 import { persistentData } from "./AppPersistentState";
@@ -253,6 +253,7 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
 
   const firstHandleId = `${props.id}_true_0`;
 
+  // TODO: chain inferrence...
   const inferredType = React.useMemo(() => {
     if (inputs?.[0]?.type !== "T")
       return undefined;
@@ -280,11 +281,11 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
         {variadicType &&
           <button
             onClick={() => (setOutputs ?? setInputs)?.(prev => {
-                const result = prev.concat({label: `${prev.length}`, type: variadicType });
-                if (setOutputs) props.data.variadicOutputs = result;
-                else props.data.variadicInputs = result;
-                return result;
-              })}
+              const result = prev.concat({label: `${prev.length}`, type: variadicType });
+              if (setOutputs) props.data.variadicOutputs = result;
+              else props.data.variadicInputs = result;
+              return result;
+            })}
             className={classNames(styles.deleteButton, styles.clickable)}
           >
             <Center>
