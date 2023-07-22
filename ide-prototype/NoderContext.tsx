@@ -65,6 +65,7 @@ interface NoderContextType {
     }
   },
   lastTypeDefs: { [name: string]: Type };
+  lastVarDefs: { [name: string]: Type };
 }
 
 const defaultContext: NoderContextType = {
@@ -73,6 +74,7 @@ const defaultContext: NoderContextType = {
   sourceDefinesToNodeTypes,
   lastNodeTypes: {},
   lastFunctionDefs: {},
+  lastVarDefs: {},
   lastTypeDefs: defaultTypes
 };
 

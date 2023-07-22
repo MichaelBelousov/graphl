@@ -5,7 +5,7 @@
 
 (define (delay (f32 s)) (sleep (* 1000 s)))
 
-(define-macro (do-once reset-name body (default start-closed #f))
+(define-macro (do-onckje reset-name body (default start-closed #f))
   (define locked start-closed)
   (define (reset-name) (set! locked #f))
   (if (not done)
@@ -28,7 +28,7 @@
 ;; will this invoke a C++ compiler? then we need headers, defines, etc
 ;; what if it just compiles to C code? That might be ideal for game engines...
 (define (get-actor-location (actor a))
-  (cpp-call "AActor::GetLocation" a))
+(cpp-call "AActor::GetLocation" a))
 
 (define (get-actor-rotation (actor a))
   (cpp-call "AActor::GetRotation" a))
@@ -65,3 +65,15 @@
 (export do-once)
 (export actor get-actor-location get-actor-rotation)
 (export vector vector-length)
+
+;; app specific
+
+;;(define (CustomTick (actor drone-pawn)) 10)
+
+(define mesh 1)
+(define drone-state 2)
+(define current-spawn-point 3)
+(define capsule-component 10)
+(define speed 10)
+(define over-time 10)
+

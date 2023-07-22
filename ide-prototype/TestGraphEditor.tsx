@@ -67,6 +67,7 @@ interface NodeData {
   variadicInputs?: Input[];
   variadicOutputs?: Output[];
   fullDesc: NodeDesc;
+  setTarget?: string;
 }
 
 interface NodeState extends NodeData {
@@ -236,7 +237,7 @@ function assert(condition: any, message?: string): asserts condition {
     throw Error(message ?? "Assertion error, condition was falsey");
 }
 
-const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) => {
+const makeNodeComponent = (nodeId: string, nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) => {
   const graph = useReactFlow();
   const edges = useEdges();
 
@@ -269,6 +270,8 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
     return targetOutput.type;
   }, [edges, graph]);
 
+  const noder = React.useContext(NoderContext);
+
   return (
     <div
       className={styles.node}
@@ -293,6 +296,14 @@ const makeNodeComponent = (nodeDesc: NodeDesc) => (props: NodeProps<NodeState>) 
             </Center>
           </button>
         }
+        {nodeId === "set!" && <>
+          <select defaultValue={props.data.setTarget} onChange={e => { props.data.setTarget = e.currentTarget.value }}>
+            {/* noder.lastVarDefs */}
+            {Object.entries({...noder.lastFunctionDefs, x: 0, y: 10}).map(([name, _func]) =>
+              <option value={name}>{name}</option>
+            )}
+          </select>
+        </>}
         <button
           onClick={() => graph.deleteElements({ nodes: [{ id: props.id }] })}
           className={classNames(styles.deleteButton, styles.clickable)}
@@ -382,6 +393,9 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
     if (result["get-actor-location"])
       result["get-actor-location"].outputs = [{label: "a", type: "vector"}];
 
+    if (result["vector-length"])
+      result["vector-length"].outputs = [{label: "a", type: "f64"}];
+
     if (result["single-line-trace-by-channel"])
       result["single-line-trace-by-channel"].outputs = [{label: "next", type: "exec"}, {label:"Out Hit", type: "Hit"}, {label:"DidHit", type: "bool"}];
 
@@ -424,9 +438,9 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
       ]
     };
 
-    result["CustomTick"] = {
+    result["CustomTickCall"] = {
       label: "CustomTick",
-      description: "custom tick I guess",
+      description: "call custom tick",
       inputs: [
         { label: "", type: "exec" },
         { label: "target", type: "Pawn", default: "self" },
@@ -435,6 +449,16 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
         { label: "", type: "exec" },
       ]
     };
+
+    result["CustomTickEntry"] = {
+      label: "CustomTick",
+      description: "close custom tick",
+      inputs: [],
+      outputs: [
+        { label: "", type: "exec" },
+      ]
+    };
+
 
     if (result["get-socket-location"])
       result["get-socket-location"].outputs = [
@@ -483,7 +507,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
     return {
       ...Object.fromEntries(
         Object.entries(nodeDescs)
-          .map(([k, v]) => [k, makeNodeComponent(v as NodeDesc)])
+          .map(([k, v]) => [k, makeNodeComponent(k, v as NodeDesc)])
       ),
       default: UnknownNode,
     };
@@ -563,7 +587,6 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
                     n.data = {...n.data}; // force update
                   return n;
                 }));
-                const source = edge.sourceNode
               }
             }}
           >

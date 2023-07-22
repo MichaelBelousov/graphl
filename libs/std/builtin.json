@@ -20,42 +20,43 @@
     "+": {
       "description": "",
       "label": "add",
+      "typevars": [{ "name": "T", "extends": { "union": ["num"] } }],
       "inputs": [
-        { "label": "", "type": "num", "default": 0.0 },
-        { "label": "", "type": "num", "default": 0.0 }
+        { "label": "", "type": "T", "default": 0.0 },
+        { "label": "", "type": "T", "default": 0.0 }
       ],
       "outputs": [
-        { "label": "", "type": "num" }
+        { "label": "", "type": "T" }
       ]
     },
     "-": {
       "label": "sub",
       "inputs": [
-        { "label": "", "type": "num", "default": 0.0 },
-        { "label": "", "type": "num", "default": 0.0 }
+        { "label": "", "type": "T", "default": 0.0 },
+        { "label": "", "type": "T", "default": 0.0 }
       ],
       "outputs": [
-        { "label": "", "type": "num" }
+        { "label": "", "type": "T" }
       ]
     },
     "*": {
       "label": "mul",
       "inputs": [
-        { "label": "", "type": "num", "default": 1.0 },
-        { "label": "", "type": "num", "default": 1.0 }
+        { "label": "", "type": "T", "default": 1.0 },
+        { "label": "", "type": "T", "default": 1.0 }
       ],
       "outputs": [
-        { "label": "", "type": "num" }
+        { "label": "", "type": "T" }
       ]
     },
     "/": {
       "label": "div",
       "inputs": [
-        { "label": "", "type": "num", "default": 1.0 },
-        { "label": "", "type": "num", "default": 1.0 }
+        { "label": "", "type": "T", "default": 1.0 },
+        { "label": "", "type": "T", "default": 1.0 }
       ],
       "outputs": [
-        { "label": "", "type": "num" }
+        { "label": "", "type": "T" }
       ]
     },
     "if": {
@@ -85,9 +86,11 @@
         }
       },
       "inputs": [
+        { "label": "", "type": "exec" },
         { "label": "value", "type": "data.variable.type" }
       ],
       "outputs": [
+        { "label": "", "type": "exec" },
         { "label": "value", "type": "data.variable.type" }
       ]
     },
