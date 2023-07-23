@@ -136,6 +136,9 @@ pub const Parser = struct {
             }
 
             fn deinit(self: *@This()) void {
+                var iter = self.stack.constIterator(0);
+                while (iter.next()) |item|
+                    item.deinit(self.alloc);
                 self.stack.deinit(self.alloc);
             }
 
@@ -150,7 +153,10 @@ pub const Parser = struct {
                     },
                     ')' => {
                         const old_top = self.stack.pop() orelse unreachable;
-                        const new_top = peek(&self.stack) orelse return Error{.unmatchedCloser = self.loc};
+                        const new_top = peek(&self.stack) orelse {
+                            old_top.deinit(self.alloc);
+                            return Error{.unmatchedCloser = self.loc};
+                        };
                         (new_top.list.addOne()
                             catch return .OutOfMemory
                         ).* = old_top;
@@ -178,7 +184,6 @@ pub const Parser = struct {
              catch return Result.err(.OutOfMemory)
         ).* = Sexp{.list = std.ArrayList(Sexp).init(algo_state.alloc)};
 
-        // FIXME: does errdefer even work here? perhaps a helper function handle defer... or a mutable arg
         defer if (result == .err) algo_state.deinit();
 
         while (algo_state.loc.index < src.len) : (algo_state.loc.increment(src[algo_state.loc.index])) {
@@ -321,4 +326,13 @@ test "parse recovery" {
         \\                  ^
         , err_str
     );
+}
+
+test "simple error1" {
+    const source =
+        \\())
+    ;
+    var actual = Parser.parse(t.allocator, source);
+    defer actual.deinit();
+    try t.expect(actual == .err);
 }
