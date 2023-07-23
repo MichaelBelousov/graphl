@@ -628,7 +628,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
           onClick={() => {
             downloadFile({
               fileName: 'graph.json',
-              content: JSON.stringify({ nodes: graph.getNodes(), edges: graph.getEdges() }),
+              content: JSON.stringify({ nodes: graph.getNodes(), edges: graph.getEdges() }, null, " "),
             })
           }}
         >

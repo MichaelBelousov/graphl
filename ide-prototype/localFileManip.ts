@@ -7,12 +7,11 @@ interface DownloadFileOptsLocal {
 
 type DownloadFileOpts = DownloadFileOptsLocal
 
-const makeDataUrl = (
+const makeObjectUrl = (
   data: string,
-  type: string = 'text/plain',
-  charset: string = 'utf-8'
 ) => {
-  return `data:${type};charset=${charset},${encodeURI(data)}`
+  const blob = new Blob([data]);
+  return URL.createObjectURL(blob);
 }
 
 const mimetypeToExtensionMap: { [k: string]: string } = {
@@ -24,7 +23,7 @@ export const downloadFile = async (opts: DownloadFileOpts) => {
   const a = document.createElement('a')
   a.style.display = 'none'
   let contentType: string | undefined
-  a.href = makeDataUrl(opts.content)
+  a.href = makeObjectUrl(opts.content)
   if (opts.fileName) a.download = opts.fileName
   if (opts.appendEstimatedFileExtension && contentType) {
     a.download = `${a.download}.${mimetypeToExtensionMap[contentType] || 'txt'}`
