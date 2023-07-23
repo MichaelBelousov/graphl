@@ -135,7 +135,7 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
     };
 
     // FIXME: shouldn't we know node and import counts from the graph after parsing? Can
-    // potentially allocate one big arraylist
+    // potentially preallocate one big arraylist
     var import_exprs = std.SegmentedList(Sexp, 16){};
 
     {
@@ -294,14 +294,6 @@ fn free_string(str: [*:0]u8) callconv(.C) void {
     return global_alloc.allocator().free(str[0..std.mem.len(str)]);
 }
 
-comptime {
-    if (builtin.target.cpu.arch == .wasm32) {
-        @export(alloc_string, .{ .name = "alloc_string", .linkage = .Strong });
-        @export(free_string, .{ .name = "free_string", .linkage = .Strong });
-    }
-}
-
-
 export fn readSrc(src: [*:0]const u8, in_status: ?*c_int) [*:0]const u8 {
     var ignored_status: c_int = 0;
     const out_status = in_status orelse &ignored_status;
@@ -317,13 +309,18 @@ export fn readSrc(src: [*:0]const u8, in_status: ?*c_int) [*:0]const u8 {
         catch { out_status.* = 1; return "Error: write error"; };
 
     // FIXME: leak
-    return @ptrCast([*:0]const u8,
-        (
-            page_writer.concat(global_alloc.allocator())
-            catch { out_status.* = 1; return "Error: alloc concat error"; }
-        ).ptr);
+    return @ptrCast([*:0]const u8, (
+        page_writer.concat(global_alloc.allocator())
+        catch { out_status.* = 1; return "Error: alloc concat error"; }
+    ).ptr);
 }
 
 // TODO: only export in wasi
 pub fn main() void {}
 
+comptime {
+    if (builtin.target.cpu.arch == .wasm32) {
+        @export(alloc_string, .{ .name = "alloc_string", .linkage = .Strong });
+        @export(free_string, .{ .name = "free_string", .linkage = .Strong });
+    }
+}

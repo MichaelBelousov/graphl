@@ -235,24 +235,24 @@ pub fn readSrc(alloc: std.mem.Allocator, src: []const u8, writer: anytype) !void
     _ = try writer.write("\n");
 }
 
-// pub fn main() !void {
-//     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-//     defer arena.deinit();
-//     const alloc = arena.allocator();
+pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
 
-//     var args_iter = std.process.args();
-//     _ = args_iter.next(); // skip first arg since it is our own program
+    var args_iter = std.process.args();
+    _ = args_iter.next(); // skip first arg since it is our own program
 
-//     while (args_iter.next()) |arg| {
-//         if (std.os.getenv("DEBUG") != null)
-//             std.debug.print("input_file: {s}\n", .{arg});
+    while (args_iter.next()) |arg| {
+        if (std.os.getenv("DEBUG") != null)
+            std.debug.print("input_file: {s}\n", .{arg});
 
-//         const file = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), arg);
-//         defer file.free(alloc);
+        const file = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), arg);
+        defer file.free(alloc);
 
-//         const stdout_writer = std.io.getStdOut().writer();
-//         readSrc(alloc, file.buffer, stdout_writer)
-//             catch continue;
-//     }
-// }
+        const stdout_writer = std.io.getStdOut().writer();
+        readSrc(alloc, file.buffer, stdout_writer)
+            catch continue;
+    }
+}
 
