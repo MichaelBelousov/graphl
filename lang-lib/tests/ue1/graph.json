@@ -2,7 +2,7 @@
   "imports": {
     "https://example.com/stuff/ue": [{ "ref": "do-once" }],
     "https://example.com/stuff/ue/physics": [{ "ref": "single-line-trace-by-channel" }],
-    "file:///other": [{ "ref": "move-component-to" }]
+    "file:///other.json": [{ "ref": "move-component-to" }]
   },
   "nodes": [
     {

@@ -25,6 +25,7 @@ pub const Slice = extern struct {
     }
 };
 
+/// extern Result
 pub fn Result(comptime R: type) type {
     return extern struct {
         /// not initialized if err is not 0/null
@@ -32,6 +33,14 @@ pub fn Result(comptime R: type) type {
         err: ?[*:0]const u8,
         /// 0 if result is valid
         errCode: u8,
+
+        fn is_ok(self: @This()) bool {
+            return self.err == null;
+        }
+
+        fn is_err(self: @This()) bool {
+            return !self.is_ok();
+        }
 
         fn ok(r: R) @This() {
             return @This() {
@@ -45,13 +54,16 @@ pub fn Result(comptime R: type) type {
             return @This() {
                 .result = undefined,
                 .err = e,
-                .errCode = 1, // FIXME: not used
+                // TODO: add an "err_from_format" func with a comptime format arg
+                // which is used to generate a unique errCode
+                // FIXME: not used
+                .errCode = 1,
             };
         }
     };
 }
 
-const Loc = @import("./sexp_parser.zig").Loc;
+const Loc = @import("./loc.zig").Loc;
 
 const SourceToGraphErr = extern union {
     unexpectedEof: Loc,
@@ -68,7 +80,6 @@ const GraphToSourceErr = union (enum) {
     jsonImportedBindingsEmpty: void,
     jsonImportsNotAMap: void,
     jsonNodesNotAMap: void,
-    jsonNoImports: void,
     jsonNoNodes: void,
     jsonParseFailure: void,
     jsonRootNotObject: void,
@@ -125,9 +136,10 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
         catch return err_explain(GraphToSourceResult, .jsonParseFailure);
     defer json_doc.deinit();
 
+    const empty_object = json.Value{.Object = std.StringArrayHashMap(json.Value).init(arena_alloc)};
+
     const json_imports = switch (json_doc.root) {
-        .Object => |root| switch (root.get("imports")
-            orelse return err_explain(GraphToSourceResult, .jsonNoImports)) {
+        .Object => |root| switch (root.get("imports") orelse empty_object) {
             .Object => |a| a,
             else => return err_explain(GraphToSourceResult, .jsonImportsNotAMap),
         },
@@ -256,20 +268,24 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
 
 test "big graph_to_source" {
     const alloc = std.testing.allocator;
-    const source = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/large1/source.scm");
+    const source = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/ue1/source.scm");
     defer source.free(alloc);
-    const graph_json = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/large1/graph.json");
+    const graph_json = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/ue1/prototype_graph.json");
     defer graph_json.free(alloc);
+
     // NOTE: it is extremely vague how we're going to isomorphically convert
     // variable definitions... can variables be declared at any point in the node graph?
-    // will variables in the source have to have "global" names?
+    // will scoping be function-level?
     // Does synchronizing graph changes into the source affect those?
 
     const result = graph_to_source(Slice.from_zig(graph_json.buffer));
-    try testing.expect(result.tag == .ok);
+    if (result.is_err()) {
+        std.debug.print("\n{?s}\n", .{result.err});
+        return error.FailTest;
+    }
     try testing.expectEqualStrings(
         source.buffer,
-        Slice.to_zig(result.val.ok)
+        Slice.to_zig(result.result)
     );
 }
 

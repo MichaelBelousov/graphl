@@ -626,9 +626,43 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
       <div className={styles.toolbar}>
         <button
           onClick={() => {
+            const nodes = new Map<string, Node & { inputs: number[], outputs: number[] }>();
+            const handleIds = new Map<string, number>();
+            const convertHandleId = (id: string) => {
+              let handleId = handleIds.get(id);
+              if (handleId === undefined) {
+                handleId = handleIds.size;
+                handleIds.set(id, handleId);
+              }
+              return handleId;
+            };
+
+            for (let i = 0; i < edges.length; ++i) {
+              const edge = edges[i];
+              const sourceNode = graph.getNode(edge.source);
+              const targetNode = graph.getNode(edge.source);
+              assert(sourceNode && targetNode);
+
+              let source = nodes.get(edge.source);
+              if (source === undefined) {
+                source = {...sourceNode, inputs: [], outputs:[]};
+                nodes.set(edge.source, source);
+              }
+              source.outputs.push(convertHandleId(edge.sourceHandle!));
+
+              let target = nodes.get(edge.target);
+              if (target === undefined) {
+                target = {...targetNode, inputs: [], outputs:[]};
+                nodes.set(edge.target, target);
+              }
+              target.inputs.push(convertHandleId(edge.targetHandle!));
+            }
+
             downloadFile({
               fileName: 'graph.json',
-              content: JSON.stringify({ nodes: graph.getNodes(), edges: graph.getEdges() }, null, " "),
+              content: JSON.stringify({
+                nodes: Object.fromEntries(nodes.entries())
+              }, null, " "),
             })
           }}
         >
