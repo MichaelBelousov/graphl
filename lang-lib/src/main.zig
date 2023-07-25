@@ -138,6 +138,10 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
 
     const empty_object = json.Value{.Object = std.StringArrayHashMap(json.Value).init(arena_alloc)};
 
+    var page_writer = PageWriter.init(std.heap.page_allocator)
+        catch return err_explain(GraphToSourceResult, .OutOfMemory);
+    defer page_writer.deinit();
+
     const json_imports = switch (json_doc.root) {
         .Object => |root| switch (root.get("imports") orelse empty_object) {
             .Object => |a| a,
@@ -146,90 +150,106 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
         else => return err_explain(GraphToSourceResult, .jsonRootNotObject),
     };
 
-    // FIXME: shouldn't we know node and import counts from the graph after parsing? Can
-    // potentially preallocate one big arraylist
-    var import_exprs = std.SegmentedList(Sexp, 16){};
+    var import_exprs = std.ArrayList(Sexp).init(arena_alloc);
+    defer import_exprs.deinit();
+    import_exprs.ensureTotalCapacityPrecise(json_imports.count())
+        catch return err_explain(GraphToSourceResult, .OutOfMemory);
 
+    // TODO: refactor blocks into functions
     {
-        var json_imports_iter = json_imports.iterator();
-        while (json_imports_iter.next()) |json_import_entry| {
-            const json_import_name = json_import_entry.key_ptr.*;
-            const json_import_bindings = json_import_entry.value_ptr.*;
+        {
+            var json_imports_iter = json_imports.iterator();
+            while (json_imports_iter.next()) |json_import_entry| {
+                const json_import_name = json_import_entry.key_ptr.*;
+                const json_import_bindings = json_import_entry.value_ptr.*;
 
-            const new_import = import_exprs.addOne(arena_alloc)
-                catch return err_explain(GraphToSourceResult, .OutOfMemory);
-
-            // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-            new_import.* = Sexp{.list = std.ArrayList(Sexp).init(arena_alloc),};
-            (new_import.*.list.addOne()
-                catch return err_explain(GraphToSourceResult, .OutOfMemory)
-            ).* = syms.import;
-            (new_import.*.list.addOne()
-                catch return err_explain(GraphToSourceResult, .OutOfMemory)
-            ).* = Sexp{.symbol = json_import_name};
-
-            const imported_bindings = new_import.*.list.addOne()
-                catch return err_explain(GraphToSourceResult, .OutOfMemory);
-            imported_bindings.* = Sexp{.list = std.ArrayList(Sexp).init(arena_alloc) };
-
-            if (json_import_bindings != .Array)
-                return err_explain(GraphToSourceResult, .jsonImportedBindingsNotArray);
-
-            if (json_import_bindings.Array.items.len == 0)
-                return err_explain(GraphToSourceResult, .jsonImportedBindingsEmpty);
-
-            for (json_import_bindings.Array.items) |json_imported_binding| {
-                if (json_imported_binding != .Object)
-                    return err_explain(GraphToSourceResult, .jsonImportedBindingNotObject);
-
-                const ref = json_imported_binding.Object.get("ref")
-                    orelse return err_explain(GraphToSourceResult, .jsonImportedBindingNoRef);
-                if (ref != .String)
-                    return err_explain(GraphToSourceResult, .jsonImportedBindingRefNotString);
-
-                const maybe_alias = json_imported_binding.Object.get("alias");
-
-
-                var added = imported_bindings.*.list.addOne()
+                const new_import = import_exprs.addOne()
                     catch return err_explain(GraphToSourceResult, .OutOfMemory);
 
-                if (maybe_alias) |alias| {
-                    if (alias != .String)
-                        return err_explain(GraphToSourceResult, .jsonImportedBindingAliasNotString);
-                    (added.*.list.addOne()
-                        catch return err_explain(GraphToSourceResult, .OutOfMemory)
-                    ).* = syms.as;
-                    (added.*.list.addOne()
-                        catch return err_explain(GraphToSourceResult, .OutOfMemory)
-                    ).* = Sexp{.symbol = ref.String};
-                    (added.*.list.addOne()
-                        catch return err_explain(GraphToSourceResult, .OutOfMemory)
-                    ).* = Sexp{.symbol = alias.String};
-                } else {
-                    added.* = Sexp{.symbol = ref.String};
+                // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
+                new_import.* = Sexp{.list = std.ArrayList(Sexp).init(arena_alloc),};
+                (new_import.*.list.addOne()
+                    catch return err_explain(GraphToSourceResult, .OutOfMemory)
+                ).* = syms.import;
+                (new_import.*.list.addOne()
+                    catch return err_explain(GraphToSourceResult, .OutOfMemory)
+                ).* = Sexp{.symbol = json_import_name};
+
+                const imported_bindings = new_import.*.list.addOne()
+                    catch return err_explain(GraphToSourceResult, .OutOfMemory);
+                imported_bindings.* = Sexp{.list = std.ArrayList(Sexp).init(arena_alloc) };
+
+                if (json_import_bindings != .Array)
+                    return err_explain(GraphToSourceResult, .jsonImportedBindingsNotArray);
+
+                if (json_import_bindings.Array.items.len == 0)
+                    return err_explain(GraphToSourceResult, .jsonImportedBindingsEmpty);
+
+                for (json_import_bindings.Array.items) |json_imported_binding| {
+                    if (json_imported_binding != .Object)
+                        return err_explain(GraphToSourceResult, .jsonImportedBindingNotObject);
+
+                    const ref = json_imported_binding.Object.get("ref")
+                        orelse return err_explain(GraphToSourceResult, .jsonImportedBindingNoRef);
+                    if (ref != .String)
+                        return err_explain(GraphToSourceResult, .jsonImportedBindingRefNotString);
+
+                    const maybe_alias = json_imported_binding.Object.get("alias");
+
+
+                    var added = imported_bindings.*.list.addOne()
+                        catch return err_explain(GraphToSourceResult, .OutOfMemory);
+
+                    if (maybe_alias) |alias| {
+                        if (alias != .String)
+                            return err_explain(GraphToSourceResult, .jsonImportedBindingAliasNotString);
+                        (added.*.list.addOne()
+                            catch return err_explain(GraphToSourceResult, .OutOfMemory)
+                        ).* = syms.as;
+                        (added.*.list.addOne()
+                            catch return err_explain(GraphToSourceResult, .OutOfMemory)
+                        ).* = Sexp{.symbol = ref.String};
+                        (added.*.list.addOne()
+                            catch return err_explain(GraphToSourceResult, .OutOfMemory)
+                        ).* = Sexp{.symbol = alias.String};
+                    } else {
+                        added.* = Sexp{.symbol = ref.String};
+                    }
                 }
             }
         }
+
+        for (import_exprs.items) |import| {
+            _ = import.write(page_writer.writer())
+                catch return err_explain(GraphToSourceResult, .ioErr);
+            _ = page_writer.writer().write("\n")
+                catch return err_explain(GraphToSourceResult, .ioErr);
+        }
     }
 
-    var node_exprs = std.SegmentedList(Sexp, 64){};
-
-    const json_nodes = switch (json_doc.root) {
-        .Object => |root| switch (root.get("nodes")
-            orelse return err_explain(GraphToSourceResult, .jsonNoNodes)) {
-            .Object => |a| a,
-            else => return err_explain(GraphToSourceResult, .jsonNodesNotAMap),
-        },
-        else => return err_explain(GraphToSourceResult, .jsonRootNotObject),
-    };
-
+    // FIXME: break block out into function
     {
+        const json_nodes = switch (json_doc.root) {
+            .Object => |root| switch (root.get("nodes")
+                orelse return err_explain(GraphToSourceResult, .jsonNoNodes)) {
+                .Object => |a| a,
+                else => return err_explain(GraphToSourceResult, .jsonNodesNotAMap),
+            },
+            else => return err_explain(GraphToSourceResult, .jsonRootNotObject),
+        };
+
+        // TODO: use array list
+        var node_exprs = std.ArrayList(Sexp).init(arena_alloc);
+        defer node_exprs.deinit();
+        node_exprs.ensureTotalCapacityPrecise(json_nodes.count())
+            catch return err_explain(GraphToSourceResult, .OutOfMemory);
+
         var json_nodes_iter = json_nodes.iterator();
         while (json_nodes_iter.next()) |json_node_entry| {
             const json_node_name = json_node_entry.key_ptr.*;
             //const json_node_data = json_node_entry.value_ptr.*;
 
-            const new_node = node_exprs.addOne(arena_alloc)
+            const new_node = node_exprs.addOne()
                 catch return err_explain(GraphToSourceResult, .OutOfMemory);
 
             // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
@@ -241,21 +261,15 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
                 catch return err_explain(GraphToSourceResult, .OutOfMemory)
             ).* = Sexp{.symbol = json_node_name};
         }
-    }
 
-    var page_writer = PageWriter.init(std.heap.page_allocator)
-        catch return err_explain(GraphToSourceResult, .OutOfMemory);
-    defer page_writer.deinit();
-
-    {
-        var import_iter = import_exprs.constIterator(0);
-        while (import_iter.next()) |import| {
-            _ = import.write(page_writer.writer())
+        for (node_exprs.items) |expr| {
+            _ = expr.write(page_writer.writer())
                 catch return err_explain(GraphToSourceResult, .ioErr);
             _ = page_writer.writer().write("\n")
                 catch return err_explain(GraphToSourceResult, .ioErr);
         }
     }
+
     _ = page_writer.writer().write("\n")
         catch return err_explain(GraphToSourceResult, .ioErr);
 
