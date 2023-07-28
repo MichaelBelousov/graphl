@@ -15,42 +15,36 @@ pub const Slice = extern struct {
     ptr: [*]const u8,
     len: usize,
 
-    fn from_zig(slice: []const u8) @This() {
+    fn fromZig(slice: []const u8) @This() {
         return @This(){ .ptr = slice.ptr, .len = slice.len };
     }
 
-    fn to_zig(self: @This()) []const u8 {
+    fn toZig(self: @This()) []const u8 {
         return self.ptr[0..self.len];
     }
 };
 
-pub fn Result(comptime R: type) type {
-    return struct {
-        /// not initialized if err is not 0/null
-        result: R,
-        err: ?[*:0]const u8,
-        // TODO: try to compress to u16 if possible
-        /// 0 if result is valid
-        errCode: usize,
 
-        fn is_ok(self: @This()) bool {
+fn ResultDecls(comptime R: type, comptime Self: type) type {
+    return struct {
+        fn is_ok(self: Self) bool {
             return self.err == null;
         }
 
-        fn is_err(self: @This()) bool {
+        fn is_err(self: Self) bool {
             return !self.is_ok();
         }
 
-        fn ok(r: R) @This() {
-            return @This() {
+        fn ok(r: R) Self {
+            return Self {
                 .result = r,
                 .err = null,
                 .errCode = 0,
             };
         }
 
-        fn err(e: [*:0]const u8) @This() {
-            return @This() {
+        fn err(e: [*:0]const u8) Self {
+            return Self {
                 .result = undefined,
                 .err = e,
                 // FIXME: not used
@@ -58,23 +52,112 @@ pub fn Result(comptime R: type) type {
             };
         }
 
-        fn fmt_err(comptime fmt_str: []const u8, fmt_args: anytype) @This() {
-            return @This(){
+        fn fmt_err(comptime fmt_str: []const u8, fmt_args: anytype) Self {
+            return Self{
                 .result = undefined,
                 .err = std.fmt.allocPrintZ(global_alloc.allocator(), "Error: " ++ fmt_str, fmt_args)
                     catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}),
                 .errCode = fmtStringId(fmt_str),
             };
         }
-
-        fn toC(self: @This()) CResult(R) {
-            return CResult(R){
-                .result = self.result,
-                .err = self.err,
-                .errCode = self.errCode,
-            };
-        }
     };
+}
+
+pub fn Result(comptime R: type) type {
+    // FIXME: gross
+    if (@typeInfo(R).Struct.layout == .Extern) {
+        return struct {
+            /// not initialized if err is not 0/null
+            result: R,
+            err: ?[*:0]const u8,
+            // TODO: try to compress to u16 if possible
+            /// 0 if result is valid
+            errCode: usize,
+
+            //pub usingnamespace ResultDecls(R, @This());
+            const Self = @This();
+
+            fn is_ok(self: Self) bool {
+                return self.err == null;
+            }
+
+            fn is_err(self: Self) bool {
+                return !self.is_ok();
+            }
+
+            fn ok(r: R) Self {
+                return Self {
+                    .result = r,
+                    .err = null,
+                    .errCode = 0,
+                };
+            }
+
+            fn err(e: [*:0]const u8) Self {
+                return Self {
+                    .result = undefined,
+                    .err = e,
+                    // FIXME: not used
+                    .errCode = 1,
+                };
+            }
+
+            fn fmt_err(comptime fmt_str: []const u8, fmt_args: anytype) Self {
+                return Self{
+                    .result = undefined,
+                    .err = std.fmt.allocPrintZ(global_alloc.allocator(), "Error: " ++ fmt_str, fmt_args)
+                        catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}),
+                    .errCode = fmtStringId(fmt_str),
+                };
+            }
+        };
+    } else  {
+        return extern struct {
+            /// not initialized if err is not 0/null
+            result: R,
+            err: ?[*:0]const u8,
+            // TODO: try to compress to u16 if possible
+            /// 0 if result is valid
+            errCode: usize,
+
+            //pub usingnamespace ResultDecls(R, @This());
+            const Self = @This();
+
+            fn is_ok(self: Self) bool {
+                return self.err == null;
+            }
+
+            fn is_err(self: Self) bool {
+                return !self.is_ok();
+            }
+
+            fn ok(r: R) Self {
+                return Self {
+                    .result = r,
+                    .err = null,
+                    .errCode = 0,
+                };
+            }
+
+            fn err(e: [*:0]const u8) Self {
+                return Self {
+                    .result = undefined,
+                    .err = e,
+                    // FIXME: not used
+                    .errCode = 1,
+                };
+            }
+
+            fn fmt_err(comptime fmt_str: []const u8, fmt_args: anytype) Self {
+                return Self{
+                    .result = undefined,
+                    .err = std.fmt.allocPrintZ(global_alloc.allocator(), "Error: " ++ fmt_str, fmt_args)
+                        catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}),
+                    .errCode = fmtStringId(fmt_str),
+                };
+            }
+        };
+    }
 }
 
 // FIXME: how do I not copy this?
@@ -87,7 +170,7 @@ pub fn CResult(comptime R: type) type {
         /// 0 if result is valid
         errCode: usize,
 
-        usingnamespace Result(R);
+        pub usingnamespace Result(R);
 
         // FIXME: why is this necessary?
         // fn toZig(self: @This()) Result(R) {
@@ -135,7 +218,7 @@ const GraphToSourceErr = union (enum) {
     }
 };
 
-const GraphToSourceResult = CResult(Slice);
+const GraphToSourceResult = Result(Slice);
 // TODO: usingnamespace to add GraphToSourceErr directly
 // const GraphToSourceResult = extern struct {
 //     usingnamespace Result(Slice);
@@ -177,7 +260,7 @@ const empty_object = json.Value{.Object = std.StringArrayHashMap(json.Value).ini
 const empty_array = json.Value{.Array = std.ArrayList(json.Value).init(std.testing.failing_allocator)};
 
 /// caller must free result with {TBD}
-export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
+fn graphToSource(graph_json: []const u8) Result([]const u8) {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const arena_alloc = arena.allocator();
@@ -185,7 +268,7 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
     var parser = json.Parser.init(arena_alloc, false);
     defer parser.deinit();
 
-    var json_doc = parser.parse(graph_json.to_zig())
+    var json_doc = parser.parse(graph_json)
         catch return GraphToSourceResult.fmt_err("{}", .{@as(GraphToSourceErr, .jsonParseFailure)}).toC();
     defer json_doc.deinit();
 
@@ -388,7 +471,7 @@ export fn graph_to_source(graph_json: Slice) GraphToSourceResult {
     _ = page_writer.writer().write("\n")
         catch return err_explain(GraphToSourceResult, .ioErr);
 
-    return GraphToSourceResult.ok(Slice.from_zig(
+    return GraphToSourceResult.ok(Slice.fromZig(
         // FIXME: make sure we can free this
         page_writer.concat(global_alloc.allocator())
             catch return err_explain(GraphToSourceResult, .OutOfMemory)
@@ -407,15 +490,24 @@ test "big graph_to_source" {
     // will scoping be function-level?
     // Does synchronizing graph changes into the source affect those?
 
-    const result = graph_to_source(Slice.from_zig(graph_json.buffer)).toZig();
+    const result = graph_to_source(Slice.fromZig(graph_json.buffer));
     if (result.is_err()) {
         std.debug.print("\n{?s}\n", .{result.err});
         return error.FailTest;
     }
     try testing.expectEqualStrings(
         source.buffer,
-        Slice.to_zig(result.result)
+        Slice.toZig(result.result)
     );
+}
+
+export fn graph_to_source(graph_json: Slice) Result(Slice) {
+    const zig_result = graphToSource(graph_json.toZig());
+    return Result(Slice) {
+        .result = Slice.fromZig(zig_result.result),
+        .err = zig_result.err,
+        .errCode = zig_result.errCode,
+    };
 }
 
 test "source_to_graph" {
@@ -425,7 +517,7 @@ test "source_to_graph" {
 /// call c free on result
 export fn source_to_graph(source: Slice) SourceToGraphResult {
     _ = source;
-    return SourceToGraphResult.ok(Slice.from_zig("")).toC();
+    return SourceToGraphResult.ok(Slice.fromZig("")).toC();
 }
 
 fn alloc_string(byte_count: usize) callconv(.C) [*:0]u8 {
