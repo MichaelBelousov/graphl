@@ -170,7 +170,8 @@ pub fn CResult(comptime R: type) type {
         /// 0 if result is valid
         errCode: usize,
 
-        pub usingnamespace Result(R);
+        // FIXME: adding pub to this crashes the compiler
+        //pub usingnamespace Result(R);
 
         // FIXME: why is this necessary?
         // fn toZig(self: @This()) Result(R) {
