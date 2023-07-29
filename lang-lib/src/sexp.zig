@@ -31,17 +31,29 @@ pub const Sexp = union (enum) {
         }
     }
 
-    pub fn write(self: Self, writer: anytype) !usize {
+    const WriteOpts = struct {
+        indent_level: usize = 0,
+    };
+
+    fn _write(self: Self, writer: anytype, opts: WriteOpts) !void {
         var total_bytes_written: usize = 0;
+        // TODO: calculate stack space requirements?
         switch (self) {
             .list => |v| {
-                total_bytes_written += try writer.write("(");
+                _ = try writer.write("(");
                 for (v.items) |item, i| {
-                    total_bytes_written += try item.write(writer);
+                    if (i != 0) {
+                        try writer.writeByteNTimes(' ', opts.indent_level * 2);
+                    } else {
+                        try writer.writeByte(' ');
+                    }
+                    _ = try item.write(writer);
                     if (i != v.items.len - 1)
-                        total_bytes_written += try writer.write(" ");
+                        // need like a counting writer to know how long lines will be
+                        _ = try writer.write("\n");
                 }
-                total_bytes_written += try writer.write(")");
+                _ = try writer.write(")");
+                
             },
             // FIXME: the bytecounts here are ignored!
             .float => |v| try std.fmt.format(writer, "{d}", .{v}),
@@ -50,6 +62,18 @@ pub const Sexp = union (enum) {
             .symbol => |v| try std.fmt.format(writer, "{s}", .{v}),
         }
         return total_bytes_written;
+    }
+
+    pub fn write(self: Self, writer: anytype) !usize {
+        var counting_writer = std.io.countingWriter(writer);
+        _ = try self._write(counting_writer.writer(), .{});
+        return counting_writer.bytes_written;
+    }
+
+    pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        _ = try self._write(writer, .{});
     }
 
     pub fn recursive_eq(self: Self, other: Self) bool {
@@ -116,12 +140,12 @@ test "write sexp" {
     var fixedBufferStream = std.io.fixedBufferStream(&buff);
     var writer = fixedBufferStream.writer();
 
-    _ = try root_sexp.write(writer);
+    const bytes_written = try root_sexp.write(writer);
 
     try testing.expectEqualStrings(
         \\(hello 0.5)
         ,
-        buff[0..11] // not using result of write because it is currently wrong
+        buff[0..bytes_written]
     );
 }
 
