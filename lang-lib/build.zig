@@ -36,17 +36,17 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     b.installArtifact(web_lib);
-
-    web_step.dependOn(&web_lib.install_step.?.step);
+    web_step.dependOn(&web_lib.step);
 
     const ide_json_gen_step = b.step("ide-json-gen", "Build ide-json-gen");
     const ide_json_gen = b.addExecutable(.{
         .name = "ide-json-gen",
-        .root_source_file = "src/ide_json_gen.zig",
+        .root_source_file = std.build.FileSource.relative("src/ide_json_gen.zig"),
         .optimize = optimize,
         .target = target,
     });
     ide_json_gen.linkLibC(); // for mmap on linux
+    // FIXME: in 0.11.0 does this automatically install without explicitly depending on an install step?
     b.installArtifact(ide_json_gen);
-    ide_json_gen_step.dependOn(&ide_json_gen.install_step.?.step);
+    ide_json_gen_step.dependOn(&ide_json_gen.step);
 }
