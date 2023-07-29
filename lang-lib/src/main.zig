@@ -24,165 +24,7 @@ pub const Slice = extern struct {
     }
 };
 
-
-fn ResultDecls(comptime R: type, comptime Self: type) type {
-    return struct {
-        fn is_ok(self: Self) bool {
-            return self.err == null;
-        }
-
-        fn is_err(self: Self) bool {
-            return !self.is_ok();
-        }
-
-        fn ok(r: R) Self {
-            return Self {
-                .result = r,
-                .err = null,
-                .errCode = 0,
-            };
-        }
-
-        fn err(e: [*:0]const u8) Self {
-            return Self {
-                .result = undefined,
-                .err = e,
-                // FIXME: not used
-                .errCode = 1,
-            };
-        }
-
-        fn fmt_err(comptime fmt_str: []const u8, fmt_args: anytype) Self {
-            return Self{
-                .result = undefined,
-                .err = std.fmt.allocPrintZ(global_alloc.allocator(), "Error: " ++ fmt_str, fmt_args)
-                    catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}),
-                .errCode = fmtStringId(fmt_str),
-            };
-        }
-    };
-}
-
-pub fn Result(comptime R: type) type {
-    // FIXME: gross
-    if (@typeInfo(R).Struct.layout == .Extern) {
-        return struct {
-            /// not initialized if err is not 0/null
-            result: R,
-            err: ?[*:0]const u8,
-            // TODO: try to compress to u16 if possible
-            /// 0 if result is valid
-            errCode: usize,
-
-            //pub usingnamespace ResultDecls(R, @This());
-            const Self = @This();
-
-            fn is_ok(self: Self) bool {
-                return self.err == null;
-            }
-
-            fn is_err(self: Self) bool {
-                return !self.is_ok();
-            }
-
-            fn ok(r: R) Self {
-                return Self {
-                    .result = r,
-                    .err = null,
-                    .errCode = 0,
-                };
-            }
-
-            fn err(e: [*:0]const u8) Self {
-                return Self {
-                    .result = undefined,
-                    .err = e,
-                    // FIXME: not used
-                    .errCode = 1,
-                };
-            }
-
-            fn fmt_err(comptime fmt_str: []const u8, fmt_args: anytype) Self {
-                return Self{
-                    .result = undefined,
-                    .err = std.fmt.allocPrintZ(global_alloc.allocator(), "Error: " ++ fmt_str, fmt_args)
-                        catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}),
-                    .errCode = fmtStringId(fmt_str),
-                };
-            }
-        };
-    } else  {
-        return extern struct {
-            /// not initialized if err is not 0/null
-            result: R,
-            err: ?[*:0]const u8,
-            // TODO: try to compress to u16 if possible
-            /// 0 if result is valid
-            errCode: usize,
-
-            //pub usingnamespace ResultDecls(R, @This());
-            const Self = @This();
-
-            fn is_ok(self: Self) bool {
-                return self.err == null;
-            }
-
-            fn is_err(self: Self) bool {
-                return !self.is_ok();
-            }
-
-            fn ok(r: R) Self {
-                return Self {
-                    .result = r,
-                    .err = null,
-                    .errCode = 0,
-                };
-            }
-
-            fn err(e: [*:0]const u8) Self {
-                return Self {
-                    .result = undefined,
-                    .err = e,
-                    // FIXME: not used
-                    .errCode = 1,
-                };
-            }
-
-            fn fmt_err(comptime fmt_str: []const u8, fmt_args: anytype) Self {
-                return Self{
-                    .result = undefined,
-                    .err = std.fmt.allocPrintZ(global_alloc.allocator(), "Error: " ++ fmt_str, fmt_args)
-                        catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}),
-                    .errCode = fmtStringId(fmt_str),
-                };
-            }
-        };
-    }
-}
-
-// FIXME: how do I not copy this?
-pub fn CResult(comptime R: type) type {
-    return extern struct {
-        /// not initialized if err is not 0/null
-        result: R,
-        err: ?[*:0]const u8,
-        // TODO: try to compress to u16 if possible
-        /// 0 if result is valid
-        errCode: usize,
-
-        // FIXME: adding pub to this crashes the compiler
-        //pub usingnamespace Result(R);
-
-        // FIXME: why is this necessary?
-        // fn toZig(self: @This()) Result(R) {
-        //     return Result(R){
-        //         .result = self.result,
-        //         .err = self.err,
-        //         .errCode = self.errCode,
-        //     };
-        // }
-    };
-}
+const Result = @import("./result.zig").Result;
 
 const Loc = @import("./loc.zig").Loc;
 
@@ -190,7 +32,7 @@ const SourceToGraphErr = extern union {
     unexpectedEof: Loc,
 };
 
-const SourceToGraphResult = CResult(Slice);
+const SourceToGraphResult = Result(Slice);
 
 const GraphToSourceErr = union (enum) {
     ioErr: void,
@@ -219,27 +61,7 @@ const GraphToSourceErr = union (enum) {
     }
 };
 
-const GraphToSourceResult = Result(Slice);
-// TODO: usingnamespace to add GraphToSourceErr directly
-// const GraphToSourceResult = extern struct {
-//     usingnamespace Result(Slice);
-// };
 
-
-/// TODO: infer the error type from the result
-fn err_explain(comptime R: type, e: GraphToSourceErr) R {
-    return R.err(GraphToSourceErr.explain(e, global_alloc.allocator())
-        catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
-}
-
-// TODO: use this for a compressed logging library
-fn fmtStringId(comptime fmt_str: []const u8) usize {
-    return @ptrToInt(fmt_str.ptr);
-}
-
-// FIXME use wasm known memory limits or something
-var result_buffer: [std.mem.page_size * 512]u8 = undefined;
-var global_alloc = std.heap.FixedBufferAllocator.init(&result_buffer);
 
 // TODO: add a json schema to document this instead... and petition zig for support of JSON maps
 // interface graph {
@@ -260,8 +82,16 @@ var global_alloc = std.heap.FixedBufferAllocator.init(&result_buffer);
 const empty_object = json.Value{.Object = std.StringArrayHashMap(json.Value).init(std.testing.failing_allocator)};
 const empty_array = json.Value{.Array = std.ArrayList(json.Value).init(std.testing.failing_allocator)};
 
+const GraphToSourceResult = Result([]const u8);
+/// TODO: infer the error type from the result
+fn err_explain(comptime R: type, e: GraphToSourceErr) R {
+    return R.err(GraphToSourceErr.explain(e, global_alloc)
+        catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
+}
+
+
 /// caller must free result with {TBD}
-fn graphToSource(graph_json: []const u8) Result([]const u8) {
+fn graphToSource(graph_json: []const u8) GraphToSourceResult {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const arena_alloc = arena.allocator();
@@ -270,25 +100,25 @@ fn graphToSource(graph_json: []const u8) Result([]const u8) {
     defer parser.deinit();
 
     var json_doc = parser.parse(graph_json)
-        catch return GraphToSourceResult.fmt_err("{}", .{@as(GraphToSourceErr, .jsonParseFailure)}).toC();
+        catch return GraphToSourceResult.fmt_err(global_alloc, "{}", .{@as(GraphToSourceErr, .jsonParseFailure)});
     defer json_doc.deinit();
 
     var page_writer = PageWriter.init(std.heap.page_allocator)
-        catch return GraphToSourceResult.fmt_err("{}", .{@as(GraphToSourceErr, .OutOfMemory)}).toC();
+        catch return GraphToSourceResult.fmt_err(global_alloc, "{}", .{@as(GraphToSourceErr, .OutOfMemory)});
     defer page_writer.deinit();
 
     const json_imports = switch (json_doc.root) {
         .Object => |root| switch (root.get("imports") orelse empty_object) {
             .Object => |a| a,
-            else => return GraphToSourceResult.fmt_err("{}", .{@as(GraphToSourceErr, .jsonImportsNotAMap)}).toC(),
+            else => return GraphToSourceResult.fmt_err(global_alloc, "{}", .{@as(GraphToSourceErr, .jsonImportsNotAMap)}),
         },
-        else => return GraphToSourceResult.fmt_err("{}", .{@as(GraphToSourceErr, .jsonRootNotObject)}).toC(),
+        else => return GraphToSourceResult.fmt_err(global_alloc, "{}", .{@as(GraphToSourceErr, .jsonRootNotObject)}),
     };
 
     var import_exprs = std.ArrayList(Sexp).init(arena_alloc);
     defer import_exprs.deinit();
     import_exprs.ensureTotalCapacityPrecise(json_imports.count())
-        catch return GraphToSourceResult.fmt_err("{}", .{.OutOfMemory}).toC();
+        catch return GraphToSourceResult.fmt_err(global_alloc, "{}", .{.OutOfMemory});
 
     // TODO: refactor blocks into functions
     {
@@ -402,7 +232,7 @@ fn graphToSource(graph_json: []const u8) Result([]const u8) {
                     return err_explain(GraphToSourceResult, .jsonNodeOutputNotInteger);
                 @setRuntimeSafety(false); // FIXME: weird pointer alignment error
                 handle_src_node_map.put(json_output.Integer, &json_node_entry.value_ptr.Object)
-                    catch |e| return GraphToSourceResult.fmt_err("{}", .{e}).toC();
+                    catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
             }
         }
 
@@ -425,25 +255,25 @@ fn graphToSource(graph_json: []const u8) Result([]const u8) {
 
                     const maybe_type = in_json_node.get("type");
                     if (maybe_type == null or maybe_type.? != .String)
-                        return Result(Sexp).fmt_err("{}", .{error.jsonNodeTypeNotString});
+                        return Result(Sexp).fmt_err(global_alloc, "{}", .{error.jsonNodeTypeNotString});
 
                     const node_type = maybe_type.?.String;
 
                     // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
                     (result.list.addOne()
-                        catch return err_explain(GraphToSourceResult, .OutOfMemory)
+                        catch return err_explain(Result(Sexp), .OutOfMemory)
                     ).* = Sexp{.symbol = node_type};
 
                     // FIXME: handle literals...
-                    for (json_node_inputs) |json_input| {
+                    for (json_node_inputs.items) |json_input| {
                         if (json_input != .Integer)
-                            return Result(Sexp).fmt_err("{}", .{error.jsonNodeInputNotInteger});
+                            return Result(Sexp).fmt_err(global_alloc, "{}", .{error.jsonNodeInputNotInteger});
 
                         const source_node = in_handle_src_node_map.get(json_input.Integer)
-                            orelse return Result(Sexp).fmt_err("{}", .{error.undefinedInputHandle});
+                            orelse return Result(Sexp).fmt_err(global_alloc, "{}", .{error.undefinedInputHandle});
 
                         (result.*.list.addOne()
-                            catch return Result(Sexp).fmt_err("{}", .{std.mem.Allocator.Error.OutOfMemory})
+                            catch return Result(Sexp).fmt_err(global_alloc, "{}", .{std.mem.Allocator.Error.OutOfMemory})
                         ).* = recurseRootNodeToSexp(source_node, alloc);
                     }
 
@@ -453,7 +283,7 @@ fn graphToSource(graph_json: []const u8) Result([]const u8) {
 
             const maybe_sexp = Local.recurseRootNodeToSexp(json_node, arena_alloc, handle_src_node_map);
             if (maybe_sexp.is_err())
-                return GraphToSourceResult.fmt_err("{s}", .{maybe_sexp.err}).toC();
+                return GraphToSourceResult.fmt_err(global_alloc, "{s}", .{maybe_sexp.err});
 
             (node_exprs.addOne()
                 catch return err_explain(GraphToSourceResult, .OutOfMemory)
@@ -472,11 +302,11 @@ fn graphToSource(graph_json: []const u8) Result([]const u8) {
     _ = page_writer.writer().write("\n")
         catch return err_explain(GraphToSourceResult, .ioErr);
 
-    return GraphToSourceResult.ok(Slice.fromZig(
-        // FIXME: make sure we can free this
-        page_writer.concat(global_alloc.allocator())
+    return GraphToSourceResult.ok(
+        // FIXME: provide API to free this
+        page_writer.concat(global_alloc)
             catch return err_explain(GraphToSourceResult, .OutOfMemory)
-    )).toC();
+    );
 }
 
 test "big graph_to_source" {
@@ -514,22 +344,26 @@ export fn graph_to_source(graph_json: Slice) Result(Slice) {
 test "source_to_graph" {
 }
 
+// FIXME use wasm known memory limits or something
+var result_buffer: [std.mem.page_size * 512]u8 = undefined;
+var global_allocator_inst = std.heap.FixedBufferAllocator.init(&result_buffer);
+var global_alloc = global_allocator_inst.allocator();
 
 /// call c free on result
 export fn source_to_graph(source: Slice) SourceToGraphResult {
     _ = source;
-    return SourceToGraphResult.ok(Slice.fromZig("")).toC();
+    return SourceToGraphResult.ok(Slice.fromZig(""));
 }
 
 fn alloc_string(byte_count: usize) callconv(.C) [*:0]u8 {
     return (
-        global_alloc.allocator().allocSentinel(u8, byte_count, 0)
+        global_alloc.allocSentinel(u8, byte_count, 0)
         catch |e| return std.debug.panic("alloc error: {}", .{e})
     ).ptr;
 }
 
 fn free_string(str: [*:0]u8) callconv(.C) void {
-    return global_alloc.allocator().free(str[0..std.mem.len(str)]);
+    return global_alloc.free(str[0..std.mem.len(str)]);
 }
 
 export fn readSrc(src: [*:0]const u8, in_status: ?*c_int) [*:0]const u8 {
@@ -540,7 +374,7 @@ export fn readSrc(src: [*:0]const u8, in_status: ?*c_int) [*:0]const u8 {
         catch { out_status.* = 1; return "Error: allocation err"; };
     defer page_writer.deinit();
 
-    ide_json_gen.readSrc(global_alloc.allocator(), src[0..std.mem.len(src)], page_writer.writer())
+    ide_json_gen.readSrc(global_alloc, src[0..std.mem.len(src)], page_writer.writer())
         catch { out_status.* = 1; return "Error: parse error"; };
 
     page_writer.writer().writeByte(0)
@@ -548,7 +382,7 @@ export fn readSrc(src: [*:0]const u8, in_status: ?*c_int) [*:0]const u8 {
 
     // FIXME: leak
     return @ptrCast([*:0]const u8, (
-        page_writer.concat(global_alloc.allocator())
+        page_writer.concat(global_alloc)
         catch { out_status.* = 1; return "Error: alloc concat error"; }
     ).ptr);
 }
