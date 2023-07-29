@@ -129,7 +129,7 @@ fn readDefineFuncPrototype(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
                 if (builtin.os.tag != .freestanding)
                     std.debug.print("non-list/symbol binding def\n", .{});
                 return null;
-            }
+            },
         }
     }
 
@@ -142,8 +142,7 @@ fn readDefineFuncPrototype(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
     // FIXME: this is completely fake, we need to evaluate (the types of the definition expression)
     // to get the result type
     (try outputs.addOne()).* =
-        if (inputs.items.len >= 1) .{ .label = inputs.items[0].label, .type = inputs.items[0].type }
-        else .{ .label = "next", .type = "exec" };
+        if (inputs.items.len >= 1) .{ .label = inputs.items[0].label, .type = inputs.items[0].type } else .{ .label = "next", .type = "exec" };
 
     return NodeDef{
         .id = name,
@@ -152,7 +151,7 @@ fn readDefineFuncPrototype(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
             // FIXME: directly include the array list otherwise leak
             .inputs = inputs.items,
             .outputs = outputs.items,
-        }
+        },
     };
 }
 
@@ -168,15 +167,14 @@ fn readDefineVarPrototype(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
             .label = try std.fmt.allocPrint(alloc, "get_{s}", .{name}),
             .inputs = &.{},
             .outputs = &.{
-                .{ .label = "get", .type = "T" } // FIXME: stub
+                .{ .label = "get", .type = "T" }, // FIXME: stub
             },
         },
     };
 }
 
 fn readDefine(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
-    return try readDefineVarPrototype(alloc, defined)
-    orelse try readDefineFuncPrototype(alloc, defined);
+    return try readDefineVarPrototype(alloc, defined) orelse try readDefineFuncPrototype(alloc, defined);
 }
 
 /// NOTE: this does not yet expand macros to find top-level defines
@@ -200,11 +198,11 @@ pub fn readTopLevelExpr(alloc: std.mem.Allocator, expr: Sexp) !?NodeDef {
     // if (std.mem.eql(u8, first.symbol, "define-macro"))
     //     //return readDefineMacro(second);
     //     unreachable;
-    // if (std.mem.eql(u8, first.symbol, "define-c-struct")) 
+    // if (std.mem.eql(u8, first.symbol, "define-c-struct"))
     //     unreachable;
-    // if (std.mem.eql(u8, first.symbol, "define-c-opaque")) 
+    // if (std.mem.eql(u8, first.symbol, "define-c-opaque"))
     //     unreachable;
-    // if (std.mem.eql(u8, first.symbol, "define-c-enum")) 
+    // if (std.mem.eql(u8, first.symbol, "define-c-enum"))
     //     unreachable;
 
     return null;
@@ -221,7 +219,6 @@ pub fn readSrc(alloc: std.mem.Allocator, src: []const u8, writer: anytype) !void
 
     var write_stream = json.writeStream(writer, 6);
     try write_stream.beginObject();
-
 
     for (parse_result.ok.items) |expr| {
         const maybe_node = try readTopLevelExpr(alloc, expr);
@@ -251,8 +248,6 @@ pub fn main() !void {
         defer file.free(alloc);
 
         const stdout_writer = std.io.getStdOut().writer();
-        readSrc(alloc, file.buffer, stdout_writer)
-            catch continue;
+        readSrc(alloc, file.buffer, stdout_writer) catch continue;
     }
 }
-

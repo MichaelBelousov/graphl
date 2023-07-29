@@ -2,7 +2,7 @@ const std = @import("std");
 
 // TODO: use this for a compressed logging library
 fn fmtStringId(comptime fmt_str: []const u8) usize {
-    return @ptrToInt(fmt_str.ptr);
+    return @intFromPtr(fmt_str.ptr);
     //return @intFromPtr(fmt_str.ptr);
 }
 
@@ -45,8 +45,7 @@ fn ResultDecls(comptime R: type, comptime Self: type) type {
 
 pub fn Result(comptime R: type) type {
     // FIXME: gross
-    if (@typeInfo(R) == .Struct and @typeInfo(R).Struct.layout == .Extern
-     or @typeInfo(R) == .Union and @typeInfo(R).Union.layout == .Extern) {
+    if (@typeInfo(R) == .Struct and @typeInfo(R).Struct.layout == .Extern or @typeInfo(R) == .Union and @typeInfo(R).Union.layout == .Extern) {
         return extern struct {
             /// not initialized if err is not 0/null
             result: R,
@@ -143,12 +142,9 @@ pub fn Result(comptime R: type) type {
 
 test "result" {
     const T = extern struct { i: i64 };
-    try std.testing.expectEqual(
-        Result(T).ok(T{.i = 100}),
-        Result(T){
-            .result = T{.i = 100},
-            .errCode = 0,
-            .err = null,
-        }
-    );
+    try std.testing.expectEqual(Result(T).ok(T{ .i = 100 }), Result(T){
+        .result = T{ .i = 100 },
+        .errCode = 0,
+        .err = null,
+    });
 }

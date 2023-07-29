@@ -16,18 +16,17 @@ pub const Loc = struct {
             // FIXME: this reeks
             if (i == 0) break;
             i -= 1;
-
         }
         return null;
     }
 
     pub fn containing_line(self: @This(), source: []const u8) ![]const u8 {
         const line_start =
-            if (self.index == 0) 0
-            else if (find_backwards(source, '\n', self.index - 1)) |i|
-                i + 1
-            else 0;
-        const line_end =  std.mem.sliceTo(source[self.index..], '\n').len + self.index;
+            if (self.index == 0) 0 else if (find_backwards(source, '\n', self.index - 1)) |i|
+            i + 1
+        else
+            0;
+        const line_end = std.mem.sliceTo(source[self.index..], '\n').len + self.index;
         return source[line_start..line_end];
     }
 
@@ -41,7 +40,7 @@ pub const Loc = struct {
             else => {
                 self.index += 1;
                 self.col += 1;
-            }
+            },
         }
     }
 
@@ -53,7 +52,7 @@ pub const Loc = struct {
     ) !void {
         _ = options;
         _ = fmt;
-        try writer.print("{s}:{}:{}", .{self.source_ref, self.line, self.col});
+        try writer.print("{s}:{}:{}", .{ self.source_ref, self.line, self.col });
     }
 };
 
@@ -64,30 +63,15 @@ test "containing_line" {
         \\
         \\the end
     ;
-    try std.testing.expectEqualStrings(
-        "I am a line",
-        try (Loc{ .col = 4, .line = 2, .index=10 }).containing_line(src)
-    );
-    try std.testing.expectEqualStrings(
-        "I am a line",
-        try (Loc{ .col = 1, .line = 2, .index=6 }).containing_line(src)
-    );
-    try std.testing.expectEqualStrings(
-        "hello",
-        try (Loc{ .col = 6, .line = 1, .index=5 }).containing_line(src)
-    );
-    try std.testing.expectEqualStrings(
-        "",
-        try (Loc{ .col = 1, .line = 3, .index=18 }).containing_line(src)
-    );
+    try std.testing.expectEqualStrings("I am a line", try (Loc{ .col = 4, .line = 2, .index = 10 }).containing_line(src));
+    try std.testing.expectEqualStrings("I am a line", try (Loc{ .col = 1, .line = 2, .index = 6 }).containing_line(src));
+    try std.testing.expectEqualStrings("hello", try (Loc{ .col = 6, .line = 1, .index = 5 }).containing_line(src));
+    try std.testing.expectEqualStrings("", try (Loc{ .col = 1, .line = 3, .index = 18 }).containing_line(src));
     const source2 =
         \\
         \\(+ ('extra 5))
     ;
-    try std.testing.expectEqualStrings(
-        "(+ ('extra 5))",
-        try (Loc{ .col = 15, .line = 2, .index=15 }).containing_line(source2)
-    );
+    try std.testing.expectEqualStrings("(+ ('extra 5))", try (Loc{ .col = 15, .line = 2, .index = 15 }).containing_line(source2));
 }
 
 pub const C_Loc = extern struct {
@@ -96,4 +80,3 @@ pub const C_Loc = extern struct {
     col: usize = 1,
     index: usize = 0,
 };
-

@@ -6,7 +6,7 @@ const io = std.io;
 const testing = std.testing;
 const json = std.json;
 
-pub const Sexp = union (enum) {
+pub const Sexp = union(enum) {
     list: std.ArrayList(Sexp),
     int: i64,
     float: f64,
@@ -41,7 +41,7 @@ pub const Sexp = union (enum) {
         switch (self) {
             .list => |v| {
                 _ = try writer.write("(");
-                for (v.items) |item, i| {
+                for (v.items, 0..) |item, i| {
                     if (i != 0) {
                         try writer.writeByteNTimes(' ', opts.indent_level * 2);
                     } else {
@@ -53,7 +53,6 @@ pub const Sexp = union (enum) {
                         _ = try writer.write("\n");
                 }
                 _ = try writer.write(")");
-                
             },
             // FIXME: the bytecounts here are ignored!
             .float => |v| try std.fmt.format(writer, "{d}", .{v}),
@@ -107,34 +106,34 @@ pub const Sexp = union (enum) {
                 for (v.items) |item| {
                     (try result.addOne()).* = try item.jsonValue(alloc);
                 }
-                break :_ json.Value{.Array = result};
+                break :_ json.Value{ .Array = result };
             },
-            .float => |v| json.Value{.Float = v},
-            .int => |v| json.Value{.Integer = v},
-            .ownedString => |v| json.Value{.String = v},
-            .borrowedString => |v| json.Value{.String = v},
+            .float => |v| json.Value{ .Float = v },
+            .int => |v| json.Value{ .Integer = v },
+            .ownedString => |v| json.Value{ .String = v },
+            .borrowedString => |v| json.Value{ .String = v },
             .symbol => |v| _: {
                 var result = json.ObjectMap.init(alloc);
                 // TODO: ensureTotalCapacityPrecise
-                try result.put("symbol", json.Value{.String = v});
-                break :_ json.Value{.Object = result};
-            }
+                try result.put("symbol", json.Value{ .String = v });
+                break :_ json.Value{ .Object = result };
+            },
         };
     }
 };
 
 test "free sexp" {
     const alloc = std.testing.allocator;
-    const str = Sexp{.ownedString = try alloc.alloc(u8, 10)};
+    const str = Sexp{ .ownedString = try alloc.alloc(u8, 10) };
     defer str.deinit(alloc);
 }
 
 test "write sexp" {
     var list = std.ArrayList(Sexp).init(std.testing.allocator);
-    (try list.addOne()).* = Sexp{.symbol="hello"};
-    (try list.addOne()).* = Sexp{.float = 0.5};
+    (try list.addOne()).* = Sexp{ .symbol = "hello" };
+    (try list.addOne()).* = Sexp{ .float = 0.5 };
     defer list.deinit();
-    var root_sexp = Sexp{.list = list};
+    var root_sexp = Sexp{ .list = list };
 
     var buff: [1024]u8 = undefined;
     var fixedBufferStream = std.io.fixedBufferStream(&buff);
@@ -144,17 +143,14 @@ test "write sexp" {
 
     try testing.expectEqualStrings(
         \\(hello 0.5)
-        ,
-        buff[0..bytes_written]
-    );
+    , buff[0..bytes_written]);
 }
 
 pub const syms = struct {
-    pub const import = Sexp{.symbol = "import"};
-    pub const define = Sexp{.symbol = "define"};
-    pub const as = Sexp{.symbol = "as"};
+    pub const import = Sexp{ .symbol = "import" };
+    pub const define = Sexp{ .symbol = "define" };
+    pub const as = Sexp{ .symbol = "as" };
     // FIXME: is this really a symbol?
-    pub const @"true" = Sexp{.symbol = "#t"};
-    pub const @"false" = Sexp{.symbol = "#f"};
+    pub const @"true" = Sexp{ .symbol = "#t" };
+    pub const @"false" = Sexp{ .symbol = "#f" };
 };
-
