@@ -378,10 +378,10 @@ export fn readSrc(src: [*:0]const u8, in_status: ?*c_int) [*:0]const u8 {
         catch { out_status.* = 1; return "Error: write error"; };
 
     // FIXME: leak
-    return @ptrCast([*:0]const u8, (
-        page_writer.concat(global_alloc)
-        catch { out_status.* = 1; return "Error: alloc concat error"; }
-    ).ptr);
+    return @as([*:0]const u8, @ptrCast((page_writer.concat(global_alloc.allocator()) catch {
+        out_status.* = 1;
+        return "Error: alloc concat error";
+    }).ptr));
 }
 
 // TODO: only export in wasi

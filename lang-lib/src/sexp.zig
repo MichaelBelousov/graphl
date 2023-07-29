@@ -84,7 +84,7 @@ pub const Sexp = union (enum) {
             .list => |v| {
                 if (v.items.len != other.list.items.len)
                     return false;
-                for (v.items) |item, i| {
+                for (v.items, 0..) |item, i| {
                     const other_item = other.list.items[i];
                     if (!item.recursive_eq(other_item))
                         return false;

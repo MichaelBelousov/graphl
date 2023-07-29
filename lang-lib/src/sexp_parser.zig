@@ -94,7 +94,7 @@ pub const Parser = struct {
             if (self.ok.items.len != other.ok.items.len)
                 return false;
 
-            for (self.ok.items) |item, i| {
+            for (self.ok.items, 0..) |item, i| {
                 const other_item = other.ok.items[i];
                 if (!item.recursive_eq(other_item))
                     return false;
