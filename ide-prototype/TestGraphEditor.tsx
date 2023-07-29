@@ -655,13 +655,14 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
                 target = {...targetNode, inputs: [], outputs:[]};
                 nodes.set(edge.target, target);
               }
-              target.inputs.push(convertHandleId(edge.targetHandle!));
+              target.inputs.push(convertHandleId(edge.sourceHandle!));
             }
 
             downloadFile({
               fileName: 'graph.json',
               content: JSON.stringify({
-                nodes: Object.fromEntries(nodes.entries())
+                nodes: Object.fromEntries(nodes.entries()),
+                edges,
               }, null, " "),
             })
           }}

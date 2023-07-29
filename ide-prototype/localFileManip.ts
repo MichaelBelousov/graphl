@@ -7,7 +7,7 @@ interface DownloadFileOptsLocal {
 
 type DownloadFileOpts = DownloadFileOptsLocal
 
-const makeObjectUrl = (
+const makeBlobUrl = (
   data: string,
 ) => {
   const blob = new Blob([data]);
@@ -23,7 +23,7 @@ export const downloadFile = async (opts: DownloadFileOpts) => {
   const a = document.createElement('a')
   a.style.display = 'none'
   let contentType: string | undefined
-  a.href = makeObjectUrl(opts.content)
+  a.href = makeBlobUrl(opts.content)
   if (opts.fileName) a.download = opts.fileName
   if (opts.appendEstimatedFileExtension && contentType) {
     a.download = `${a.download}.${mimetypeToExtensionMap[contentType] || 'txt'}`

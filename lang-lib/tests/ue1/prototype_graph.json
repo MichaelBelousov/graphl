@@ -1,0 +1,3460 @@
+{
+ "nodes": {
+  "4849299866813781": {
+   "width": 182,
+   "height": 95,
+   "id": "4849299866813781",
+   "type": "set!",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": null
+    },
+    "typeIfDefaulted": "set!",
+    "fullDesc": {
+     "label": "set!",
+     "data": {
+      "variable": {
+       "name": null,
+       "type": null
+      }
+     },
+     "inputs": [
+      {
+       "label": "value",
+       "type": "data.variable.type"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "value",
+       "type": "data.variable.type"
+      }
+     ]
+    },
+    "setTarget": "OverTime",
+    "comment": ""
+   },
+   "position": {
+    "x": 210,
+    "y": 420
+   },
+   "positionAbsolute": {
+    "x": 210,
+    "y": 420
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    8
+   ],
+   "outputs": [
+    0,
+    1
+   ]
+  },
+  "4693440901738298": {
+   "width": 182,
+   "height": 95,
+   "id": "4849299866813781",
+   "type": "set!",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": null
+    },
+    "typeIfDefaulted": "set!",
+    "fullDesc": {
+     "label": "set!",
+     "data": {
+      "variable": {
+       "name": null,
+       "type": null
+      }
+     },
+     "inputs": [
+      {
+       "label": "value",
+       "type": "data.variable.type"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "value",
+       "type": "data.variable.type"
+      }
+     ]
+    },
+    "setTarget": "OverTime",
+    "comment": ""
+   },
+   "position": {
+    "x": 210,
+    "y": 420
+   },
+   "positionAbsolute": {
+    "x": 210,
+    "y": 420
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    0
+   ],
+   "outputs": []
+  },
+  "3808432525983060": {
+   "width": 182,
+   "height": 95,
+   "id": "4849299866813781",
+   "type": "set!",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": null
+    },
+    "typeIfDefaulted": "set!",
+    "fullDesc": {
+     "label": "set!",
+     "data": {
+      "variable": {
+       "name": null,
+       "type": null
+      }
+     },
+     "inputs": [
+      {
+       "label": "value",
+       "type": "data.variable.type"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "value",
+       "type": "data.variable.type"
+      }
+     ]
+    },
+    "setTarget": "OverTime",
+    "comment": ""
+   },
+   "position": {
+    "x": 210,
+    "y": 420
+   },
+   "positionAbsolute": {
+    "x": 210,
+    "y": 420
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    1
+   ],
+   "outputs": [
+    6,
+    7
+   ]
+  },
+  "3361034480373710": {
+   "width": 86,
+   "height": 97,
+   "id": "3361034480373710",
+   "type": "-",
+   "data": {
+    "literalInputs": {
+     "0": 0,
+     "1": 0
+    },
+    "typeIfDefaulted": "-",
+    "fullDesc": {
+     "label": "sub",
+     "inputs": [
+      {
+       "label": "",
+       "type": "T",
+       "default": 0
+      },
+      {
+       "label": "",
+       "type": "T",
+       "default": 0
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "T"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": -495,
+    "y": 690
+   },
+   "positionAbsolute": {
+    "x": -495,
+    "y": 690
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    3
+   ],
+   "outputs": [
+    2,
+    5
+   ]
+  },
+  "7011717988783239": {
+   "width": 86,
+   "height": 97,
+   "id": "3361034480373710",
+   "type": "-",
+   "data": {
+    "literalInputs": {
+     "0": 0,
+     "1": 0
+    },
+    "typeIfDefaulted": "-",
+    "fullDesc": {
+     "label": "sub",
+     "inputs": [
+      {
+       "label": "",
+       "type": "T",
+       "default": 0
+      },
+      {
+       "label": "",
+       "type": "T",
+       "default": 0
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "T"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": -495,
+    "y": 690
+   },
+   "positionAbsolute": {
+    "x": -495,
+    "y": 690
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    2
+   ],
+   "outputs": []
+  },
+  "4336240205554470": {
+   "width": 163,
+   "height": 67,
+   "id": "4336240205554470",
+   "type": "vector-length",
+   "data": {
+    "literalInputs": {
+     "0": null
+    },
+    "typeIfDefaulted": "vector-length",
+    "fullDesc": {
+     "label": "vector-length",
+     "inputs": [
+      {
+       "label": "v",
+       "type": "vector"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "v",
+       "type": "vector"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": -345,
+    "y": 540
+   },
+   "positionAbsolute": {
+    "x": -345,
+    "y": 540
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    6
+   ],
+   "outputs": [
+    3
+   ]
+  },
+  "4166894636840847": {
+   "width": 204,
+   "height": 67,
+   "id": "4166894636840847",
+   "type": "get-actor-location",
+   "data": {
+    "literalInputs": {
+     "0": null
+    },
+    "typeIfDefaulted": "get-actor-location",
+    "fullDesc": {
+     "label": "get-actor-location",
+     "inputs": [
+      {
+       "label": "a",
+       "type": "actor"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "a",
+       "type": "vector"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": -795,
+    "y": 765
+   },
+   "positionAbsolute": {
+    "x": -795,
+    "y": 765
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    5
+   ],
+   "outputs": [
+    4
+   ]
+  },
+  "7704992052953362": {
+   "width": 204,
+   "height": 67,
+   "id": "4166894636840847",
+   "type": "get-actor-location",
+   "data": {
+    "literalInputs": {
+     "0": null
+    },
+    "typeIfDefaulted": "get-actor-location",
+    "fullDesc": {
+     "label": "get-actor-location",
+     "inputs": [
+      {
+       "label": "a",
+       "type": "actor"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "a",
+       "type": "vector"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": -795,
+    "y": 765
+   },
+   "positionAbsolute": {
+    "x": -795,
+    "y": 765
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    4
+   ],
+   "outputs": []
+  },
+  "3331194487680485": {
+   "width": 86,
+   "height": 97,
+   "id": "3808432525983060",
+   "type": "/",
+   "data": {
+    "literalInputs": {
+     "0": 1,
+     "1": 1
+    },
+    "typeIfDefaulted": "/",
+    "fullDesc": {
+     "label": "div",
+     "inputs": [
+      {
+       "label": "",
+       "type": "num",
+       "default": 1
+      },
+      {
+       "label": "",
+       "type": "num",
+       "default": 1
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "num"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": -15,
+    "y": 525
+   },
+   "positionAbsolute": {
+    "x": -15,
+    "y": 525
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    7
+   ],
+   "outputs": []
+  },
+  "2837266769595155": {
+   "width": 250,
+   "height": 124,
+   "id": "2837266769595155",
+   "type": "fake-switch",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": null
+    },
+    "typeIfDefaulted": "fake-switch",
+    "fullDesc": {
+     "label": "switch",
+     "data": {
+      "variable": {
+       "name": null,
+       "type": null
+      }
+     },
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "value",
+       "type": "data.variable.type"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "Move to Player",
+       "type": "exec"
+      },
+      {
+       "label": "Move Up",
+       "type": "exec"
+      },
+      {
+       "label": "Dead",
+       "type": "exec"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 465,
+    "y": 420
+   },
+   "positionAbsolute": {
+    "x": 465,
+    "y": 420
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    10,
+    34
+   ],
+   "outputs": [
+    8,
+    9
+   ]
+  },
+  "7624704203347018": {
+   "width": 250,
+   "height": 124,
+   "id": "2837266769595155",
+   "type": "fake-switch",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": null
+    },
+    "typeIfDefaulted": "fake-switch",
+    "fullDesc": {
+     "label": "switch",
+     "data": {
+      "variable": {
+       "name": null,
+       "type": null
+      }
+     },
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "value",
+       "type": "data.variable.type"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "Move to Player",
+       "type": "exec"
+      },
+      {
+       "label": "Move Up",
+       "type": "exec"
+      },
+      {
+       "label": "Dead",
+       "type": "exec"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 465,
+    "y": 420
+   },
+   "positionAbsolute": {
+    "x": 465,
+    "y": 420
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    9
+   ],
+   "outputs": []
+  },
+  "596997676066928": {
+   "width": 158,
+   "height": 95,
+   "id": "596997676066928",
+   "type": "sequence",
+   "data": {
+    "literalInputs": {
+     "0": null
+    },
+    "typeIfDefaulted": "sequence",
+    "fullDesc": {
+     "label": "sequence",
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      }
+     ],
+     "outputs": {
+      "variadic": true,
+      "type": "exec"
+     }
+    },
+    "variadicOutputs": [
+     {
+      "label": "0",
+      "type": "exec"
+     },
+     {
+      "label": "1",
+      "type": "exec"
+     }
+    ],
+    "comment": "First Move"
+   },
+   "position": {
+    "x": 765,
+    "y": 270
+   },
+   "positionAbsolute": {
+    "x": 765,
+    "y": 270
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    11,
+    18
+   ],
+   "outputs": [
+    10
+   ]
+  },
+  "2560426012265166": {
+   "width": 299,
+   "height": 124,
+   "id": "2560426012265166",
+   "type": "do-once",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": true,
+     "2": false
+    },
+    "typeIfDefaulted": "do-once",
+    "fullDesc": {
+     "label": "Do Once",
+     "description": "do something once",
+     "inputs": [
+      {
+       "label": "reset",
+       "type": "exec"
+      },
+      {
+       "label": "reset",
+       "type": "exec"
+      },
+      {
+       "label": "Start Closed",
+       "type": "bool",
+       "default": false
+      }
+     ],
+     "outputs": [
+      {
+       "label": "completed",
+       "type": "exec"
+      }
+     ]
+    },
+    "comment": "We need to fire MoveComponent ONCE"
+   },
+   "position": {
+    "x": 1020,
+    "y": 150
+   },
+   "positionAbsolute": {
+    "x": 1020,
+    "y": 150
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    12
+   ],
+   "outputs": [
+    11,
+    54
+   ]
+  },
+  "5649571012321341": {
+   "width": 371,
+   "height": 304,
+   "id": "5649571012321341",
+   "type": "Move Component To",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": true,
+     "2": true,
+     "3": null,
+     "4": null,
+     "5": null,
+     "6": false,
+     "7": false,
+     "8": null
+    },
+    "typeIfDefaulted": "Move Component To",
+    "fullDesc": {
+     "label": "Move Component To",
+     "description": "local function",
+     "data": {
+      "isAsync": true
+     },
+     "inputs": [
+      {
+       "label": "Move",
+       "type": "exec"
+      },
+      {
+       "label": "Stop",
+       "type": "exec"
+      },
+      {
+       "label": "Return",
+       "type": "exec"
+      },
+      {
+       "label": "Component",
+       "type": "scene-component"
+      },
+      {
+       "label": "Target Relative Location",
+       "type": "vector"
+      },
+      {
+       "label": "Target Relative Rotation",
+       "type": "rotator"
+      },
+      {
+       "label": "Ease Out",
+       "type": "bool"
+      },
+      {
+       "label": "Ease In",
+       "type": "bool"
+      },
+      {
+       "label": "Over Time",
+       "type": "f32"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "Completed",
+       "type": "exec"
+      }
+     ]
+    },
+    "comment": "Move Drone to TargetPoint"
+   },
+   "position": {
+    "x": 1695,
+    "y": -120
+   },
+   "positionAbsolute": {
+    "x": 1695,
+    "y": -120
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [],
+   "outputs": [
+    12,
+    13,
+    15,
+    16,
+    17,
+    33
+   ]
+  },
+  "7221849367884980": {
+   "width": 371,
+   "height": 304,
+   "id": "5649571012321341",
+   "type": "Move Component To",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": true,
+     "2": true,
+     "3": null,
+     "4": null,
+     "5": null,
+     "6": false,
+     "7": false,
+     "8": null
+    },
+    "typeIfDefaulted": "Move Component To",
+    "fullDesc": {
+     "label": "Move Component To",
+     "description": "local function",
+     "data": {
+      "isAsync": true
+     },
+     "inputs": [
+      {
+       "label": "Move",
+       "type": "exec"
+      },
+      {
+       "label": "Stop",
+       "type": "exec"
+      },
+      {
+       "label": "Return",
+       "type": "exec"
+      },
+      {
+       "label": "Component",
+       "type": "scene-component"
+      },
+      {
+       "label": "Target Relative Location",
+       "type": "vector"
+      },
+      {
+       "label": "Target Relative Rotation",
+       "type": "rotator"
+      },
+      {
+       "label": "Ease Out",
+       "type": "bool"
+      },
+      {
+       "label": "Ease In",
+       "type": "bool"
+      },
+      {
+       "label": "Over Time",
+       "type": "f32"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "Completed",
+       "type": "exec"
+      }
+     ]
+    },
+    "comment": "Move Drone to TargetPoint"
+   },
+   "position": {
+    "x": 1695,
+    "y": -120
+   },
+   "positionAbsolute": {
+    "x": 1695,
+    "y": -120
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    13
+   ],
+   "outputs": [
+    14
+   ]
+  },
+  "794784524235348": {
+   "width": 204,
+   "height": 67,
+   "id": "7221849367884980",
+   "type": "get-actor-location",
+   "data": {
+    "literalInputs": {
+     "0": null
+    },
+    "typeIfDefaulted": "get-actor-location",
+    "fullDesc": {
+     "label": "get-actor-location",
+     "inputs": [
+      {
+       "label": "a",
+       "type": "actor"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "a",
+       "type": "vector"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1350,
+    "y": -90
+   },
+   "positionAbsolute": {
+    "x": 1350,
+    "y": -90
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    14
+   ],
+   "outputs": []
+  },
+  "6220765936570289": {
+   "width": 371,
+   "height": 304,
+   "id": "5649571012321341",
+   "type": "Move Component To",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": true,
+     "2": true,
+     "3": null,
+     "4": null,
+     "5": null,
+     "6": false,
+     "7": false,
+     "8": null
+    },
+    "typeIfDefaulted": "Move Component To",
+    "fullDesc": {
+     "label": "Move Component To",
+     "description": "local function",
+     "data": {
+      "isAsync": true
+     },
+     "inputs": [
+      {
+       "label": "Move",
+       "type": "exec"
+      },
+      {
+       "label": "Stop",
+       "type": "exec"
+      },
+      {
+       "label": "Return",
+       "type": "exec"
+      },
+      {
+       "label": "Component",
+       "type": "scene-component"
+      },
+      {
+       "label": "Target Relative Location",
+       "type": "vector"
+      },
+      {
+       "label": "Target Relative Rotation",
+       "type": "rotator"
+      },
+      {
+       "label": "Ease Out",
+       "type": "bool"
+      },
+      {
+       "label": "Ease In",
+       "type": "bool"
+      },
+      {
+       "label": "Over Time",
+       "type": "f32"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "Completed",
+       "type": "exec"
+      }
+     ]
+    },
+    "comment": "Move Drone to TargetPoint"
+   },
+   "position": {
+    "x": 1695,
+    "y": -120
+   },
+   "positionAbsolute": {
+    "x": 1695,
+    "y": -120
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    15
+   ],
+   "outputs": []
+  },
+  "6421935712746209": {
+   "width": 371,
+   "height": 304,
+   "id": "5649571012321341",
+   "type": "Move Component To",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": true,
+     "2": true,
+     "3": null,
+     "4": null,
+     "5": null,
+     "6": false,
+     "7": false,
+     "8": null
+    },
+    "typeIfDefaulted": "Move Component To",
+    "fullDesc": {
+     "label": "Move Component To",
+     "description": "local function",
+     "data": {
+      "isAsync": true
+     },
+     "inputs": [
+      {
+       "label": "Move",
+       "type": "exec"
+      },
+      {
+       "label": "Stop",
+       "type": "exec"
+      },
+      {
+       "label": "Return",
+       "type": "exec"
+      },
+      {
+       "label": "Component",
+       "type": "scene-component"
+      },
+      {
+       "label": "Target Relative Location",
+       "type": "vector"
+      },
+      {
+       "label": "Target Relative Rotation",
+       "type": "rotator"
+      },
+      {
+       "label": "Ease Out",
+       "type": "bool"
+      },
+      {
+       "label": "Ease In",
+       "type": "bool"
+      },
+      {
+       "label": "Over Time",
+       "type": "f32"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "Completed",
+       "type": "exec"
+      }
+     ]
+    },
+    "comment": "Move Drone to TargetPoint"
+   },
+   "position": {
+    "x": 1695,
+    "y": -120
+   },
+   "positionAbsolute": {
+    "x": 1695,
+    "y": -120
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    16
+   ],
+   "outputs": []
+  },
+  "6981422926286386": {
+   "width": 371,
+   "height": 304,
+   "id": "5649571012321341",
+   "type": "Move Component To",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": true,
+     "2": true,
+     "3": null,
+     "4": null,
+     "5": null,
+     "6": false,
+     "7": false,
+     "8": null
+    },
+    "typeIfDefaulted": "Move Component To",
+    "fullDesc": {
+     "label": "Move Component To",
+     "description": "local function",
+     "data": {
+      "isAsync": true
+     },
+     "inputs": [
+      {
+       "label": "Move",
+       "type": "exec"
+      },
+      {
+       "label": "Stop",
+       "type": "exec"
+      },
+      {
+       "label": "Return",
+       "type": "exec"
+      },
+      {
+       "label": "Component",
+       "type": "scene-component"
+      },
+      {
+       "label": "Target Relative Location",
+       "type": "vector"
+      },
+      {
+       "label": "Target Relative Rotation",
+       "type": "rotator"
+      },
+      {
+       "label": "Ease Out",
+       "type": "bool"
+      },
+      {
+       "label": "Ease In",
+       "type": "bool"
+      },
+      {
+       "label": "Over Time",
+       "type": "f32"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "Completed",
+       "type": "exec"
+      }
+     ]
+    },
+    "comment": "Move Drone to TargetPoint"
+   },
+   "position": {
+    "x": 1695,
+    "y": -120
+   },
+   "positionAbsolute": {
+    "x": 1695,
+    "y": -120
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    17
+   ],
+   "outputs": []
+  },
+  "3162847592790585": {
+   "width": 353,
+   "height": 279,
+   "id": "3162847592790585",
+   "type": "single-line-trace-by-channel",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": null,
+     "2": null,
+     "3": true,
+     "4": false,
+     "5": true,
+     "6": "line",
+     "7": true,
+     "8": {
+      "symbol": "#f"
+     },
+     "9": {
+      "symbol": "#f"
+     },
+     "10": {
+      "symbol": "#f"
+     },
+     "11": {
+      "symbol": "#f"
+     },
+     "12": {
+      "symbol": "#f"
+     },
+     "13": {
+      "symbol": "#f"
+     },
+     "14": {
+      "symbol": "#f"
+     }
+    },
+    "typeIfDefaulted": "single-line-trace-by-channel",
+    "fullDesc": {
+     "label": "single-line-trace-by-channel",
+     "inputs": [
+      {
+       "label": "start",
+       "type": "vector"
+      },
+      {
+       "label": "end",
+       "type": "vector"
+      },
+      {
+       "label": "channel",
+       "type": "trace-channels"
+      },
+      {
+       "label": "trace-complex",
+       "type": "bool"
+      },
+      {
+       "label": "actors-to-ignore",
+       "type": "actor-list"
+      },
+      {
+       "label": "draw-debug-type",
+       "type": "draw-debug-types",
+       "default": {
+        "symbol": "'none"
+       }
+      },
+      {
+       "label": "ignore-self",
+       "type": "bool",
+       "default": {
+        "symbol": "#f"
+       }
+      }
+     ],
+     "outputs": [
+      {
+       "label": "next",
+       "type": "exec"
+      },
+      {
+       "label": "Out Hit",
+       "type": "Hit"
+      },
+      {
+       "label": "DidHit",
+       "type": "bool"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1485,
+    "y": 495
+   },
+   "positionAbsolute": {
+    "x": 1485,
+    "y": 495
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    23,
+    24,
+    25
+   ],
+   "outputs": [
+    18,
+    19,
+    20
+   ]
+  },
+  "8558161364903549": {
+   "width": 353,
+   "height": 279,
+   "id": "3162847592790585",
+   "type": "single-line-trace-by-channel",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": null,
+     "2": null,
+     "3": true,
+     "4": false,
+     "5": true,
+     "6": "line",
+     "7": true,
+     "8": {
+      "symbol": "#f"
+     },
+     "9": {
+      "symbol": "#f"
+     },
+     "10": {
+      "symbol": "#f"
+     },
+     "11": {
+      "symbol": "#f"
+     },
+     "12": {
+      "symbol": "#f"
+     },
+     "13": {
+      "symbol": "#f"
+     },
+     "14": {
+      "symbol": "#f"
+     }
+    },
+    "typeIfDefaulted": "single-line-trace-by-channel",
+    "fullDesc": {
+     "label": "single-line-trace-by-channel",
+     "inputs": [
+      {
+       "label": "start",
+       "type": "vector"
+      },
+      {
+       "label": "end",
+       "type": "vector"
+      },
+      {
+       "label": "channel",
+       "type": "trace-channels"
+      },
+      {
+       "label": "trace-complex",
+       "type": "bool"
+      },
+      {
+       "label": "actors-to-ignore",
+       "type": "actor-list"
+      },
+      {
+       "label": "draw-debug-type",
+       "type": "draw-debug-types",
+       "default": {
+        "symbol": "'none"
+       }
+      },
+      {
+       "label": "ignore-self",
+       "type": "bool",
+       "default": {
+        "symbol": "#f"
+       }
+      }
+     ],
+     "outputs": [
+      {
+       "label": "next",
+       "type": "exec"
+      },
+      {
+       "label": "Out Hit",
+       "type": "Hit"
+      },
+      {
+       "label": "DidHit",
+       "type": "bool"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1485,
+    "y": 495
+   },
+   "positionAbsolute": {
+    "x": 1485,
+    "y": 495
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    19
+   ],
+   "outputs": [
+    21
+   ]
+  },
+  "7938031760513758": {
+   "width": 353,
+   "height": 279,
+   "id": "3162847592790585",
+   "type": "single-line-trace-by-channel",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": null,
+     "2": null,
+     "3": true,
+     "4": false,
+     "5": true,
+     "6": "line",
+     "7": true,
+     "8": {
+      "symbol": "#f"
+     },
+     "9": {
+      "symbol": "#f"
+     },
+     "10": {
+      "symbol": "#f"
+     },
+     "11": {
+      "symbol": "#f"
+     },
+     "12": {
+      "symbol": "#f"
+     },
+     "13": {
+      "symbol": "#f"
+     },
+     "14": {
+      "symbol": "#f"
+     }
+    },
+    "typeIfDefaulted": "single-line-trace-by-channel",
+    "fullDesc": {
+     "label": "single-line-trace-by-channel",
+     "inputs": [
+      {
+       "label": "start",
+       "type": "vector"
+      },
+      {
+       "label": "end",
+       "type": "vector"
+      },
+      {
+       "label": "channel",
+       "type": "trace-channels"
+      },
+      {
+       "label": "trace-complex",
+       "type": "bool"
+      },
+      {
+       "label": "actors-to-ignore",
+       "type": "actor-list"
+      },
+      {
+       "label": "draw-debug-type",
+       "type": "draw-debug-types",
+       "default": {
+        "symbol": "'none"
+       }
+      },
+      {
+       "label": "ignore-self",
+       "type": "bool",
+       "default": {
+        "symbol": "#f"
+       }
+      }
+     ],
+     "outputs": [
+      {
+       "label": "next",
+       "type": "exec"
+      },
+      {
+       "label": "Out Hit",
+       "type": "Hit"
+      },
+      {
+       "label": "DidHit",
+       "type": "bool"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1485,
+    "y": 495
+   },
+   "positionAbsolute": {
+    "x": 1485,
+    "y": 495
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    20
+   ],
+   "outputs": [
+    22
+   ]
+  },
+  "2733983040735191": {
+   "width": 356,
+   "height": 99,
+   "id": "8558161364903549",
+   "type": "get-socket-location",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": "TraceSocket"
+    },
+    "typeIfDefaulted": "get-socket-location",
+    "fullDesc": {
+     "label": "get-socket-location",
+     "inputs": [
+      {
+       "label": "c",
+       "type": "scene-component"
+      },
+      {
+       "label": "socket-name",
+       "type": "string"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "return",
+       "type": "vector"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1035,
+    "y": 510
+   },
+   "positionAbsolute": {
+    "x": 1035,
+    "y": 510
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    21,
+    22
+   ],
+   "outputs": []
+  },
+  "5437822678758163": {
+   "width": 196,
+   "height": 95,
+   "id": "5437822678758163",
+   "type": "if",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": false
+    },
+    "typeIfDefaulted": "if",
+    "fullDesc": {
+     "label": "if",
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "condition",
+       "type": "bool"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "then",
+       "type": "exec"
+      },
+      {
+       "label": "else",
+       "type": "exec"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1950,
+    "y": 495
+   },
+   "positionAbsolute": {
+    "x": 1950,
+    "y": 495
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    26,
+    27
+   ],
+   "outputs": [
+    23,
+    24
+   ]
+  },
+  "6646546780227932": {
+   "width": 247,
+   "height": 277,
+   "id": "6646546780227932",
+   "type": "break-hit-result",
+   "data": {
+    "literalInputs": {
+     "0": ""
+    },
+    "typeIfDefaulted": "break-hit-result",
+    "fullDesc": {
+     "description": "break a hit result struct",
+     "label": "Break Hit Result",
+     "inputs": [
+      {
+       "label": "hit",
+       "type": "Hit"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "location",
+       "type": "vector"
+      },
+      {
+       "label": "normal",
+       "type": "vector"
+      },
+      {
+       "label": "impact point",
+       "type": "vector"
+      },
+      {
+       "label": "impact normal",
+       "type": "vector"
+      },
+      {
+       "label": "physical material",
+       "type": "physical materials"
+      },
+      {
+       "label": "hit actor",
+       "type": "actor"
+      },
+      {
+       "label": "hit component",
+       "type": "scene-component"
+      },
+      {
+       "label": "hit bone name",
+       "type": "string"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1920,
+    "y": 675
+   },
+   "positionAbsolute": {
+    "x": 1920,
+    "y": 675
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    28
+   ],
+   "outputs": [
+    25
+   ]
+  },
+  "4283638828493467": {
+   "width": 150,
+   "height": 95,
+   "id": "4283638828493467",
+   "type": "CustomTickCall",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": "self"
+    },
+    "typeIfDefaulted": "CustomTickCall",
+    "fullDesc": {
+     "label": "CustomTick",
+     "description": "call custom tick",
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "target",
+       "type": "Pawn",
+       "default": "self"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "exec"
+      }
+     ]
+    },
+    "comment": "Check Again"
+   },
+   "position": {
+    "x": 2295,
+    "y": 885
+   },
+   "positionAbsolute": {
+    "x": 2295,
+    "y": 885
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [],
+   "outputs": [
+    26
+   ]
+  },
+  "1355817820336265": {
+   "width": 190,
+   "height": 125,
+   "id": "1355817820336265",
+   "type": "cast",
+   "data": {
+    "literalInputs": {
+     "0": ""
+    },
+    "typeIfDefaulted": "cast",
+    "fullDesc": {
+     "label": "cast",
+     "data": {
+      "toType": null
+     },
+     "inputs": [
+      {
+       "label": "value",
+       "type": "data.toType"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "success",
+       "type": "exec"
+      },
+      {
+       "label": "failed",
+       "type": "exec"
+      },
+      {
+       "label": "value",
+       "type": "data.toType"
+      }
+     ]
+    },
+    "comment": "if we hit AIMainPawn"
+   },
+   "position": {
+    "x": 2295,
+    "y": 705
+   },
+   "positionAbsolute": {
+    "x": 2295,
+    "y": 705
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    29,
+    30
+   ],
+   "outputs": [
+    27,
+    28
+   ]
+  },
+  "5093372705645267": {
+   "width": 158,
+   "height": 95,
+   "id": "5093372705645267",
+   "type": "sequence",
+   "data": {
+    "literalInputs": {
+     "0": ""
+    },
+    "typeIfDefaulted": "sequence",
+    "fullDesc": {
+     "label": "sequence",
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      }
+     ],
+     "outputs": {
+      "variadic": true,
+      "type": "exec"
+     }
+    },
+    "variadicOutputs": [
+     {
+      "label": "0",
+      "type": "exec"
+     },
+     {
+      "label": "1",
+      "type": "exec"
+     }
+    ]
+   },
+   "position": {
+    "x": 2280,
+    "y": 450
+   },
+   "positionAbsolute": {
+    "x": 2280,
+    "y": 450
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    31,
+    33
+   ],
+   "outputs": [
+    29
+   ]
+  },
+  "1710631026540673": {
+   "width": 150,
+   "height": 95,
+   "id": "1710631026540673",
+   "type": "CustomTickCall",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": "self"
+    },
+    "typeIfDefaulted": "CustomTickCall",
+    "fullDesc": {
+     "label": "CustomTick",
+     "description": "call custom tick",
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "target",
+       "type": "Pawn",
+       "default": "self"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "exec"
+      }
+     ]
+    },
+    "comment": "We haven't hit anything - check again"
+   },
+   "position": {
+    "x": 2520,
+    "y": 840
+   },
+   "positionAbsolute": {
+    "x": 2520,
+    "y": 840
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [],
+   "outputs": [
+    30
+   ]
+  },
+  "5189197997598475": {
+   "width": 182,
+   "height": 95,
+   "id": "5189197997598475",
+   "type": "set!",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": ""
+    },
+    "typeIfDefaulted": "set!",
+    "fullDesc": {
+     "label": "set!",
+     "data": {
+      "variable": {
+       "name": null,
+       "type": null
+      }
+     },
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "value",
+       "type": "data.variable.type"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "value",
+       "type": "data.variable.type"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 2595,
+    "y": 480
+   },
+   "positionAbsolute": {
+    "x": 2595,
+    "y": 480
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    32
+   ],
+   "outputs": [
+    31
+   ]
+  },
+  "6420658682489833": {
+   "width": 150,
+   "height": 95,
+   "id": "6420658682489833",
+   "type": "CustomTickCall",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": "self"
+    },
+    "typeIfDefaulted": "CustomTickCall",
+    "fullDesc": {
+     "label": "CustomTick",
+     "description": "call custom tick",
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "target",
+       "type": "Pawn",
+       "default": "self"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "exec"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 2835,
+    "y": 480
+   },
+   "positionAbsolute": {
+    "x": 2835,
+    "y": 480
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [],
+   "outputs": [
+    32
+   ]
+  },
+  "7353523946365097": {
+   "width": 158,
+   "height": 95,
+   "id": "7353523946365097",
+   "type": "sequence",
+   "data": {
+    "literalInputs": {
+     "0": ""
+    },
+    "typeIfDefaulted": "sequence",
+    "fullDesc": {
+     "label": "sequence",
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      }
+     ],
+     "outputs": {
+      "variadic": true,
+      "type": "exec"
+     }
+    },
+    "comment": "First move Drone up and then check if we can move to Target again",
+    "variadicOutputs": [
+     {
+      "label": "0",
+      "type": "exec"
+     },
+     {
+      "label": "1",
+      "type": "exec"
+     }
+    ]
+   },
+   "position": {
+    "x": 150,
+    "y": 1140
+   },
+   "positionAbsolute": {
+    "x": 150,
+    "y": 1140
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    35,
+    36
+   ],
+   "outputs": [
+    34
+   ]
+  },
+  "2135584875568897": {
+   "width": 299,
+   "height": 124,
+   "id": "2135584875568897",
+   "type": "do-once",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": "",
+     "2": false
+    },
+    "typeIfDefaulted": "do-once",
+    "fullDesc": {
+     "label": "Do Once",
+     "description": "do something once",
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "Reset",
+       "type": "exec"
+      },
+      {
+       "label": "Start Closed",
+       "type": "bool",
+       "default": false
+      }
+     ],
+     "outputs": [
+      {
+       "label": "Completed",
+       "type": "exec"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1095,
+    "y": 1140
+   },
+   "positionAbsolute": {
+    "x": 1095,
+    "y": 1140
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    46
+   ],
+   "outputs": [
+    35,
+    47
+   ]
+  },
+  "850649403904427": {
+   "width": 353,
+   "height": 279,
+   "id": "850649403904427",
+   "type": "single-line-trace-by-channel",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": "",
+     "2": "",
+     "3": "visibility",
+     "4": false,
+     "5": "",
+     "6": "none",
+     "7": true
+    },
+    "typeIfDefaulted": "single-line-trace-by-channel",
+    "fullDesc": {
+     "label": "single-line-trace-by-channel",
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "start",
+       "type": "vector"
+      },
+      {
+       "label": "end",
+       "type": "vector"
+      },
+      {
+       "label": "channel",
+       "type": "trace-channels"
+      },
+      {
+       "label": "trace-complex",
+       "type": "bool"
+      },
+      {
+       "label": "actors-to-ignore",
+       "type": "actor-list"
+      },
+      {
+       "label": "draw-debug-type",
+       "type": "draw-debug-types",
+       "default": {
+        "symbol": "'none"
+       }
+      },
+      {
+       "label": "ignore-self",
+       "type": "bool",
+       "default": false
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "Out Hit",
+       "type": "Hit"
+      },
+      {
+       "label": "DidHit",
+       "type": "bool"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": -90,
+    "y": 1380
+   },
+   "positionAbsolute": {
+    "x": -90,
+    "y": 1380
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    41,
+    42
+   ],
+   "outputs": [
+    36,
+    39,
+    40
+   ]
+  },
+  "1462728303085126": {
+   "width": 356,
+   "height": 99,
+   "id": "1462728303085126",
+   "type": "get-socket-location",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": "EndTraceSocket"
+    },
+    "typeIfDefaulted": "get-socket-location",
+    "fullDesc": {
+     "label": "get-socket-location",
+     "inputs": [
+      {
+       "label": "c",
+       "type": "scene-component"
+      },
+      {
+       "label": "socket-name",
+       "type": "string"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "return",
+       "type": "vector"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": -675,
+    "y": 1485
+   },
+   "positionAbsolute": {
+    "x": -675,
+    "y": 1485
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    40
+   ],
+   "outputs": [
+    37
+   ]
+  },
+  "678640560324665": {
+   "width": 356,
+   "height": 99,
+   "id": "1462728303085126",
+   "type": "get-socket-location",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": "EndTraceSocket"
+    },
+    "typeIfDefaulted": "get-socket-location",
+    "fullDesc": {
+     "label": "get-socket-location",
+     "inputs": [
+      {
+       "label": "c",
+       "type": "scene-component"
+      },
+      {
+       "label": "socket-name",
+       "type": "string"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "return",
+       "type": "vector"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": -675,
+    "y": 1485
+   },
+   "positionAbsolute": {
+    "x": -675,
+    "y": 1485
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    37,
+    38
+   ],
+   "outputs": []
+  },
+  "2438619822709914": {
+   "width": 356,
+   "height": 99,
+   "id": "2438619822709914",
+   "type": "get-socket-location",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": "TraceSocket"
+    },
+    "typeIfDefaulted": "get-socket-location",
+    "fullDesc": {
+     "label": "get-socket-location",
+     "inputs": [
+      {
+       "label": "c",
+       "type": "scene-component"
+      },
+      {
+       "label": "socket-name",
+       "type": "string"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "return",
+       "type": "vector"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": -675,
+    "y": 1380
+   },
+   "positionAbsolute": {
+    "x": -675,
+    "y": 1380
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    39
+   ],
+   "outputs": [
+    38
+   ]
+  },
+  "2809907293296417": {
+   "width": 196,
+   "height": 95,
+   "id": "2809907293296417",
+   "type": "if",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": false
+    },
+    "typeIfDefaulted": "if",
+    "fullDesc": {
+     "label": "if",
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "condition",
+       "type": "bool"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "then",
+       "type": "exec"
+      },
+      {
+       "label": "else",
+       "type": "exec"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 390,
+    "y": 1425
+   },
+   "positionAbsolute": {
+    "x": 390,
+    "y": 1425
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    43,
+    44
+   ],
+   "outputs": [
+    41,
+    42
+   ]
+  },
+  "4070748096119747": {
+   "width": 150,
+   "height": 95,
+   "id": "4070748096119747",
+   "type": "CustomTickCall",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": "self"
+    },
+    "typeIfDefaulted": "CustomTickCall",
+    "fullDesc": {
+     "label": "CustomTick",
+     "description": "call custom tick",
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "target",
+       "type": "Pawn",
+       "default": "self"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "exec"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 615,
+    "y": 1290
+   },
+   "positionAbsolute": {
+    "x": 615,
+    "y": 1290
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [],
+   "outputs": [
+    43
+   ]
+  },
+  "8270067236032711": {
+   "width": 182,
+   "height": 95,
+   "id": "8270067236032711",
+   "type": "set!",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": ""
+    },
+    "typeIfDefaulted": "set!",
+    "fullDesc": {
+     "label": "set!",
+     "data": {
+      "variable": {
+       "name": null,
+       "type": null
+      }
+     },
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "value",
+       "type": "data.variable.type"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "value",
+       "type": "data.variable.type"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 615,
+    "y": 1740
+   },
+   "positionAbsolute": {
+    "x": 615,
+    "y": 1740
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    45
+   ],
+   "outputs": [
+    44
+   ]
+  },
+  "7312526513492070": {
+   "width": 158,
+   "height": 153,
+   "id": "7312526513492070",
+   "type": "sequence",
+   "data": {
+    "literalInputs": {
+     "0": ""
+    },
+    "typeIfDefaulted": "sequence",
+    "fullDesc": {
+     "label": "sequence",
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      }
+     ],
+     "outputs": {
+      "variadic": true,
+      "type": "exec"
+     }
+    },
+    "variadicOutputs": [
+     {
+      "label": "0",
+      "type": "exec"
+     },
+     {
+      "label": "1",
+      "type": "exec"
+     },
+     {
+      "label": "2",
+      "type": "exec"
+     },
+     {
+      "label": "3",
+      "type": "exec"
+     }
+    ]
+   },
+   "position": {
+    "x": 825,
+    "y": 1740
+   },
+   "positionAbsolute": {
+    "x": 825,
+    "y": 1740
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    47,
+    52,
+    54,
+    55
+   ],
+   "outputs": [
+    45
+   ]
+  },
+  "1769102506496695": {
+   "width": 371,
+   "height": 304,
+   "id": "1769102506496695",
+   "type": "Move Component To",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": "",
+     "2": "",
+     "3": "",
+     "4": "",
+     "5": "",
+     "6": false,
+     "7": false,
+     "8": ""
+    },
+    "typeIfDefaulted": "Move Component To",
+    "fullDesc": {
+     "label": "Move Component To",
+     "description": "local function",
+     "data": {
+      "isAsync": true
+     },
+     "inputs": [
+      {
+       "label": "Move",
+       "type": "exec"
+      },
+      {
+       "label": "Stop",
+       "type": "exec"
+      },
+      {
+       "label": "Return",
+       "type": "exec"
+      },
+      {
+       "label": "Component",
+       "type": "scene-component"
+      },
+      {
+       "label": "Target Relative Location",
+       "type": "vector"
+      },
+      {
+       "label": "Target Relative Rotation",
+       "type": "rotator"
+      },
+      {
+       "label": "Ease Out",
+       "type": "bool"
+      },
+      {
+       "label": "Ease In",
+       "type": "bool"
+      },
+      {
+       "label": "Over Time",
+       "type": "f32"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "Completed",
+       "type": "exec"
+      }
+     ]
+    },
+    "comment": "Move up by 150 points"
+   },
+   "position": {
+    "x": 1665,
+    "y": 1335
+   },
+   "positionAbsolute": {
+    "x": 1665,
+    "y": 1335
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [],
+   "outputs": [
+    46,
+    49,
+    50,
+    51,
+    52,
+    56
+   ]
+  },
+  "1516176073311522": {
+   "width": 86,
+   "height": 97,
+   "id": "1516176073311522",
+   "type": "+",
+   "data": {
+    "literalInputs": {
+     "0": 0,
+     "1": 0
+    },
+    "typeIfDefaulted": "+",
+    "fullDesc": {
+     "description": "",
+     "label": "add",
+     "typevars": [
+      {
+       "name": "T",
+       "extends": {
+        "union": [
+         "num"
+        ]
+       }
+      }
+     ],
+     "inputs": [
+      {
+       "label": "",
+       "type": "T",
+       "default": 0
+      },
+      {
+       "label": "",
+       "type": "T",
+       "default": 0
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "T"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1065,
+    "y": 1530
+   },
+   "positionAbsolute": {
+    "x": 1065,
+    "y": 1530
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    49
+   ],
+   "outputs": [
+    48
+   ]
+  },
+  "3629499109084281": {
+   "width": 86,
+   "height": 97,
+   "id": "1516176073311522",
+   "type": "+",
+   "data": {
+    "literalInputs": {
+     "0": 0,
+     "1": 0
+    },
+    "typeIfDefaulted": "+",
+    "fullDesc": {
+     "description": "",
+     "label": "add",
+     "typevars": [
+      {
+       "name": "T",
+       "extends": {
+        "union": [
+         "num"
+        ]
+       }
+      }
+     ],
+     "inputs": [
+      {
+       "label": "",
+       "type": "T",
+       "default": 0
+      },
+      {
+       "label": "",
+       "type": "T",
+       "default": 0
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "T"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1065,
+    "y": 1530
+   },
+   "positionAbsolute": {
+    "x": 1065,
+    "y": 1530
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    48
+   ],
+   "outputs": []
+  },
+  "805923739989411": {
+   "width": 371,
+   "height": 304,
+   "id": "1769102506496695",
+   "type": "Move Component To",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": "",
+     "2": "",
+     "3": "",
+     "4": "",
+     "5": "",
+     "6": false,
+     "7": false,
+     "8": ""
+    },
+    "typeIfDefaulted": "Move Component To",
+    "fullDesc": {
+     "label": "Move Component To",
+     "description": "local function",
+     "data": {
+      "isAsync": true
+     },
+     "inputs": [
+      {
+       "label": "Move",
+       "type": "exec"
+      },
+      {
+       "label": "Stop",
+       "type": "exec"
+      },
+      {
+       "label": "Return",
+       "type": "exec"
+      },
+      {
+       "label": "Component",
+       "type": "scene-component"
+      },
+      {
+       "label": "Target Relative Location",
+       "type": "vector"
+      },
+      {
+       "label": "Target Relative Rotation",
+       "type": "rotator"
+      },
+      {
+       "label": "Ease Out",
+       "type": "bool"
+      },
+      {
+       "label": "Ease In",
+       "type": "bool"
+      },
+      {
+       "label": "Over Time",
+       "type": "f32"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "Completed",
+       "type": "exec"
+      }
+     ]
+    },
+    "comment": "Move up by 150 points"
+   },
+   "position": {
+    "x": 1665,
+    "y": 1335
+   },
+   "positionAbsolute": {
+    "x": 1665,
+    "y": 1335
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    50
+   ],
+   "outputs": []
+  },
+  "8247692273086280": {
+   "width": 371,
+   "height": 304,
+   "id": "1769102506496695",
+   "type": "Move Component To",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": "",
+     "2": "",
+     "3": "",
+     "4": "",
+     "5": "",
+     "6": false,
+     "7": false,
+     "8": ""
+    },
+    "typeIfDefaulted": "Move Component To",
+    "fullDesc": {
+     "label": "Move Component To",
+     "description": "local function",
+     "data": {
+      "isAsync": true
+     },
+     "inputs": [
+      {
+       "label": "Move",
+       "type": "exec"
+      },
+      {
+       "label": "Stop",
+       "type": "exec"
+      },
+      {
+       "label": "Return",
+       "type": "exec"
+      },
+      {
+       "label": "Component",
+       "type": "scene-component"
+      },
+      {
+       "label": "Target Relative Location",
+       "type": "vector"
+      },
+      {
+       "label": "Target Relative Rotation",
+       "type": "rotator"
+      },
+      {
+       "label": "Ease Out",
+       "type": "bool"
+      },
+      {
+       "label": "Ease In",
+       "type": "bool"
+      },
+      {
+       "label": "Over Time",
+       "type": "f32"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "Completed",
+       "type": "exec"
+      }
+     ]
+    },
+    "comment": "Move up by 150 points"
+   },
+   "position": {
+    "x": 1665,
+    "y": 1335
+   },
+   "positionAbsolute": {
+    "x": 1665,
+    "y": 1335
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    51
+   ],
+   "outputs": []
+  },
+  "8414389496735418": {
+   "width": 86,
+   "height": 97,
+   "id": "8414389496735418",
+   "type": "/",
+   "data": {
+    "literalInputs": {
+     "0": 1,
+     "1": 1
+    },
+    "typeIfDefaulted": "/",
+    "fullDesc": {
+     "label": "div",
+     "inputs": [
+      {
+       "label": "",
+       "type": "T",
+       "default": 1
+      },
+      {
+       "label": "",
+       "type": "T",
+       "default": 1
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "T"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1440,
+    "y": 1710
+   },
+   "positionAbsolute": {
+    "x": 1440,
+    "y": 1710
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    56
+   ],
+   "outputs": [
+    53
+   ]
+  },
+  "7695242292049520": {
+   "width": 86,
+   "height": 97,
+   "id": "8414389496735418",
+   "type": "/",
+   "data": {
+    "literalInputs": {
+     "0": 1,
+     "1": 1
+    },
+    "typeIfDefaulted": "/",
+    "fullDesc": {
+     "label": "div",
+     "inputs": [
+      {
+       "label": "",
+       "type": "T",
+       "default": 1
+      },
+      {
+       "label": "",
+       "type": "T",
+       "default": 1
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "T"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1440,
+    "y": 1710
+   },
+   "positionAbsolute": {
+    "x": 1440,
+    "y": 1710
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    53
+   ],
+   "outputs": []
+  },
+  "7595770618113573": {
+   "width": 150,
+   "height": 95,
+   "id": "7595770618113573",
+   "type": "CustomTickCall",
+   "data": {
+    "literalInputs": {
+     "0": "",
+     "1": "self"
+    },
+    "typeIfDefaulted": "CustomTickCall",
+    "fullDesc": {
+     "label": "CustomTick",
+     "description": "call custom tick",
+     "inputs": [
+      {
+       "label": "",
+       "type": "exec"
+      },
+      {
+       "label": "target",
+       "type": "Pawn",
+       "default": "self"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "",
+       "type": "exec"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1035,
+    "y": 1860
+   },
+   "positionAbsolute": {
+    "x": 1035,
+    "y": 1860
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [],
+   "outputs": [
+    55
+   ]
+  }
+ },
+ "edges": [
+  {
+   "source": "4849299866813781",
+   "sourceHandle": "4849299866813781_true_0",
+   "target": "4693440901738298",
+   "targetHandle": "4693440901738298_false_0",
+   "id": "reactflow__edge-48492998668137814849299866813781_true_0-46934409017382984693440901738298_false_0"
+  },
+  {
+   "source": "4849299866813781",
+   "sourceHandle": "4849299866813781_true_1",
+   "target": "3808432525983060",
+   "targetHandle": "3808432525983060_false_0",
+   "id": "reactflow__edge-48492998668137814849299866813781_true_1-38084325259830603808432525983060_false_0"
+  },
+  {
+   "source": "3361034480373710",
+   "sourceHandle": "3361034480373710_true_0",
+   "target": "7011717988783239",
+   "targetHandle": "7011717988783239_false_0",
+   "id": "reactflow__edge-33610344803737103361034480373710_true_0-70117179887832397011717988783239_false_0"
+  },
+  {
+   "source": "4336240205554470",
+   "sourceHandle": "4336240205554470_true_0",
+   "target": "3361034480373710",
+   "targetHandle": "3361034480373710_false_0",
+   "id": "reactflow__edge-43362402055544704336240205554470_true_0-33610344803737103361034480373710_false_0"
+  },
+  {
+   "source": "4166894636840847",
+   "sourceHandle": "4166894636840847_true_0",
+   "target": "7704992052953362",
+   "targetHandle": "7704992052953362_false_0",
+   "id": "reactflow__edge-41668946368408474166894636840847_true_0-77049920529533627704992052953362_false_0"
+  },
+  {
+   "source": "3361034480373710",
+   "sourceHandle": "3361034480373710_true_1",
+   "target": "4166894636840847",
+   "targetHandle": "4166894636840847_false_0",
+   "id": "reactflow__edge-33610344803737103361034480373710_true_1-41668946368408474166894636840847_false_0"
+  },
+  {
+   "source": "3808432525983060",
+   "sourceHandle": "3808432525983060_true_0",
+   "target": "4336240205554470",
+   "targetHandle": "4336240205554470_false_0",
+   "id": "reactflow__edge-38084325259830603808432525983060_true_0-43362402055544704336240205554470_false_0"
+  },
+  {
+   "source": "3808432525983060",
+   "sourceHandle": "3808432525983060_true_1",
+   "target": "3331194487680485",
+   "targetHandle": "3331194487680485_false_0",
+   "id": "reactflow__edge-38084325259830603808432525983060_true_1-33311944876804853331194487680485_false_0"
+  },
+  {
+   "source": "2837266769595155",
+   "sourceHandle": "2837266769595155_true_0",
+   "target": "4849299866813781",
+   "targetHandle": "4849299866813781_false_0",
+   "id": "reactflow__edge-28372667695951552837266769595155_true_0-48492998668137814849299866813781_false_0"
+  },
+  {
+   "source": "2837266769595155",
+   "sourceHandle": "2837266769595155_true_1",
+   "target": "7624704203347018",
+   "targetHandle": "7624704203347018_false_0",
+   "id": "reactflow__edge-28372667695951552837266769595155_true_1-76247042033470187624704203347018_false_0"
+  },
+  {
+   "source": "596997676066928",
+   "sourceHandle": "596997676066928_true_0",
+   "target": "2837266769595155",
+   "targetHandle": "2837266769595155_false_0",
+   "id": "reactflow__edge-596997676066928596997676066928_true_0-28372667695951552837266769595155_false_0"
+  },
+  {
+   "source": "2560426012265166",
+   "sourceHandle": "2560426012265166_true_0",
+   "target": "596997676066928",
+   "targetHandle": "596997676066928_false_0",
+   "id": "reactflow__edge-25604260122651662560426012265166_true_0-596997676066928596997676066928_false_0"
+  },
+  {
+   "source": "5649571012321341",
+   "sourceHandle": "5649571012321341_true_0",
+   "target": "2560426012265166",
+   "targetHandle": "2560426012265166_false_0",
+   "id": "reactflow__edge-56495710123213415649571012321341_true_0-25604260122651662560426012265166_false_0"
+  },
+  {
+   "source": "5649571012321341",
+   "sourceHandle": "5649571012321341_true_4",
+   "target": "7221849367884980",
+   "targetHandle": "7221849367884980_false_0",
+   "id": "reactflow__edge-56495710123213415649571012321341_true_4-72218493678849807221849367884980_false_0"
+  },
+  {
+   "source": "7221849367884980",
+   "sourceHandle": "7221849367884980_true_0",
+   "target": "794784524235348",
+   "targetHandle": "794784524235348_false_0",
+   "id": "reactflow__edge-72218493678849807221849367884980_true_0-794784524235348794784524235348_false_0"
+  },
+  {
+   "source": "5649571012321341",
+   "sourceHandle": "5649571012321341_true_3",
+   "target": "6220765936570289",
+   "targetHandle": "6220765936570289_false_0",
+   "id": "reactflow__edge-56495710123213415649571012321341_true_3-62207659365702896220765936570289_false_0"
+  },
+  {
+   "source": "5649571012321341",
+   "sourceHandle": "5649571012321341_true_5",
+   "target": "6421935712746209",
+   "targetHandle": "6421935712746209_false_0",
+   "id": "reactflow__edge-56495710123213415649571012321341_true_5-64219357127462096421935712746209_false_0"
+  },
+  {
+   "source": "5649571012321341",
+   "sourceHandle": "5649571012321341_true_8",
+   "target": "6981422926286386",
+   "targetHandle": "6981422926286386_false_0",
+   "id": "reactflow__edge-56495710123213415649571012321341_true_8-69814229262863866981422926286386_false_0"
+  },
+  {
+   "source": "3162847592790585",
+   "sourceHandle": "3162847592790585_true_0",
+   "target": "596997676066928",
+   "targetHandle": "596997676066928_false_1",
+   "id": "reactflow__edge-31628475927905853162847592790585_true_0-596997676066928596997676066928_false_1"
+  },
+  {
+   "source": "3162847592790585",
+   "sourceHandle": "3162847592790585_true_1",
+   "target": "8558161364903549",
+   "targetHandle": "8558161364903549_false_0",
+   "id": "reactflow__edge-31628475927905853162847592790585_true_1-85581613649035498558161364903549_false_0"
+  },
+  {
+   "source": "3162847592790585",
+   "sourceHandle": "3162847592790585_true_2",
+   "target": "7938031760513758",
+   "targetHandle": "7938031760513758_false_0",
+   "id": "reactflow__edge-31628475927905853162847592790585_true_2-79380317605137587938031760513758_false_0"
+  },
+  {
+   "source": "8558161364903549",
+   "sourceHandle": "8558161364903549_true_0",
+   "target": "2733983040735191",
+   "targetHandle": "2733983040735191_false_0",
+   "id": "reactflow__edge-85581613649035498558161364903549_true_0-27339830407351912733983040735191_false_0"
+  },
+  {
+   "source": "7938031760513758",
+   "sourceHandle": "7938031760513758_true_0",
+   "target": "2733983040735191",
+   "targetHandle": "2733983040735191_false_0",
+   "id": "reactflow__edge-79380317605137587938031760513758_true_0-27339830407351912733983040735191_false_0"
+  },
+  {
+   "source": "5437822678758163",
+   "sourceHandle": "5437822678758163_true_0",
+   "target": "3162847592790585",
+   "targetHandle": "3162847592790585_false_0",
+   "id": "reactflow__edge-54378226787581635437822678758163_true_0-31628475927905853162847592790585_false_0"
+  },
+  {
+   "source": "5437822678758163",
+   "sourceHandle": "5437822678758163_true_1",
+   "target": "3162847592790585",
+   "targetHandle": "3162847592790585_false_2",
+   "id": "reactflow__edge-54378226787581635437822678758163_true_1-31628475927905853162847592790585_false_2"
+  },
+  {
+   "source": "6646546780227932",
+   "sourceHandle": "6646546780227932_true_0",
+   "target": "3162847592790585",
+   "targetHandle": "3162847592790585_false_1",
+   "id": "reactflow__edge-66465467802279326646546780227932_true_0-31628475927905853162847592790585_false_1"
+  },
+  {
+   "source": "4283638828493467",
+   "sourceHandle": "4283638828493467_true_0",
+   "target": "5437822678758163",
+   "targetHandle": "5437822678758163_false_1",
+   "id": "reactflow__edge-42836388284934674283638828493467_true_0-54378226787581635437822678758163_false_1"
+  },
+  {
+   "source": "1355817820336265",
+   "sourceHandle": "1355817820336265_true_0",
+   "target": "5437822678758163",
+   "targetHandle": "5437822678758163_false_0",
+   "id": "reactflow__edge-13558178203362651355817820336265_true_0-54378226787581635437822678758163_false_0"
+  },
+  {
+   "source": "1355817820336265",
+   "sourceHandle": "1355817820336265_true_1",
+   "target": "6646546780227932",
+   "targetHandle": "6646546780227932_false_5",
+   "id": "reactflow__edge-13558178203362651355817820336265_true_1-66465467802279326646546780227932_false_5"
+  },
+  {
+   "source": "5093372705645267",
+   "sourceHandle": "5093372705645267_true_0",
+   "target": "1355817820336265",
+   "targetHandle": "1355817820336265_false_0",
+   "id": "reactflow__edge-50933727056452675093372705645267_true_0-13558178203362651355817820336265_false_0"
+  },
+  {
+   "source": "1710631026540673",
+   "sourceHandle": "1710631026540673_true_0",
+   "target": "1355817820336265",
+   "targetHandle": "1355817820336265_false_1",
+   "id": "reactflow__edge-17106310265406731710631026540673_true_0-13558178203362651355817820336265_false_1"
+  },
+  {
+   "source": "5189197997598475",
+   "sourceHandle": "5189197997598475_true_0",
+   "target": "5093372705645267",
+   "targetHandle": "5093372705645267_false_1",
+   "id": "reactflow__edge-51891979975984755189197997598475_true_0-50933727056452675093372705645267_false_1"
+  },
+  {
+   "source": "6420658682489833",
+   "sourceHandle": "6420658682489833_true_0",
+   "target": "5189197997598475",
+   "targetHandle": "5189197997598475_false_0",
+   "id": "reactflow__edge-64206586824898336420658682489833_true_0-51891979975984755189197997598475_false_0"
+  },
+  {
+   "source": "5649571012321341",
+   "sourceHandle": "5649571012321341_true_1",
+   "target": "5093372705645267",
+   "targetHandle": "5093372705645267_false_0",
+   "id": "reactflow__edge-56495710123213415649571012321341_true_1-50933727056452675093372705645267_false_0"
+  },
+  {
+   "source": "7353523946365097",
+   "sourceHandle": "7353523946365097_true_0",
+   "target": "2837266769595155",
+   "targetHandle": "2837266769595155_false_1",
+   "id": "reactflow__edge-73535239463650977353523946365097_true_0-28372667695951552837266769595155_false_1"
+  },
+  {
+   "source": "2135584875568897",
+   "sourceHandle": "2135584875568897_true_0",
+   "target": "7353523946365097",
+   "targetHandle": "7353523946365097_false_0",
+   "id": "reactflow__edge-21355848755688972135584875568897_true_0-73535239463650977353523946365097_false_0"
+  },
+  {
+   "source": "850649403904427",
+   "sourceHandle": "850649403904427_true_0",
+   "target": "7353523946365097",
+   "targetHandle": "7353523946365097_false_1",
+   "id": "reactflow__edge-850649403904427850649403904427_true_0-73535239463650977353523946365097_false_1"
+  },
+  {
+   "source": "1462728303085126",
+   "sourceHandle": "1462728303085126_true_0",
+   "target": "678640560324665",
+   "targetHandle": "678640560324665_false_0",
+   "id": "reactflow__edge-14627283030851261462728303085126_true_0-678640560324665678640560324665_false_0"
+  },
+  {
+   "source": "2438619822709914",
+   "sourceHandle": "2438619822709914_true_0",
+   "target": "678640560324665",
+   "targetHandle": "678640560324665_false_0",
+   "id": "reactflow__edge-24386198227099142438619822709914_true_0-678640560324665678640560324665_false_0"
+  },
+  {
+   "source": "850649403904427",
+   "sourceHandle": "850649403904427_true_1",
+   "target": "2438619822709914",
+   "targetHandle": "2438619822709914_false_0",
+   "id": "reactflow__edge-850649403904427850649403904427_true_1-24386198227099142438619822709914_false_0"
+  },
+  {
+   "source": "850649403904427",
+   "sourceHandle": "850649403904427_true_2",
+   "target": "1462728303085126",
+   "targetHandle": "1462728303085126_false_0",
+   "id": "reactflow__edge-850649403904427850649403904427_true_2-14627283030851261462728303085126_false_0"
+  },
+  {
+   "source": "2809907293296417",
+   "sourceHandle": "2809907293296417_true_0",
+   "target": "850649403904427",
+   "targetHandle": "850649403904427_false_0",
+   "id": "reactflow__edge-28099072932964172809907293296417_true_0-850649403904427850649403904427_false_0"
+  },
+  {
+   "source": "2809907293296417",
+   "sourceHandle": "2809907293296417_true_1",
+   "target": "850649403904427",
+   "targetHandle": "850649403904427_false_2",
+   "id": "reactflow__edge-28099072932964172809907293296417_true_1-850649403904427850649403904427_false_2"
+  },
+  {
+   "source": "4070748096119747",
+   "sourceHandle": "4070748096119747_true_0",
+   "target": "2809907293296417",
+   "targetHandle": "2809907293296417_false_0",
+   "id": "reactflow__edge-40707480961197474070748096119747_true_0-28099072932964172809907293296417_false_0"
+  },
+  {
+   "source": "8270067236032711",
+   "sourceHandle": "8270067236032711_true_0",
+   "target": "2809907293296417",
+   "targetHandle": "2809907293296417_false_1",
+   "id": "reactflow__edge-82700672360327118270067236032711_true_0-28099072932964172809907293296417_false_1"
+  },
+  {
+   "source": "7312526513492070",
+   "sourceHandle": "7312526513492070_true_0",
+   "target": "8270067236032711",
+   "targetHandle": "8270067236032711_false_0",
+   "id": "reactflow__edge-73125265134920707312526513492070_true_0-82700672360327118270067236032711_false_0"
+  },
+  {
+   "source": "1769102506496695",
+   "sourceHandle": "1769102506496695_true_0",
+   "target": "2135584875568897",
+   "targetHandle": "2135584875568897_false_0",
+   "id": "reactflow__edge-17691025064966951769102506496695_true_0-21355848755688972135584875568897_false_0"
+  },
+  {
+   "source": "2135584875568897",
+   "sourceHandle": "2135584875568897_true_1",
+   "target": "7312526513492070",
+   "targetHandle": "7312526513492070_false_2",
+   "id": "reactflow__edge-21355848755688972135584875568897_true_1-73125265134920707312526513492070_false_2"
+  },
+  {
+   "source": "1516176073311522",
+   "sourceHandle": "1516176073311522_true_0",
+   "target": "3629499109084281",
+   "targetHandle": "3629499109084281_false_0",
+   "id": "reactflow__edge-15161760733115221516176073311522_true_0-36294991090842813629499109084281_false_0"
+  },
+  {
+   "source": "1769102506496695",
+   "sourceHandle": "1769102506496695_true_4",
+   "target": "1516176073311522",
+   "targetHandle": "1516176073311522_false_0",
+   "id": "reactflow__edge-17691025064966951769102506496695_true_4-15161760733115221516176073311522_false_0"
+  },
+  {
+   "source": "1769102506496695",
+   "sourceHandle": "1769102506496695_true_5",
+   "target": "805923739989411",
+   "targetHandle": "805923739989411_false_0",
+   "id": "reactflow__edge-17691025064966951769102506496695_true_5-805923739989411805923739989411_false_0"
+  },
+  {
+   "source": "1769102506496695",
+   "sourceHandle": "1769102506496695_true_3",
+   "target": "8247692273086280",
+   "targetHandle": "8247692273086280_false_0",
+   "id": "reactflow__edge-17691025064966951769102506496695_true_3-82476922730862808247692273086280_false_0"
+  },
+  {
+   "source": "1769102506496695",
+   "sourceHandle": "1769102506496695_true_1",
+   "target": "7312526513492070",
+   "targetHandle": "7312526513492070_false_0",
+   "id": "reactflow__edge-17691025064966951769102506496695_true_1-73125265134920707312526513492070_false_0"
+  },
+  {
+   "source": "8414389496735418",
+   "sourceHandle": "8414389496735418_true_1",
+   "target": "7695242292049520",
+   "targetHandle": "7695242292049520_false_0",
+   "id": "reactflow__edge-84143894967354188414389496735418_true_1-76952422920495207695242292049520_false_0"
+  },
+  {
+   "source": "2560426012265166",
+   "sourceHandle": "2560426012265166_true_1",
+   "target": "7312526513492070",
+   "targetHandle": "7312526513492070_false_1",
+   "id": "reactflow__edge-25604260122651662560426012265166_true_1-73125265134920707312526513492070_false_1"
+  },
+  {
+   "source": "7595770618113573",
+   "sourceHandle": "7595770618113573_true_0",
+   "target": "7312526513492070",
+   "targetHandle": "7312526513492070_false_3",
+   "id": "reactflow__edge-75957706181135737595770618113573_true_0-73125265134920707312526513492070_false_3"
+  },
+  {
+   "source": "1769102506496695",
+   "sourceHandle": "1769102506496695_true_8",
+   "target": "8414389496735418",
+   "targetHandle": "8414389496735418_false_0",
+   "id": "reactflow__edge-17691025064966951769102506496695_true_8-84143894967354188414389496735418_false_0"
+  }
+ ]
+}

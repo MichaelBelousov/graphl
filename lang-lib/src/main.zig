@@ -90,6 +90,47 @@ fn err_explain(comptime R: type, e: GraphToSourceErr) R {
 }
 
 
+fn recurseRootNodeToSexp(
+    in_json_node: json.ObjectMap,
+    alloc: std.mem.Allocator,
+    in_handle_src_node_map: std.AutoHashMap(i64, *const json.ObjectMap)
+) Result(Sexp) {
+    // schema-checked in previous pass
+    const json_node_inputs = (in_json_node.get("inputs") orelse empty_array).Array;
+
+    var result = Sexp{.list = std.ArrayList(Sexp).init(alloc)};
+
+    const maybe_type = in_json_node.get("type");
+    if (maybe_type == null or maybe_type.? != .String)
+        return Result(Sexp).fmt_err(global_alloc, "{}", .{error.jsonNodeTypeNotString});
+
+    const node_type = maybe_type.?.String;
+
+    // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
+    (result.list.addOne()
+        catch return err_explain(Result(Sexp), .OutOfMemory)
+    ).* = Sexp{.symbol = node_type};
+
+    // FIXME: handle literals...
+    for (json_node_inputs.items) |json_input| {
+        if (json_input != .Integer)
+            return Result(Sexp).fmt_err(global_alloc, "{}", .{error.jsonNodeInputNotInteger});
+
+        const source_node = in_handle_src_node_map.get(json_input.Integer)
+            orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})", .{error.undefinedInputHandle, json_input.Integer});
+
+        const next = recurseRootNodeToSexp(source_node.*, alloc, in_handle_src_node_map);
+        if (next.is_err())
+            return next;
+
+        (result.list.addOne()
+            catch return Result(Sexp).fmt_err(global_alloc, "{}", .{std.mem.Allocator.Error.OutOfMemory})
+        ).* = next.result;
+    }
+
+    return Result(Sexp).ok(result);
+}
+
 /// caller must free result with {TBD}
 fn graphToSource(graph_json: []const u8) GraphToSourceResult {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -203,103 +244,55 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
             else => return err_explain(GraphToSourceResult, .jsonRootNotObject),
         };
 
-        var node_exprs = std.ArrayList(Sexp).init(arena_alloc);
-        defer node_exprs.deinit();
-        node_exprs.ensureTotalCapacityPrecise(json_nodes.count())
-            catch return err_explain(GraphToSourceResult, .OutOfMemory);
-
         var handle_src_node_map = std.AutoHashMap(i64, *const json.ObjectMap).init(arena_alloc);
         handle_src_node_map.deinit();
 
-        var json_nodes_iter = json_nodes.iterator();
-        while (json_nodes_iter.next()) |json_node_entry| {
-            const json_node = switch (json_node_entry.value_ptr.*) {
-                .Object => |v| v,
-                else => return err_explain(GraphToSourceResult, .jsonNodeNotObject),
-            };
+        {
+            var json_nodes_iter = json_nodes.iterator();
+            while (json_nodes_iter.next()) |json_node_entry| {
+                const json_node = switch (json_node_entry.value_ptr.*) {
+                    .Object => |v| v,
+                    else => return err_explain(GraphToSourceResult, .jsonNodeNotObject),
+                };
 
-            const json_node_outputs = switch (json_node.get("outputs") orelse empty_array) {
-                .Array => |a| a,
-                // FIXME: all of these return-err_explains do not errdefer-style deinit local data
-                else => return err_explain(GraphToSourceResult, .jsonNodeOutputsNotArray)
-            };
+                const json_node_outputs = switch (json_node.get("outputs") orelse empty_array) {
+                    .Array => |a| a,
+                    // FIXME: all of these return-err_explains do not errdefer-style deinit local data
+                    else => return err_explain(GraphToSourceResult, .jsonNodeOutputsNotArray)
+                };
 
-            if ((json_node.get("inputs") orelse empty_array) != .Array)
-                return err_explain(GraphToSourceResult, .jsonNodeInputsNotArray);
+                if ((json_node.get("inputs") orelse empty_array) != .Array)
+                    return err_explain(GraphToSourceResult, .jsonNodeInputsNotArray);
 
-            for (json_node_outputs.items) |json_output| {
-                if (json_output != .Integer)
-                    return err_explain(GraphToSourceResult, .jsonNodeOutputNotInteger);
-                @setRuntimeSafety(false); // FIXME: weird pointer alignment error
-                handle_src_node_map.put(json_output.Integer, &json_node_entry.value_ptr.Object)
-                    catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
+                for (json_node_outputs.items) |json_output| {
+                    if (json_output != .Integer)
+                        return err_explain(GraphToSourceResult, .jsonNodeOutputNotInteger);
+                    @setRuntimeSafety(false); // FIXME: weird pointer alignment error
+                    handle_src_node_map.put(json_output.Integer, &json_node_entry.value_ptr.Object)
+                        catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
+                }
             }
         }
 
-        while (json_nodes_iter.next()) |json_node_entry| {
-            const json_node = json_node_entry.value_ptr.Object;
+        {
+            var json_nodes_iter = json_nodes.iterator();
+            while (json_nodes_iter.next()) |json_node_entry| {
+                const json_node = json_node_entry.value_ptr.Object;
 
-            const is_root = if (json_node.get("outputs")) |outputs| outputs.Array.items.len == 0 else false;
-            if (!is_root) continue;
+                const is_root = if (json_node.get("outputs")) |outputs| outputs.Array.items.len == 0 else false;
+                if (!is_root) continue;
 
-            const Local = struct {
-                fn recurseRootNodeToSexp(
-                    in_json_node: json.ObjectMap,
-                    alloc: std.mem.Allocator,
-                    in_handle_src_node_map: std.AutoHashMap(i64, *const json.ObjectMap)
-                ) Result(Sexp) {
-                    // schema-checked in previous pass
-                    const json_node_inputs = (in_json_node.get("inputs") orelse empty_array).Array;
+                const maybe_sexp = recurseRootNodeToSexp(json_node, arena_alloc, handle_src_node_map);
+                if (maybe_sexp.is_err())
+                    return GraphToSourceResult.fmt_err(global_alloc, "{s}", .{maybe_sexp.err.?});
 
-                    var result = Sexp{.list = std.ArrayList(Sexp).init(alloc)};
+                std.debug.print("SEXP: {any}\n", .{maybe_sexp});
 
-                    const maybe_type = in_json_node.get("type");
-                    if (maybe_type == null or maybe_type.? != .String)
-                        return Result(Sexp).fmt_err(global_alloc, "{}", .{error.jsonNodeTypeNotString});
-
-                    const node_type = maybe_type.?.String;
-
-                    // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-                    (result.list.addOne()
-                        catch return err_explain(Result(Sexp), .OutOfMemory)
-                    ).* = Sexp{.symbol = node_type};
-
-                    // FIXME: handle literals...
-                    for (json_node_inputs.items) |json_input| {
-                        if (json_input != .Integer)
-                            return Result(Sexp).fmt_err(global_alloc, "{}", .{error.jsonNodeInputNotInteger});
-
-                        const source_node = in_handle_src_node_map.get(json_input.Integer)
-                            orelse return Result(Sexp).fmt_err(global_alloc, "{}", .{error.undefinedInputHandle});
-
-                        const next = recurseRootNodeToSexp(source_node.*, alloc, in_handle_src_node_map);
-                        if (next.is_err())
-                            return next;
-
-                        (result.list.addOne()
-                            catch return Result(Sexp).fmt_err(global_alloc, "{}", .{std.mem.Allocator.Error.OutOfMemory})
-                        ).* = next.result;
-                    }
-
-                    return Result(Sexp).ok(result);
-                }
-            };
-
-            const maybe_sexp = Local.recurseRootNodeToSexp(json_node, arena_alloc, handle_src_node_map);
-            if (maybe_sexp.is_err())
-                return GraphToSourceResult.fmt_err(global_alloc, "{s}", .{maybe_sexp.err.?});
-
-            (node_exprs.addOne()
-                catch return err_explain(GraphToSourceResult, .OutOfMemory)
-            ).* = maybe_sexp.result;
-        }
-
-        for (node_exprs.items) |expr| {
-            // FIXME: confirm to writer format/print API
-            _ = expr.write(page_writer.writer())
-                catch return err_explain(GraphToSourceResult, .ioErr);
-            _ = page_writer.writer().write("\n")
-                catch return err_explain(GraphToSourceResult, .ioErr);
+                _ = maybe_sexp.result.write(page_writer.writer())
+                    catch return err_explain(GraphToSourceResult, .ioErr);
+                _ = page_writer.writer().write("\n")
+                    catch return err_explain(GraphToSourceResult, .ioErr);
+            }
         }
     }
 
