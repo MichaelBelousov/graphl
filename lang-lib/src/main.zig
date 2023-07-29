@@ -272,9 +272,13 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
                         const source_node = in_handle_src_node_map.get(json_input.Integer)
                             orelse return Result(Sexp).fmt_err(global_alloc, "{}", .{error.undefinedInputHandle});
 
-                        (result.*.list.addOne()
+                        const next = recurseRootNodeToSexp(source_node.*, alloc, in_handle_src_node_map);
+                        if (next.is_err())
+                            return next;
+
+                        (result.list.addOne()
                             catch return Result(Sexp).fmt_err(global_alloc, "{}", .{std.mem.Allocator.Error.OutOfMemory})
-                        ).* = recurseRootNodeToSexp(source_node, alloc);
+                        ).* = next.result;
                     }
 
                     return Result(Sexp).ok(result);
@@ -283,7 +287,7 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
 
             const maybe_sexp = Local.recurseRootNodeToSexp(json_node, arena_alloc, handle_src_node_map);
             if (maybe_sexp.is_err())
-                return GraphToSourceResult.fmt_err(global_alloc, "{s}", .{maybe_sexp.err});
+                return GraphToSourceResult.fmt_err(global_alloc, "{s}", .{maybe_sexp.err.?});
 
             (node_exprs.addOne()
                 catch return err_explain(GraphToSourceResult, .OutOfMemory)
