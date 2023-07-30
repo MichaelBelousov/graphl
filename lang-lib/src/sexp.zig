@@ -35,7 +35,8 @@ pub const Sexp = union(enum) {
         indent_level: usize = 0,
     };
 
-    fn _write(self: Self, writer: anytype, opts: WriteOpts) !void {
+    // explicit Error works around https://github.com/ziglang/zig/issues/2971
+    fn _write(self: Self, writer: anytype, opts: WriteOpts) @TypeOf(writer).Error!void {
         var total_bytes_written: usize = 0;
         // TODO: calculate stack space requirements?
         switch (self) {
@@ -136,8 +137,8 @@ test "write sexp" {
     var root_sexp = Sexp{ .list = list };
 
     var buff: [1024]u8 = undefined;
-    var fixedBufferStream = std.io.fixedBufferStream(&buff);
-    var writer = fixedBufferStream.writer();
+    var fixed_buffer_stream = std.io.fixedBufferStream(&buff);
+    var writer = fixed_buffer_stream.writer();
 
     const bytes_written = try root_sexp.write(writer);
 
