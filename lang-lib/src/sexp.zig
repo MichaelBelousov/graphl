@@ -31,24 +31,24 @@ pub const Sexp = union(enum) {
         }
     }
 
-    const WriteOpts = struct {
+    const WriteState = struct {
         indent_level: usize = 0,
     };
 
     // explicit Error works around https://github.com/ziglang/zig/issues/2971
-    fn _write(self: Self, writer: anytype, opts: WriteOpts) @TypeOf(writer).Error!void {
-        var total_bytes_written: usize = 0;
+    fn _write(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!void {
         // TODO: calculate stack space requirements?
+        try writer.writeByteNTimes(' ', state.indent_level * 2);
         switch (self) {
             .list => |v| {
                 _ = try writer.write("(");
                 for (v.items, 0..) |item, i| {
                     if (i != 0) {
-                        try writer.writeByteNTimes(' ', opts.indent_level * 2);
+                        try writer.writeByteNTimes(' ', state.indent_level * 2);
                     } else {
                         try writer.writeByte(' ');
                     }
-                    _ = try item.write(writer);
+                    _ = try item._write(writer, .{ .indent_level = state.indent_level + 1});
                     if (i != v.items.len - 1)
                         // need like a counting writer to know how long lines will be
                         _ = try writer.write("\n");
@@ -61,7 +61,6 @@ pub const Sexp = union(enum) {
             .ownedString, .borrowedString => |v| try std.fmt.format(writer, "\"{s}\"", .{v}),
             .symbol => |v| try std.fmt.format(writer, "{s}", .{v}),
         }
-        return total_bytes_written;
     }
 
     pub fn write(self: Self, writer: anytype) !usize {
