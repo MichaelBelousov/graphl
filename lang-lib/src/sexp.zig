@@ -38,15 +38,12 @@ pub const Sexp = union(enum) {
     // explicit Error works around https://github.com/ziglang/zig/issues/2971
     fn _write(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!void {
         // TODO: calculate stack space requirements?
-        try writer.writeByteNTimes(' ', state.indent_level * 2);
         switch (self) {
             .list => |v| {
                 _ = try writer.write("(");
                 for (v.items, 0..) |item, i| {
                     if (i != 0) {
-                        try writer.writeByteNTimes(' ', state.indent_level * 2);
-                    } else {
-                        try writer.writeByte(' ');
+                        try writer.writeByteNTimes(' ', (state.indent_level + 1) * 2);
                     }
                     _ = try item._write(writer, .{ .indent_level = state.indent_level + 1});
                     if (i != v.items.len - 1)
@@ -56,10 +53,10 @@ pub const Sexp = union(enum) {
                 _ = try writer.write(")");
             },
             // FIXME: the bytecounts here are ignored!
-            .float => |v| try std.fmt.format(writer, "{d}", .{v}),
-            .int => |v| try std.fmt.format(writer, "{d}", .{v}),
-            .ownedString, .borrowedString => |v| try std.fmt.format(writer, "\"{s}\"", .{v}),
-            .symbol => |v| try std.fmt.format(writer, "{s}", .{v}),
+            .float => |v| try writer.print("{d}", .{v}),
+            .int => |v| try writer.print("{d}", .{v}),
+            .ownedString, .borrowedString => |v| try writer.print("\"{s}\"", .{v}),
+            .symbol => |v| try writer.print("{s}", .{v}),
         }
     }
 
@@ -142,7 +139,8 @@ test "write sexp" {
     const bytes_written = try root_sexp.write(writer);
 
     try testing.expectEqualStrings(
-        \\(hello 0.5)
+        \\(hello
+        \\  0.5)
     , buff[0..bytes_written]);
 }
 
