@@ -63,7 +63,7 @@ pub const Sexp = union(enum) {
     pub fn write(self: Self, writer: anytype) !usize {
         var counting_writer = std.io.countingWriter(writer);
         _ = try self._write(counting_writer.writer(), .{});
-        return counting_writer.bytes_written;
+        return @intCast(counting_writer.bytes_written);
     }
 
     pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
