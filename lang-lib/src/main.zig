@@ -46,9 +46,6 @@ const GraphToSourceErr = union(enum) {
     }
 };
 
-const empty_object = json.Value{ .Object = std.StringArrayHashMap(json.Value).init(std.testing.failing_allocator) };
-const empty_array = json.Value{ .Array = std.ArrayList(json.Value).init(std.testing.failing_allocator) };
-
 const GraphToSourceResult = Result([]const u8);
 /// TODO: infer the error type from the result
 fn err_explain(comptime R: type, e: GraphToSourceErr) R {
@@ -92,9 +89,11 @@ const Import = struct {
     alias: ?[]const u8,
 };
 
+const empty_imports = json.ArrayHashMap([]const Import){};
+
 const GraphDoc = struct {
     nodes: json.ArrayHashMap(Node),
-    imports: ?json.ArrayHashMap([]const Import),
+    imports: json.ArrayHashMap([]const Import) = empty_imports,
 };
 
 /// caller must free result with {TBD}
@@ -116,15 +115,13 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
 
     var import_exprs = std.ArrayList(Sexp).init(arena_alloc);
     defer import_exprs.deinit();
-    if (graph.imports) |i|
-        import_exprs.ensureTotalCapacityPrecise(i.map.count())
-            catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
+    import_exprs.ensureTotalCapacityPrecise(graph.imports.map.count())
+        catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
 
     // TODO: refactor blocks into functions
     {
-        const imports = graph.imports orelse std.json.ArrayHashMap([]const Import){};
         {
-            var imports_iter = imports.map.iterator();
+            var imports_iter = graph.imports.map.iterator();
             while (imports_iter.next()) |json_import_entry| {
                 const json_import_name = json_import_entry.key_ptr.*;
                 const json_import_bindings = json_import_entry.value_ptr.*;
