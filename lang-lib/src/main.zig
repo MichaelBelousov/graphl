@@ -52,14 +52,14 @@ fn err_explain(comptime R: type, e: GraphToSourceErr) R {
     return R.err(GraphToSourceErr.explain(e, global_alloc) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
 }
 
-fn recurseRootNodeToSexp(json_node: Node, alloc: std.mem.Allocator, in_handle_src_node_map: std.AutoHashMap(i64, *const Node)) Result(Sexp) {
+fn recurseRootNodeToSexp(node: Node, alloc: std.mem.Allocator, in_handle_src_node_map: std.AutoHashMap(i64, *const Node)) Result(Sexp) {
     var result = Sexp{ .list = std.ArrayList(Sexp).init(alloc) };
 
     // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-    (result.list.addOne() catch return err_explain(Result(Sexp), .OutOfMemory)).* = Sexp{ .symbol = json_node.type };
+    (result.list.addOne() catch return err_explain(Result(Sexp), .OutOfMemory)).* = Sexp{ .symbol = node.type };
 
     // FIXME: handle literals...
-    for (json_node.inputs) |input| {
+    for (node.inputs) |input| {
         //if (input != .pin)
             //@panic("not yet supported!");
 
@@ -165,30 +165,28 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
         handle_src_node_map.deinit();
 
         {
-            var json_nodes_iter = graph.nodes.map.iterator();
-            while (json_nodes_iter.next()) |json_node_entry| {
-                //const json_node_name = json_node_entry.key_ptr.*;
-                const json_node = json_node_entry.value_ptr.*;
+            var nodes_iter = graph.nodes.map.iterator();
+            while (nodes_iter.next()) |node_entry| {
+                const node = node_entry.value_ptr.*;
 
-                for (json_node.outputs) |json_output| {
+                for (node.outputs) |json_output| {
                     // FIXME:
                     @setRuntimeSafety(false); // FIXME: weird pointer alignment error
-                    handle_src_node_map.put(json_output, json_node_entry.value_ptr)
+                    handle_src_node_map.put(json_output, node_entry.value_ptr)
                         catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
                 }
             }
         }
 
         {
-            var json_nodes_iter = graph.nodes.map.iterator();
-            while (json_nodes_iter.next()) |json_node_entry| {
-                //const json_node_name = json_node_entry.key_ptr.*;
-                const json_node = json_node_entry.value_ptr.*;
+            var nodes_iter = graph.nodes.map.iterator();
+            while (nodes_iter.next()) |node_entry| {
+                const node = node_entry.value_ptr.*;
 
-                const is_root = json_node.outputs.len == 0;
+                const is_root = node.outputs.len == 0;
                 if (!is_root) continue;
 
-                const maybe_sexp = recurseRootNodeToSexp(json_node, arena_alloc, handle_src_node_map);
+                const maybe_sexp = recurseRootNodeToSexp(node, arena_alloc, handle_src_node_map);
                 if (maybe_sexp.is_err())
                     return GraphToSourceResult.fmt_err(global_alloc, "{s}", .{maybe_sexp.err.?});
 
