@@ -101,8 +101,12 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
     defer arena.deinit();
     const arena_alloc = arena.allocator();
 
-    const graph = json.parseFromSliceLeaky(GraphDoc, arena_alloc, graph_json, .{})
-        catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
+    var json_diagnostics = json.Diagnostics{};
+    var graph_json_reader = json.Scanner.initCompleteInput(arena_alloc, graph_json);
+    graph_json_reader.enableDiagnostics(&json_diagnostics);
+    const graph = json.parseFromTokenSourceLeaky(GraphDoc, arena_alloc, &graph_json_reader, .{
+        .ignore_unknown_fields = true,
+    }) catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}: {}", .{e, json_diagnostics});
 
     var page_writer = PageWriter.init(std.heap.page_allocator)
         catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
