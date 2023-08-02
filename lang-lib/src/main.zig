@@ -63,11 +63,11 @@ fn recurseRootNodeToSexp(json_node: Node, alloc: std.mem.Allocator, in_handle_sr
 
     // FIXME: handle literals...
     for (json_node.inputs) |input| {
-        if (input != .pin)
-            @panic("not yet supported!");
+        //if (input != .pin)
+            //@panic("not yet supported!");
 
-        const source_node = in_handle_src_node_map.get(input.pin)
-            orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})", .{ error.undefinedInputHandle, input.pin });
+        const source_node = in_handle_src_node_map.get(input)
+            orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})", .{ error.undefinedInputHandle, input });
 
         const next = recurseRootNodeToSexp(source_node.*, alloc, in_handle_src_node_map);
         if (next.is_err())
@@ -83,7 +83,7 @@ fn recurseRootNodeToSexp(json_node: Node, alloc: std.mem.Allocator, in_handle_sr
 
 const Node = struct {
     type: []const u8,
-    inputs: []const union (enum) { pin: i64 },
+    inputs: []const i64, //union (enum) { pin: i64 },
     outputs: []const i64,
 };
 
