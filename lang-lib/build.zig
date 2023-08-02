@@ -19,8 +19,6 @@ pub fn build(b: *std.Build) void {
         .root_source_file = std.build.FileSource.relative("src/main.zig"),
         .optimize = optimize,
     });
-    // test use file buffer
-    main_tests.linkLibC();
 
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
@@ -46,7 +44,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .target = target,
     });
-    ide_json_gen.linkLibC(); // for mmap on linux
     b.installArtifact(ide_json_gen);
     const ide_json_gen_install = b.addInstallArtifact(ide_json_gen);
     ide_json_gen_step.dependOn(&ide_json_gen_install.step);
