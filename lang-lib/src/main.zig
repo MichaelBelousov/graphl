@@ -87,12 +87,14 @@ const Node = struct {
     outputs: []const i64,
 };
 
+const Import = struct {
+    ref: []const u8,
+    alias: ?[]const u8,
+};
+
 const GraphDoc = struct {
     nodes: json.ArrayHashMap(Node),
-    imports: json.ArrayHashMap([]const struct {
-        ref: []const u8,
-        alias: ?[]const u8,
-    }),
+    imports: ?json.ArrayHashMap([]const Import),
 };
 
 /// caller must free result with {TBD}
@@ -114,14 +116,16 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
 
     var import_exprs = std.ArrayList(Sexp).init(arena_alloc);
     defer import_exprs.deinit();
-    import_exprs.ensureTotalCapacityPrecise(graph.imports.map.count())
-        catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
+    if (graph.imports) |i|
+        import_exprs.ensureTotalCapacityPrecise(i.map.count())
+            catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
 
     // TODO: refactor blocks into functions
     {
+        const imports = graph.imports orelse std.json.ArrayHashMap([]const Import){};
         {
-            var json_imports_iter = graph.imports.map.iterator();
-            while (json_imports_iter.next()) |json_import_entry| {
+            var imports_iter = imports.map.iterator();
+            while (imports_iter.next()) |json_import_entry| {
                 const json_import_name = json_import_entry.key_ptr.*;
                 const json_import_bindings = json_import_entry.value_ptr.*;
 
