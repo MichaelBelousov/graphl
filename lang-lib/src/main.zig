@@ -36,21 +36,6 @@ const SourceToGraphResult = Result(Slice);
 
 const GraphToSourceErr = union(enum) {
     ioErr: void,
-    jsonImportedBindingAliasNotString: void,
-    jsonImportedBindingNoRef: void,
-    jsonImportedBindingNotObject: void,
-    jsonImportedBindingRefNotString: void,
-    jsonImportedBindingsEmpty: void,
-    jsonImportedBindingsNotArray: void,
-    jsonImportsNotAMap: void,
-    jsonNodeInputsNotArray: void,
-    jsonNodeNotObject: void,
-    jsonNodeOutputNotInteger: void,
-    jsonNodeOutputsNotArray: void,
-    jsonNodesNotAMap: void,
-    jsonNoNodes: void,
-    jsonParseFailure: void,
-    jsonRootNotObject: void,
     OutOfMemory: void,
 
     /// caller must free the result
@@ -61,22 +46,6 @@ const GraphToSourceErr = union(enum) {
     }
 };
 
-// TODO: add a json schema to document this instead... and petition zig for support of JSON maps
-// interface graph {
-//   nodes: {
-//     [nodeId: string]: {
-//       type: string
-//       inputs: string[]
-//     }
-//   }
-//   imports: {
-//     [packageName: string]: {
-//       ref: string
-//       alias?: string
-//     }[]
-//   }
-// }
-
 const empty_object = json.Value{ .Object = std.StringArrayHashMap(json.Value).init(std.testing.failing_allocator) };
 const empty_array = json.Value{ .Array = std.ArrayList(json.Value).init(std.testing.failing_allocator) };
 
@@ -86,37 +55,45 @@ fn err_explain(comptime R: type, e: GraphToSourceErr) R {
     return R.err(GraphToSourceErr.explain(e, global_alloc) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
 }
 
-fn recurseRootNodeToSexp(in_json_node: json.ObjectMap, alloc: std.mem.Allocator, in_handle_src_node_map: std.AutoHashMap(i64, *const json.ObjectMap)) Result(Sexp) {
-    // schema-checked in previous pass
-    const json_node_inputs = (in_json_node.get("inputs") orelse empty_array).Array;
-
+fn recurseRootNodeToSexp(json_node: Node, alloc: std.mem.Allocator, in_handle_src_node_map: std.AutoHashMap(i64, *const Node)) Result(Sexp) {
     var result = Sexp{ .list = std.ArrayList(Sexp).init(alloc) };
 
-    const maybe_type = in_json_node.get("type");
-    if (maybe_type == null or maybe_type.? != .String)
-        return Result(Sexp).fmt_err(global_alloc, "{}", .{error.jsonNodeTypeNotString});
-
-    const node_type = maybe_type.?.String;
-
     // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-    (result.list.addOne() catch return err_explain(Result(Sexp), .OutOfMemory)).* = Sexp{ .symbol = node_type };
+    (result.list.addOne() catch return err_explain(Result(Sexp), .OutOfMemory)).* = Sexp{ .symbol = json_node.type };
 
     // FIXME: handle literals...
-    for (json_node_inputs.items) |json_input| {
-        if (json_input != .Integer)
-            return Result(Sexp).fmt_err(global_alloc, "{}", .{error.jsonNodeInputNotInteger});
+    for (json_node.inputs) |input| {
+        if (input != .pin)
+            @panic("not yet supported!");
 
-        const source_node = in_handle_src_node_map.get(json_input.Integer) orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})", .{ error.undefinedInputHandle, json_input.Integer });
+        const source_node = in_handle_src_node_map.get(input.pin)
+            orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})", .{ error.undefinedInputHandle, input.pin });
 
         const next = recurseRootNodeToSexp(source_node.*, alloc, in_handle_src_node_map);
         if (next.is_err())
             return next;
 
-        (result.list.addOne() catch return Result(Sexp).fmt_err(global_alloc, "{}", .{std.mem.Allocator.Error.OutOfMemory})).* = next.result;
+        (result.list.addOne()
+            catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+        ).* = next.result;
     }
 
     return Result(Sexp).ok(result);
 }
+
+const Node = struct {
+    type: []const u8,
+    inputs: []const union (enum) { pin: i64 },
+    outputs: []const i64,
+};
+
+const GraphDoc = struct {
+    nodes: json.ArrayHashMap(Node),
+    imports: json.ArrayHashMap([]const struct {
+        ref: []const u8,
+        alias: ?[]const u8,
+    }),
+};
 
 /// caller must free result with {TBD}
 fn graphToSource(graph_json: []const u8) GraphToSourceResult {
@@ -124,31 +101,22 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
     defer arena.deinit();
     const arena_alloc = arena.allocator();
 
-    var parser = json.Parser.init(arena_alloc, false);
-    defer parser.deinit();
+    const graph = json.parseFromSliceLeaky(GraphDoc, arena_alloc, graph_json, .{})
+        catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
 
-    var json_doc = parser.parse(graph_json) catch return GraphToSourceResult.fmt_err(global_alloc, "{}", .{@as(GraphToSourceErr, .jsonParseFailure)});
-    defer json_doc.deinit();
-
-    var page_writer = PageWriter.init(std.heap.page_allocator) catch return GraphToSourceResult.fmt_err(global_alloc, "{}", .{@as(GraphToSourceErr, .OutOfMemory)});
+    var page_writer = PageWriter.init(std.heap.page_allocator)
+        catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
     defer page_writer.deinit();
-
-    const json_imports = switch (json_doc.root) {
-        .Object => |root| switch (root.get("imports") orelse empty_object) {
-            .Object => |a| a,
-            else => return GraphToSourceResult.fmt_err(global_alloc, "{}", .{@as(GraphToSourceErr, .jsonImportsNotAMap)}),
-        },
-        else => return GraphToSourceResult.fmt_err(global_alloc, "{}", .{@as(GraphToSourceErr, .jsonRootNotObject)}),
-    };
 
     var import_exprs = std.ArrayList(Sexp).init(arena_alloc);
     defer import_exprs.deinit();
-    import_exprs.ensureTotalCapacityPrecise(json_imports.count()) catch return GraphToSourceResult.fmt_err(global_alloc, "{}", .{.OutOfMemory});
+    import_exprs.ensureTotalCapacityPrecise(graph.imports.map.count())
+        catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
 
     // TODO: refactor blocks into functions
     {
         {
-            var json_imports_iter = json_imports.iterator();
+            var json_imports_iter = graph.imports.map.iterator();
             while (json_imports_iter.next()) |json_import_entry| {
                 const json_import_name = json_import_entry.key_ptr.*;
                 const json_import_bindings = json_import_entry.value_ptr.*;
@@ -165,32 +133,16 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
                 const imported_bindings = new_import.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory);
                 imported_bindings.* = Sexp{ .list = std.ArrayList(Sexp).init(arena_alloc) };
 
-                if (json_import_bindings != .Array)
-                    return err_explain(GraphToSourceResult, .jsonImportedBindingsNotArray);
-
-                if (json_import_bindings.Array.items.len == 0)
-                    return err_explain(GraphToSourceResult, .jsonImportedBindingsEmpty);
-
-                for (json_import_bindings.Array.items) |json_imported_binding| {
-                    if (json_imported_binding != .Object)
-                        return err_explain(GraphToSourceResult, .jsonImportedBindingNotObject);
-
-                    const ref = json_imported_binding.Object.get("ref") orelse return err_explain(GraphToSourceResult, .jsonImportedBindingNoRef);
-                    if (ref != .String)
-                        return err_explain(GraphToSourceResult, .jsonImportedBindingRefNotString);
-
-                    const maybe_alias = json_imported_binding.Object.get("alias");
-
+                for (json_import_bindings) |json_imported_binding| {
+                    const ref = json_imported_binding.ref;
                     var added = imported_bindings.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory);
 
-                    if (maybe_alias) |alias| {
-                        if (alias != .String)
-                            return err_explain(GraphToSourceResult, .jsonImportedBindingAliasNotString);
+                    if (json_imported_binding.alias) |alias| {
                         (added.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = syms.as;
-                        (added.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = Sexp{ .symbol = ref.String };
-                        (added.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = Sexp{ .symbol = alias.String };
+                        (added.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = Sexp{ .symbol = ref };
+                        (added.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = Sexp{ .symbol = alias };
                     } else {
-                        added.* = Sexp{ .symbol = ref.String };
+                        added.* = Sexp{ .symbol = ref };
                     }
                 }
             }
@@ -204,56 +156,36 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
 
     // FIXME: break block out into function
     {
-        const json_nodes = switch (json_doc.root) {
-            .Object => |root| switch (root.get("nodes") orelse return err_explain(GraphToSourceResult, .jsonNoNodes)) {
-                .Object => |a| a,
-                else => return err_explain(GraphToSourceResult, .jsonNodesNotAMap),
-            },
-            else => return err_explain(GraphToSourceResult, .jsonRootNotObject),
-        };
-
-        var handle_src_node_map = std.AutoHashMap(i64, *const json.ObjectMap).init(arena_alloc);
+        var handle_src_node_map = std.AutoHashMap(i64, *const Node).init(arena_alloc);
         handle_src_node_map.deinit();
 
         {
-            var json_nodes_iter = json_nodes.iterator();
+            var json_nodes_iter = graph.nodes.map.iterator();
             while (json_nodes_iter.next()) |json_node_entry| {
-                const json_node = switch (json_node_entry.value_ptr.*) {
-                    .Object => |v| v,
-                    else => return err_explain(GraphToSourceResult, .jsonNodeNotObject),
-                };
+                //const json_node_name = json_node_entry.key_ptr.*;
+                const json_node = json_node_entry.value_ptr.*;
 
-                const json_node_outputs = switch (json_node.get("outputs") orelse empty_array) {
-                    .Array => |a| a,
-                    // FIXME: all of these return-err_explains do not errdefer-style deinit local data
-                    else => return err_explain(GraphToSourceResult, .jsonNodeOutputsNotArray),
-                };
-
-                if ((json_node.get("inputs") orelse empty_array) != .Array)
-                    return err_explain(GraphToSourceResult, .jsonNodeInputsNotArray);
-
-                for (json_node_outputs.items) |json_output| {
-                    if (json_output != .Integer)
-                        return err_explain(GraphToSourceResult, .jsonNodeOutputNotInteger);
+                for (json_node.outputs) |json_output| {
+                    // FIXME:
                     @setRuntimeSafety(false); // FIXME: weird pointer alignment error
-                    handle_src_node_map.put(json_output.Integer, &json_node_entry.value_ptr.Object) catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
+                    handle_src_node_map.put(json_output, json_node_entry.value_ptr)
+                        catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
                 }
             }
         }
 
         {
-            var json_nodes_iter = json_nodes.iterator();
+            var json_nodes_iter = graph.nodes.map.iterator();
             while (json_nodes_iter.next()) |json_node_entry| {
-                const json_node = json_node_entry.value_ptr.Object;
+                //const json_node_name = json_node_entry.key_ptr.*;
+                const json_node = json_node_entry.value_ptr.*;
 
-                const is_root = if (json_node.get("outputs")) |outputs| outputs.Array.items.len == 0 else false;
+                const is_root = json_node.outputs.len == 0;
                 if (!is_root) continue;
 
                 const maybe_sexp = recurseRootNodeToSexp(json_node, arena_alloc, handle_src_node_map);
                 if (maybe_sexp.is_err())
                     return GraphToSourceResult.fmt_err(global_alloc, "{s}", .{maybe_sexp.err.?});
-
-                std.debug.print("SEXP: {any}\n", .{maybe_sexp});
 
                 _ = maybe_sexp.result.write(page_writer.writer()) catch return err_explain(GraphToSourceResult, .ioErr);
                 _ = page_writer.writer().write("\n") catch return err_explain(GraphToSourceResult, .ioErr);
@@ -339,7 +271,7 @@ export fn readSrc(src: [*:0]const u8, in_status: ?*c_int) [*:0]const u8 {
     };
 
     // FIXME: leak
-    return @as([*:0]const u8, @ptrCast((page_writer.concat(global_alloc.allocator()) catch {
+    return @as([*:0]const u8, @ptrCast((page_writer.concat(global_alloc) catch {
         out_status.* = 1;
         return "Error: alloc concat error";
     }).ptr));

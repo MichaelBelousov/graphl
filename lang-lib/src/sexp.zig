@@ -103,17 +103,17 @@ pub const Sexp = union(enum) {
                 for (v.items) |item| {
                     (try result.addOne()).* = try item.jsonValue(alloc);
                 }
-                break :_ json.Value{ .Array = result };
+                break :_ json.Value{ .array = result };
             },
-            .float => |v| json.Value{ .Float = v },
-            .int => |v| json.Value{ .Integer = v },
-            .ownedString => |v| json.Value{ .String = v },
-            .borrowedString => |v| json.Value{ .String = v },
+            .float => |v| json.Value{ .float = v },
+            .int => |v| json.Value{ .integer = v },
+            .ownedString => |v| json.Value{ .string = v },
+            .borrowedString => |v| json.Value{ .string = v },
             .symbol => |v| _: {
                 var result = json.ObjectMap.init(alloc);
                 // TODO: ensureTotalCapacityPrecise
-                try result.put("symbol", json.Value{ .String = v });
-                break :_ json.Value{ .Object = result };
+                try result.put("symbol", json.Value{ .string = v });
+                break :_ json.Value{ .object = result };
             },
         };
     }

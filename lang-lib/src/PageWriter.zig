@@ -60,7 +60,7 @@ pub const PageWriter = struct {
             if (self.writeable_page.len == 0) {
                 self.writeable_page = (try self.pages.addOne(self.alloc))[0..page_size];
             }
-            const next_end = std.math.min(self.writeable_page.len, remaining_bytes.len);
+            const next_end = @min(self.writeable_page.len, remaining_bytes.len);
             const bytes_for_current_page = remaining_bytes[0..next_end];
             std.mem.copy(u8, self.writeable_page, bytes_for_current_page);
             self.writeable_page = self.writeable_page[bytes_for_current_page.len..self.writeable_page.len];
@@ -79,7 +79,7 @@ pub const PageWriter = struct {
 test "write some pages" {
     const data = try std.testing.allocator.alloc(u8, std.mem.page_size * 3 + std.mem.page_size / 2 + 11);
     defer std.testing.allocator.free(data);
-    std.mem.set(u8, data, 'a');
+    for (data) |*b| b.* = 'a';
 
     var page_writer = try PageWriter.init(std.testing.allocator);
     defer page_writer.deinit();

@@ -64,7 +64,11 @@ pub fn free(self: Self, alloc: std.mem.Allocator) void {
             alloc.free(self.buffer);
         },
         else => {
-            const munmap_result = std.c.munmap(@as(*align(std.mem.page_size) anyopaque, @alignCast(@as(*u8, @ptrCast(self.buffer.ptr)))), self.buffer.len);
+            const munmap_result = std.c.munmap(
+                @as(*align(std.mem.page_size) anyopaque,
+                    @alignCast(@as(*anyopaque, @ptrCast(@constCast(self.buffer.ptr))))),
+                self.buffer.len
+            );
             const errno = std.c.getErrno(munmap_result);
             if (errno != .SUCCESS)
                 std.debug.panic("munmap err", .{});

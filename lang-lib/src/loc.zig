@@ -10,7 +10,7 @@ pub const Loc = struct {
     index: usize = 0,
 
     fn find_backwards(haystack: []const u8, needle: u8, start: ?usize) ?usize {
-        var i = start orelse std.mem.len(haystack) - 1;
+        var i = start orelse haystack.len - 1;
         while (true) {
             if (haystack[i] == needle) return i;
             // FIXME: this reeks

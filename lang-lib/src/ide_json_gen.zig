@@ -16,15 +16,16 @@ const Input = struct {
     type: []const u8,
     default: ?json.Value = null,
 
+    // TODO: rename to write to fit new json api
     fn emitJson(self: @This(), stream: anytype) !void {
         try stream.beginObject();
         try stream.objectField("label");
-        try stream.emitString(self.label);
+        try stream.write(self.label);
         try stream.objectField("type");
-        try stream.emitString(self.type);
+        try stream.write(self.type);
         if (self.default) |default| {
             try stream.objectField("default");
-            try stream.emitJson(default);
+            try stream.write(default);
         }
         try stream.endObject();
     }
@@ -37,9 +38,9 @@ const Output = struct {
     fn emitJson(self: @This(), stream: anytype) !void {
         try stream.beginObject();
         try stream.objectField("label");
-        try stream.emitString(self.label);
+        try stream.write(self.label);
         try stream.objectField("type");
-        try stream.emitString(self.type);
+        try stream.write(self.type);
         try stream.endObject();
     }
 };
@@ -56,7 +57,7 @@ const NodeDef = struct {
     fn emitJson(self: @This(), stream: anytype) !void {
         try stream.beginObject();
         try stream.objectField("id");
-        try stream.emitString(self.id);
+        try stream.write(self.id);
         try stream.objectField("def");
         self.emitDef();
         try stream.endObject();
@@ -65,12 +66,11 @@ const NodeDef = struct {
     fn emitDef(self: @This(), stream: anytype) !void {
         try stream.beginObject();
         try stream.objectField("label");
-        try stream.emitString(self.def.label);
+        try stream.write(self.def.label);
         try stream.objectField("inputs");
         {
             try stream.beginArray();
             for (self.def.inputs) |input| {
-                try stream.arrayElem();
                 try input.emitJson(stream);
             }
             try stream.endArray();
@@ -79,7 +79,6 @@ const NodeDef = struct {
         {
             try stream.beginArray();
             for (self.def.outputs) |output| {
-                try stream.arrayElem();
                 try output.emitJson(stream);
             }
             try stream.endArray();
@@ -217,7 +216,7 @@ pub fn readSrc(alloc: std.mem.Allocator, src: []const u8, writer: anytype) !void
         return error.ParseError;
     }
 
-    var write_stream = json.writeStream(writer, 6);
+    var write_stream = json.writeStream(writer, .{ .whitespace = .indent_1 });
     try write_stream.beginObject();
 
     for (parse_result.ok.items) |expr| {
