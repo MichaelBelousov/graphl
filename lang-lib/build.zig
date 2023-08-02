@@ -16,7 +16,9 @@ pub fn build(b: *std.Build) void {
     lib.force_pic = true;
 
     const main_tests = b.addTest(.{
+        .name = "main-tests",
         .root_source_file = std.build.FileSource.relative("src/main.zig"),
+        .target = target,
         .optimize = optimize,
     });
 
@@ -27,12 +29,13 @@ pub fn build(b: *std.Build) void {
     var web_target = target;
     web_target.cpu_arch = .wasm32;
     web_target.os_tag = .freestanding;
-    const web_lib = b.addExecutable(.{
+    const web_lib = b.addSharedLibrary(.{
         .name = "graph-lang",
         .root_source_file = std.build.FileSource.relative("src/main.zig"),
         .target = web_target,
         .optimize = optimize,
     });
+    web_lib.rdynamic = true;
     b.installArtifact(web_lib);
     const web_lib_install = b.addInstallArtifact(web_lib);
     web_step.dependOn(&web_lib_install.step);
