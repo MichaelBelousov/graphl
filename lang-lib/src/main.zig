@@ -170,7 +170,7 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
                 const node = node_entry.value_ptr.*;
 
                 for (node.outputs) |json_output| {
-                    // FIXME:
+                    // FIXME: this doesn't fix it, still need to use a non-safe Release
                     @setRuntimeSafety(false); // FIXME: weird pointer alignment error
                     handle_src_node_map.put(json_output, node_entry.value_ptr)
                         catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
