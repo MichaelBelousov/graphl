@@ -640,7 +640,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
             for (let i = 0; i < edges.length; ++i) {
               const edge = edges[i];
               const sourceNode = graph.getNode(edge.source);
-              const targetNode = graph.getNode(edge.source);
+              const targetNode = graph.getNode(edge.target);
               assert(sourceNode && targetNode);
 
               let source = nodes.get(edge.source);

@@ -4,7 +4,7 @@
     "build": "vite build --mode production",
     "preview": "vite preview",
     "dev": "pnpm run dev:frontend & pnpm run dev:backend &",
-    "dev:frontend": "vite",
+    "dev:frontend": "vite --port 3001",
     "dev:backend": "echo backend not setup",
     "test": "mocha --config ./.mocharc.js tests/unit/**/*.test.ts",
     "test:e2e": "playwright test tests/e2e"
