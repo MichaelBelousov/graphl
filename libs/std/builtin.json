@@ -3,7 +3,7 @@
     "package-name": "builtin"
   },
   "types": {
-    "num //(native with conversion rules)": { "union": ["f64", "f32", "i32", "i64", "u32", "u64", "b"] }
+    "num //(native with conversion rules)": { "union": ["f64", "f32", "i32", "i64", "u32", "u64", "bool"] }
   },
   "nodes": {
     "max": {

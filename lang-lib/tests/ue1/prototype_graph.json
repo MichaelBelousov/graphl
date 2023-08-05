@@ -54,46 +54,31 @@
    ]
   },
   "4693440901738298": {
-   "width": 182,
-   "height": 95,
-   "id": "4849299866813781",
-   "type": "set!",
+   "width": 150,
+   "height": 65,
+   "id": "4693440901738298",
+   "type": "CustomTickEntry",
    "data": {
-    "literalInputs": {
-     "0": null,
-     "1": null
-    },
-    "typeIfDefaulted": "set!",
+    "literalInputs": {},
+    "typeIfDefaulted": "CustomTickEntry",
     "fullDesc": {
-     "label": "set!",
-     "data": {
-      "variable": {
-       "name": null,
-       "type": null
-      }
-     },
-     "inputs": [
-      {
-       "label": "value",
-       "type": "data.variable.type"
-      }
-     ],
+     "label": "CustomTick",
+     "description": "close custom tick",
+     "inputs": [],
      "outputs": [
       {
-       "label": "value",
-       "type": "data.variable.type"
+       "label": "",
+       "type": "exec"
       }
      ]
-    },
-    "setTarget": "OverTime",
-    "comment": ""
+    }
    },
    "position": {
-    "x": 210,
+    "x": -30,
     "y": 420
    },
    "positionAbsolute": {
-    "x": 210,
+    "x": -30,
     "y": 420
    },
    "selected": false,
@@ -104,47 +89,45 @@
    "outputs": []
   },
   "3808432525983060": {
-   "width": 182,
-   "height": 95,
-   "id": "4849299866813781",
-   "type": "set!",
+   "width": 86,
+   "height": 97,
+   "id": "3808432525983060",
+   "type": "/",
    "data": {
     "literalInputs": {
-     "0": null,
-     "1": null
+     "0": 1,
+     "1": 1
     },
-    "typeIfDefaulted": "set!",
+    "typeIfDefaulted": "/",
     "fullDesc": {
-     "label": "set!",
-     "data": {
-      "variable": {
-       "name": null,
-       "type": null
-      }
-     },
+     "label": "div",
      "inputs": [
       {
-       "label": "value",
-       "type": "data.variable.type"
+       "label": "",
+       "type": "num",
+       "default": 1
+      },
+      {
+       "label": "",
+       "type": "num",
+       "default": 1
       }
      ],
      "outputs": [
       {
-       "label": "value",
-       "type": "data.variable.type"
+       "label": "",
+       "type": "num"
       }
      ]
-    },
-    "setTarget": "OverTime",
-    "comment": ""
+    }
    },
    "position": {
-    "x": 210,
-    "y": 420
+    "x": -15,
+    "y": 525
    },
    "positionAbsolute": {
-    "x": 210,
-    "y": 420
+    "x": -15,
+    "y": 525
    },
    "selected": false,
    "dragging": false,
@@ -208,45 +191,38 @@
    ]
   },
   "7011717988783239": {
-   "width": 86,
-   "height": 97,
-   "id": "3361034480373710",
-   "type": "-",
+   "width": 204,
+   "height": 67,
+   "id": "7011717988783239",
+   "type": "get-actor-location",
    "data": {
     "literalInputs": {
-     "0": 0,
-     "1": 0
+     "0": true
     },
-    "typeIfDefaulted": "-",
+    "typeIfDefaulted": "get-actor-location",
     "fullDesc": {
-     "label": "sub",
+     "label": "get-actor-location",
      "inputs": [
       {
-       "label": "",
-       "type": "T",
-       "default": 0
-      },
-      {
-       "label": "",
-       "type": "T",
-       "default": 0
+       "label": "a",
+       "type": "actor"
       }
      ],
      "outputs": [
       {
-       "label": "",
-       "type": "T"
+       "label": "a",
+       "type": "f64"
       }
      ]
     }
    },
    "position": {
-    "x": -495,
-    "y": 690
+    "x": -795,
+    "y": 675
    },
    "positionAbsolute": {
-    "x": -495,
-    "y": 690
+    "x": -795,
+    "y": 675
    },
    "selected": false,
    "dragging": false,
@@ -342,37 +318,30 @@
    ]
   },
   "7704992052953362": {
-   "width": 204,
+   "width": 263,
    "height": 67,
-   "id": "4166894636840847",
-   "type": "get-actor-location",
+   "id": "7704992052953362",
+   "type": "current-spawn-point",
    "data": {
-    "literalInputs": {
-     "0": null
-    },
-    "typeIfDefaulted": "get-actor-location",
+    "literalInputs": {},
+    "typeIfDefaulted": "current-spawn-point",
     "fullDesc": {
-     "label": "get-actor-location",
-     "inputs": [
-      {
-       "label": "a",
-       "type": "actor"
-      }
-     ],
+     "label": "get_current-spawn-point",
+     "inputs": [],
      "outputs": [
       {
-       "label": "a",
-       "type": "vector"
+       "label": "get",
+       "type": "T"
       }
      ]
     }
    },
    "position": {
-    "x": -795,
+    "x": -1080,
     "y": 765
    },
    "positionAbsolute": {
-    "x": -795,
+    "x": -1080,
     "y": 765
    },
    "selected": false,
@@ -383,45 +352,31 @@
    "outputs": []
   },
   "3331194487680485": {
-   "width": 86,
-   "height": 97,
-   "id": "3808432525983060",
-   "type": "/",
+   "width": 131,
+   "height": 67,
+   "id": "3331194487680485",
+   "type": "speed",
    "data": {
-    "literalInputs": {
-     "0": 1,
-     "1": 1
-    },
-    "typeIfDefaulted": "/",
+    "literalInputs": {},
+    "typeIfDefaulted": "speed",
     "fullDesc": {
-     "label": "div",
-     "inputs": [
-      {
-       "label": "",
-       "type": "num",
-       "default": 1
-      },
-      {
-       "label": "",
-       "type": "num",
-       "default": 1
-      }
-     ],
+     "label": "get_speed",
+     "inputs": [],
      "outputs": [
       {
-       "label": "",
-       "type": "num"
+       "label": "get",
+       "type": "T"
       }
      ]
     }
    },
    "position": {
-    "x": -15,
-    "y": 525
+    "x": -225,
+    "y": 675
    },
    "positionAbsolute": {
-    "x": -15,
-    "y": 525
+    "x": -225,
+    "y": 675
    },
    "selected": false,
    "dragging": false,
@@ -495,57 +450,32 @@
    ]
   },
   "7624704203347018": {
-   "width": 250,
-   "height": 124,
-   "id": "2837266769595155",
-   "type": "fake-switch",
+   "width": 183,
+   "height": 67,
+   "id": "7624704203347018",
+   "type": "drone-state",
    "data": {
-    "literalInputs": {
-     "0": null,
-     "1": null
-    },
-    "typeIfDefaulted": "fake-switch",
+    "literalInputs": {},
+    "typeIfDefaulted": "drone-state",
     "fullDesc": {
-     "label": "switch",
-     "data": {
-      "variable": {
-       "name": null,
-       "type": null
-      }
-     },
-     "inputs": [
-      {
-       "label": "",
-       "type": "exec"
-      },
-      {
-       "label": "value",
-       "type": "data.variable.type"
-      }
-     ],
+     "label": "get_drone-state",
+     "inputs": [],
      "outputs": [
       {
-       "label": "Move to Player",
-       "type": "exec"
-      },
-      {
-       "label": "Move Up",
-       "type": "exec"
-      },
-      {
-       "label": "Dead",
-       "type": "exec"
+       "label": "get",
+       "type": "T"
       }
      ]
-    }
+    },
+    "comment": ""
    },
    "position": {
-    "x": 465,
-    "y": 420
+    "x": 210,
+    "y": 555
    },
    "positionAbsolute": {
-    "x": 465,
-    "y": 420
+    "x": 210,
+    "y": 555
    },
    "selected": false,
    "dragging": false,
@@ -756,94 +686,6 @@
    ]
   },
   "7221849367884980": {
-   "width": 371,
-   "height": 304,
-   "id": "5649571012321341",
-   "type": "Move Component To",
-   "data": {
-    "literalInputs": {
-     "0": null,
-     "1": true,
-     "2": true,
-     "3": null,
-     "4": null,
-     "5": null,
-     "6": false,
-     "7": false,
-     "8": null
-    },
-    "typeIfDefaulted": "Move Component To",
-    "fullDesc": {
-     "label": "Move Component To",
-     "description": "local function",
-     "data": {
-      "isAsync": true
-     },
-     "inputs": [
-      {
-       "label": "Move",
-       "type": "exec"
-      },
-      {
-       "label": "Stop",
-       "type": "exec"
-      },
-      {
-       "label": "Return",
-       "type": "exec"
-      },
-      {
-       "label": "Component",
-       "type": "scene-component"
-      },
-      {
-       "label": "Target Relative Location",
-       "type": "vector"
-      },
-      {
-       "label": "Target Relative Rotation",
-       "type": "rotator"
-      },
-      {
-       "label": "Ease Out",
-       "type": "bool"
-      },
-      {
-       "label": "Ease In",
-       "type": "bool"
-      },
-      {
-       "label": "Over Time",
-       "type": "f32"
-      }
-     ],
-     "outputs": [
-      {
-       "label": "Completed",
-       "type": "exec"
-      }
-     ]
-    },
-    "comment": "Move Drone to TargetPoint"
-   },
-   "position": {
-    "x": 1695,
-    "y": -120
-   },
-   "positionAbsolute": {
-    "x": 1695,
-    "y": -120
-   },
-   "selected": false,
-   "dragging": false,
-   "inputs": [
-    13
-   ],
-   "outputs": [
-    14
-   ]
-  },
-  "794784524235348": {
    "width": 204,
    "height": 67,
    "id": "7221849367884980",
@@ -880,88 +722,72 @@
    "selected": false,
    "dragging": false,
    "inputs": [
+    13
+   ],
+   "outputs": [
+    14
+   ]
+  },
+  "794784524235348": {
+   "width": 263,
+   "height": 67,
+   "id": "794784524235348",
+   "type": "current-spawn-point",
+   "data": {
+    "literalInputs": {},
+    "typeIfDefaulted": "current-spawn-point",
+    "fullDesc": {
+     "label": "get_current-spawn-point",
+     "inputs": [],
+     "outputs": [
+      {
+       "label": "get",
+       "type": "T"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1050,
+    "y": -90
+   },
+   "positionAbsolute": {
+    "x": 1050,
+    "y": -90
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
     14
    ],
    "outputs": []
   },
   "6220765936570289": {
-   "width": 371,
-   "height": 304,
-   "id": "5649571012321341",
-   "type": "Move Component To",
+   "width": 255,
+   "height": 67,
+   "id": "6220765936570289",
+   "type": "capsule-component",
    "data": {
-    "literalInputs": {
-     "0": null,
-     "1": true,
-     "2": true,
-     "3": null,
-     "4": null,
-     "5": null,
-     "6": false,
-     "7": false,
-     "8": null
-    },
-    "typeIfDefaulted": "Move Component To",
+    "literalInputs": {},
+    "typeIfDefaulted": "capsule-component",
     "fullDesc": {
-     "label": "Move Component To",
-     "description": "local function",
-     "data": {
-      "isAsync": true
-     },
-     "inputs": [
-      {
-       "label": "Move",
-       "type": "exec"
-      },
-      {
-       "label": "Stop",
-       "type": "exec"
-      },
-      {
-       "label": "Return",
-       "type": "exec"
-      },
-      {
-       "label": "Component",
-       "type": "scene-component"
-      },
-      {
-       "label": "Target Relative Location",
-       "type": "vector"
-      },
-      {
-       "label": "Target Relative Rotation",
-       "type": "rotator"
-      },
-      {
-       "label": "Ease Out",
-       "type": "bool"
-      },
-      {
-       "label": "Ease In",
-       "type": "bool"
-      },
-      {
-       "label": "Over Time",
-       "type": "f32"
-      }
-     ],
+     "label": "get_capsule-component",
+     "inputs": [],
      "outputs": [
       {
-       "label": "Completed",
-       "type": "exec"
+       "label": "get",
+       "type": "T"
       }
      ]
-    },
-    "comment": "Move Drone to TargetPoint"
+    }
    },
    "position": {
-    "x": 1695,
-    "y": -120
+    "x": 1380,
+    "y": 30
    },
    "positionAbsolute": {
-    "x": 1695,
-    "y": -120
+    "x": 1380,
+    "y": 30
    },
    "selected": false,
    "dragging": false,
@@ -971,83 +797,38 @@
    "outputs": []
   },
   "6421935712746209": {
-   "width": 371,
-   "height": 304,
-   "id": "5649571012321341",
-   "type": "Move Component To",
+   "width": 204,
+   "height": 67,
+   "id": "6421935712746209",
+   "type": "get-actor-rotation",
    "data": {
     "literalInputs": {
-     "0": null,
-     "1": true,
-     "2": true,
-     "3": null,
-     "4": null,
-     "5": null,
-     "6": false,
-     "7": false,
-     "8": null
+     "0": true
     },
-    "typeIfDefaulted": "Move Component To",
+    "typeIfDefaulted": "get-actor-rotation",
     "fullDesc": {
-     "label": "Move Component To",
-     "description": "local function",
-     "data": {
-      "isAsync": true
-     },
+     "label": "get-actor-rotation",
      "inputs": [
       {
-       "label": "Move",
-       "type": "exec"
-      },
-      {
-       "label": "Stop",
-       "type": "exec"
-      },
-      {
-       "label": "Return",
-       "type": "exec"
-      },
-      {
-       "label": "Component",
-       "type": "scene-component"
-      },
-      {
-       "label": "Target Relative Location",
-       "type": "vector"
-      },
-      {
-       "label": "Target Relative Rotation",
-       "type": "rotator"
-      },
-      {
-       "label": "Ease Out",
-       "type": "bool"
-      },
-      {
-       "label": "Ease In",
-       "type": "bool"
-      },
-      {
-       "label": "Over Time",
-       "type": "f32"
+       "label": "a",
+       "type": "actor"
       }
      ],
      "outputs": [
       {
-       "label": "Completed",
-       "type": "exec"
+       "label": "a",
+       "type": "actor"
       }
      ]
-    },
-    "comment": "Move Drone to TargetPoint"
+    }
    },
    "position": {
-    "x": 1695,
-    "y": -120
+    "x": 1395,
+    "y": 135
    },
    "positionAbsolute": {
-    "x": 1695,
-    "y": -120
+    "x": 1395,
+    "y": 135
    },
    "selected": false,
    "dragging": false,
@@ -1057,83 +838,31 @@
    "outputs": []
   },
   "6981422926286386": {
-   "width": 371,
-   "height": 304,
-   "id": "5649571012321341",
-   "type": "Move Component To",
+   "width": 166,
+   "height": 67,
+   "id": "6981422926286386",
+   "type": "over-time",
    "data": {
-    "literalInputs": {
-     "0": null,
-     "1": true,
-     "2": true,
-     "3": null,
-     "4": null,
-     "5": null,
-     "6": false,
-     "7": false,
-     "8": null
-    },
-    "typeIfDefaulted": "Move Component To",
+    "literalInputs": {},
+    "typeIfDefaulted": "over-time",
     "fullDesc": {
-     "label": "Move Component To",
-     "description": "local function",
-     "data": {
-      "isAsync": true
-     },
-     "inputs": [
-      {
-       "label": "Move",
-       "type": "exec"
-      },
-      {
-       "label": "Stop",
-       "type": "exec"
-      },
-      {
-       "label": "Return",
-       "type": "exec"
-      },
-      {
-       "label": "Component",
-       "type": "scene-component"
-      },
-      {
-       "label": "Target Relative Location",
-       "type": "vector"
-      },
-      {
-       "label": "Target Relative Rotation",
-       "type": "rotator"
-      },
-      {
-       "label": "Ease Out",
-       "type": "bool"
-      },
-      {
-       "label": "Ease In",
-       "type": "bool"
-      },
-      {
-       "label": "Over Time",
-       "type": "f32"
-      }
-     ],
+     "label": "get_over-time",
+     "inputs": [],
      "outputs": [
       {
-       "label": "Completed",
-       "type": "exec"
+       "label": "get",
+       "type": "T"
       }
      ]
-    },
-    "comment": "Move Drone to TargetPoint"
+    }
    },
    "position": {
-    "x": 1695,
-    "y": -120
+    "x": 1425,
+    "y": 210
    },
    "positionAbsolute": {
-    "x": 1695,
-    "y": -120
+    "x": 1425,
+    "y": 210
    },
    "selected": false,
    "dragging": false,
@@ -1256,224 +985,6 @@
    ]
   },
   "8558161364903549": {
-   "width": 353,
-   "height": 279,
-   "id": "3162847592790585",
-   "type": "single-line-trace-by-channel",
-   "data": {
-    "literalInputs": {
-     "0": null,
-     "1": null,
-     "2": null,
-     "3": true,
-     "4": false,
-     "5": true,
-     "6": "line",
-     "7": true,
-     "8": {
-      "symbol": "#f"
-     },
-     "9": {
-      "symbol": "#f"
-     },
-     "10": {
-      "symbol": "#f"
-     },
-     "11": {
-      "symbol": "#f"
-     },
-     "12": {
-      "symbol": "#f"
-     },
-     "13": {
-      "symbol": "#f"
-     },
-     "14": {
-      "symbol": "#f"
-     }
-    },
-    "typeIfDefaulted": "single-line-trace-by-channel",
-    "fullDesc": {
-     "label": "single-line-trace-by-channel",
-     "inputs": [
-      {
-       "label": "start",
-       "type": "vector"
-      },
-      {
-       "label": "end",
-       "type": "vector"
-      },
-      {
-       "label": "channel",
-       "type": "trace-channels"
-      },
-      {
-       "label": "trace-complex",
-       "type": "bool"
-      },
-      {
-       "label": "actors-to-ignore",
-       "type": "actor-list"
-      },
-      {
-       "label": "draw-debug-type",
-       "type": "draw-debug-types",
-       "default": {
-        "symbol": "'none"
-       }
-      },
-      {
-       "label": "ignore-self",
-       "type": "bool",
-       "default": {
-        "symbol": "#f"
-       }
-      }
-     ],
-     "outputs": [
-      {
-       "label": "next",
-       "type": "exec"
-      },
-      {
-       "label": "Out Hit",
-       "type": "Hit"
-      },
-      {
-       "label": "DidHit",
-       "type": "bool"
-      }
-     ]
-    }
-   },
-   "position": {
-    "x": 1485,
-    "y": 495
-   },
-   "positionAbsolute": {
-    "x": 1485,
-    "y": 495
-   },
-   "selected": false,
-   "dragging": false,
-   "inputs": [
-    19
-   ],
-   "outputs": [
-    21
-   ]
-  },
-  "7938031760513758": {
-   "width": 353,
-   "height": 279,
-   "id": "3162847592790585",
-   "type": "single-line-trace-by-channel",
-   "data": {
-    "literalInputs": {
-     "0": null,
-     "1": null,
-     "2": null,
-     "3": true,
-     "4": false,
-     "5": true,
-     "6": "line",
-     "7": true,
-     "8": {
-      "symbol": "#f"
-     },
-     "9": {
-      "symbol": "#f"
-     },
-     "10": {
-      "symbol": "#f"
-     },
-     "11": {
-      "symbol": "#f"
-     },
-     "12": {
-      "symbol": "#f"
-     },
-     "13": {
-      "symbol": "#f"
-     },
-     "14": {
-      "symbol": "#f"
-     }
-    },
-    "typeIfDefaulted": "single-line-trace-by-channel",
-    "fullDesc": {
-     "label": "single-line-trace-by-channel",
-     "inputs": [
-      {
-       "label": "start",
-       "type": "vector"
-      },
-      {
-       "label": "end",
-       "type": "vector"
-      },
-      {
-       "label": "channel",
-       "type": "trace-channels"
-      },
-      {
-       "label": "trace-complex",
-       "type": "bool"
-      },
-      {
-       "label": "actors-to-ignore",
-       "type": "actor-list"
-      },
-      {
-       "label": "draw-debug-type",
-       "type": "draw-debug-types",
-       "default": {
-        "symbol": "'none"
-       }
-      },
-      {
-       "label": "ignore-self",
-       "type": "bool",
-       "default": {
-        "symbol": "#f"
-       }
-      }
-     ],
-     "outputs": [
-      {
-       "label": "next",
-       "type": "exec"
-      },
-      {
-       "label": "Out Hit",
-       "type": "Hit"
-      },
-      {
-       "label": "DidHit",
-       "type": "bool"
-      }
-     ]
-    }
-   },
-   "position": {
-    "x": 1485,
-    "y": 495
-   },
-   "positionAbsolute": {
-    "x": 1485,
-    "y": 495
-   },
-   "selected": false,
-   "dragging": false,
-   "inputs": [
-    20
-   ],
-   "outputs": [
-    22
-   ]
-  },
-  "2733983040735191": {
    "width": 356,
    "height": 99,
    "id": "8558161364903549",
@@ -1511,6 +1022,90 @@
    "positionAbsolute": {
     "x": 1035,
     "y": 510
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    19
+   ],
+   "outputs": [
+    21
+   ]
+  },
+  "7938031760513758": {
+   "width": 356,
+   "height": 99,
+   "id": "7938031760513758",
+   "type": "get-socket-location",
+   "data": {
+    "literalInputs": {
+     "0": null,
+     "1": "EndTraceSocket"
+    },
+    "typeIfDefaulted": "get-socket-location",
+    "fullDesc": {
+     "label": "get-socket-location",
+     "inputs": [
+      {
+       "label": "c",
+       "type": "scene-component"
+      },
+      {
+       "label": "socket-name",
+       "type": "string"
+      }
+     ],
+     "outputs": [
+      {
+       "label": "return",
+       "type": "vector"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 1035,
+    "y": 615
+   },
+   "positionAbsolute": {
+    "x": 1035,
+    "y": 615
+   },
+   "selected": false,
+   "dragging": false,
+   "inputs": [
+    20
+   ],
+   "outputs": [
+    22
+   ]
+  },
+  "2733983040735191": {
+   "width": 128,
+   "height": 67,
+   "id": "2733983040735191",
+   "type": "mesh",
+   "data": {
+    "literalInputs": {},
+    "typeIfDefaulted": "mesh",
+    "fullDesc": {
+     "label": "get_mesh",
+     "inputs": [],
+     "outputs": [
+      {
+       "label": "get",
+       "type": "T"
+      }
+     ]
+    }
+   },
+   "position": {
+    "x": 840,
+    "y": 585
+   },
+   "positionAbsolute": {
+    "x": 840,
+    "y": 585
    },
    "selected": false,
    "dragging": false,
@@ -2210,43 +1805,31 @@
    ]
   },
   "678640560324665": {
-   "width": 356,
-   "height": 99,
-   "id": "1462728303085126",
-   "type": "get-socket-location",
+   "width": 128,
+   "height": 67,
+   "id": "678640560324665",
+   "type": "mesh",
    "data": {
-    "literalInputs": {
-     "0": "",
-     "1": "EndTraceSocket"
-    },
-    "typeIfDefaulted": "get-socket-location",
+    "literalInputs": {},
+    "typeIfDefaulted": "mesh",
     "fullDesc": {
-     "label": "get-socket-location",
-     "inputs": [
-      {
-       "label": "c",
-       "type": "scene-component"
-      },
-      {
-       "label": "socket-name",
-       "type": "string"
-      }
-     ],
+     "label": "get_mesh",
+     "inputs": [],
      "outputs": [
       {
-       "label": "return",
-       "type": "vector"
+       "label": "get",
+       "type": "T"
       }
      ]
     }
    },
    "position": {
-    "x": -675,
-    "y": 1485
+    "x": -900,
+    "y": 1440
    },
    "positionAbsolute": {
-    "x": -675,
-    "y": 1485
+    "x": -900,
+    "y": 1440
    },
    "selected": false,
    "dragging": false,
@@ -2599,11 +2182,11 @@
    },
    "position": {
     "x": 1665,
-    "y": 1335
+    "y": 1350
    },
    "positionAbsolute": {
     "x": 1665,
-    "y": 1335
+    "y": 1350
    },
    "selected": false,
    "dragging": false,
@@ -2679,56 +2262,38 @@
    ]
   },
   "3629499109084281": {
-   "width": 86,
-   "height": 97,
-   "id": "1516176073311522",
-   "type": "+",
+   "width": 204,
+   "height": 67,
+   "id": "3629499109084281",
+   "type": "get-actor-location",
    "data": {
     "literalInputs": {
-     "0": 0,
-     "1": 0
+     "0": ""
     },
-    "typeIfDefaulted": "+",
+    "typeIfDefaulted": "get-actor-location",
     "fullDesc": {
-     "description": "",
-     "label": "add",
-     "typevars": [
-      {
-       "name": "T",
-       "extends": {
-        "union": [
-         "num"
-        ]
-       }
-      }
-     ],
+     "label": "get-actor-location",
      "inputs": [
       {
-       "label": "",
-       "type": "T",
-       "default": 0
-      },
-      {
-       "label": "",
-       "type": "T",
-       "default": 0
+       "label": "a",
+       "type": "actor"
       }
      ],
      "outputs": [
       {
-       "label": "",
-       "type": "T"
+       "label": "a",
+       "type": "vector"
       }
      ]
     }
    },
    "position": {
-    "x": 1065,
-    "y": 1530
+    "x": 690,
+    "y": 1605
    },
    "positionAbsolute": {
-    "x": 1065,
-    "y": 1530
+    "x": 690,
+    "y": 1605
    },
    "selected": false,
    "dragging": false,
@@ -2738,83 +2303,38 @@
    "outputs": []
   },
   "805923739989411": {
-   "width": 371,
-   "height": 304,
-   "id": "1769102506496695",
-   "type": "Move Component To",
+   "width": 204,
+   "height": 67,
+   "id": "805923739989411",
+   "type": "get-actor-rotation",
    "data": {
     "literalInputs": {
-     "0": "",
-     "1": "",
-     "2": "",
-     "3": "",
-     "4": "",
-     "5": "",
-     "6": false,
-     "7": false,
-     "8": ""
+     "0": ""
     },
-    "typeIfDefaulted": "Move Component To",
+    "typeIfDefaulted": "get-actor-rotation",
     "fullDesc": {
-     "label": "Move Component To",
-     "description": "local function",
-     "data": {
-      "isAsync": true
-     },
+     "label": "get-actor-rotation",
      "inputs": [
       {
-       "label": "Move",
-       "type": "exec"
-      },
-      {
-       "label": "Stop",
-       "type": "exec"
-      },
-      {
-       "label": "Return",
-       "type": "exec"
-      },
-      {
-       "label": "Component",
-       "type": "scene-component"
-      },
-      {
-       "label": "Target Relative Location",
-       "type": "vector"
-      },
-      {
-       "label": "Target Relative Rotation",
-       "type": "rotator"
-      },
-      {
-       "label": "Ease Out",
-       "type": "bool"
-      },
-      {
-       "label": "Ease In",
-       "type": "bool"
-      },
-      {
-       "label": "Over Time",
-       "type": "f32"
+       "label": "a",
+       "type": "actor"
       }
      ],
      "outputs": [
       {
-       "label": "Completed",
-       "type": "exec"
+       "label": "a",
+       "type": "actor"
       }
      ]
-    },
-    "comment": "Move up by 150 points"
+    }
    },
    "position": {
-    "x": 1665,
-    "y": 1335
+    "x": 1065,
+    "y": 1455
    },
    "positionAbsolute": {
-    "x": 1665,
-    "y": 1335
+    "x": 1065,
+    "y": 1455
    },
    "selected": false,
    "dragging": false,
@@ -2824,83 +2344,31 @@
    "outputs": []
   },
   "8247692273086280": {
-   "width": 371,
-   "height": 304,
-   "id": "1769102506496695",
-   "type": "Move Component To",
+   "width": 255,
+   "height": 67,
+   "id": "8247692273086280",
+   "type": "capsule-component",
    "data": {
-    "literalInputs": {
-     "0": "",
-     "1": "",
-     "2": "",
-     "3": "",
-     "4": "",
-     "5": "",
-     "6": false,
-     "7": false,
-     "8": ""
-    },
-    "typeIfDefaulted": "Move Component To",
+    "literalInputs": {},
+    "typeIfDefaulted": "capsule-component",
     "fullDesc": {
-     "label": "Move Component To",
-     "description": "local function",
-     "data": {
-      "isAsync": true
-     },
-     "inputs": [
-      {
-       "label": "Move",
-       "type": "exec"
-      },
-      {
-       "label": "Stop",
-       "type": "exec"
-      },
-      {
-       "label": "Return",
-       "type": "exec"
-      },
-      {
-       "label": "Component",
-       "type": "scene-component"
-      },
-      {
-       "label": "Target Relative Location",
-       "type": "vector"
-      },
-      {
-       "label": "Target Relative Rotation",
-       "type": "rotator"
-      },
-      {
-       "label": "Ease Out",
-       "type": "bool"
-      },
-      {
-       "label": "Ease In",
-       "type": "bool"
-      },
-      {
-       "label": "Over Time",
-       "type": "f32"
-      }
-     ],
+     "label": "get_capsule-component",
+     "inputs": [],
      "outputs": [
       {
-       "label": "Completed",
-       "type": "exec"
+       "label": "get",
+       "type": "T"
       }
      ]
-    },
-    "comment": "Move up by 150 points"
+    }
    },
    "position": {
-    "x": 1665,
-    "y": 1335
+    "x": 1065,
+    "y": 1380
    },
    "positionAbsolute": {
-    "x": 1665,
-    "y": 1335
+    "x": 1065,
+    "y": 1380
    },
    "selected": false,
    "dragging": false,
@@ -2960,45 +2428,31 @@
    ]
   },
   "7695242292049520": {
-   "width": 86,
-   "height": 97,
-   "id": "8414389496735418",
-   "type": "/",
+   "width": 131,
+   "height": 67,
+   "id": "7695242292049520",
+   "type": "speed",
    "data": {
-    "literalInputs": {
-     "0": 1,
-     "1": 1
-    },
-    "typeIfDefaulted": "/",
+    "literalInputs": {},
+    "typeIfDefaulted": "speed",
     "fullDesc": {
-     "label": "div",
-     "inputs": [
-      {
-       "label": "",
-       "type": "T",
-       "default": 1
-      },
-      {
-       "label": "",
-       "type": "T",
-       "default": 1
-      }
-     ],
+     "label": "get_speed",
+     "inputs": [],
      "outputs": [
       {
-       "label": "",
+       "label": "get",
        "type": "T"
       }
      ]
     }
    },
    "position": {
-    "x": 1440,
-    "y": 1710
+    "x": 1245,
+    "y": 1785
    },
    "positionAbsolute": {
-    "x": 1440,
-    "y": 1710
+    "x": 1245,
+    "y": 1785
    },
    "selected": false,
    "dragging": false,

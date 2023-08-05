@@ -680,7 +680,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
           onClick={async () => {
             const file = await uploadFile({ type: 'text' })
             const json = JSON.parse(file.content)
-            graph.setNodes(json.nodes);
+            graph.setNodes(Object.values(json.nodes));
             graph.setEdges(json.edges);
           }}
         >
