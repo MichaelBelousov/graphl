@@ -22,15 +22,37 @@ const Input = struct {
 
 const Pin = union (enum) {
     exec,
-    input: TypeSpec,
+    value: TypeSpec,
     variadic: TypeSpec,
 };
 
-// TODO: handle switch
+// TODO: handle variadic/switch
 const Node = struct {
-    type_: Type,
-    pins: []const Pin,
+    context: *const anyopaque,
+    getInputs: *const fn(*const Node) []const Pin,
+    getOutputs: *const fn(*const Node) []const Pin,
 };
+
+fn basicNode(comptime in_desc: struct { inputs: []const Pin, outputs: []const Pin }) Node {
+    const NodeImpl = struct {
+        desc: *const @TypeOf(in_desc) = &in_desc,
+        const Self = @This();
+        fn getInputs(_: *const Node) []const Pin {
+            return in_desc.inputs;
+        }
+        fn getOutputs(_: *const Node) []const Pin {
+            //const self: @This() = @ptr(context
+            return in_desc.outputs;
+        }
+    };
+
+    //return Node{in_desc};
+    return Node{
+        .context = @ptrCast(&in_desc),
+        .getInputs = NodeImpl.getInputs,
+        .getOutputs = NodeImpl.getOutputs,
+    };
+}
 
 const primitive_types = struct {
     const nums = struct {
@@ -97,6 +119,7 @@ test "peer resolve types" {
 
 }
 
+// ignoring for now
 fn returnType(builtin_node: *const Node, input_types: []const Type) Type {
     return switch (*builtin_node) {
         builtin_nodes.@"+" => resolvePeerType(input_types),
@@ -105,16 +128,56 @@ fn returnType(builtin_node: *const Node, input_types: []const Type) Type {
 }
 
 const builtin_nodes = struct {
-    const @"+" = Node{};
-    // "max":
-    // "+":
-    // "-":
-    // "*":
-    // "/":
-    // "if":
-    // "sequence":
+    // const @"+" = Node{
+    //     .inputs = &.{
+    //         Pin{.value=primitive_types.nums.f64},
+    //         Pin{.value=primitive_types.nums.f64},
+    //     },
+    //     .outputs = &.{ Pin{.value=primitive_types.nums.f64} },
+    // };
+    const @"+" = basicNode(.{
+        .inputs = &.{
+            Pin{.value=.{.specific = primitive_types.nums.f64_}},
+            Pin{.value=.{.specific = primitive_types.nums.f64_}},
+        },
+        .outputs = &.{ Pin{.value=.{.specific = primitive_types.nums.f64_} }},
+    });
+    const @"-" = @"+";
+    const max = @"+";
+    const @"*" = @"+";
+    const @"/" = @"+";
+    const @"if" = Node{
+        .inputs = &.{
+            Pin{.exec={}},
+            Pin{.value=primitive_types.nums.bool_},
+        },
+        .outputs = &.{
+            Pin{.exec={}},
+            Pin{.exec={}},
+        },
+    };
+    // TODO: function...
+    const sequence = Node{
+        .inputs = &.{ Pin{.exec={}} },
+        .outputs = &.{ Pin{.variadic={}} },
+    };
     // "set!":
     // "cast":
-    // "switch":
+    const @"switch" = Node{
+        .inputs = &.{
+            Pin{.exec={}},
+            Pin{.value=primitive_types.nums.f64_},
+        },
+        .outputs = &.{
+            Pin{.variadic={}},
+        },
+    };
 };
+
+test "add" {
+    try std.testing.expectEqual(
+        builtin_nodes.@"+".getOutputs(),
+        .{Pin{.value=primitive_types.num.f64_}}
+    );
+}
 
