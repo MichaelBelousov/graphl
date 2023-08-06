@@ -29,30 +29,12 @@ const Pin = union (enum) {
 // TODO: handle variadic/switch
 const Node = struct {
     context: *const anyopaque,
-    getInputs: *const fn(*const Node) []const Pin,
-    getOutputs: *const fn(*const Node) []const Pin,
+    _getInputs: *const fn(Node) []const Pin,
+    _getOutputs: *const fn(Node) []const Pin,
+
+    pub fn getInputs(self: @This()) []const Pin { return self._getInputs(self); }
+    pub fn getOutputs(self: @This()) []const Pin { return self._getOutputs(self); }
 };
-
-fn basicNode(comptime in_desc: struct { inputs: []const Pin, outputs: []const Pin }) Node {
-    const NodeImpl = struct {
-        desc: *const @TypeOf(in_desc) = &in_desc,
-        const Self = @This();
-        fn getInputs(_: *const Node) []const Pin {
-            return in_desc.inputs;
-        }
-        fn getOutputs(_: *const Node) []const Pin {
-            //const self: @This() = @ptr(context
-            return in_desc.outputs;
-        }
-    };
-
-    //return Node{in_desc};
-    return Node{
-        .context = @ptrCast(&in_desc),
-        .getInputs = NodeImpl.getInputs,
-        .getOutputs = NodeImpl.getOutputs,
-    };
-}
 
 const primitive_types = struct {
     const nums = struct {
@@ -127,6 +109,29 @@ fn returnType(builtin_node: *const Node, input_types: []const Type) Type {
     };
 }
 
+fn basicNode(comptime in_desc: struct { inputs: []const Pin, outputs: []const Pin }) Node {
+    const NodeImpl = struct {
+        desc: *const @TypeOf(in_desc) = &in_desc,
+        const Self = @This();
+
+        pub fn getInputs(_: Node) []const Pin {
+            return in_desc.inputs;
+        }
+
+        pub fn getOutputs(_: Node) []const Pin {
+            //const self: @This() = @ptr(context
+            return in_desc.outputs;
+        }
+    };
+
+    //return Node{in_desc};
+    return Node{
+        .context = @ptrCast(&in_desc),
+        ._getInputs = NodeImpl.getInputs,
+        ._getOutputs = NodeImpl.getOutputs,
+    };
+}
+
 const builtin_nodes = struct {
     // const @"+" = Node{
     //     .inputs = &.{
@@ -176,8 +181,8 @@ const builtin_nodes = struct {
 
 test "add" {
     try std.testing.expectEqual(
-        builtin_nodes.@"+".getOutputs(),
-        .{Pin{.value=primitive_types.num.f64_}}
+        builtin_nodes.@"+".getOutputs()[0].value.specific,
+        primitive_types.nums.f64_,
     );
 }
 
