@@ -12,7 +12,8 @@ const TypeSpec = union {
     specific: Type,
     //enum_values: []const enum_value,
     union_: []const TypeInfo,
-    struct_: []const TypeInfo,
+    // should structs allow constrained generic fields?
+    struct_: []const struct { field: []const u8, type_: Type },
 };
 
 const Input = struct {
@@ -26,9 +27,11 @@ const Pin = union (enum) {
     variadic: TypeSpec,
 };
 
-// TODO: handle variadic/switch
 const Node = struct {
     context: *const anyopaque,
+    // TODO: do I really need pointers? The types are all going to be well defined aggregates,
+    // and the nodes too
+    // FIXME: point to one table, rather than embed all methods?
     _getInputs: *const fn(Node) []const Pin,
     _getOutputs: *const fn(Node) []const Pin,
 
@@ -49,6 +52,12 @@ const primitive_types = struct {
     const string = &TypeInfo{.name="string"};
     const byte = &TypeInfo{.name="byte"};
     const bool_ = &TypeInfo{.name="bool"};
+
+    const vec3 = TypeSpec{.struct_ = &.{
+        &nums.f64,
+        &nums.f64,
+        &nums.f64,
+    } };
 };
 
 /// lisp-like tree, first is value, rest are children
@@ -109,7 +118,7 @@ fn returnType(builtin_node: *const Node, input_types: []const Type) Type {
     };
 }
 
-fn basicNode(comptime in_desc: struct { inputs: []const Pin, outputs: []const Pin }) Node {
+fn basicNode(comptime in_desc: struct { inputs: []const Pin = &.{}, outputs: []const Pin = &.{} }) Node {
     const NodeImpl = struct {
         desc: *const @TypeOf(in_desc) = &in_desc,
         const Self = @This();
@@ -151,16 +160,16 @@ const builtin_nodes = struct {
     const max = @"+";
     const @"*" = @"+";
     const @"/" = @"+";
-    const @"if" = Node{
+    const @"if" = basicNode(.{
         .inputs = &.{
             Pin{.exec={}},
-            Pin{.value=primitive_types.nums.bool_},
+            Pin{.value=.{.specific = primitive_types.nums.bool_}},
         },
         .outputs = &.{
             Pin{.exec={}},
             Pin{.exec={}},
         },
-    };
+    });
     // TODO: function...
     const sequence = Node{
         .inputs = &.{ Pin{.exec={}} },
@@ -179,10 +188,30 @@ const builtin_nodes = struct {
     };
 };
 
+const temp_ue = struct {
+    const types = struct {
+        const actor = &TypeInfo{.name="actor"};
+    };
+    const nodes = struct {
+        const get_actor_location = basicNode(.{
+            .inputs = &.{ Pin{.value=.{.specific = types.actor}} },
+            .outputs = &.{ Pin{.value=.{.specific = primitive_types.vec3 } }},
+        });
+        const custom_tick_call = basicNode(.{
+            .inputs = &.{ Pin{.value=.{.specific = types.actor}} },
+            .outputs = &.{ Pin{.value=.{.specific = primitive_types.vec3 } }},
+        });
+        const custom_tick_entry = basicNode(.{
+            .outputs = &.{ Pin{.exec={}}},
+        });
+    };
+};
+
 test "add" {
     try std.testing.expectEqual(
         builtin_nodes.@"+".getOutputs()[0].value.specific,
         primitive_types.nums.f64_,
     );
+    try std.testing.expect(temp_ue.nodes.custom_tick_entry.getOutputs()[0] == .exec);
 }
 
