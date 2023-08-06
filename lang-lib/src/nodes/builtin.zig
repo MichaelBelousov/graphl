@@ -4,34 +4,31 @@ const std = @import("std");
 
 const TypeInfo = struct {
     name: []const u8,
+    field_names: []const []const u8 = &.{},
+    // should structs allow constrained generic fields?
+    field_types: []const Type = &.{},
 };
 
 const Type = *const TypeInfo;
 
-const TypeSpec = union {
-    specific: Type,
-    //enum_values: []const enum_value,
-    union_: []const TypeInfo,
-    // should structs allow constrained generic fields?
-    struct_: []const struct { field: []const u8, type_: Type },
-};
-
 const Input = struct {
-    type_specifier: TypeSpec,
+    type_: Type,
     //default: Value,
 };
 
+// FIXME: separate pin value, input pin type, output pin type
 const Pin = union (enum) {
     exec,
-    value: TypeSpec,
-    variadic: TypeSpec,
+    value: Type,
+    variadic: Type,
 };
 
 const Node = struct {
-    context: *const anyopaque,
+    context: *const align(8) anyopaque,
     // TODO: do I really need pointers? The types are all going to be well defined aggregates,
     // and the nodes too
-    // FIXME: point to one table, rather than embed all methods?
+    // FIXME: read https://pithlessly.github.io/allocgate.html, the same logic as to why zig
+    // stopped using @fieldParentPtr-based polymorphism applies here to, this is slow
     _getInputs: *const fn(Node) []const Pin,
     _getOutputs: *const fn(Node) []const Pin,
 
@@ -49,15 +46,17 @@ const primitive_types = struct {
         const f64_ = &TypeInfo{.name="f64"};
     };
 
-    const string = &TypeInfo{.name="string"};
     const byte = &TypeInfo{.name="byte"};
     const bool_ = &TypeInfo{.name="bool"};
 
-    const vec3 = TypeSpec{.struct_ = &.{
-        &nums.f64,
-        &nums.f64,
-        &nums.f64,
-    } };
+    // TODO: add slices
+    const string = &TypeInfo{.name="string"};
+
+    const vec3 = &TypeInfo{
+        .name = "vec3",
+        .field_names = &.{ "x", "y", "z" },
+        .field_types = &.{ nums.f64_, nums.f64_, nums.f64_ },
+    };
 };
 
 /// lisp-like tree, first is value, rest are children
@@ -118,9 +117,8 @@ fn returnType(builtin_node: *const Node, input_types: []const Type) Type {
     };
 }
 
-fn basicNode(comptime in_desc: struct { inputs: []const Pin = &.{}, outputs: []const Pin = &.{} }) Node {
+fn basicNode(comptime in_desc: *const struct { inputs: []const Pin = &.{}, outputs: []const Pin = &.{} }) Node {
     const NodeImpl = struct {
-        desc: *const @TypeOf(in_desc) = &in_desc,
         const Self = @This();
 
         pub fn getInputs(_: Node) []const Pin {
@@ -133,9 +131,54 @@ fn basicNode(comptime in_desc: struct { inputs: []const Pin = &.{}, outputs: []c
         }
     };
 
-    //return Node{in_desc};
     return Node{
-        .context = @ptrCast(&in_desc),
+        .context = @ptrCast(in_desc),
+        ._getInputs = NodeImpl.getInputs,
+        ._getOutputs = NodeImpl.getOutputs,
+    };
+}
+
+const BreakNodeContext = struct {
+    struct_type: Type,
+    out_pins: []const Pin,
+
+    pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+        alloc.dealloc(self.out_pins);
+    }
+};
+
+fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !Node {
+    var out_pins: []Pin = undefined;
+    var context: *const BreakNodeContext = undefined;
+
+    if (@inComptime()) {
+        comptime var out_pins_slot: [in_struct_type.field_types.len]Pin = undefined;
+        // FIXME: doesn't using a block break this?
+        out_pins = &out_pins_slot;
+        context = &BreakNodeContext{ .struct_type = in_struct_type, .out_pins = out_pins };
+    } else {
+        out_pins = try alloc.alloc(Pin, in_struct_type.field_types.len);
+        for (in_struct_type.field_types, out_pins) |field_type, *out_pin| {
+            out_pin.* = field_type;
+        }
+        context = alloc.create(BreakNodeContext{ .struct_type = in_struct_type, .out_pins = out_pins });
+    }
+
+    const NodeImpl = struct {
+        const Self = @This();
+
+        pub fn getInputs(node: Node) []const Pin {
+            const ctx: *const BreakNodeContext = @ptrCast(node.context);
+            return &.{Pin{.value=ctx.struct_type}};
+        }
+
+        pub fn getOutputs(node: Node) []const Pin {
+            const ctx: *const BreakNodeContext = @ptrCast(node.context);
+            return ctx.out_pins;
+        }
+    };
+    return Node{
+        .context = context,
         ._getInputs = NodeImpl.getInputs,
         ._getOutputs = NodeImpl.getOutputs,
     };
@@ -149,21 +192,21 @@ const builtin_nodes = struct {
     //     },
     //     .outputs = &.{ Pin{.value=primitive_types.nums.f64} },
     // };
-    const @"+" = basicNode(.{
+    const @"+" = basicNode(&.{
         .inputs = &.{
-            Pin{.value=.{.specific = primitive_types.nums.f64_}},
-            Pin{.value=.{.specific = primitive_types.nums.f64_}},
+            Pin{.value=primitive_types.nums.f64_},
+            Pin{.value=primitive_types.nums.f64_},
         },
-        .outputs = &.{ Pin{.value=.{.specific = primitive_types.nums.f64_} }},
+        .outputs = &.{ Pin{.value=primitive_types.nums.f64_} },
     });
     const @"-" = @"+";
     const max = @"+";
     const @"*" = @"+";
     const @"/" = @"+";
-    const @"if" = basicNode(.{
+    const @"if" = basicNode(&.{
         .inputs = &.{
             Pin{.exec={}},
-            Pin{.value=.{.specific = primitive_types.nums.bool_}},
+            Pin{.value=primitive_types.nums.bool_},
         },
         .outputs = &.{
             Pin{.exec={}},
@@ -191,27 +234,67 @@ const builtin_nodes = struct {
 const temp_ue = struct {
     const types = struct {
         const actor = &TypeInfo{.name="actor"};
+        const scene_component = &TypeInfo{.name="SceneComponent"};
+        // TODO: impl enums
+        const physical_material = &TypeInfo{.name="physical_material"};
+        const hit_result = &TypeInfo{
+            .name="hit_result",
+            .field_names = &[_][]const u8{
+                "location",
+                "normal",
+                "impact point",
+                "impact normal",
+                "physical material",
+                "hit actor",
+                "hit component",
+                "hit bone name",
+            },
+            .field_types = &.{
+                primitive_types.vec3,
+                primitive_types.vec3,
+                primitive_types.vec3,
+                primitive_types.vec3,
+                physical_material,
+                actor,
+                scene_component,
+                primitive_types.string,
+            },
+        };
     };
+
     const nodes = struct {
-        const get_actor_location = basicNode(.{
-            .inputs = &.{ Pin{.value=.{.specific = types.actor}} },
-            .outputs = &.{ Pin{.value=.{.specific = primitive_types.vec3 } }},
+        const get_actor_location = basicNode(&.{
+            .inputs = &.{ Pin{.value=types.actor} },
+            .outputs = &.{ Pin{.value=primitive_types.vec3} },
         });
-        const custom_tick_call = basicNode(.{
-            .inputs = &.{ Pin{.value=.{.specific = types.actor}} },
-            .outputs = &.{ Pin{.value=.{.specific = primitive_types.vec3 } }},
+        const custom_tick_call = basicNode(&.{
+            .inputs = &.{ Pin{.value=types.actor} },
+            .outputs = &.{ Pin{.value=primitive_types.vec3 } },
         });
-        const custom_tick_entry = basicNode(.{
+        const custom_tick_entry = basicNode(&.{
             .outputs = &.{ Pin{.exec={}}},
         });
+        const move_component_to = basicNode(&.{
+            .outputs = &.{ Pin{.exec={}}},
+        });
+
+        // FIXME: use null allocator
+        const break_hit_result =
+            makeBreakNodeForStruct(std.testing.allocator, types.hit_result)
+            catch unreachable;
+        // defer @as(BreakNodeContext, @ptrCast(break_hit_result.context)).deinit(alloc);
     };
 };
 
 test "add" {
     try std.testing.expectEqual(
-        builtin_nodes.@"+".getOutputs()[0].value.specific,
+        builtin_nodes.@"+".getOutputs()[0].value,
         primitive_types.nums.f64_,
     );
     try std.testing.expect(temp_ue.nodes.custom_tick_entry.getOutputs()[0] == .exec);
+    try std.testing.expectEqual(
+        temp_ue.nodes.break_hit_result.getOutputs()[2].value,
+        primitive_types.vec3
+    );
 }
 
