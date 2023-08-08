@@ -28,7 +28,7 @@ const Node = struct {
     // TODO: do I really need pointers? The types are all going to be well defined aggregates,
     // and the nodes too
     // FIXME: read https://pithlessly.github.io/allocgate.html, the same logic as to why zig
-    // stopped using @fieldParentPtr-based polymorphism applies here to, this is slow
+    // stopped using @fieldParentPtr-based polymorphism applies here to, this is needlessly slow
     _getInputs: *const fn(Node) []const Pin,
     _getOutputs: *const fn(Node) []const Pin,
 
@@ -148,21 +148,18 @@ const BreakNodeContext = struct {
 };
 
 fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !Node {
-    var out_pins: []Pin = undefined;
-    var context: *const BreakNodeContext = undefined;
+    comptime var comptime_pins_slot: [if (@inComptime()) in_struct_type.field_types.len else 0]Pin = undefined;
+    const out_pins: []Pin =
+        if (@inComptime()) &comptime_pins_slot
+        else try alloc.alloc(Pin, in_struct_type.field_types.len);
 
-    if (@inComptime()) {
-        comptime var out_pins_slot: [in_struct_type.field_types.len]Pin = undefined;
-        // FIXME: doesn't using a block break this?
-        out_pins = &out_pins_slot;
-        context = &BreakNodeContext{ .struct_type = in_struct_type, .out_pins = out_pins };
-    } else {
-        out_pins = try alloc.alloc(Pin, in_struct_type.field_types.len);
-        for (in_struct_type.field_types, out_pins) |field_type, *out_pin| {
-            out_pin.* = field_type;
-        }
-        context = alloc.create(BreakNodeContext{ .struct_type = in_struct_type, .out_pins = out_pins });
+    for (in_struct_type.field_types, out_pins) |field_type, *out_pin| {
+        out_pin.* = Pin{.value=field_type};
     }
+
+    const context: *const BreakNodeContext =
+        if (@inComptime()) &BreakNodeContext{ .struct_type = in_struct_type, .out_pins = out_pins }
+        else try alloc.create(BreakNodeContext{ .struct_type = in_struct_type, .out_pins = out_pins });
 
     const NodeImpl = struct {
         const Self = @This();
@@ -280,11 +277,19 @@ const temp_ue = struct {
 
         // FIXME: use null allocator
         const break_hit_result =
-            makeBreakNodeForStruct(std.testing.allocator, types.hit_result)
+            makeBreakNodeForStruct(std.testing.failing_allocator, types.hit_result)
             catch unreachable;
         // defer @as(BreakNodeContext, @ptrCast(break_hit_result.context)).deinit(alloc);
     };
 };
+
+fn expectEqualTypes(actual: Type, expected: Type) !void {
+    if (actual != expected) {
+        // TODO: implement format for types
+        std.debug.print("Expected '{s}'<{*}> but got '{s}'<{*}>\n", .{actual.name, actual, expected.name, expected});
+        return error.TestFail;
+    }
+}
 
 test "add" {
     try std.testing.expectEqual(
@@ -292,7 +297,7 @@ test "add" {
         primitive_types.nums.f64_,
     );
     try std.testing.expect(temp_ue.nodes.custom_tick_entry.getOutputs()[0] == .exec);
-    try std.testing.expectEqual(
+    try expectEqualTypes(
         temp_ue.nodes.break_hit_result.getOutputs()[2].value,
         primitive_types.vec3
     );
