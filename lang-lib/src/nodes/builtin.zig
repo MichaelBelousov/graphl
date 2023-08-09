@@ -57,6 +57,11 @@ const primitive_types = struct {
         .field_names = &.{ "x", "y", "z" },
         .field_types = &.{ nums.f64_, nums.f64_, nums.f64_ },
     };
+    const vec4 = &TypeInfo{
+        .name = "vec4",
+        .field_names = &.{ "x", "y", "z", "w" },
+        .field_types = &.{ nums.f64_, nums.f64_, nums.f64_, nums.f64 },
+    };
 };
 
 /// lisp-like tree, first is value, rest are children
@@ -117,17 +122,18 @@ fn returnType(builtin_node: *const Node, input_types: []const Type) Type {
     };
 }
 
-fn basicNode(comptime in_desc: *const struct { inputs: []const Pin = &.{}, outputs: []const Pin = &.{} }) Node {
+fn basicNode(in_desc: *const struct { inputs: []const Pin = &.{}, outputs: []const Pin = &.{} }) Node {
     const NodeImpl = struct {
         const Self = @This();
 
-        pub fn getInputs(_: Node) []const Pin {
-            return in_desc.inputs;
+        pub fn getInputs(node: Node) []const Pin {
+            const desc: @TypeOf(in_desc) = @ptrCast(node.context);
+            return desc.inputs;
         }
 
-        pub fn getOutputs(_: Node) []const Pin {
-            //const self: @This() = @ptr(context
-            return in_desc.outputs;
+        pub fn getOutputs(node: Node) []const Pin {
+            const desc: @TypeOf(in_desc) = @ptrCast(node.context);
+            return desc.outputs;
         }
     };
 
@@ -137,6 +143,27 @@ fn basicNode(comptime in_desc: *const struct { inputs: []const Pin = &.{}, outpu
         ._getOutputs = NodeImpl.getOutputs,
     };
 }
+
+const VarNodes = struct {
+    getter: Node,
+    setter: Node,
+
+    // FIXME: create non-comptime version
+    fn create(var_name: []const u8, var_type: Type) VarNodes {
+        // FIXME: node pins should have names
+        _ = var_name;
+        return .{
+            .get = basicNode(.{
+                .outputs = &.{ Pin{.value=var_type} },
+            }),
+            .set = basicNode(.{
+                .inputs = &.{ .exec, Pin{.value=var_type} },
+                .outputs = &.{ .exec, Pin{.value=var_type} },
+            }),
+        };
+    }
+};
+
 
 const BreakNodeContext = struct {
     struct_type: Type,
@@ -260,10 +287,6 @@ const temp_ue = struct {
     };
 
     const nodes = struct {
-        const get_actor_location = basicNode(&.{
-            .inputs = &.{ Pin{.value=types.actor} },
-            .outputs = &.{ Pin{.value=primitive_types.vec3} },
-        });
         const custom_tick_call = basicNode(&.{
             .inputs = &.{ Pin{.value=types.actor} },
             .outputs = &.{ Pin{.value=primitive_types.vec3 } },
@@ -272,14 +295,104 @@ const temp_ue = struct {
             .outputs = &.{ Pin{.exec={}}},
         });
         const move_component_to = basicNode(&.{
+            .inputs = &.{
+                // FIXME: what about pin names? :/
+                .exec,
+                .exec,
+                .exec,
+                Pin{.value=types.scene_component},
+                Pin{.value=primitive_types.vec3},
+                Pin{.value=primitive_types.vec4},
+                Pin{.value=primitive_types.bool_},
+                Pin{.value=primitive_types.bool_},
+                Pin{.value=primitive_types.nums.f32_},
+            },
             .outputs = &.{ Pin{.exec={}}},
         });
 
-        // FIXME: use null allocator
+        // FIXME: use null allocator?
         const break_hit_result =
             makeBreakNodeForStruct(std.testing.failing_allocator, types.hit_result)
             catch unreachable;
-        // defer @as(BreakNodeContext, @ptrCast(break_hit_result.context)).deinit(alloc);
+
+        // TODO: replace with live vars
+        const capsule_component = VarNodes.create("capsule_component", types.scene_component);
+
+        const cast = basicNode(&.{
+            .inputs = &. {
+                .exec,
+                Pin{.value=types.actor},
+            },
+            .outputs = &.{
+                .exec,
+                .exec,
+                Pin{.value=types.actor},
+            },
+        });
+
+        const current_spawn_point = VarNodes.create("current_spawn_point", types.scene_component);
+
+        const do_once = basicNode(&.{
+            .inputs = &. {
+                .exec,
+                .exec, // reset
+                Pin{.value=primitive_types.bool_}, // start closed
+            },
+            .outputs = &.{
+                Pin{.exec={}}, // completed
+            },
+        });
+
+        const drone_state = VarNodes.create("drone_state", types.scene_component);
+
+        const fake_switch = basicNode(&.{
+            .inputs = &.{
+                .exec,
+                Pin{.value=primitive_types.nums.f64_},
+            },
+            .outputs = &.{
+                .exec, // move to player
+                .exec, // move up
+                .exec, // dead
+            },
+        });
+
+        const get_actor_location = basicNode(&.{
+            .inputs = &.{ Pin{.value=types.actor} },
+            .outputs = &.{ Pin{.value=primitive_types.vec3} },
+        });
+        const get_actor_rotation = basicNode(&.{
+            .inputs = &.{ Pin{.value=types.actor} },
+            .outputs = &.{ Pin{.value=primitive_types.vec4} },
+        });
+
+        const get_socket_location = basicNode(&.{
+            .inputs = &.{
+                Pin{.value=types.actor},
+                Pin{.value=primitive_types.string},
+            },
+            .outputs = &.{ Pin{.value=primitive_types.vec3} },
+        });
+
+        const if_ = basicNode(&.{
+            .inputs = &. {
+                .exec,
+                Pin{.value=primitive_types.bool_},
+            },
+            .outputs = &.{
+                .exec, // then
+                .exec, // else
+            },
+        });
+
+        const mesh = VarNodes.create("mesh", types.scene_component);
+
+        const over_time = VarNodes.create("over-time", types.scene_component);
+
+        const fake_sequence_3 = basicNode(&.{
+            .inputs = &.{ .exec },
+            .outputs = &.{ .exec, .exec, .exec },
+        });
     };
 };
 
@@ -291,7 +404,7 @@ fn expectEqualTypes(actual: Type, expected: Type) !void {
     }
 }
 
-test "add" {
+test "node types" {
     try std.testing.expectEqual(
         builtin_nodes.@"+".getOutputs()[0].value,
         primitive_types.nums.f64_,
