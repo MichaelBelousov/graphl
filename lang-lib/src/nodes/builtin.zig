@@ -122,7 +122,10 @@ fn returnType(builtin_node: *const Node, input_types: []const Type) Type {
     };
 }
 
-fn basicNode(in_desc: *const struct { inputs: []const Pin = &.{}, outputs: []const Pin = &.{} }) Node {
+fn basicNode(in_desc: *const struct {
+    inputs: []const Pin = &.{},
+    outputs: []const Pin = &.{}
+}) Node {
     const NodeImpl = struct {
         const Self = @This();
 
@@ -392,6 +395,31 @@ const temp_ue = struct {
         const fake_sequence_3 = basicNode(&.{
             .inputs = &.{ .exec },
             .outputs = &.{ .exec, .exec, .exec },
+        });
+
+        const single_line_trace_by_channel = basicNode(&.{
+            .inputs = &.{
+                .exec,
+                Pin{.value=primitive_types.vec3}, // start
+                Pin{.value=primitive_types.vec3}, // end
+                Pin{.value=types.trace_channels}, // channel
+                Pin{.value=primitive_types.bool_}, // trace-complex
+                Pin{.value=primitive_types.list(types.actor)}, // actors-to-ignore
+                Pin{.value=types.draw_debug_types}, // draw-debug-type (default 'none)
+                Pin{.value=primitive_types.bool_}, // ignore-self (default false)
+            },
+            .outputs = &.{
+                .exec,
+                Pin{.value=types.hit_result}, // out hit
+                Pin{.value=primitive_types.bool_}, // did hit
+            },
+        });
+
+        const speed = VarNodes.create("mesh", types.scene_component);
+
+        const vector_length = basicNode(&.{
+            .inputs = &.{ Pin{.value=primitive_types.vec3} },
+            .outputs = &.{ Pin{.value=primitive_types.f64_} },
         });
     };
 };
