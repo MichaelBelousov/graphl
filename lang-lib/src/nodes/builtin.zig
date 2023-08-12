@@ -62,6 +62,15 @@ const primitive_types = struct {
         .field_names = &.{ "x", "y", "z", "w" },
         .field_types = &.{ nums.f64_, nums.f64_, nums.f64_, nums.f64 },
     };
+
+    pub fn list(t: Type) Type {
+        // FIXME: which allocator?
+        var new_type = std.testing.failing_allocator.create(TypeInfo);
+        new_type.* = TypeInfo{
+            .name = std.fmt.allocPrint(std.testing.failing_allocator, "list({s})", t.name),
+        };
+        //list_types.put(std.testing.failing_allocator, t.name, new_type);
+    }
 };
 
 /// lisp-like tree, first is value, rest are children
@@ -152,7 +161,7 @@ const VarNodes = struct {
     setter: Node,
 
     // FIXME: create non-comptime version
-    fn create(var_name: []const u8, var_type: Type) VarNodes {
+    fn init(var_name: []const u8, var_type: Type) VarNodes {
         // FIXME: node pins should have names
         _ = var_name;
         return .{
@@ -319,7 +328,7 @@ const temp_ue = struct {
             catch unreachable;
 
         // TODO: replace with live vars
-        const capsule_component = VarNodes.create("capsule_component", types.scene_component);
+        const capsule_component = VarNodes.init("capsule_component", types.scene_component);
 
         const cast = basicNode(&.{
             .inputs = &. {
@@ -333,7 +342,7 @@ const temp_ue = struct {
             },
         });
 
-        const current_spawn_point = VarNodes.create("current_spawn_point", types.scene_component);
+        const current_spawn_point = VarNodes.init("current_spawn_point", types.scene_component);
 
         const do_once = basicNode(&.{
             .inputs = &. {
@@ -346,7 +355,7 @@ const temp_ue = struct {
             },
         });
 
-        const drone_state = VarNodes.create("drone_state", types.scene_component);
+        const drone_state = VarNodes.init("drone_state", types.scene_component);
 
         const fake_switch = basicNode(&.{
             .inputs = &.{
@@ -388,9 +397,9 @@ const temp_ue = struct {
             },
         });
 
-        const mesh = VarNodes.create("mesh", types.scene_component);
+        const mesh = VarNodes.init("mesh", types.scene_component);
 
-        const over_time = VarNodes.create("over-time", types.scene_component);
+        const over_time = VarNodes.init("over-time", types.scene_component);
 
         const fake_sequence_3 = basicNode(&.{
             .inputs = &.{ .exec },
@@ -415,7 +424,7 @@ const temp_ue = struct {
             },
         });
 
-        const speed = VarNodes.create("mesh", types.scene_component);
+        const speed = VarNodes.init("mesh", types.scene_component);
 
         const vector_length = basicNode(&.{
             .inputs = &.{ Pin{.value=primitive_types.vec3} },
@@ -444,3 +453,32 @@ test "node types" {
     );
 }
 
+pub const Env = struct {
+    types: std.StringHashMapUnmanaged(TypeInfo),
+    alloc: std.mem.Allocator,
+
+    pub fn deinit(self: *@This()) void {
+        self.types.clearAndFree(self.alloc);
+    }
+
+    pub fn initDefault(alloc: std.mem.Allocator) !@This() {
+        var env = @This(){
+            .types = std.StringHashMapUnmanaged(TypeInfo){},
+            .alloc = alloc,
+        };
+
+        inline for (@typeInfo(primitive_types).Struct.decls) |t| {
+            // TODO: if type == @TypeInfo
+            const is_list = comptime !std.mem.eql(u8, t.name, "list");
+            if (is_list)
+                env.types.put(alloc, t.name, @field(primitive_types, t.name));
+        }
+
+        return env;
+    }
+};
+
+test "env" {
+    var env = try Env.initDefault(std.testing.allocator);
+    defer env.deinit();
+}
