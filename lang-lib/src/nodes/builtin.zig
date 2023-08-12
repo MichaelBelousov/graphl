@@ -36,51 +36,52 @@ const Node = struct {
     pub fn getOutputs(self: @This()) []const Pin { return self._getOutputs(self); }
 };
 
-const primitive_types = struct {
-    const nums = struct {
-        const i32_ = &TypeInfo{.name="i32"};
-        const i64_ = &TypeInfo{.name="i64"};
-        const u32_ = &TypeInfo{.name="u32"};
-        const u64_ = &TypeInfo{.name="u64"};
-        const f32_ = &TypeInfo{.name="f32"};
-        const f64_ = &TypeInfo{.name="f64"};
-    };
+const f64_ = &TypeInfo{.name="f64"};
+const primitive_types = .{
+    // nums
+    .i32_ = &TypeInfo{.name="i32"},
+    .i64_ = &TypeInfo{.name="i64"},
+    .u32_ = &TypeInfo{.name="u32"},
+    .u64_ = &TypeInfo{.name="u64"},
+    .f32_ = &TypeInfo{.name="f32"},
+    .f64_ = f64_,
 
-    const byte = &TypeInfo{.name="byte"};
-    const bool_ = &TypeInfo{.name="bool"};
+    .byte = &TypeInfo{.name="byte"},
+    .bool_ = &TypeInfo{.name="bool"},
+    .rune_ = &TypeInfo{.name="rune"},
 
-    // TODO: add slices
-    const string = &TypeInfo{.name="string"};
-
-    const vec3 = &TypeInfo{
+    .string = &TypeInfo{.name="string"},
+    .vec3 = &TypeInfo{
         .name = "vec3",
         .field_names = &.{ "x", "y", "z" },
-        .field_types = &.{ nums.f64_, nums.f64_, nums.f64_ },
-    };
-    const vec4 = &TypeInfo{
+        .field_types = &.{ f64_, f64_, f64_ },
+    },
+    .vec4 = &TypeInfo{
         .name = "vec4",
         .field_names = &.{ "x", "y", "z", "w" },
-        .field_types = &.{ nums.f64_, nums.f64_, nums.f64_, nums.f64 },
-    };
+        .field_types = &.{ f64_, f64_, f64_, f64_ },
+    },
 
-    pub fn list(t: Type) Type {
-        // FIXME: which allocator?
-        var new_type = std.testing.failing_allocator.create(TypeInfo);
-        new_type.* = TypeInfo{
-            .name = std.fmt.allocPrint(std.testing.failing_allocator, "list({s})", t.name),
-        };
-        //list_types.put(std.testing.failing_allocator, t.name, new_type);
-    }
 };
+
+
+pub fn list(t: Type, env: *Env) Type {
+    // FIXME: which allocator?
+    var new_type = std.testing.failing_allocator.create(TypeInfo);
+    new_type.* = TypeInfo{
+        .name = std.fmt.allocPrint(std.testing.failing_allocator, "list({s})", t.name),
+    };
+    env.types.put(std.testing.failing_allocator, t.name, new_type);
+}
 
 /// lisp-like tree, first is value, rest are children
 // const num_type_hierarchy = .{
-//     primitive_types.nums.f64_,
-//     .{ primitive_types.nums.f32_,
-//         .{ primitive_types.nums.i64_,
-//             .{ primitive_types.nums.i32_ },
-//             .{ primitive_types.nums.u32_} },
-//         .{ primitive_types.nums.u64_, } } };
+//     primitive_types.f64_,
+//     .{ primitive_types.f32_,
+//         .{ primitive_types.i64_,
+//             .{ primitive_types.i32_ },
+//             .{ primitive_types.u32_} },
+//         .{ primitive_types.u64_, } } };
 
 // comptime {
 //     fn countLeg(comptime types: anytype) usize {
@@ -223,17 +224,17 @@ fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !Node 
 const builtin_nodes = struct {
     // const @"+" = Node{
     //     .inputs = &.{
-    //         Pin{.value=primitive_types.nums.f64},
-    //         Pin{.value=primitive_types.nums.f64},
+    //         Pin{.value=primitive_types.f64},
+    //         Pin{.value=primitive_types.f64},
     //     },
-    //     .outputs = &.{ Pin{.value=primitive_types.nums.f64} },
+    //     .outputs = &.{ Pin{.value=primitive_types.f64} },
     // };
     const @"+" = basicNode(&.{
         .inputs = &.{
-            Pin{.value=primitive_types.nums.f64_},
-            Pin{.value=primitive_types.nums.f64_},
+            Pin{.value=primitive_types.f64_},
+            Pin{.value=primitive_types.f64_},
         },
-        .outputs = &.{ Pin{.value=primitive_types.nums.f64_} },
+        .outputs = &.{ Pin{.value=primitive_types.f64_} },
     });
     const @"-" = @"+";
     const max = @"+";
@@ -242,7 +243,7 @@ const builtin_nodes = struct {
     const @"if" = basicNode(&.{
         .inputs = &.{
             Pin{.exec={}},
-            Pin{.value=primitive_types.nums.bool_},
+            Pin{.value=primitive_types.bool_},
         },
         .outputs = &.{
             Pin{.exec={}},
@@ -259,7 +260,7 @@ const builtin_nodes = struct {
     const @"switch" = Node{
         .inputs = &.{
             Pin{.exec={}},
-            Pin{.value=primitive_types.nums.f64_},
+            Pin{.value=primitive_types.f64_},
         },
         .outputs = &.{
             Pin{.variadic={}},
@@ -317,7 +318,7 @@ const temp_ue = struct {
                 Pin{.value=primitive_types.vec4},
                 Pin{.value=primitive_types.bool_},
                 Pin{.value=primitive_types.bool_},
-                Pin{.value=primitive_types.nums.f32_},
+                Pin{.value=primitive_types.f32_},
             },
             .outputs = &.{ Pin{.exec={}}},
         });
@@ -360,7 +361,7 @@ const temp_ue = struct {
         const fake_switch = basicNode(&.{
             .inputs = &.{
                 .exec,
-                Pin{.value=primitive_types.nums.f64_},
+                Pin{.value=primitive_types.f64_},
             },
             .outputs = &.{
                 .exec, // move to player
@@ -444,7 +445,7 @@ fn expectEqualTypes(actual: Type, expected: Type) !void {
 test "node types" {
     try std.testing.expectEqual(
         builtin_nodes.@"+".getOutputs()[0].value,
-        primitive_types.nums.f64_,
+        primitive_types.f64_,
     );
     try std.testing.expect(temp_ue.nodes.custom_tick_entry.getOutputs()[0] == .exec);
     try expectEqualTypes(
@@ -467,11 +468,9 @@ pub const Env = struct {
             .alloc = alloc,
         };
 
-        inline for (@typeInfo(primitive_types).Struct.decls) |t| {
-            // TODO: if type == @TypeInfo
-            const is_list = comptime !std.mem.eql(u8, t.name, "list");
-            if (is_list)
-                env.types.put(alloc, t.name, @field(primitive_types, t.name));
+        // this doesn't work
+        inline for (@typeInfo(@TypeOf(primitive_types)).Struct.fields) |t| {
+            try env.types.put(alloc, t.name, @field(primitive_types, t.name).*);
         }
 
         return env;
@@ -481,4 +480,5 @@ pub const Env = struct {
 test "env" {
     var env = try Env.initDefault(std.testing.allocator);
     defer env.deinit();
+    try std.testing.expect(env.types.contains("u32_"));
 }
