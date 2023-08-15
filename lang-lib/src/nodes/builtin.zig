@@ -177,7 +177,6 @@ const VarNodes = struct {
     }
 };
 
-
 const BreakNodeContext = struct {
     struct_type: Type,
     out_pins: []const Pin,
@@ -221,26 +220,23 @@ fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !Node 
     };
 }
 
+// FIXME: nodes need to know their names
+const genericMathOp = basicNode(&.{
+    .inputs = &.{
+        Pin{.value=primitive_types.f64_},
+        Pin{.value=primitive_types.f64_},
+    },
+    .outputs = &.{ Pin{.value=primitive_types.f64_} },
+});
+
 const builtin_nodes = struct {
-    // const @"+" = Node{
-    //     .inputs = &.{
-    //         Pin{.value=primitive_types.f64},
-    //         Pin{.value=primitive_types.f64},
-    //     },
-    //     .outputs = &.{ Pin{.value=primitive_types.f64} },
-    // };
-    const @"+" = basicNode(&.{
-        .inputs = &.{
-            Pin{.value=primitive_types.f64_},
-            Pin{.value=primitive_types.f64_},
-        },
-        .outputs = &.{ Pin{.value=primitive_types.f64_} },
-    });
-    const @"-" = @"+";
-    const max = @"+";
-    const @"*" = @"+";
-    const @"/" = @"+";
-    const @"if" = basicNode(&.{
+    @"+": Node = genericMathOp,
+    @"-": Node = genericMathOp,
+    max: Node = genericMathOp,
+    min: Node = genericMathOp,
+    @"*": Node = genericMathOp,
+    @"/": Node = genericMathOp,
+    @"if": Node = basicNode(&.{
         .inputs = &.{
             Pin{.exec={}},
             Pin{.value=primitive_types.bool_},
@@ -249,15 +245,15 @@ const builtin_nodes = struct {
             Pin{.exec={}},
             Pin{.exec={}},
         },
-    });
+    }),
     // TODO: function...
-    const sequence = Node{
+    sequence = Node{
         .inputs = &.{ Pin{.exec={}} },
         .outputs = &.{ Pin{.variadic={}} },
-    };
+    },
     // "set!":
     // "cast":
-    const @"switch" = Node{
+    @"switch": Node = Node{
         .inputs = &.{
             Pin{.exec={}},
             Pin{.value=primitive_types.f64_},
@@ -265,8 +261,8 @@ const builtin_nodes = struct {
         .outputs = &.{
             Pin{.variadic={}},
         },
-    };
-};
+    },
+}{};
 
 const temp_ue = struct {
     const types = struct {
@@ -465,12 +461,21 @@ pub const Env = struct {
     pub fn initDefault(alloc: std.mem.Allocator) !@This() {
         var env = @This(){
             .types = std.StringHashMapUnmanaged(TypeInfo){},
+            // could be macro, function, operator
+            .nodes = std.StringHashMapUnmanaged(TypeInfo){},
             .alloc = alloc,
         };
 
-        // this doesn't work
-        inline for (@typeInfo(@TypeOf(primitive_types)).Struct.fields) |t| {
+        const primitive_types_fields = @typeInfo(@TypeOf(primitive_types)).Struct.fields;
+        try env.types.ensureTotalCapacity(alloc, primitive_types_fields.len);
+        inline for (primitive_types_fields) |t| {
             try env.types.put(alloc, t.name, @field(primitive_types, t.name).*);
+        }
+
+        const builtin_nodes_fields = @typeInfo(@TypeOf(builtin_nodes)).Struct.fields;
+        try env.types.ensureTotalCapacity(alloc, builtin_nodes_fields.len);
+        inline for (builtin_nodes_fields) |n| {
+            try env.types.put(alloc, n.name, @field(builtin_nodes, n.name).*);
         }
 
         return env;

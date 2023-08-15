@@ -96,11 +96,16 @@ const GraphDoc = struct {
     imports: json.ArrayHashMap([]const Import) = empty_imports,
 };
 
+// FIXME: rename
+const Env = @import("./nodes/builtin.zig").Env;
+
 /// caller must free result with {TBD}
 fn graphToSource(graph_json: []const u8) GraphToSourceResult {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const arena_alloc = arena.allocator();
+
+    var env = Env.initDefault();
 
     var json_diagnostics = json.Diagnostics{};
     var graph_json_reader = json.Scanner.initCompleteInput(arena_alloc, graph_json);
@@ -181,9 +186,11 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
         {
             var nodes_iter = graph.nodes.map.iterator();
             while (nodes_iter.next()) |node_entry| {
-                const node = node_entry.value_ptr.*;
+                const json_node = node_entry.value_ptr.*;
+                const node = env.nodes.get(json_node.type)
+                    orelse return GraphToSourceResult.fmt_err(global_alloc, "unknown node type: '{s}'", .{json_node.type});
 
-                const is_root = node.outputs.len == 0;
+                const is_root = json_node.outputs.len == 0;
                 if (!is_root) continue;
 
                 const maybe_sexp = recurseRootNodeToSexp(node, arena_alloc, handle_src_node_map);
