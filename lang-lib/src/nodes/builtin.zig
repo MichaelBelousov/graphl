@@ -16,11 +16,24 @@ const Input = struct {
     //default: Value,
 };
 
+// FIXME: merge somehow?
+const VarPin = union (enum) {
+    exec,
+    value: Type,
+
+    fn toPin(self: @This()) Pin {
+        return switch (self) {
+            .exec => .exec,
+            .value => |v| Pin{.value=v},
+        };
+    }
+};
+
 // FIXME: separate pin value, input pin type, output pin type
 const Pin = union (enum) {
     exec,
     value: Type,
-    variadic: Type,
+    variadic: VarPin,
 };
 
 const Node = struct {
@@ -247,21 +260,21 @@ const builtin_nodes = struct {
         },
     }),
     // TODO: function...
-    sequence = Node{
+    sequence: Node = basicNode(&.{
         .inputs = &.{ Pin{.exec={}} },
-        .outputs = &.{ Pin{.variadic={}} },
-    },
+        .outputs = &.{ Pin{.variadic=.exec} },
+    }),
     // "set!":
     // "cast":
-    @"switch": Node = Node{
+    @"switch": Node = basicNode(&.{
         .inputs = &.{
             Pin{.exec={}},
             Pin{.value=primitive_types.f64_},
         },
         .outputs = &.{
-            Pin{.variadic={}},
+            Pin{.variadic=.exec},
         },
-    },
+    }),
 }{};
 
 const temp_ue = struct {
@@ -452,6 +465,7 @@ test "node types" {
 
 pub const Env = struct {
     types: std.StringHashMapUnmanaged(TypeInfo),
+    nodes: std.StringHashMapUnmanaged(Node),
     alloc: std.mem.Allocator,
 
     pub fn deinit(self: *@This()) void {
@@ -462,7 +476,7 @@ pub const Env = struct {
         var env = @This(){
             .types = std.StringHashMapUnmanaged(TypeInfo){},
             // could be macro, function, operator
-            .nodes = std.StringHashMapUnmanaged(TypeInfo){},
+            .nodes = std.StringHashMapUnmanaged(Node){},
             .alloc = alloc,
         };
 
@@ -475,7 +489,7 @@ pub const Env = struct {
         const builtin_nodes_fields = @typeInfo(@TypeOf(builtin_nodes)).Struct.fields;
         try env.types.ensureTotalCapacity(alloc, builtin_nodes_fields.len);
         inline for (builtin_nodes_fields) |n| {
-            try env.types.put(alloc, n.name, @field(builtin_nodes, n.name).*);
+            try env.nodes.put(alloc, n.name, @field(builtin_nodes, n.name));
         }
 
         return env;

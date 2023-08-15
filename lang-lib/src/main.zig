@@ -10,6 +10,13 @@ const Sexp = @import("./sexp.zig").Sexp;
 const syms = @import("./sexp.zig").syms;
 const ide_json_gen = @import("./ide_json_gen.zig");
 
+// FIXME: rename
+const Env = @import("./nodes/builtin.zig").Env;
+
+test {
+    _ = @import("./nodes/builtin.zig");
+}
+
 // TODO: give better name... C slice?
 pub const Slice = extern struct {
     ptr: [*]const u8,
@@ -96,16 +103,14 @@ const GraphDoc = struct {
     imports: json.ArrayHashMap([]const Import) = empty_imports,
 };
 
-// FIXME: rename
-const Env = @import("./nodes/builtin.zig").Env;
-
 /// caller must free result with {TBD}
 fn graphToSource(graph_json: []const u8) GraphToSourceResult {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const arena_alloc = arena.allocator();
 
-    var env = Env.initDefault();
+    var env = Env.initDefault(arena_alloc)
+        catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
 
     var json_diagnostics = json.Diagnostics{};
     var graph_json_reader = json.Scanner.initCompleteInput(arena_alloc, graph_json);
