@@ -49,33 +49,33 @@ const Node = struct {
     pub fn getOutputs(self: @This()) []const Pin { return self._getOutputs(self); }
 };
 
-const f64_ = &TypeInfo{.name="f64"};
-const primitive_types = .{
+const primitive_types = (struct {
+    const f64_ = &TypeInfo{.name="f64"};
+
     // nums
-    .i32_ = &TypeInfo{.name="i32"},
-    .i64_ = &TypeInfo{.name="i64"},
-    .u32_ = &TypeInfo{.name="u32"},
-    .u64_ = &TypeInfo{.name="u64"},
-    .f32_ = &TypeInfo{.name="f32"},
-    .f64_ = f64_,
+    i32_: Type = &TypeInfo{.name="i32"},
+    i64_: Type = &TypeInfo{.name="i64"},
+    u32_: Type = &TypeInfo{.name="u32"},
+    u64_: Type = &TypeInfo{.name="u64"},
+    f32_: Type = &TypeInfo{.name="f32"},
+    f64_: Type = f64_,
 
-    .byte = &TypeInfo{.name="byte"},
-    .bool_ = &TypeInfo{.name="bool"},
-    .rune_ = &TypeInfo{.name="rune"},
+    byte: Type = &TypeInfo{.name="byte"},
+    bool_: Type = &TypeInfo{.name="bool"},
+    rune_: Type = &TypeInfo{.name="rune"},
 
-    .string = &TypeInfo{.name="string"},
-    .vec3 = &TypeInfo{
+    string: Type = &TypeInfo{.name="string"},
+    vec3: Type = &TypeInfo{
         .name = "vec3",
         .field_names = &.{ "x", "y", "z" },
         .field_types = &.{ f64_, f64_, f64_ },
     },
-    .vec4 = &TypeInfo{
+    vec4: Type = &TypeInfo{
         .name = "vec4",
         .field_names = &.{ "x", "y", "z", "w" },
         .field_types = &.{ f64_, f64_, f64_, f64_ },
     },
-
-};
+}){};
 
 
 pub fn list(t: Type, env: *Env) Type {
@@ -242,7 +242,7 @@ const genericMathOp = basicNode(&.{
     .outputs = &.{ Pin{.value=primitive_types.f64_} },
 });
 
-const builtin_nodes = struct {
+const builtin_nodes = (struct {
     @"+": Node = genericMathOp,
     @"-": Node = genericMathOp,
     max: Node = genericMathOp,
@@ -275,7 +275,7 @@ const builtin_nodes = struct {
             Pin{.variadic=.exec},
         },
     }),
-}{};
+}){};
 
 const temp_ue = struct {
     const types = struct {
@@ -470,6 +470,7 @@ pub const Env = struct {
 
     pub fn deinit(self: *@This()) void {
         self.types.clearAndFree(self.alloc);
+        self.nodes.clearAndFree(self.alloc);
     }
 
     pub fn initDefault(alloc: std.mem.Allocator) !@This() {
