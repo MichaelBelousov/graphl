@@ -157,10 +157,13 @@ pub fn returnType(builtin_node: *const NodeDesc, input_types: []const Type) Type
     };
 }
 
-pub fn basicNode(in_desc: *const struct {
+const BasicNodeDesc = struct {
     inputs: []const Pin = &.{},
     outputs: []const Pin = &.{}
-}) NodeDesc {
+};
+
+/// caller owns memory!
+pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
     const NodeImpl = struct {
         const Self = @This();
 
@@ -182,21 +185,39 @@ pub fn basicNode(in_desc: *const struct {
     };
 }
 
-pub const VarNodes = struct {
-    getter: NodeDesc,
-    setter: NodeDesc,
+// FIXME: move to own file
+fn comptimeAllocOrFallback(fallback_allocator: std.mem.Allocator, comptime T: type, comptime count: usize) std.mem.Allocator.Error![]T {
+    comptime var comptime_slot: [if (@inComptime()) count else 0]T = undefined;
+    return if (@inComptime()) &comptime_slot
+         else try fallback_allocator.alloc(T, count);
+}
 
-    // FIXME: create non-comptime version
-    fn init(var_name: []const u8, var_type: Type) VarNodes {
+pub const VarNodes = struct {
+    get: NodeDesc,
+    set: NodeDesc,
+
+    fn init(alloc: std.mem.Allocator, var_name: []const u8, var_type: Type) !VarNodes {
         // FIXME: node pins should have names
         _ = var_name;
+
+        const getterOutputs = try comptimeAllocOrFallback(alloc, Pin, 1);
+        getterOutputs[0] = Pin{.value=var_type};
+
+        const setterInputs = try comptimeAllocOrFallback(alloc, Pin, 2);
+        setterInputs[0] = .exec;
+        setterInputs[1] = Pin{.value=var_type};
+
+        const setterOutputs = try comptimeAllocOrFallback(alloc, Pin, 2);
+        setterOutputs[0] = .exec;
+        setterOutputs[1] = Pin{.value=var_type};
+
         return .{
             .get = basicNode(.{
-                .outputs = &.{ Pin{.value=var_type} },
+                .outputs = getterOutputs,
             }),
             .set = basicNode(.{
-                .inputs = &.{ .exec, Pin{.value=var_type} },
-                .outputs = &.{ .exec, Pin{.value=var_type} },
+                .inputs = setterInputs,
+                .outputs = setterOutputs,
             }),
         };
     }
@@ -212,11 +233,7 @@ pub const BreakNodeContext = struct {
 };
 
 pub fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !NodeDesc {
-    comptime var comptime_pins_slot: [if (@inComptime()) in_struct_type.field_types.len else 0]Pin = undefined;
-    const out_pins: []Pin =
-        if (@inComptime()) &comptime_pins_slot
-        else try alloc.alloc(Pin, in_struct_type.field_types.len);
-
+    const out_pins = try comptimeAllocOrFallback(alloc, Pin, in_struct_type.field_types.len);
     for (in_struct_type.field_types, out_pins) |field_type, *out_pin| {
         out_pin.* = Pin{.value=field_type};
     }
@@ -324,15 +341,31 @@ pub const temp_ue = struct {
         },
     }){};
 
-    const nodes = struct {
-        const custom_tick_call = basicNode(&.{
+    const nodes = (struct {
+        // TODO: replace with live vars
+        const capsule_component = VarNodes.init(std.testing.failing_allocator, "capsule_component", types.scene_component)
+            catch unreachable;
+        const current_spawn_point = VarNodes.init(std.testing.failing_allocator, "current_spawn_point", types.scene_component)
+            catch unreachable;
+        const drone_state = VarNodes.init(std.testing.failing_allocator, "drone_state", types.scene_component)
+            catch unreachable;
+        const mesh = VarNodes.init(std.testing.failing_allocator, "mesh", types.scene_component)
+            catch unreachable;
+        const over_time = VarNodes.init(std.testing.failing_allocator, "over-time", types.scene_component)
+            catch unreachable;
+        const speed = VarNodes.init(std.testing.failing_allocator, "mesh", primitive_types.f32_)
+            catch unreachable;
+
+        custom_tick_call: NodeDesc = basicNode(&.{
             .inputs = &.{ Pin{.value=types.actor} },
             .outputs = &.{ Pin{.value=primitive_types.vec3 } },
-        });
-        const custom_tick_entry = basicNode(&.{
+        }),
+
+        custom_tick_entry: NodeDesc = basicNode(&.{
             .outputs = &.{ Pin{.exec={}}},
-        });
-        const move_component_to = basicNode(&.{
+        }),
+
+        move_component_to: NodeDesc = basicNode(&.{
             .inputs = &.{
                 // FIXME: what about pin names? :/
                 .exec,
@@ -346,17 +379,32 @@ pub const temp_ue = struct {
                 Pin{.value=primitive_types.f32_},
             },
             .outputs = &.{ Pin{.exec={}}},
-        });
+        }),
 
         // FIXME: use null allocator?
-        const break_hit_result =
+        break_hit_result: NodeDesc =
             makeBreakNodeForStruct(std.testing.failing_allocator, types.hit_result)
-            catch unreachable;
+            catch unreachable,
 
-        // TODO: replace with live vars
-        const capsule_component = VarNodes.init("capsule_component", types.scene_component);
+        get_capsule_component: NodeDesc = capsule_component.get,
+        set_capsule_component: NodeDesc = capsule_component.set,
 
-        const cast = basicNode(&.{
+        get_current_spawn_point: NodeDesc = current_spawn_point.get,
+        set_current_spawn_point: NodeDesc = current_spawn_point.set,
+
+        get_drone_state: NodeDesc = drone_state.get,
+        set_drone_state: NodeDesc = drone_state.set,
+
+        get_mesh: NodeDesc = mesh.get,
+        set_mesh: NodeDesc = mesh.set,
+
+        get_over_time: NodeDesc = over_time.get,
+        set_over_time: NodeDesc = over_time.set,
+
+        get_speed: NodeDesc = speed.get,
+        set_speed: NodeDesc = speed.set,
+
+        cast: NodeDesc = basicNode(&.{
             .inputs = &. {
                 .exec,
                 Pin{.value=types.actor},
@@ -366,11 +414,9 @@ pub const temp_ue = struct {
                 .exec,
                 Pin{.value=types.actor},
             },
-        });
+        }),
 
-        const current_spawn_point = VarNodes.init("current_spawn_point", types.scene_component);
-
-        const do_once = basicNode(&.{
+        do_once: NodeDesc = basicNode(&.{
             .inputs = &. {
                 .exec,
                 .exec, // reset
@@ -379,11 +425,9 @@ pub const temp_ue = struct {
             .outputs = &.{
                 Pin{.exec={}}, // completed
             },
-        });
+        }),
 
-        const drone_state = VarNodes.init("drone_state", types.scene_component);
-
-        const fake_switch = basicNode(&.{
+        fake_switch: NodeDesc = basicNode(&.{
             .inputs = &.{
                 .exec,
                 Pin{.value=primitive_types.f64_},
@@ -393,26 +437,27 @@ pub const temp_ue = struct {
                 .exec, // move up
                 .exec, // dead
             },
-        });
+        }),
 
-        const get_actor_location = basicNode(&.{
+        get_actor_location: NodeDesc = basicNode(&.{
             .inputs = &.{ Pin{.value=types.actor} },
             .outputs = &.{ Pin{.value=primitive_types.vec3} },
-        });
-        const get_actor_rotation = basicNode(&.{
+        }),
+
+        get_actor_rotation: NodeDesc = basicNode(&.{
             .inputs = &.{ Pin{.value=types.actor} },
             .outputs = &.{ Pin{.value=primitive_types.vec4} },
-        });
+        }),
 
-        const get_socket_location = basicNode(&.{
+        get_socket_location: NodeDesc = basicNode(&.{
             .inputs = &.{
                 Pin{.value=types.actor},
                 Pin{.value=primitive_types.string},
             },
             .outputs = &.{ Pin{.value=primitive_types.vec3} },
-        });
+        }),
 
-        const if_ = basicNode(&.{
+        if_: NodeDesc = basicNode(&.{
             .inputs = &. {
                 .exec,
                 Pin{.value=primitive_types.bool_},
@@ -421,18 +466,14 @@ pub const temp_ue = struct {
                 .exec, // then
                 .exec, // else
             },
-        });
+        }),
 
-        const mesh = VarNodes.init("mesh", types.scene_component);
-
-        const over_time = VarNodes.init("over-time", types.scene_component);
-
-        const fake_sequence_3 = basicNode(&.{
+        fake_sequence_3: NodeDesc = basicNode(&.{
             .inputs = &.{ .exec },
             .outputs = &.{ .exec, .exec, .exec },
-        });
+        }),
 
-        const single_line_trace_by_channel = basicNode(&.{
+        single_line_trace_by_channel: NodeDesc = basicNode(&.{
             .inputs = &.{
                 .exec,
                 Pin{.value=primitive_types.vec3}, // start
@@ -448,15 +489,13 @@ pub const temp_ue = struct {
                 Pin{.value=types.hit_result}, // out hit
                 Pin{.value=primitive_types.bool_}, // did hit
             },
-        });
+        }),
 
-        const speed = VarNodes.init("mesh", types.scene_component);
-
-        const vector_length = basicNode(&.{
+        vector_length: NodeDesc = basicNode(&.{
             .inputs = &.{ Pin{.value=primitive_types.vec3} },
             .outputs = &.{ Pin{.value=primitive_types.f64_} },
-        });
-    };
+        }),
+    }){};
 };
 
 fn expectEqualTypes(actual: Type, expected: Type) !void {
@@ -505,11 +544,12 @@ pub const Env = struct {
             }
         }
 
-        //const ue_nodes_fields = @typeInfo(@TypeOf(temp_ue.nodes)).Struct.fields;
-        const builtin_nodes_fields = @typeInfo(@TypeOf(builtin_nodes)).Struct.fields;
-        try env.types.ensureTotalCapacity(alloc, builtin_nodes_fields.len);
-        inline for (builtin_nodes_fields) |n| {
-            try env.nodes.put(alloc, n.name, @field(builtin_nodes, n.name));
+        inline for (&.{builtin_nodes, temp_ue.nodes}) |nodes| {
+            const nodes_fields = @typeInfo(@TypeOf(nodes)).Struct.fields;
+            try env.nodes.ensureTotalCapacity(alloc, nodes_fields.len);
+            inline for (nodes_fields) |n| {
+                try env.nodes.put(alloc, n.name, @field(nodes, n.name));
+            }
         }
 
         return env;
