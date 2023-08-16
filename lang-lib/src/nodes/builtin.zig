@@ -2,22 +2,22 @@
 
 const std = @import("std");
 
-const TypeInfo = struct {
+pub const TypeInfo = struct {
     name: []const u8,
     field_names: []const []const u8 = &.{},
     // should structs allow constrained generic fields?
     field_types: []const Type = &.{},
 };
 
-const Type = *const TypeInfo;
+pub const Type = *const TypeInfo;
 
-const Input = struct {
+pub const Input = struct {
     type_: Type,
     //default: Value,
 };
 
 // FIXME: merge somehow?
-const VarPin = union (enum) {
+pub const VarPin = union (enum) {
     exec,
     value: Type,
 
@@ -30,26 +30,38 @@ const VarPin = union (enum) {
 };
 
 // FIXME: separate pin value, input pin type, output pin type
-const Pin = union (enum) {
+pub const Pin = union (enum) {
     exec,
     value: Type,
     variadic: VarPin,
 };
 
-const Node = struct {
+pub const NodeDesc = struct {
     context: *const align(8) anyopaque,
     // TODO: do I really need pointers? The types are all going to be well defined aggregates,
     // and the nodes too
     // FIXME: read https://pithlessly.github.io/allocgate.html, the same logic as to why zig
     // stopped using @fieldParentPtr-based polymorphism applies here to, this is needlessly slow
-    _getInputs: *const fn(Node) []const Pin,
-    _getOutputs: *const fn(Node) []const Pin,
+    _getInputs: *const fn(NodeDesc) []const Pin,
+    _getOutputs: *const fn(NodeDesc) []const Pin,
 
     pub fn getInputs(self: @This()) []const Pin { return self._getInputs(self); }
     pub fn getOutputs(self: @This()) []const Pin { return self._getOutputs(self); }
 };
 
-const primitive_types = (struct {
+pub const Link = struct {
+    pinIndex: u32,
+    /// optional subindex (e.g. for variadic pins)
+    subIndex: u32 = 0,
+};
+
+pub const Node = struct {
+    desc: *const NodeDesc,
+    comment: ?[]const u8,
+    outLinks: []Link,
+};
+
+pub const primitive_types = (struct {
     const f64_ = &TypeInfo{.name="f64"};
 
     // nums
@@ -75,17 +87,17 @@ const primitive_types = (struct {
         .field_names = &.{ "x", "y", "z", "w" },
         .field_types = &.{ f64_, f64_, f64_, f64_ },
     },
+
+    pub fn list(t: Type, env: *Env) Type {
+        // FIXME: which allocator?
+        var new_type = std.testing.failing_allocator.create(TypeInfo);
+        new_type.* = TypeInfo{
+            .name = std.fmt.allocPrint(std.testing.failing_allocator, "list({s})", t.name),
+        };
+        env.types.put(std.testing.failing_allocator, t.name, new_type);
+    }
 }){};
 
-
-pub fn list(t: Type, env: *Env) Type {
-    // FIXME: which allocator?
-    var new_type = std.testing.failing_allocator.create(TypeInfo);
-    new_type.* = TypeInfo{
-        .name = std.fmt.allocPrint(std.testing.failing_allocator, "list({s})", t.name),
-    };
-    env.types.put(std.testing.failing_allocator, t.name, new_type);
-}
 
 /// lisp-like tree, first is value, rest are children
 // const num_type_hierarchy = .{
@@ -138,41 +150,41 @@ test "peer resolve types" {
 }
 
 // ignoring for now
-fn returnType(builtin_node: *const Node, input_types: []const Type) Type {
+pub fn returnType(builtin_node: *const NodeDesc, input_types: []const Type) Type {
     return switch (*builtin_node) {
         builtin_nodes.@"+" => resolvePeerType(input_types),
         builtin_nodes.@"-" => resolvePeerType(input_types),
     };
 }
 
-fn basicNode(in_desc: *const struct {
+pub fn basicNode(in_desc: *const struct {
     inputs: []const Pin = &.{},
     outputs: []const Pin = &.{}
-}) Node {
+}) NodeDesc {
     const NodeImpl = struct {
         const Self = @This();
 
-        pub fn getInputs(node: Node) []const Pin {
+        pub fn getInputs(node: NodeDesc) []const Pin {
             const desc: @TypeOf(in_desc) = @ptrCast(node.context);
             return desc.inputs;
         }
 
-        pub fn getOutputs(node: Node) []const Pin {
+        pub fn getOutputs(node: NodeDesc) []const Pin {
             const desc: @TypeOf(in_desc) = @ptrCast(node.context);
             return desc.outputs;
         }
     };
 
-    return Node{
+    return NodeDesc{
         .context = @ptrCast(in_desc),
         ._getInputs = NodeImpl.getInputs,
         ._getOutputs = NodeImpl.getOutputs,
     };
 }
 
-const VarNodes = struct {
-    getter: Node,
-    setter: Node,
+pub const VarNodes = struct {
+    getter: NodeDesc,
+    setter: NodeDesc,
 
     // FIXME: create non-comptime version
     fn init(var_name: []const u8, var_type: Type) VarNodes {
@@ -190,7 +202,7 @@ const VarNodes = struct {
     }
 };
 
-const BreakNodeContext = struct {
+pub const BreakNodeContext = struct {
     struct_type: Type,
     out_pins: []const Pin,
 
@@ -199,7 +211,7 @@ const BreakNodeContext = struct {
     }
 };
 
-fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !Node {
+pub fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !NodeDesc {
     comptime var comptime_pins_slot: [if (@inComptime()) in_struct_type.field_types.len else 0]Pin = undefined;
     const out_pins: []Pin =
         if (@inComptime()) &comptime_pins_slot
@@ -216,17 +228,17 @@ fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !Node 
     const NodeImpl = struct {
         const Self = @This();
 
-        pub fn getInputs(node: Node) []const Pin {
+        pub fn getInputs(node: NodeDesc) []const Pin {
             const ctx: *const BreakNodeContext = @ptrCast(node.context);
             return &.{Pin{.value=ctx.struct_type}};
         }
 
-        pub fn getOutputs(node: Node) []const Pin {
+        pub fn getOutputs(node: NodeDesc) []const Pin {
             const ctx: *const BreakNodeContext = @ptrCast(node.context);
             return ctx.out_pins;
         }
     };
-    return Node{
+    return NodeDesc{
         .context = context,
         ._getInputs = NodeImpl.getInputs,
         ._getOutputs = NodeImpl.getOutputs,
@@ -234,7 +246,7 @@ fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !Node 
 }
 
 // FIXME: nodes need to know their names
-const genericMathOp = basicNode(&.{
+pub const genericMathOp = basicNode(&.{
     .inputs = &.{
         Pin{.value=primitive_types.f64_},
         Pin{.value=primitive_types.f64_},
@@ -242,14 +254,14 @@ const genericMathOp = basicNode(&.{
     .outputs = &.{ Pin{.value=primitive_types.f64_} },
 });
 
-const builtin_nodes = (struct {
-    @"+": Node = genericMathOp,
-    @"-": Node = genericMathOp,
-    max: Node = genericMathOp,
-    min: Node = genericMathOp,
-    @"*": Node = genericMathOp,
-    @"/": Node = genericMathOp,
-    @"if": Node = basicNode(&.{
+pub const builtin_nodes = (struct {
+    @"+": NodeDesc = genericMathOp,
+    @"-": NodeDesc = genericMathOp,
+    max: NodeDesc = genericMathOp,
+    min: NodeDesc = genericMathOp,
+    @"*": NodeDesc = genericMathOp,
+    @"/": NodeDesc = genericMathOp,
+    @"if": NodeDesc = basicNode(&.{
         .inputs = &.{
             Pin{.exec={}},
             Pin{.value=primitive_types.bool_},
@@ -260,13 +272,13 @@ const builtin_nodes = (struct {
         },
     }),
     // TODO: function...
-    sequence: Node = basicNode(&.{
+    sequence: NodeDesc = basicNode(&.{
         .inputs = &.{ Pin{.exec={}} },
         .outputs = &.{ Pin{.variadic=.exec} },
     }),
     // "set!":
     // "cast":
-    @"switch": Node = basicNode(&.{
+    @"switch": NodeDesc = basicNode(&.{
         .inputs = &.{
             Pin{.exec={}},
             Pin{.value=primitive_types.f64_},
@@ -277,13 +289,17 @@ const builtin_nodes = (struct {
     }),
 }){};
 
-const temp_ue = struct {
-    const types = struct {
-        const actor = &TypeInfo{.name="actor"};
-        const scene_component = &TypeInfo{.name="SceneComponent"};
+pub const temp_ue = struct {
+    const types = (struct {
         // TODO: impl enums
-        const physical_material = &TypeInfo{.name="physical_material"};
-        const hit_result = &TypeInfo{
+        const physical_material: Type = &TypeInfo{.name="physical_material"};
+        const actor: Type = &TypeInfo{.name="actor"};
+        const scene_component: Type = &TypeInfo{.name="SceneComponent"};
+
+        actor: Type = &TypeInfo{.name="actor"},
+        scene_component: Type = &TypeInfo{.name="SceneComponent"},
+        physical_material: Type = physical_material,
+        hit_result: Type = &TypeInfo{
             .name="hit_result",
             .field_names = &[_][]const u8{
                 "location",
@@ -305,8 +321,8 @@ const temp_ue = struct {
                 scene_component,
                 primitive_types.string,
             },
-        };
-    };
+        },
+    }){};
 
     const nodes = struct {
         const custom_tick_call = basicNode(&.{
@@ -465,7 +481,7 @@ test "node types" {
 
 pub const Env = struct {
     types: std.StringHashMapUnmanaged(TypeInfo),
-    nodes: std.StringHashMapUnmanaged(Node),
+    nodes: std.StringHashMapUnmanaged(NodeDesc),
     alloc: std.mem.Allocator,
 
     pub fn deinit(self: *@This()) void {
@@ -477,16 +493,19 @@ pub const Env = struct {
         var env = @This(){
             .types = std.StringHashMapUnmanaged(TypeInfo){},
             // could be macro, function, operator
-            .nodes = std.StringHashMapUnmanaged(Node){},
+            .nodes = std.StringHashMapUnmanaged(NodeDesc){},
             .alloc = alloc,
         };
 
-        const primitive_types_fields = @typeInfo(@TypeOf(primitive_types)).Struct.fields;
-        try env.types.ensureTotalCapacity(alloc, primitive_types_fields.len);
-        inline for (primitive_types_fields) |t| {
-            try env.types.put(alloc, t.name, @field(primitive_types, t.name).*);
+        inline for (&.{primitive_types, temp_ue.types}) |types| {
+            const types_fields = @typeInfo(@TypeOf(types)).Struct.fields;
+            try env.types.ensureTotalCapacity(alloc, types_fields.len);
+            inline for (types_fields) |t| {
+                try env.types.put(alloc, t.name, @field(types, t.name).*);
+            }
         }
 
+        //const ue_nodes_fields = @typeInfo(@TypeOf(temp_ue.nodes)).Struct.fields;
         const builtin_nodes_fields = @typeInfo(@TypeOf(builtin_nodes)).Struct.fields;
         try env.types.ensureTotalCapacity(alloc, builtin_nodes_fields.len);
         inline for (builtin_nodes_fields) |n| {

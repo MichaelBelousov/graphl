@@ -12,6 +12,7 @@ const ide_json_gen = @import("./ide_json_gen.zig");
 
 // FIXME: rename
 const Env = @import("./nodes/builtin.zig").Env;
+const Node = @import("./nodes/builtin.zig").Node;
 
 test {
     _ = @import("./nodes/builtin.zig");
@@ -85,7 +86,7 @@ fn recurseRootNodeToSexp(node: Node, alloc: std.mem.Allocator, in_handle_src_nod
     return Result(Sexp).ok(result);
 }
 
-const Node = struct {
+const NodeDesc = struct {
     type: []const u8,
     inputs: []const i64, //union (enum) { pin: i64 },
     outputs: []const i64,
@@ -99,7 +100,7 @@ const Import = struct {
 const empty_imports = json.ArrayHashMap([]const Import){};
 
 const GraphDoc = struct {
-    nodes: json.ArrayHashMap(Node),
+    nodes: json.ArrayHashMap(NodeDesc),
     imports: json.ArrayHashMap([]const Import) = empty_imports,
 };
 
@@ -177,9 +178,11 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
         {
             var nodes_iter = graph.nodes.map.iterator();
             while (nodes_iter.next()) |node_entry| {
-                const node = node_entry.value_ptr.*;
+                const json_node = node_entry.value_ptr.*;
+                const node = env.nodes.get(json_node.type)
+                    orelse return GraphToSourceResult.fmt_err(global_alloc, "unknown node type: '{s}'", .{json_node.type});
 
-                for (node.outputs) |json_output| {
+                for (json_node.outputs) |json_output| {
                     // FIXME: this doesn't fix it, still need to use a non-safe Release
                     @setRuntimeSafety(false); // FIXME: weird pointer alignment error
                     handle_src_node_map.put(json_output, node_entry.value_ptr)
@@ -192,9 +195,6 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
             var nodes_iter = graph.nodes.map.iterator();
             while (nodes_iter.next()) |node_entry| {
                 const json_node = node_entry.value_ptr.*;
-                const node = env.nodes.get(json_node.type)
-                    orelse return GraphToSourceResult.fmt_err(global_alloc, "unknown node type: '{s}'", .{json_node.type});
-
                 const is_root = json_node.outputs.len == 0;
                 if (!is_root) continue;
 
