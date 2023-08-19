@@ -60,33 +60,88 @@ fn err_explain(comptime R: type, e: GraphToSourceErr) R {
     return R.err(GraphToSourceErr.explain(e, global_alloc) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
 }
 
-fn recurseRootNodeToSexp(node: Node, alloc: std.mem.Allocator, in_handle_src_node_map: std.AutoHashMap(i64, *const Node)) Result(Sexp) {
-    var result = Sexp{ .list = std.ArrayList(Sexp).init(alloc) };
+const GraphBuilder = struct {
+    env: Env,
+    defs: std.StringHashMap(Node),
 
-    // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-    (result.list.addOne() catch return err_explain(Result(Sexp), .OutOfMemory)).* = Sexp{ .symbol = node.type };
+    pub fn buildFromJsonEntry(
+        self: @This(),
+        node: JsonNode,
+        alloc: std.mem.Allocator,
+        handle_srcnode_map: std.AutoHashMap(i64, *const JsonNode),
+    ) Result(Sexp) {
+        var result = Sexp{ .list = std.ArrayList(Sexp).init(alloc) };
 
-    // FIXME: handle literals...
-    for (node.inputs) |input| {
-        //if (input != .pin)
-            //@panic("not yet supported!");
-
-        const source_node = in_handle_src_node_map.get(input)
-            orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})", .{ error.undefinedInputHandle, input });
-
-        const next = recurseRootNodeToSexp(source_node.*, alloc, in_handle_src_node_map);
-        if (next.is_err())
-            return next;
-
+        // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
         (result.list.addOne()
-            catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-        ).* = next.result;
+            catch return err_explain(Result(Sexp), .OutOfMemory)
+        ).* = Sexp{ .symbol = node.type };
+
+        const node = self.env.makeNode(node.type)
+            orelse return GraphToSourceResult.fmt_err(global_alloc, "unknown node type: '{s}'", .{node.type});
+
+        // FIXME: handle literals...
+        for (node.inputs) |input| {
+            //if (input != .pin)
+                //@panic("not yet supported!");
+
+            const source_node = handle_srcnode_map.get(input)
+                orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})",
+                    .{ error.undefinedInputHandle, input });
+
+            const next = self.recurseRootNodeToSexp(source_node.*, alloc);
+            if (next.is_err())
+                return next;
+
+            (result.list.addOne()
+                catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+            ).* = next.result;
+        }
+
+        return Result(Sexp).ok(result);
     }
 
-    return Result(Sexp).ok(result);
-}
+    pub fn canonicalize() void {}
 
-const NodeDesc = struct {
+    pub fn convertToText(
+        self: @This(),
+        node: JsonNode,
+        alloc: std.mem.Allocator,
+    ) Result(Sexp) {
+        var result = Sexp{ .list = std.ArrayList(Sexp).init(alloc) };
+
+        // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
+        (result.list.addOne()
+            catch return err_explain(Result(Sexp), .OutOfMemory)
+        ).* = Sexp{ .symbol = node.type };
+
+        const node_desc = self.env.makeNode(node.type)
+            orelse return GraphToSourceResult.fmt_err(global_alloc, "unknown node type: '{s}'", .{node.type});
+
+        // FIXME: handle literals...
+        for (node.inputs) |input| {
+            //if (input != .pin)
+                //@panic("not yet supported!");
+
+            const source_node = self.handle_srcnode_map.get(input)
+                orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})",
+                    .{ error.undefinedInputHandle, input });
+
+            const next = self.recurseRootNodeToSexp(source_node.*, alloc);
+            if (next.is_err())
+                return next;
+
+            (result.list.addOne()
+                catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+            ).* = next.result;
+        }
+
+        return Result(Sexp).ok(result);
+    }
+};
+
+
+const JsonNode = struct {
     type: []const u8,
     inputs: []const i64, //union (enum) { pin: i64 },
     outputs: []const i64,
@@ -100,7 +155,7 @@ const Import = struct {
 const empty_imports = json.ArrayHashMap([]const Import){};
 
 const GraphDoc = struct {
-    nodes: json.ArrayHashMap(NodeDesc),
+    nodes: json.ArrayHashMap(JsonNode),
     imports: json.ArrayHashMap([]const Import) = empty_imports,
 };
 
@@ -179,8 +234,6 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
             var nodes_iter = graph.nodes.map.iterator();
             while (nodes_iter.next()) |node_entry| {
                 const json_node = node_entry.value_ptr.*;
-                const node = env.nodes.get(json_node.type)
-                    orelse return GraphToSourceResult.fmt_err(global_alloc, "unknown node type: '{s}'", .{json_node.type});
 
                 for (json_node.outputs) |json_output| {
                     // FIXME: this doesn't fix it, still need to use a non-safe Release
@@ -198,7 +251,7 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
                 const is_root = json_node.outputs.len == 0;
                 if (!is_root) continue;
 
-                const maybe_sexp = recurseRootNodeToSexp(node, arena_alloc, handle_src_node_map);
+                const maybe_sexp = recurseRootNodeToSexp(node, arena_alloc, env, handle_src_node_map);
                 if (maybe_sexp.is_err())
                     return GraphToSourceResult.fmt_err(global_alloc, "{s}", .{maybe_sexp.err.?});
 

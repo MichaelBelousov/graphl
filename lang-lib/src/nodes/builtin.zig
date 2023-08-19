@@ -57,8 +57,8 @@ pub const Link = struct {
 
 pub const Node = struct {
     desc: *const NodeDesc,
-    comment: ?[]const u8,
-    outLinks: []Link,
+    comment: ?[]const u8 = null,
+    outLinks: []Link = &.{},
 };
 
 pub const primitive_types = (struct {
@@ -553,6 +553,13 @@ pub const Env = struct {
         }
 
         return env;
+    }
+
+    pub fn makeNode(kind: []const u8) !Node {
+        return if (env.nodes.get(node.type)) |desc|
+            Node { .desc = desc }
+        else
+            null;
     }
 };
 

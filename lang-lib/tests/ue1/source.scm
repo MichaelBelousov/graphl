@@ -73,7 +73,7 @@
             (begin
               (set! drone-state 'move-to-player)
               ;; Reset DoOnece - so it can fire again
-              (begin (begin (move-component-to-stop)))
+              (begin (begin ($blah: move-component-to-stop)))
                      (begin (do-once1-reset))
                      (begin (do-once2-reset))
                      ;; And CheckAgain
