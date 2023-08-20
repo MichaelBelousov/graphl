@@ -151,6 +151,10 @@ const LiteralInput = (props: {
         else return { value: result };
       },
       pattern: /^-?\d*(\.\d+)?$/i,
+    } : props.type === "string" ? {
+      parse: (x) => ({ value: x }),
+      validate: () => ({ valid: true }),
+      pattern: /.*/
     } : {
       parse: (x) => ({ value: x }),
       validate: () => ({ valid: true }),
@@ -626,36 +630,51 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
       <div className={styles.toolbar}>
         <button
           onClick={() => {
-            const nodes = new Map<string, Node & { inputs: number[], outputs: number[] }>();
-            const handleIds = new Map<string, number>();
-            const convertHandleId = (id: string) => {
-              let handleId = handleIds.get(id);
-              if (handleId === undefined) {
-                handleId = handleIds.size;
-                handleIds.set(id, handleId);
+            interface SerializedNode extends Node {
+              inputs: string[];
+              outputs: string[];
+            }
+
+            const nodes = new Map<string, SerializedNode>();
+
+            function fromFlowNode(node: Node): SerializedNode {
+              const nodeData = node.data as NodeData;
+              const result = {
+                ...node,
+                inputs: new Array(nodeData.fullDesc.inputs.length ?? 0),
+                outputs: new Array(nodeData.fullDesc.outputs.length ?? 0),
+              };
+
+              for (const [key, value] of Object.entries(nodeData.literalInputs)) {
+                const index = +key;
+                result.inputs[key] = value;
               }
-              return handleId;
-            };
+
+              return result;
+            }
 
             for (let i = 0; i < edges.length; ++i) {
               const edge = edges[i];
+              assert(edge.sourceHandle && edge.targetHandle);
+              const sourceHandleIndex = +edge.sourceHandle.split("_")[2];
+              const targetHandleIndex = +edge.targetHandle.split("_")[2];
               const sourceNode = graph.getNode(edge.source);
               const targetNode = graph.getNode(edge.target);
               assert(sourceNode && targetNode);
 
               let source = nodes.get(edge.source);
               if (source === undefined) {
-                source = {...sourceNode, inputs: [], outputs:[]};
+                source = fromFlowNode(sourceNode);
                 nodes.set(edge.source, source);
               }
-              source.outputs.push(convertHandleId(edge.sourceHandle!));
+              source.outputs[sourceHandleIndex] = edge.sourceHandle!;
 
               let target = nodes.get(edge.target);
               if (target === undefined) {
-                target = {...targetNode, inputs: [], outputs:[]};
+                target = fromFlowNode(targetNode);
                 nodes.set(edge.target, target);
               }
-              target.inputs.push(convertHandleId(edge.sourceHandle!));
+              target.inputs[targetHandleIndex] = edge.sourceHandle!;
             }
 
             downloadFile({
@@ -663,7 +682,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
               content: JSON.stringify({
                 nodes: Object.fromEntries(nodes.entries()),
                 edges,
-              }, null, " "),
+              }, null, "  "),
             })
           }}
         >

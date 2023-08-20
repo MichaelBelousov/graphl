@@ -10,53 +10,53 @@
       "label": "max",
       "typevars": [{ "name": "T", "extends": { "union": ["num", "bool", "str"] } }],
       "inputs": [
-        { "label": "", "type": "T" },
-        { "label": "", "type": "T" }
+        { "label": "", "type": "num" },
+        { "label": "", "type": "num" }
       ],
       "outputs": [
-        { "label": "", "type": "T" }
+        { "label": "", "type": "num" }
       ]
     },
     "+": {
       "description": "",
       "label": "add",
-      "typevars": [{ "name": "T", "extends": { "union": ["num"] } }],
+      "typevars": [{ "name": "num", "extends": { "union": ["num"] } }],
       "inputs": [
-        { "label": "", "type": "T", "default": 0.0 },
-        { "label": "", "type": "T", "default": 0.0 }
+        { "label": "", "type": "num", "default": 0.0 },
+        { "label": "", "type": "num", "default": 0.0 }
       ],
       "outputs": [
-        { "label": "", "type": "T" }
+        { "label": "", "type": "num" }
       ]
     },
     "-": {
       "label": "sub",
       "inputs": [
-        { "label": "", "type": "T", "default": 0.0 },
-        { "label": "", "type": "T", "default": 0.0 }
+        { "label": "", "type": "num", "default": 0.0 },
+        { "label": "", "type": "num", "default": 0.0 }
       ],
       "outputs": [
-        { "label": "", "type": "T" }
+        { "label": "", "type": "num" }
       ]
     },
     "*": {
       "label": "mul",
       "inputs": [
-        { "label": "", "type": "T", "default": 1.0 },
-        { "label": "", "type": "T", "default": 1.0 }
+        { "label": "", "type": "num", "default": 1.0 },
+        { "label": "", "type": "num", "default": 1.0 }
       ],
       "outputs": [
-        { "label": "", "type": "T" }
+        { "label": "", "type": "num" }
       ]
     },
     "/": {
       "label": "div",
       "inputs": [
-        { "label": "", "type": "T", "default": 1.0 },
-        { "label": "", "type": "T", "default": 1.0 }
+        { "label": "", "type": "num", "default": 1.0 },
+        { "label": "", "type": "num", "default": 1.0 }
       ],
       "outputs": [
-        { "label": "", "type": "T" }
+        { "label": "", "type": "num" }
       ]
     },
     "if": {

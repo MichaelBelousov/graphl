@@ -63,14 +63,24 @@ fn err_explain(comptime R: type, e: GraphToSourceErr) R {
 const GraphBuilder = struct {
     env: Env,
     defs: std.StringHashMap(Node),
+    alloc: std.mem.Allocator,
+
+    const Self = @This();
+
+    pub fn init(alloc: std.mem.Allocator, env: Env) Self {
+        return Self {
+            .env = env,
+            .alloc = alloc,
+            .defs = std.StringHashMap(Node).init(alloc),
+        };
+    }
 
     pub fn buildFromJsonEntry(
-        self: @This(),
+        self: Self,
         node: JsonNode,
-        alloc: std.mem.Allocator,
-        handle_srcnode_map: std.AutoHashMap(i64, *const JsonNode),
+        handle_to_target_node: std.AutoHashMap(i64, *const JsonNode),
     ) Result(Sexp) {
-        var result = Sexp{ .list = std.ArrayList(Sexp).init(alloc) };
+        var result = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
 
         // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
         (result.list.addOne()
@@ -102,49 +112,13 @@ const GraphBuilder = struct {
     }
 
     pub fn canonicalize() void {}
-
-    pub fn convertToText(
-        self: @This(),
-        node: JsonNode,
-        alloc: std.mem.Allocator,
-    ) Result(Sexp) {
-        var result = Sexp{ .list = std.ArrayList(Sexp).init(alloc) };
-
-        // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-        (result.list.addOne()
-            catch return err_explain(Result(Sexp), .OutOfMemory)
-        ).* = Sexp{ .symbol = node.type };
-
-        const node_desc = self.env.makeNode(node.type)
-            orelse return GraphToSourceResult.fmt_err(global_alloc, "unknown node type: '{s}'", .{node.type});
-
-        // FIXME: handle literals...
-        for (node.inputs) |input| {
-            //if (input != .pin)
-                //@panic("not yet supported!");
-
-            const source_node = self.handle_srcnode_map.get(input)
-                orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})",
-                    .{ error.undefinedInputHandle, input });
-
-            const next = self.recurseRootNodeToSexp(source_node.*, alloc);
-            if (next.is_err())
-                return next;
-
-            (result.list.addOne()
-                catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-            ).* = next.result;
-        }
-
-        return Result(Sexp).ok(result);
-    }
 };
 
 
 const JsonNode = struct {
     type: []const u8,
-    inputs: []const i64, //union (enum) { pin: i64 },
-    outputs: []const i64,
+    inputs: []const []const u8, //union (enum) { pin: i64 },
+    outputs: []const []const u8,
 };
 
 const Import = struct {
@@ -227,8 +201,9 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
 
     // FIXME: break block out into function
     {
-        var handle_src_node_map = std.AutoHashMap(i64, *const Node).init(arena_alloc);
-        handle_src_node_map.deinit();
+        var src_handles_to_target_handles = std.Hash(i64, i64).init(arena_alloc);
+        //var src_handles_to_target_handles = std.Hash(i64, i64).init(arena_alloc);
+        src_handles_to_target_handles.deinit();
 
         {
             var nodes_iter = graph.nodes.map.iterator();
@@ -238,7 +213,7 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
                 for (json_node.outputs) |json_output| {
                     // FIXME: this doesn't fix it, still need to use a non-safe Release
                     @setRuntimeSafety(false); // FIXME: weird pointer alignment error
-                    handle_src_node_map.put(json_output, node_entry.value_ptr)
+                    src_handles_to_target_handles.put(json_output, node_entry.value_ptr)
                         catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
                 }
             }
@@ -251,7 +226,7 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
                 const is_root = json_node.outputs.len == 0;
                 if (!is_root) continue;
 
-                const maybe_sexp = recurseRootNodeToSexp(node, arena_alloc, env, handle_src_node_map);
+                const maybe_sexp = recurseRootNodeToSexp(node, arena_alloc, env, src_handles_to_target_handles);
                 if (maybe_sexp.is_err())
                     return GraphToSourceResult.fmt_err(global_alloc, "{s}", .{maybe_sexp.err.?});
 
