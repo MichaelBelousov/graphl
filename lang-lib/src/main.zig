@@ -129,25 +129,45 @@ const GraphBuilder = struct {
         };
     }
 
+    pub fn getSingleExecFromEntry(entry: Node) Result(Link) {
+        var entry_exec = Result(Link).err("No exec pins on entry node");
+        for (entry.out_links, 0..) |out_link, i| {
+            const out_pin = entry.desc.getOutputs()[i];
+            if (Pin == .exec) {
+                if (entry_exec.is_ok()) {
+                    entry_exec = Result(Link).err("Multiple exec pins on entry node");
+                    return entry_exec;
+                }
+                entry_exec = Result(Link).ok(out_link);
+            }
+        }
+        return entry_exec;
+    }
+
+
     pub fn buildFromJson(
         self: Self,
         json_graph: GraphDoc,
     ) Result(void) {
         const entry_result = self.populateAndReturnEntry();
         if (entry_result.is_err()) return entry_result;
+        // PLEASE RENAME TO .value
+        const entry = if (entry_result.is_err()) return entry_result else entry_result.result;
 
         const link_result = self.link();
         if (link_result.is_err()) return link_result;
 
-        var nodes_iter = json_graph.nodes.map.iterator();
+        const exec_handle_result = self.getSingleExecFromEntry(entry);
+        const exec_handle = if (exec_handle_result.is_err()) return exec_handle_result else exec_handle_result.result;
+
         while (nodes_iter.next()) |node_entry| {
             // FIXME: accidental copy?
-            const json_node = node_entry.value_ptr.*;
+            const node = node_entry.value_ptr.*;
 
-            if (json_node.data.isEntry)
+            if (node.data.isEntry)
                 searching_entry_node = node_entry.value_ptr;
 
-            for (json_node.outputs) |json_output| {
+            for (node.outputs) |json_output| {
                 // FIXME: this doesn't fix it, still need to use a non-safe Release
                 @setRuntimeSafety(false); // FIXME: weird pointer alignment error
                 src_handles_to_target_handles.put(json_output, node_entry.value_ptr)
@@ -165,8 +185,8 @@ const GraphBuilder = struct {
 
         var json_nodes_iter = graph.nodes.map.iterator();
         while (json_nodes_iter.next()) |node_entry| {
-            // FIXME: accidental copy?
             const node_id = node_entry.key_ptr.*;
+            // FIXME: accidental copy?
             const json_node = node_entry.value_ptr.*;
 
             if (json_node.data.isEntry) {
