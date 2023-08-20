@@ -8,7 +8,7 @@ const innerParseFromValue = json.innerParseFromValue;
 const Value = json.Value;
 
 /// copied from std.json.ArrayHashMap
-pub fn ArrayIntHashMap(comptime Key: type, comptime T: type, comptime base: u8) type {
+pub fn IntArrayHashMap(comptime Key: type, comptime T: type, comptime base: u8) type {
     return struct {
         map: std.AutoArrayHashMapUnmanaged(T) = .{},
 

@@ -6,6 +6,8 @@ const io = std.io;
 const testing = std.testing;
 const json = std.json;
 
+const JsonIntArrayHashMap = @import("./json_int_map.zig").IntArrayHashMap;
+
 const Sexp = @import("./sexp.zig").Sexp;
 const syms = @import("./sexp.zig").syms;
 const ide_json_gen = @import("./ide_json_gen.zig");
@@ -13,6 +15,7 @@ const ide_json_gen = @import("./ide_json_gen.zig");
 // FIXME: rename
 const Env = @import("./nodes/builtin.zig").Env;
 const Node = @import("./nodes/builtin.zig").Node;
+const Link = @import("./nodes/builtin.zig").Link;
 
 test {
     _ = @import("./nodes/builtin.zig");
@@ -60,10 +63,61 @@ fn err_explain(comptime R: type, e: GraphToSourceErr) R {
     return R.err(GraphToSourceErr.explain(e, global_alloc) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
 }
 
+const JsonNodeHandle = struct {
+    nodeId: i64,
+    handleIndex: i64,
+};
+
+const JsonNodeInput = union (enum) {
+    handle: JsonNodeHandle,
+    integer: i64,
+    float: f64,
+    string: []const u8,
+};
+
+const JsonNode = struct {
+    type: []const u8,
+    inputs: []const JsonNodeInput,
+    outputs: []const JsonNodeHandle,
+    data: struct { isEntry: bool, comment: ?[]const u8 },
+
+    pub fn toEmptyNode(self: @This(), env: Env) !Node {
+        var node = env.makeNode(self.type) orelse return error.UnknownNodeType;
+        // NOTE: should probably add ownership to json parsed strings so we can deallocate some...
+        node.comment = self.data.comment;
+        return node;
+    }
+
+    /// link with other empty nodes in a graph
+    pub fn link(alloc: std.mem.Allocator, self: @This(), graph: GraphBuilder) !void {
+        node.out_links = alloc.alloc(Link, self.outputs.len);
+        for (node.out_links, self.outputs) |*out_link, json_output| {
+            out_link.* = Link{
+                .target = graph.nodes.map.get(json_output.nodeId) orelse return error.LinkToUnknownNode,
+                .pin_index = json_output.handleIndex,
+            };
+        }
+    }
+};
+
+const Import = struct {
+    ref: []const u8,
+    alias: ?[]const u8,
+};
+
+const empty_imports = json.ArrayHashMap([]const Import){};
+
+const GraphDoc = struct {
+    nodes: JsonIntArrayHashMap(JsonNode),
+    imports: json.ArrayHashMap([]const Import) = empty_imports,
+};
+
 const GraphBuilder = struct {
     env: Env,
-    defs: std.StringHashMap(Node),
+    /// map of json node ids to its real node
+    nodes: JsonIntArrayHashMap(Node),
     alloc: std.mem.Allocator,
+    err_alloc: std.mem.Allocator = global_alloc, // this must be freeable by exported API users
 
     const Self = @This();
 
@@ -71,15 +125,81 @@ const GraphBuilder = struct {
         return Self {
             .env = env,
             .alloc = alloc,
-            .defs = std.StringHashMap(Node).init(alloc),
+            .nodes = JsonIntArrayHashMap(Node).init(alloc),
         };
     }
 
-    pub fn buildFromJsonEntry(
+    pub fn buildFromJson(
         self: Self,
-        node: JsonNode,
-        handle_to_target_node: std.AutoHashMap(i64, *const JsonNode),
-    ) Result(Sexp) {
+        json_graph: GraphDoc,
+    ) Result(void) {
+        const entry_result = self.populateAndReturnEntry();
+        if (entry_result.is_err()) return entry_result;
+
+        const link_result = self.link();
+        if (link_result.is_err()) return link_result;
+
+        var nodes_iter = json_graph.nodes.map.iterator();
+        while (nodes_iter.next()) |node_entry| {
+            // FIXME: accidental copy?
+            const json_node = node_entry.value_ptr.*;
+
+            if (json_node.data.isEntry)
+                searching_entry_node = node_entry.value_ptr;
+
+            for (json_node.outputs) |json_output| {
+                // FIXME: this doesn't fix it, still need to use a non-safe Release
+                @setRuntimeSafety(false); // FIXME: weird pointer alignment error
+                src_handles_to_target_handles.put(json_output, node_entry.value_ptr)
+                    catch |e| return GraphToSourceResult.fmt_err(self.err_alloc, "{}", .{e});
+            }
+        }
+    }
+
+    pub fn populateAndReturnEntry(
+        self: Self,
+        json_graph: GraphDoc,
+    ) Result(*JsonNode) {
+        var result = Result(*JsonNode).err("JSON graph contains no entry");
+        defer if (result.is_err()) self.nodes.map.clearAndFree(self.alloc);
+
+        var json_nodes_iter = graph.nodes.map.iterator();
+        while (json_nodes_iter.next()) |node_entry| {
+            // FIXME: accidental copy?
+            const node_id = node_entry.key_ptr.*;
+            const json_node = node_entry.value_ptr.*;
+
+            if (json_node.data.isEntry) {
+                searching_entry_node = node_entry.value_ptr;
+                if (result.is_ok()) {
+                    result = Result(void).fmt_err(self.err_alloc, "JSON graph contains more than 1 entry", .{});
+                    return result;
+                }
+                entry_count = true; }
+
+            const node = json_node.toEmptyNode(self.env)
+                catch |e| { result = Result(void).fmt_err(self.err_alloc, "{}", .{e}); return result; };
+
+            self.nodes.put(node_id, node)
+                catch |e| { result = Result(void).fmt_err(self.err_alloc, "{}", .{e}); return result; };
+        }
+
+        return result;
+    }
+
+
+    pub fn link() Result(void) {
+        var nodes_iter = self.nodes.map.iterator();
+        while (nodes_iter.next()) |node_entry| {
+            // FIXME: accidental copy?
+            const node = node_entry.value_ptr.*;
+
+            node.link(self)
+                catch |e| Result(void).fmt_err(global_alloc, "{}", .{e});
+        }
+    }
+
+    pub fn toSexp() {
         var result = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
 
         // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
@@ -99,7 +219,7 @@ const GraphBuilder = struct {
                 orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})",
                     .{ error.undefinedInputHandle, input });
 
-            const next = self.recurseRootNodeToSexp(source_node.*, alloc);
+            const next = self.buildFromJsonEntry(source_node.*, alloc);
             if (next.is_err())
                 return next;
 
@@ -111,26 +231,7 @@ const GraphBuilder = struct {
         return Result(Sexp).ok(result);
     }
 
-    pub fn canonicalize() void {}
-};
-
-
-const JsonNode = struct {
-    type: []const u8,
-    inputs: []const []const u8, //union (enum) { pin: i64 },
-    outputs: []const []const u8,
-};
-
-const Import = struct {
-    ref: []const u8,
-    alias: ?[]const u8,
-};
-
-const empty_imports = json.ArrayHashMap([]const Import){};
-
-const GraphDoc = struct {
-    nodes: json.ArrayHashMap(JsonNode),
-    imports: json.ArrayHashMap([]const Import) = empty_imports,
+    // pub fn canonicalize() void {}
 };
 
 /// caller must free result with {TBD}
@@ -205,10 +306,16 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
         //var src_handles_to_target_handles = std.Hash(i64, i64).init(arena_alloc);
         src_handles_to_target_handles.deinit();
 
+        var searching_entry_node: ?*JsonNode = null;
+
         {
             var nodes_iter = graph.nodes.map.iterator();
             while (nodes_iter.next()) |node_entry| {
+                // FIXME: accidental copy?
                 const json_node = node_entry.value_ptr.*;
+
+                if (json_node.data.isEntry)
+                    searching_entry_node = node_entry.value_ptr;
 
                 for (json_node.outputs) |json_output| {
                     // FIXME: this doesn't fix it, still need to use a non-safe Release
@@ -219,21 +326,15 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
             }
         }
 
-        {
-            var nodes_iter = graph.nodes.map.iterator();
-            while (nodes_iter.next()) |node_entry| {
-                const json_node = node_entry.value_ptr.*;
-                const is_root = json_node.outputs.len == 0;
-                if (!is_root) continue;
-
-                const maybe_sexp = recurseRootNodeToSexp(node, arena_alloc, env, src_handles_to_target_handles);
-                if (maybe_sexp.is_err())
-                    return GraphToSourceResult.fmt_err(global_alloc, "{s}", .{maybe_sexp.err.?});
-
-                _ = maybe_sexp.result.write(page_writer.writer()) catch return err_explain(GraphToSourceResult, .ioErr);
-                _ = page_writer.writer().write("\n") catch return err_explain(GraphToSourceResult, .ioErr);
-            }
+        if (searching_entry_node == null) {
+            return GraphToSourceResult.fmt_err(global_alloc, "Not nodes marked as 'entry'", .{});
         }
+
+        const builder = GraphBuilder.init(arena_alloc, env);
+        const maybe_sexp = builder.buildFromJsonEntry(searching_entry_node, arena_alloc, env, src_handles_to_target_handles);
+
+        _ = maybe_sexp.result.write(page_writer.writer()) catch return err_explain(GraphToSourceResult, .ioErr);
+        _ = page_writer.writer().write("\n") catch return err_explain(GraphToSourceResult, .ioErr);
     }
 
     _ = page_writer.writer().write("\n") catch return err_explain(GraphToSourceResult, .ioErr);
