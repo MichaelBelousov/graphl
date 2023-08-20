@@ -73,6 +73,7 @@ interface NodeData {
   fullDesc: NodeDesc;
   setTarget?: string;
   comment?: string;
+  isEntry: boolean;
 }
 
 interface NodeState extends NodeData {
@@ -143,7 +144,7 @@ const LiteralInput = (props: {
       parse: (x) => ({ value: !!x }),
       validate: () => ({ valid: true }),
       pattern: /.*/ // BUG: some idiot didn't make pattern/validate mutually exclusive
-    } : props.type === "number" ? {
+    } : props.type === "num" ? {
       // BUG: copy and pasted from useValidatedInput because some idiot forgot to make export the defaults
       parse: (text) => {
         const result = parseFloat(text);
@@ -585,6 +586,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
             literalInputs: {},
             typeIfDefaulted: nodeType,
             fullDesc: nodeDescs[nodeType],
+            isEntry: nodeType === "CustomTickEntry",
           },
           position: position,
         }
@@ -639,6 +641,9 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
 
             function fromFlowNode(node: Node): SerializedNode {
               const nodeData = node.data as NodeData;
+              if (!("isEntry" in nodeData)) // todo: unscrew types
+                (nodeData as NodeData).isEntry = node.type === "CustomTickEntry";
+
               const result = {
                 ...node,
                 inputs: new Array(nodeData.fullDesc.inputs.length ?? 0),
@@ -656,25 +661,35 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
             for (let i = 0; i < edges.length; ++i) {
               const edge = edges[i];
               assert(edge.sourceHandle && edge.targetHandle);
-              const sourceHandleIndex = +edge.sourceHandle.split("_")[2];
-              const targetHandleIndex = +edge.targetHandle.split("_")[2];
-              const sourceNode = graph.getNode(edge.source);
-              const targetNode = graph.getNode(edge.target);
+              // flow's graph directionality is arbitrary to us
+              // establish direction based on whether handle is input or output
+              const [handle1NodeId, handle1IsInput, handle1Index] = edge.sourceHandle.split("_");
+              const [handle2NodeId, handle2IsInput, handle2Index] = edge.targetHandle.split("_");
+              assert(handle1NodeId && handle1IsInput && handle1Index);
+              assert(handle2NodeId && handle2IsInput && handle2Index);
+              const handle1 = { nodeId: handle1NodeId, handleIndex: +handle1Index, handleId: edge.sourceHandle };
+              const handle2 = { nodeId: handle2NodeId, handleIndex: +handle2Index, handleId: edge.targetHandle };
+              const toZigHandle = ({ nodeId, handleIndex }: typeof handle1) => ({ nodeId, handleIndex });
+              const { source, target } = handle1IsInput
+                ? { source: handle2, target: handle1 }
+                : { source: handle1, target: handle2 };
+              const sourceNode = graph.getNode(source.nodeId);
+              const targetNode = graph.getNode(target.nodeId);
               assert(sourceNode && targetNode);
 
-              let source = nodes.get(edge.source);
-              if (source === undefined) {
-                source = fromFlowNode(sourceNode);
-                nodes.set(edge.source, source);
+              let sourceResultNode = nodes.get(source.nodeId);
+              if (sourceResultNode === undefined) {
+                sourceResultNode = fromFlowNode(sourceNode);
+                nodes.set(source.nodeId, sourceResultNode);
               }
-              source.outputs[sourceHandleIndex] = edge.sourceHandle!;
+              sourceResultNode.outputs[source.handleIndex] = toZigHandle(target);
 
-              let target = nodes.get(edge.target);
-              if (target === undefined) {
-                target = fromFlowNode(targetNode);
-                nodes.set(edge.target, target);
+              let targetResultNode = nodes.get(target.nodeId);
+              if (targetResultNode === undefined) {
+                targetResultNode = fromFlowNode(targetNode);
+                nodes.set(target.nodeId, targetResultNode);
               }
-              target.inputs[targetHandleIndex] = edge.sourceHandle!;
+              targetResultNode.inputs[target.handleIndex] = toZigHandle(source);
             }
 
             downloadFile({
