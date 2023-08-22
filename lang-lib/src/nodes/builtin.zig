@@ -212,11 +212,11 @@ pub const VarNodes = struct {
         setterOutputs[0] = .exec;
         setterOutputs[1] = Pin{.value=var_type};
 
-        return .{
-            .get = basicNode(.{
+        return VarNodes{
+            .get = basicNode(&.{
                 .outputs = getterOutputs,
             }),
-            .set = basicNode(.{
+            .set = basicNode(&.{
                 .inputs = setterInputs,
                 .outputs = setterOutputs,
             }),
@@ -556,8 +556,8 @@ pub const Env = struct {
         return env;
     }
 
-    pub fn makeNode(kind: []const u8) ?Node {
-        return if (env.nodes.get(node.type)) |desc|
+    pub fn makeNode(self: @This(), kind: []const u8) ?Node {
+        return if (self.nodes.get(kind)) |desc|
             Node { .desc = desc }
         else
             null;
