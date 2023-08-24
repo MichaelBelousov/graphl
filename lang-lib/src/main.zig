@@ -206,8 +206,6 @@ const GraphBuilder = struct {
     }
 
     pub fn link(self: @This(), graph_json: GraphDoc) Result(void) {
-        // NEXT: ArrayHashMap insertion order is guaranteed... iterate through that simultaneously
-        // between json and nodes, in order to link everything together
         var nodes_iter = self.nodes.map.iterator();
         var json_nodes_iter = graph_json.nodes.map.iterator();
         std.debug.assert(nodes_iter.len == json_nodes_iter.len);
@@ -234,11 +232,13 @@ const GraphBuilder = struct {
         }
     }
 
-    /// each branch will have 1 (or 0) join node where the control flow for that branch converges
+    /// each branch will may have 1 (or 0) join node where the control flow for that branch converges
     pub fn analyzeNodes(self: @This()) Result(void) {
-        var visited = std.DynamicBitSetUnmanaged.initEmpty(self.nodes.map.count())
+        // FIXME: consider removing "Indexed"? now
+        var visited: std.AutoHashMapUnmanaged(*const IndexedNode, NodeAnalysisResult) = .{};
+        defer visited.deinit(self.alloc);
+        visited.ensureTotalCapacity(self.nodes.map.count())
             catch |e| Result(void).fmt_err(global_alloc, "{}", .{e});
-        defer visited.deinit();
 
         var node_iter = self.nodes.map.iterator();
         while (node_iter) |node|
@@ -247,8 +247,9 @@ const GraphBuilder = struct {
     }
 
     const NodeAnalysisResult = struct {
-        // can't get joined node?
-        end_node: *const IndexedNode
+        /// null means there are multiple ends
+        /// there can't not be an end, even if its the node itself
+        reachable_end: ?*const IndexedNode
     };
 
     fn analyzeNode(self: @This(), node: *const IndexedNode, visited: *std.DynamicBitSetUnmanaged) NodeAnalysisResult {
@@ -259,8 +260,30 @@ const GraphBuilder = struct {
         visited.set(index);
 
         // FIXME: better detection of branch type... (e.g. switch)
-        const is_branch = node.node.desc.name == "if"
+        const is_branch = node.node.desc.name == "if";
         if (is_branch) analyzeBranch();
+
+        var exec_link_count: usize = 0;
+        var curr_reachable_end: ?*const Node = null;
+
+        var exec_link_iter = node.node.iter_out_exec_links();
+        while (exec_link_iter.next()) |exec_link| {
+            const child_result = self.analyzeNode(exec_link.target);
+
+            if (curr_reachable_end) |reachable_end| {
+                if (reachable_end != child_result.reachable_end) {
+                    return .{ .reachable_end = null };
+                }
+            } else {
+                curr_reachable_end = analysis_result.reachable_end;
+            }
+
+            exec_link_count += 1;
+        }
+
+        if (exec_link_count == 0) {
+            return .{ .reachable_end = node };
+        }
     }
 
     // NOTE: stack-space-bound
@@ -276,22 +299,7 @@ const GraphBuilder = struct {
     // - But if it does, that doesn't help us find the outer join node
     fn analyzeBranch(self: @This(), node: *const IndexedNode, visited: *std.DynamicBitSetUnmanaged) NodeAnalysisResult {
         var exec_link_count: usize = 0;
-        var curr_end_node: ?*const Node = null;
-
-        var exec_link_iter = node.node.iter_out_exec_links();
-        while (exec_link_iter.next()) |exec_link| {
-            const analysis_result = self.analyzeNode(exec_link.target);
-            if (curr_end_node) |end_node| {
-                if (end_node != analysis_result.end_node) {
-                    // multiple ends... unjoined
-                }
-            } else curr_end_node = analysis_result.end_node;
-            exec_link_count += 1;
-        }
-
-        if (exec_link_count == 0) {
-            return .{ .end_node = node };
-        }
+        var curr_reachable_end: ?*const Node = null;
     }
 
     /// given a node
