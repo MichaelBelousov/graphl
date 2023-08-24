@@ -37,7 +37,7 @@ pub const Pin = union (enum) {
 };
 
 pub const NodeDesc = struct {
-    context: *const align(8) anyopaque,
+    context: *const align(@sizeof(usize)) anyopaque,
     // TODO: do I really need pointers? The types are all going to be well defined aggregates,
     // and the nodes too
     // FIXME: read https://pithlessly.github.io/allocgate.html, the same logic as to why zig
@@ -60,6 +60,31 @@ pub const Node = struct {
     desc: *const NodeDesc,
     comment: ?[]const u8 = null,
     out_links: []Link = &.{},
+
+    pub const ExecLinkIterator = struct {
+        index: usize = 0,
+        node: *const Node,
+
+        pub fn next(self: @This()) ?Link {
+            while (self.index < self.node.out_links.len) : (self.index += 1) {
+                const is_exec = self.node.desc.getOutputs()[self.index] == .exec;
+                if (is_exec) {
+                    self.index += 1;
+                    return self.node.out_links[self.index];
+                }
+            }
+
+            return null;
+        }
+
+        pub fn hasNext(self: @This()) bool {
+            return self.index < self.node.out_links.len;
+        }
+    };
+
+    pub fn iter_out_exec_links(self: @This()) ExecLinkIterator {
+        return ExecLinkIterator{ .node = self };
+    }
 };
 
 pub const primitive_types = (struct {
@@ -89,14 +114,21 @@ pub const primitive_types = (struct {
         .field_types = &.{ f64_, f64_, f64_, f64_ },
     },
 
-    pub fn list(t: Type, env: *Env) Type {
-        // FIXME: which allocator?
-        var new_type = std.testing.failing_allocator.create(TypeInfo);
-        new_type.* = TypeInfo{
-            .name = std.fmt.allocPrint(std.testing.failing_allocator, "list({s})", t.name),
-        };
-        env.types.put(std.testing.failing_allocator, t.name, new_type);
-    }
+    // pub fn list(_: @This(), t: Type, fallback_alloc: std.mem.Allocator) Type {
+    //     // FIXME: which allocator?
+    //     const name = if (@inComptime())
+    //         std.fmt.comptimePrint("list({s})", t.name)
+    //         else std.fmt.allocPrint(std.testing.failing_allocator, "list({s})", t.name);
+
+    //     // can I just run an allocator at comptime? is that how zig is supposed to work?
+    //     comptime var slot: TypeInfo = undefined;
+    //     var new_type = fallback_alloc.create(TypeInfo);
+    //     new_type.* = TypeInfo{
+    //         .name = std.fmt.allocPrint(std.testing.failing_allocator, "list({s})", t.name),
+    //     };
+
+    //     //env.types.put(std.testing.failing_allocator, t.name, new_type);
+    // }
 }){};
 
 
@@ -186,11 +218,19 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
     };
 }
 
+// FIXME: isn't this going to be illegal? https://github.com/ziglang/zig/issues/7396
 // FIXME: move to own file
 fn comptimeAllocOrFallback(fallback_allocator: std.mem.Allocator, comptime T: type, comptime count: usize) std.mem.Allocator.Error![]T {
     comptime var comptime_slot: [if (@inComptime()) count else 0]T = undefined;
     return if (@inComptime()) &comptime_slot
          else try fallback_allocator.alloc(T, count);
+}
+
+// after reviewing comptime semantics, not sure if current compiler blocks it, but this will be illegal
+fn comptimeCreateOrFallback(fallback_allocator: std.mem.Allocator, comptime T: type) std.mem.Allocator.Error!*T {
+    comptime var comptime_slot: T = undefined;
+    return if (@inComptime()) &comptime_slot
+         else try fallback_allocator.create(T);
 }
 
 pub const VarNodes = struct {
@@ -313,9 +353,13 @@ pub const temp_ue = struct {
         const physical_material: Type = &TypeInfo{.name="physical_material"};
         const actor: Type = &TypeInfo{.name="actor"};
         const scene_component: Type = &TypeInfo{.name="SceneComponent"};
-
-        actor: Type = &TypeInfo{.name="actor"},
+        
+        actor: Type = actor,
+        // FIXME: use list(actor)
+        actor_list: Type = &TypeInfo{.name="list(actor)"},
         scene_component: Type = &TypeInfo{.name="SceneComponent"},
+        trace_channels: Type = &TypeInfo{.name="trace_channels"},
+        draw_debug_types: Type = &TypeInfo{.name="draw_debug_types"},
         physical_material: Type = physical_material,
         hit_result: Type = &TypeInfo{
             .name="hit_result",
@@ -346,16 +390,16 @@ pub const temp_ue = struct {
         // TODO: replace with live vars
         const capsule_component = VarNodes.init(std.testing.failing_allocator, "capsule_component", types.scene_component)
             catch unreachable;
-        const current_spawn_point = VarNodes.init(std.testing.failing_allocator, "current_spawn_point", types.scene_component)
-            catch unreachable;
-        const drone_state = VarNodes.init(std.testing.failing_allocator, "drone_state", types.scene_component)
-            catch unreachable;
-        const mesh = VarNodes.init(std.testing.failing_allocator, "mesh", types.scene_component)
-            catch unreachable;
-        const over_time = VarNodes.init(std.testing.failing_allocator, "over-time", types.scene_component)
-            catch unreachable;
-        const speed = VarNodes.init(std.testing.failing_allocator, "mesh", primitive_types.f32_)
-            catch unreachable;
+        // const current_spawn_point = VarNodes.init(std.testing.failing_allocator, "current_spawn_point", types.scene_component)
+        //     catch unreachable;
+        // const drone_state = VarNodes.init(std.testing.failing_allocator, "drone_state", types.scene_component)
+        //     catch unreachable;
+        // const mesh = VarNodes.init(std.testing.failing_allocator, "mesh", types.scene_component)
+        //     catch unreachable;
+        // const over_time = VarNodes.init(std.testing.failing_allocator, "over-time", types.scene_component)
+        //     catch unreachable;
+        // const speed = VarNodes.init(std.testing.failing_allocator, "mesh", primitive_types.f32_)
+        //     catch unreachable;
 
         custom_tick_call: NodeDesc = basicNode(&.{
             .inputs = &.{ Pin{.value=types.actor} },
@@ -390,20 +434,20 @@ pub const temp_ue = struct {
         get_capsule_component: NodeDesc = capsule_component.get,
         set_capsule_component: NodeDesc = capsule_component.set,
 
-        get_current_spawn_point: NodeDesc = current_spawn_point.get,
-        set_current_spawn_point: NodeDesc = current_spawn_point.set,
+        // get_current_spawn_point: NodeDesc = current_spawn_point.get,
+        // set_current_spawn_point: NodeDesc = current_spawn_point.set,
 
-        get_drone_state: NodeDesc = drone_state.get,
-        set_drone_state: NodeDesc = drone_state.set,
+        // get_drone_state: NodeDesc = drone_state.get,
+        // set_drone_state: NodeDesc = drone_state.set,
 
-        get_mesh: NodeDesc = mesh.get,
-        set_mesh: NodeDesc = mesh.set,
+        // get_mesh: NodeDesc = mesh.get,
+        // set_mesh: NodeDesc = mesh.set,
 
-        get_over_time: NodeDesc = over_time.get,
-        set_over_time: NodeDesc = over_time.set,
+        // get_over_time: NodeDesc = over_time.get,
+        // set_over_time: NodeDesc = over_time.set,
 
-        get_speed: NodeDesc = speed.get,
-        set_speed: NodeDesc = speed.set,
+        // get_speed: NodeDesc = speed.get,
+        // set_speed: NodeDesc = speed.set,
 
         cast: NodeDesc = basicNode(&.{
             .inputs = &. {
@@ -481,7 +525,7 @@ pub const temp_ue = struct {
                 Pin{.value=primitive_types.vec3}, // end
                 Pin{.value=types.trace_channels}, // channel
                 Pin{.value=primitive_types.bool_}, // trace-complex
-                Pin{.value=primitive_types.list(types.actor)}, // actors-to-ignore
+                Pin{.value=types.actor_list}, // actors-to-ignore
                 Pin{.value=types.draw_debug_types}, // draw-debug-type (default 'none)
                 Pin{.value=primitive_types.bool_}, // ignore-self (default false)
             },

@@ -97,16 +97,19 @@ const Import = struct {
 const empty_imports = json.ArrayHashMap([]const Import){};
 
 const GraphDoc = struct {
-    nodes: JsonIntArrayHashMap(JsonNode),
+    nodes: JsonIntArrayHashMap(i64, JsonNode, 10),
     imports: json.ArrayHashMap([]const Import) = empty_imports,
 };
 
 const GraphBuilder = struct {
+    const IndexedNode = struct { index: usize, node: Node };
+
     env: Env,
     /// map of json node ids to its real node
-    nodes: JsonIntArrayHashMap(Node),
+    nodes: JsonIntArrayHashMap(i64,  10) = .{},
     alloc: std.mem.Allocator,
     err_alloc: std.mem.Allocator = global_alloc, // this must be freeable by exported API users
+    branch_joiner_map: std.AutoHashMapUnmanaged(*const IndexedNode, *const IndexedNode) = .{},
 
     const Self = @This();
 
@@ -114,11 +117,10 @@ const GraphBuilder = struct {
         return Self {
             .env = env,
             .alloc = alloc,
-            .nodes = JsonIntArrayHashMap(Node).init(alloc),
         };
     }
 
-    pub fn getSingleExecFromEntry(entry: Node) Result(Link) {
+    pub fn getSingleExecFromEntry(entry: *const IndexedNode) Result(Link) {
         var entry_exec = Result(Link).err("No exec pins on entry node");
         for (entry.out_links, 0..) |out_link, i| {
             const out_pin = entry.desc.getOutputs()[i];
@@ -133,35 +135,36 @@ const GraphBuilder = struct {
         return entry_exec;
     }
 
-
     pub fn buildFromJson(
-        self: Self,
+        self: *Self,
         json_graph: GraphDoc,
     ) Result(void) {
         const entry_result = self.populateAndReturnEntry(json_graph);
-        if (entry_result.is_err()) return entry_result;
+        if (entry_result.is_err()) return entry_result.err_as(void);
         // PLEASE RENAME TO .value
-        const entry = if (entry_result.is_err()) return entry_result else entry_result.result;
+        const entry = if (entry_result.is_err())
+            return entry_result.err_as(void)
+            else entry_result.result;
 
         const link_result = self.link();
         if (link_result.is_err()) return link_result;
 
-        const exec_handle_result = self.getSingleExecFromEntry(entry);
-        const exec_handle = if (exec_handle_result.is_err()) return exec_handle_result else exec_handle_result.result;
+        const exec_handle_result = Self.getSingleExecFromEntry(entry);
+        const exec_handle = if (exec_handle_result.is_err()) return exec_handle_result.err_as(void) else exec_handle_result.result;
         _ = exec_handle;
 
-        // recurse on exec_handle
-        // for each exec handle of the node, build an sexp list
-        // if the fork converges, consider jumping or macroing out the joined section...
-        // for each fork, consider the type of branch
+        return Result(void).ok({});
     }
 
     pub fn populateAndReturnEntry(
-        self: Self,
+        self: *Self,
         json_graph: GraphDoc,
-    ) Result(*JsonNode) {
-        var result = Result(*JsonNode).err("JSON graph contains no entry");
+    ) Result(*IndexedNode) {
+        var result = Result(*IndexedNode).err("JSON graph contains no entry");
+        // FIXME: this belongs in buildFromJson...
         defer if (result.is_err()) self.nodes.map.clearAndFree(self.alloc);
+
+        var branch_count: usize = 0;
 
         var json_nodes_iter = json_graph.nodes.map.iterator();
         while (json_nodes_iter.next()) |node_entry| {
@@ -169,40 +172,61 @@ const GraphBuilder = struct {
             // FIXME: accidental copy?
             const json_node = node_entry.value_ptr.*;
 
+            const node = json_node.toEmptyNode(self.env)
+                catch |e| { result = Result(*IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
+
+            const putResult = self.nodes.map.getOrPut(self.alloc, node_id)
+                catch |e| { result = Result(*IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
+
+            putResult.value_ptr.* = node;
+
+            if (putResult.found_existing) {
+                result = Result(*IndexedNode).fmt_err(self.err_alloc, "Illegal duplicate node in graph", .{});
+                return result;
+            }
+
             if (json_node.data.isEntry) {
-                result = Result(*JsonNode).ok(node_entry.value_ptr);
+                result = Result(*IndexedNode).ok(putResult.value_ptr);
                 if (result.is_ok()) {
-                    result = Result(*JsonNode).fmt_err(self.err_alloc, "JSON graph contains more than 1 entry", .{});
+                    result = Result(*IndexedNode).fmt_err(self.err_alloc, "JSON graph contains more than 1 entry", .{});
                     return result;
                 }
             }
 
-            const node = json_node.toEmptyNode(self.env)
-                catch |e| { result = Result(void).fmt_err(self.err_alloc, "{}", .{e}); return result; };
-
-            self.nodes.put(node_id, node)
-                catch |e| { result = Result(void).fmt_err(self.err_alloc, "{}", .{e}); return result; };
+            // FIXME: a more sophisticated check for if it's a branch, including macro expansion
+            const is_branch = json_node.type == "if";
+            if (is_branch)
+                branch_count += 1;
         }
+
+        self.branch_joiner_map.ensureTotalCapacity(branch_count)
+            catch |e| { result = Result(*IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
 
         return result;
     }
 
-
-    pub fn link(self: @This()) Result(void) {
+    pub fn link(self: @This(), graph_json: GraphDoc) Result(void) {
+        // NEXT: ArrayHashMap insertion order is guaranteed... iterate through that simultaneously
+        // between json and nodes, in order to link everything together
         var nodes_iter = self.nodes.map.iterator();
-        while (nodes_iter.next()) |node_entry| {
-            // FIXME: accidental copy?
-            const node = node_entry.value_ptr.*;
+        var json_nodes_iter = graph_json.nodes.map.iterator();
+        std.debug.assert(nodes_iter.len == json_nodes_iter.len);
+        while (true) {
+            const node_entry = nodes_iter.next() orelse break;
+            const node = node_entry.value_ptr;
 
-            self.linkNode(node)
+            const json_node_entry = json_nodes_iter.next() orelse unreachable;
+            const json_node = json_node_entry.value_ptr;
+
+            self.linkNode(json_node, node)
                 catch |e| Result(void).fmt_err(global_alloc, "{}", .{e});
         }
     }
 
     /// link with other empty nodes in a graph
-    pub fn linkNode(self: @This(), node: *Node) !void {
-        node.out_links = self.alloc.alloc(Link, self.outputs.len);
-        for (node.out_links, self.outputs) |*out_link, json_output| {
+    pub fn linkNode(self: @This(), json_node: JsonNode, node: *IndexedNode) !void {
+        node.node.out_links = self.alloc.alloc(Link, json_node.outputs.len);
+        for (node.node.out_links, json_node.outputs) |*out_link, json_output| {
             out_link.* = Link{
                 .target = self.nodes.map.get(json_output.nodeId) orelse return error.LinkToUnknownNode,
                 .pin_index = json_output.handleIndex,
@@ -210,34 +234,96 @@ const GraphBuilder = struct {
         }
     }
 
-    // pub fn toSexp(self: @This(), node: *const Node) Result(Sexp) {
-    //     var result = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
+    /// each branch will have 1 (or 0) join node where the control flow for that branch converges
+    pub fn analyzeNodes(self: @This()) Result(void) {
+        var visited = std.DynamicBitSetUnmanaged.initEmpty(self.nodes.map.count())
+            catch |e| Result(void).fmt_err(global_alloc, "{}", .{e});
+        defer visited.deinit();
 
-    //     // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-    //     (result.list.addOne()
-    //         catch return err_explain(Result(Sexp), .OutOfMemory)
-    //     ).* = Sexp{ .symbol = node.type };
+        var node_iter = self.nodes.map.iterator();
+        while (node_iter) |node|
+            if (!visited.isSet(node_iter.index))
+                self.analyzeNode(node);
+    }
 
-    //     // FIXME: handle literals...
-    //     for (node.inputs) |input| {
-    //         //if (input != .pin)
-    //             //@panic("not yet supported!");
+    const NodeAnalysisResult = struct {
+        // can't get joined node?
+        end_node: *const IndexedNode
+    };
 
-    //         const source_node = handle_srcnode_map.get(input)
-    //             orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})",
-    //                 .{ error.undefinedInputHandle, input });
+    fn analyzeNode(self: @This(), node: *const IndexedNode, visited: *std.DynamicBitSetUnmanaged) NodeAnalysisResult {
+        const index = node.index;
 
-    //         const next = self.buildFromJsonEntry(source_node.*, alloc);
-    //         if (next.is_err())
-    //             return next;
+        if (visited.isSet(index))
+            continue;
+        visited.set(index);
 
-    //         (result.list.addOne()
-    //             catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-    //         ).* = next.result;
-    //     }
+    }
 
-    //     return Result(Sexp).ok(result);
-    // }
+    // NOTE: stack-space-bound
+    // To find the join of a branch, find the end of all descendant paths,
+    // if the ends are all the same, it joins.
+    // Traverse backwards until you find the join node,
+    // Could not store full paths by moving backwards, ignoring source pins that were not in any paths
+    // Maybe could also traverse forwards again to accomplish this?
+    fn analyzeBranch(self: @This(), node: *const IndexedNode, visited: *std.DynamicBitSetUnmanaged) NodeAnalysisResult {
+        var exec_link_count: usize = 0;
+        var curr_end_node: ?*const Node = null;
+
+        // FIXME: shouldn't we only do this for branches (and switches?)
+        var exec_link_iter = node.node.iter_out_exec_links();
+        while (exec_link_iter.next()) |exec_link| {
+            const analysis_result = self.analyzeNode(exec_link.target);
+            if (curr_end_node) |end_node| {
+                if (end_node != analysis_result.end_node) {
+                    // multiple ends... unjoined
+                }
+            } else curr_end_node = analysis_result.end_node;
+            exec_link_count += 1;
+        }
+
+        if (exec_link_count == 0) {
+            return .{ .end_node = node };
+        }
+    }
+
+    /// given a node
+    /// if it has more than 1 exec link flowing into it, promote it to a definition
+    /// recurse on each exec output
+    /// ask the node's description to serialize it into a sexp given the child exec sexps
+    /// if the fork converges, consider jumping or macroing out the joined section...
+    fn toSexp(self: @This(), node: *const IndexedNode) Result(Sexp) {
+        var result = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
+
+        // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
+        (result.list.addOne()
+            catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+        ).* = Sexp{ .symbol = node.node.type };
+
+        // FIXME: handle literals...
+        for (node.node.inputs) |input| {
+            //if (input != .pin)
+                //@panic("not yet supported!");
+
+            const source_node = handle_srcnode_map.get(input)
+                orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})",
+                    .{ error.undefinedInputHandle, input });
+
+            const next = self.buildFromJsonEntry(source_node.*, alloc);
+            if (next.is_err())
+                return next;
+
+            (result.list.addOne()
+                catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+            ).* = next.result;
+        }
+
+        return Result(Sexp).ok(result);
+    }
+
+    pub fn rootToSexp(self: @This()) Result(Sexp) {
+        const root;
+    }
 };
 
 /// caller must free result with {TBD}
@@ -306,42 +392,15 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
         }
     }
 
-    // FIXME: break block out into function
-    {
-        var src_handles_to_target_handles = std.Hash(i64, i64).init(arena_alloc);
-        //var src_handles_to_target_handles = std.Hash(i64, i64).init(arena_alloc);
-        src_handles_to_target_handles.deinit();
+    var builder = GraphBuilder.init(arena_alloc, env);
+    const build_result = builder.buildFromJson(graph);
+    if (build_result.is_err()) return build_result.err_as([]const u8);
 
-        var searching_entry_node: ?*JsonNode = null;
+    const sexp_result = builder.toSexp();
+    const sexp = if (sexp_result.is_ok()) sexp_result.result else return sexp_result.err_as([]const u8);
 
-        {
-            var nodes_iter = graph.nodes.map.iterator();
-            while (nodes_iter.next()) |node_entry| {
-                // FIXME: accidental copy?
-                const json_node = node_entry.value_ptr.*;
-
-                if (json_node.data.isEntry)
-                    searching_entry_node = node_entry.value_ptr;
-
-                for (json_node.outputs) |json_output| {
-                    // FIXME: this doesn't fix it, still need to use a non-safe Release
-                    @setRuntimeSafety(false); // FIXME: weird pointer alignment error
-                    src_handles_to_target_handles.put(json_output, node_entry.value_ptr)
-                        catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
-                }
-            }
-        }
-
-        if (searching_entry_node == null) {
-            return GraphToSourceResult.fmt_err(global_alloc, "Not nodes marked as 'entry'", .{});
-        }
-
-        const builder = GraphBuilder.init(arena_alloc, env);
-        const maybe_sexp = builder.buildFromJsonEntry(searching_entry_node, arena_alloc, env, src_handles_to_target_handles);
-
-        _ = maybe_sexp.result.write(page_writer.writer()) catch return err_explain(GraphToSourceResult, .ioErr);
-        _ = page_writer.writer().write("\n") catch return err_explain(GraphToSourceResult, .ioErr);
-    }
+    _ = sexp.write(page_writer.writer()) catch return err_explain(GraphToSourceResult, .ioErr);
+    _ = page_writer.writer().write("\n") catch return err_explain(GraphToSourceResult, .ioErr);
 
     _ = page_writer.writer().write("\n") catch return err_explain(GraphToSourceResult, .ioErr);
 
@@ -384,7 +443,7 @@ test "source_to_graph" {}
 // FIXME use wasm known memory limits or something
 var result_buffer: [std.mem.page_size * 512]u8 = undefined;
 var global_allocator_inst = std.heap.FixedBufferAllocator.init(&result_buffer);
-var global_alloc = global_allocator_inst.allocator();
+const global_alloc = global_allocator_inst.allocator();
 
 /// call c free on result
 export fn source_to_graph(source: Slice) SourceToGraphResult {

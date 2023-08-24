@@ -33,6 +33,16 @@ fn ResultDecls(comptime R: type, comptime Self: type) type {
             };
         }
 
+        pub fn err_as(self: @This(), comptime T: type) Result(T) {
+            std.debug.assert(self.is_err());
+            return Result(T) {
+                .result = undefined,
+                .err = self.err,
+                .errCode = self.errCode,
+            };
+        }
+
+
         pub fn fmt_err(alloc: std.mem.Allocator, comptime fmt_str: []const u8, fmt_args: anytype) Self {
             return Self{
                 .result = undefined,
@@ -71,6 +81,15 @@ pub fn Result(comptime R: type) type {
                     .result = r,
                     .err = null,
                     .errCode = 0,
+                };
+            }
+
+            pub fn err_as(self: @This(), comptime T: type) Result(T) {
+                std.debug.assert(self.is_err());
+                return Result(T) {
+                    .result = undefined,
+                    .err = self.err,
+                    .errCode = self.errCode,
                 };
             }
 
@@ -120,12 +139,23 @@ pub fn Result(comptime R: type) type {
                 };
             }
 
+            /// NOTE: this is designed to be free'd from C libraries, and as such, you
+            /// you can't pass a string literal to it
             pub fn err(e: [*:0]const u8) Self {
                 return Self{
                     .result = undefined,
                     .err = e,
                     // FIXME: not used
                     .errCode = 1,
+                };
+            }
+
+            pub fn err_as(self: @This(), comptime T: type) Result(T) {
+                std.debug.assert(self.is_err());
+                return Result(T) {
+                    .result = undefined,
+                    .err = self.err,
+                    .errCode = self.errCode,
                 };
             }
 

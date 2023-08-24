@@ -96,6 +96,57 @@ D
 E
 ```
 
+So we must analyze the branches of an if for convergence. Consider the following:
+
+```dot
+digraph branch {
+  B1 [label="exec<br/>cond1"];
+  B1 -> C;
+  B1 -> D;
+  C -> B2
+  D -> Z
+  B2 [label="exec<br/>cond2"];
+  B2 -> E
+  B2 -> D
+  E -> Z
+}
+```
+
+```
+B1 -> C -> B2 -> E -\
+  \----------\-> D --> Z
+```
+
+Naive conversion:
+
+```lisp
+(if B1
+  (begin
+    C
+    (if B2
+      E
+      D))
+  D)
+Z
+```
+
+Z and D both converge B1.
+A pin joins a branch node B if it takes 2 input links which can _direct input reach_ B.
+Where _direct input reach_ means there exists a non-branching path following links to input nodes
+(backwards), between the branch and the node.
+
+In this case:
+- B2 is joined by Z, meaning that the branch finishes before it there
+- since Z joins both B1 and B2, it can be pulled out of both
+- B1 is joined by Z
+- B1 is not joined by D because one of the input links go through another branch
+- because of this, the two references to D becomes a definition
+
+All macro's (which are the only nodes that can contain multiple pins) must be evaluated through their
+expansions.
+
+A subbranch that joins can be reduced as a direct input for a superbranch
+
 #### segment sequence
 
 This is hard because `a->b->c` is different in the visual realm from `sequence(->a ->b ->c)`,
@@ -162,3 +213,5 @@ digraph segmentSequenceBackwards {
 ```
 
 Maybe instead of supporting sequences we can do vertical reroutes?
+
+#####

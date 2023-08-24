@@ -10,14 +10,14 @@ const Value = json.Value;
 /// copied from std.json.ArrayHashMap
 pub fn IntArrayHashMap(comptime Key: type, comptime T: type, comptime base: u8) type {
     return struct {
-        map: std.AutoArrayHashMapUnmanaged(T) = .{},
+        map: std.AutoArrayHashMapUnmanaged(Key, T) = .{},
 
         pub fn deinit(self: *@This(), allocator: Allocator) void {
             self.map.deinit(allocator);
         }
 
         pub fn jsonParse(allocator: Allocator, source: anytype, options: json.ParseOptions) !@This() {
-            var map = std.AutoArrayHashMapUnmanaged(T){};
+            var map = std.AutoArrayHashMapUnmanaged(Key, T){};
             errdefer map.deinit(allocator);
 
             if (.object_begin != try source.next()) return error.UnexpectedToken;
@@ -51,7 +51,7 @@ pub fn IntArrayHashMap(comptime Key: type, comptime T: type, comptime base: u8) 
         pub fn jsonParseFromValue(allocator: Allocator, source: Value, options: ParseOptions) !@This() {
             if (source != .object) return error.UnexpectedToken;
 
-            var map = std.AutoArrayHashMapUnmanaged(T){};
+            var map = std.AutoArrayHashMapUnmanaged(Key, T){};
             errdefer map.deinit(allocator);
 
             var it = source.object.iterator();
