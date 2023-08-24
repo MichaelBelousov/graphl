@@ -258,19 +258,26 @@ const GraphBuilder = struct {
             continue;
         visited.set(index);
 
+        // FIXME: better detection of branch type... (e.g. switch)
+        const is_branch = node.node.desc.name == "if"
+        if (is_branch) analyzeBranch();
     }
 
     // NOTE: stack-space-bound
-    // To find the join of a branch, find the end of all descendant paths,
-    // if the ends are all the same, it joins.
-    // Traverse backwards until you find the join node,
-    // Could not store full paths by moving backwards, ignoring source pins that were not in any paths
+    // To find the join of a branch, find all reachable end nodes
+    // if there is only 1, it joins.
+    // Could find join node without storing full paths by working backwards,
+    // ignoring source pins that were not in any paths, finding farthest node with multiple input pins
     // Maybe could also traverse forwards again to accomplish this?
+    //
+    // How to deal with inner branches:
+    // - If we encounter a branch within a branch, solve the inner branch first.
+    // - If it doesn't join, neither does the super branch
+    // - But if it does, that doesn't help us find the outer join node
     fn analyzeBranch(self: @This(), node: *const IndexedNode, visited: *std.DynamicBitSetUnmanaged) NodeAnalysisResult {
         var exec_link_count: usize = 0;
         var curr_end_node: ?*const Node = null;
 
-        // FIXME: shouldn't we only do this for branches (and switches?)
         var exec_link_iter = node.node.iter_out_exec_links();
         while (exec_link_iter.next()) |exec_link| {
             const analysis_result = self.analyzeNode(exec_link.target);
