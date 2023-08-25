@@ -194,7 +194,7 @@ const GraphBuilder = struct {
             }
 
             // FIXME: a more sophisticated check for if it's a branch, including macro expansion
-            const is_branch = json_node.type == "if";
+            const is_branch = std.mem.eql(u8, json_node.type, "if");
             if (is_branch)
                 branch_count += 1;
         }
@@ -232,13 +232,25 @@ const GraphBuilder = struct {
         }
     }
 
+    const NodeAnalysisResult = struct {
+        /// null means there are multiple ends (a branch)
+        /// there can't not be an end, even if its the node itself
+        reachable_end: ?*const IndexedNode,
+        // FIXME: rename to tree_size and add one to this?
+        /// amount of nodes reachable from this one and itself
+        tree_size: usize,
+    };
+
     /// each branch will may have 1 (or 0) join node where the control flow for that branch converges
+    /// first traverse all nodes getting for each its single end (or null if multiple), and its tree size
     pub fn analyzeNodes(self: @This()) Result(void) {
-        // FIXME: consider removing "Indexed"? now
-        var visited: std.AutoHashMapUnmanaged(*const IndexedNode, NodeAnalysisResult) = .{};
+        var visited = std.DynamicBitSetUnmanaged.initEmpty(self.nodes.map.count());
         defer visited.deinit(self.alloc);
         visited.ensureTotalCapacity(self.nodes.map.count())
             catch |e| Result(void).fmt_err(global_alloc, "{}", .{e});
+
+        var visited_results = self.alloc.alloc(NodeAnalysisResult, self.nodes.map.count());
+        defer self.alloc.free(visited_results);
 
         var node_iter = self.nodes.map.iterator();
         while (node_iter) |node|
@@ -246,44 +258,55 @@ const GraphBuilder = struct {
                 self.analyzeNode(node);
     }
 
-    const NodeAnalysisResult = struct {
-        /// null means there are multiple ends
-        /// there can't not be an end, even if its the node itself
-        reachable_end: ?*const IndexedNode
-    };
+    fn analyzeNode(
+        self: @This(),
+        node: *const IndexedNode,
+        visited: *std.DynamicBitSetUnmanaged,
+        visited_results: []NodeAnalysisResult,
+    ) void {
+        if (visited.isSet(node.index))
+            return;
+        visited.set(node.index);
 
-    fn analyzeNode(self: @This(), node: *const IndexedNode, visited: *std.DynamicBitSetUnmanaged) NodeAnalysisResult {
-        const index = node.index;
+        const result = self.doAnalyzeNode(node, visited);
+        visited_results[node.index] = result;
 
-        if (visited.isSet(index))
-            continue;
-        visited.set(index);
-
-        // FIXME: better detection of branch type... (e.g. switch)
+        // FIXME: handle macros, switches, etc
         const is_branch = node.node.desc.name == "if";
-        if (is_branch) analyzeBranch();
+        if (is_branch)
+            doAnalyzeBranch(node, curr_reachable_end);
+    }
 
-        var exec_link_count: usize = 0;
-        var curr_reachable_end: ?*const Node = null;
+    fn doAnalyzeNode(
+        self: @This(),
+        node: *const IndexedNode,
+        visited: *std.DynamicBitSetUnmanaged,
+        visited_results: []NodeAnalysisResult,
+    ) NodeAnalysisResult {
+        var first_exec_link = false;
+        var curr_reachable_end: ?*const IndexedNode = node;
+        var tree_size: usize = 1; // tree_size is 1 for itself + count of children
 
         var exec_link_iter = node.node.iter_out_exec_links();
         while (exec_link_iter.next()) |exec_link| {
-            const child_result = self.analyzeNode(exec_link.target);
+            const child_result = self.analyzeNode(exec_link.target, visited, visited_results);
 
-            if (curr_reachable_end) |reachable_end| {
-                if (reachable_end != child_result.reachable_end) {
-                    return .{ .reachable_end = null };
-                }
+            tree_size += child_result.tree_size;
+
+            const not_same_end = curr_reachable_end != null and curr_reachable_end.? != child_result.reachable_end;
+            if (not_same_end and !first_exec_link) {
+                curr_reachable_end = null;
             } else {
-                curr_reachable_end = analysis_result.reachable_end;
+                curr_reachable_end = child_result.reachable_end;
             }
 
-            exec_link_count += 1;
+            first_exec_link = true;
         }
 
-        if (exec_link_count == 0) {
-            return .{ .reachable_end = node };
-        }
+        return .{
+            .reachable_end = curr_reachable_end,
+            .tree_size = tree_size,
+        };
     }
 
     // NOTE: stack-space-bound
@@ -297,16 +320,15 @@ const GraphBuilder = struct {
     // - If we encounter a branch within a branch, solve the inner branch first.
     // - If it doesn't join, neither does the super branch
     // - But if it does, that doesn't help us find the outer join node
-    fn analyzeBranch(self: @This(), node: *const IndexedNode, visited: *std.DynamicBitSetUnmanaged) NodeAnalysisResult {
-        var exec_link_count: usize = 0;
-        var curr_reachable_end: ?*const Node = null;
+    /// we have already analyzed the node ends. Now walk backwards to find the 
+    fn doAnalyzeBranch(
+        self: @This(),
+        node: *const IndexedNode,
+        visited_results: []NodeAnalysisResult,
+    ) NodeAnalysisResult {
+
     }
 
-    /// given a node
-    /// if it has more than 1 exec link flowing into it, promote it to a definition
-    /// recurse on each exec output
-    /// ask the node's description to serialize it into a sexp given the child exec sexps
-    /// if the fork converges, consider jumping or macroing out the joined section...
     fn toSexp(self: @This(), node: *const IndexedNode) Result(Sexp) {
         var result = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
 
@@ -337,7 +359,7 @@ const GraphBuilder = struct {
     }
 
     pub fn rootToSexp(self: @This()) Result(Sexp) {
-        const root;
+        const root = self.x;
     }
 };
 
