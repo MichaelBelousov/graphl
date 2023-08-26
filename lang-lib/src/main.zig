@@ -262,26 +262,32 @@ const GraphBuilder = struct {
         visited.ensureTotalCapacity(self.nodes.map.count())
             catch |e| Result(void).fmt_err(global_alloc, "{}", .{e});
 
+        var branch_analysis_ctx: BranchTreeAnalysisCtx = .{};
+
         var visited_results = self.alloc.alloc(NodeAnalysisResult, self.nodes.map.count());
         defer self.alloc.free(visited_results);
 
         var node_iter = self.nodes.map.iterator();
         while (node_iter) |node|
             if (!visited.isSet(node_iter.index))
-                self.analyzeNode(node);
+                self.analyzeNode(node, visited, visited_results, branch_analysis_ctx);
     }
 
     /// context for analyzing an output-directed cyclic subtree of a graph rooted by a branch
     const BranchTreeAnalysisCtx = struct {
+        // FIXME: why not just a struct of arrays?
+        visited_nodes: *std.DynamicBitSetUnmanaged,
+        visited_results: []NodeAnalysisResult,
         sub_branch_stack: std.SegmentedList(RearBitSubSet, 512) = .{},
 
-        pub fn pop_branch(self: @This()) ?std.DynamicBitSetUnmanaged {
+        /// pop the top of the stack and union it into the remaining top
+        pub fn popMerge(self: @This()) ?RearBitSubSet {
             const popped = self.sub_branch_stack.pop();
             if (popped == null or self.sub_branch_stack.len <= 0)
                 return popped;
 
             const top = self.sub_branch_stack.uncheckedAt(self.sub_branch_stack.len - 1);
-
+            top.setUnion(popped);
             return popped;
         }
     };
@@ -291,6 +297,7 @@ const GraphBuilder = struct {
         node: *const IndexedNode,
         visited: *std.DynamicBitSetUnmanaged,
         visited_results: []NodeAnalysisResult,
+        branch_analysis_ctx: ,
     ) void {
         if (visited.isSet(node.index))
             return;
@@ -300,11 +307,11 @@ const GraphBuilder = struct {
         visited_results[node.index] = result;
 
         // FIXME: handle macros, switches, etc
-        const is_branch = node.node.desc.name == "if";
-        if (!is_branch)
-            return;
+        // const is_branch = node.node.desc.name == "if";
+        // if (!is_branch)
+        //     return;
 
-        analyzeBranch(node, visited_results[node.index]);
+        // analyzeBranch(node, visited_results[node.index]);
     }
 
     fn doAnalyzeNode(
@@ -334,6 +341,13 @@ const GraphBuilder = struct {
             not_first_exec_link = true;
         }
 
+        // FIXME: are all multi-exec-input nodes necessarily macros that just expand to single-exec-input nodes?
+        const is_branch = node.node.desc.name == "if";
+        if (is_branch) {
+            var visited_nodes = RearBitSubSet(self.alloc, );
+            defer self.alloc.free(visited_results);
+        }
+
         return .{
             .reachable_end = curr_reachable_end,
             .tree_size = tree_size,
@@ -346,19 +360,19 @@ const GraphBuilder = struct {
         node: *const IndexedNode,
         analysis_result: NodeAnalysisResult,
     ) void {
-        var visited_input_handles = std.DynamicBitSetUnmanaged(analysis_result.tree_size);
-        defer self.alloc.free(visited_results);
-
-
+        _ = self;
+        _ = node;
+        _ = visited_results;
     }
 
     fn doAnalyzeBranch(
         self: @This(),
         node: *const IndexedNode,
         visited_results: []NodeAnalysisResult,
-        visited_results: []NodeAnalysisResult,
     ) void {
-
+        _ = self;
+        _ = node;
+        _ = visited_results;
     }
 
     fn toSexp(self: @This(), node: *const IndexedNode) Result(Sexp) {

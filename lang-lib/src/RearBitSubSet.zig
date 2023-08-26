@@ -35,7 +35,6 @@ pub const RearBitSubSet = struct {
         const rel_mask_offset = rel_offset / @bitSizeOf(MaskInt);
         std.debug.assert(self._set.bit_length == other._set.bit_length + rel_offset);
 
-
         // adapted from from DynamicBitSetUnmanaged.setUnion
         const num_masks = (self._set.bit_length + (@bitSizeOf(MaskInt) - 1)) / @bitSizeOf(MaskInt);
         for (self._set.masks[rel_mask_offset..num_masks], 0..) |*mask, i| {
