@@ -238,32 +238,16 @@ const GraphBuilder = struct {
 
     const NodeAnalysisResult = struct {
         visited: u1 = 0,
-        /// null means there are multiple ends (a branch)
-        /// there can't not be an end, even if its the node itself
-        reachable_end: ?*const IndexedNode = null,
-        /// amount of nodes reachable from this one and itself
-        tree_size: usize = 0,
     };
 
     /// context for analyzing an output-directed cyclic subtree of a graph rooted by a branch
     const AnalysisCtx = struct {
-        node_results: std.MultiArrayList(NodeAnalysisResult) = .{},
-        sub_branch_stack: std.SegmentedList(RearBitSubSet, 512) = .{},
+        node_data: std.MultiArrayList(NodeAnalysisResult) = .{},
+        // FIXME: remove
+        //collapsed_nodes_stack: std.SegmentedList(std.ArrayListUnmanaged(usize)) = .{},
 
         pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-            sub_branch_stack.deinit(alloc);
             node_results.deinit(alloc);
-        }
-
-        /// pop the top of the stack and union it into the remaining top
-        pub fn popMergeBranch(self: @This()) ?RearBitSubSet {
-            const popped = self.sub_branch_stack.pop();
-            if (popped == null or self.sub_branch_stack.len <= 0)
-                return popped;
-
-            const top = self.sub_branch_stack.uncheckedAt(self.sub_branch_stack.len - 1);
-            top.setUnion(popped);
-            return popped;
         }
     };
 
@@ -290,8 +274,6 @@ const GraphBuilder = struct {
         // initialize with empty data
         var slices = analysis_ctx.node_results.slice();
         @memset(slices.items(.visited)[0..analysis_ctx.node_results.len], 0);
-        @memset(slices.items(.reachable_end)[0..analysis_ctx.node_results.len], null);
-        @memset(slices.items(.tree_size)[0..analysis_ctx.node_results.len], 0);
 
         var node_iter = self.nodes.map.iterator();
         while (node_iter) |node| {
@@ -310,35 +292,31 @@ const GraphBuilder = struct {
         self: @This(),
         node: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
+        collapsed_node_layer: *const std.AutoArrayHashMapUnmanaged(*const Node, {})
     ) Result(void) {
         if (analysis_ctx.node_results.items(.visited)[node.index])
-            return;
+            return Result(void).ok({});
         analysis_ctx.node_results.items(.visited)[node.index] = 1;
 
         const result = self.doAnalyzeNode(node, analysis_ctx);
         if (result.is_err())
             return result
-
-        analysis_ctx.node_results.slice().set(node.index, result.result);
     }
 
+    // FIXME: does this supports back edges out of the branch...?
     fn doAnalyzeNode(
         self: @This(),
         node: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
-    ) Result(NodeAnalysisResult) {
+        collapsed_node_layer: *const std.AutoArrayHashMapUnmanaged(*const Node, {})
+    ) Result(void) {
         // FIXME: are all multi-exec-input nodes necessarily macros that just expand to single-exec-input nodes?
         // FIXME: handle macros, switches, etc
         const is_branch = node.node.desc.name == "if";
 
-        // FIXME: this doesn't work on branches that have an unlinked output
-        if (is_branch) {
-            var subbranch_visited_nodes = analysis_ctx.sub_branch_stack.addOne()
-                catch |e| return Result(NodeAnalysisResult).fmt_err(global_alloc, "{}", .{e});
-
-            subbranch_visited_nodes.* = RearBitSubSet.initEmpty(self.alloc, self.nodes.map.count());
-            defer self.alloc.free(visited_results);
-        }
+        var next_collapsed_node_layer = collapsed_node_layer;
+        var new_collapsed_node_layer = std.ArrayListUnmanaged(*const Node);
+        
 
         var curr_reachable_end: ?*const IndexedNode = node;
         var tree_size: usize = 1; // tree_size is 1 for itself + count of children
@@ -400,6 +378,49 @@ const GraphBuilder = struct {
             if (in_exec_count != 1)
                 break;
         }
+    }
+
+
+    // FIXME: handle macros, switches, etc
+    // FIXME: prove the following, write down somewhere
+    // NOTE: all multi-exec-input nodes necessarily are macros that just expand to single-exec-input nodes
+    /// @returns the joining node for the branch, or null if it doesn't join
+    fn analyzeBranch(
+        self: @This(),
+        branch: *const IndexedNode,
+        analysis_ctx: *AnalysisCtx,
+        collapsed_node_layer: *const std.AutoArrayHashMapUnmanaged(*const Node, {}),
+    ) Result(?*const IndexedNode) {
+        if (analysis_ctx.node_results.items(.visited)[node.index])
+            return Result(void).ok({});
+        analysis_ctx.node_results.items(.visited)[node.index] = 1;
+
+        var new_collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const Node, {});
+        defer new_collapsed_node_layer.deinit(self.alloc);
+
+        for (collapsed_node_layer.items()) |collapsed_node| {
+            const is_branch = collapsed_node.desc.name == "if";
+
+            if (is_branch) {
+                var subbranch_first_layer = std.AutoArrayHashMapUnmanaged(*const Node, {});
+                subbranch_first_layer.put(collapsed_node)
+                    catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
+                const joiner = self.analyzeBranch(collapsed_node, analysis_ctx, subbranch_first_layer);
+                if (joiner.is_err() || joiner.result == null)
+                    return joiner
+                else
+                    new_collapsed_node_layer.put(exec_link.target)
+                        catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
+            } else {
+                var exec_link_iter = collapsed_node.iter_out_exec_links();
+                while (exec_link_iter.next()) |exec_link| {
+                    new_collapsed_node_layer.put(exec_link.target)
+                        catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
+                }
+            }
+        }
+
+
     }
 
     fn toSexp(self: @This(), node: *const IndexedNode) Result(Sexp) {

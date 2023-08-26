@@ -58,11 +58,11 @@ pub fn Result(comptime R: type) type {
     if (@typeInfo(R) == .Struct and @typeInfo(R).Struct.layout == .Extern or @typeInfo(R) == .Union and @typeInfo(R).Union.layout == .Extern) {
         return extern struct {
             /// not initialized if err is not 0/null
-            result: R,
-            err: ?[*:0]const u8,
+            result: R = undefined,
+            err: ?[*:0]const u8 = null,
             // TODO: try to compress to u16 if possible
             /// 0 if result is valid
-            errCode: usize,
+            errCode: usize = 0,
 
             const Self = @This();
             // FIXME: doesn't seem to work on 0.10.1
@@ -77,17 +77,12 @@ pub fn Result(comptime R: type) type {
             }
 
             pub fn ok(r: R) Self {
-                return Self{
-                    .result = r,
-                    .err = null,
-                    .errCode = 0,
-                };
+                return Self{ .result = r };
             }
 
             pub fn err_as(self: @This(), comptime T: type) Result(T) {
                 std.debug.assert(self.is_err());
                 return Result(T) {
-                    .result = undefined,
                     .err = self.err,
                     .errCode = self.errCode,
                 };
@@ -95,7 +90,6 @@ pub fn Result(comptime R: type) type {
 
             pub fn err(e: [*:0]const u8) Self {
                 return Self{
-                    .result = undefined,
                     .err = e,
                     // FIXME: not used
                     .errCode = 1,
