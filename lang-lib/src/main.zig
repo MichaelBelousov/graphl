@@ -298,129 +298,87 @@ const GraphBuilder = struct {
             return Result(void).ok({});
         analysis_ctx.node_results.items(.visited)[node.index] = 1;
 
-        const result = self.doAnalyzeNode(node, analysis_ctx);
-        if (result.is_err())
-            return result
+        const is_branch = collapsed_node.desc.name == "if";
+
+        if (is_branch)
+            _ = self.analyzeBranch(collapsed_node, analysis_ctx);
     }
 
-    // FIXME: does this supports back edges out of the branch...?
-    fn doAnalyzeNode(
-        self: @This(),
-        node: *const IndexedNode,
-        analysis_ctx: *AnalysisCtx,
-        collapsed_node_layer: *const std.AutoArrayHashMapUnmanaged(*const Node, {})
-    ) Result(void) {
-        // FIXME: are all multi-exec-input nodes necessarily macros that just expand to single-exec-input nodes?
-        // FIXME: handle macros, switches, etc
-        const is_branch = node.node.desc.name == "if";
-
-        var next_collapsed_node_layer = collapsed_node_layer;
-        var new_collapsed_node_layer = std.ArrayListUnmanaged(*const Node);
-        
-
-        var curr_reachable_end: ?*const IndexedNode = node;
-        var tree_size: usize = 1; // tree_size is 1 for itself + count of children
-
-        {
-            var not_first_exec_link = false;
-            var exec_link_iter = node.node.iter_out_exec_links();
-            while (exec_link_iter.next()) |exec_link| {
-                const child_result = self.analyzeNode(exec_link.target, visited, visited_results);
-                const child_analysis_result = if (child_result.is_ok()) child_result.result else return child_result.err_as(NodeAnalysisResult);
-
-                tree_size += child_result.tree_size;
-
-                // NOTE: does this handle the bowtie case? A branch that joins then has another branch later?
-                const not_same_end = curr_reachable_end != null and curr_reachable_end.? != child_result.reachable_end;
-                if (not_same_end and not_first_exec_link) {
-                    curr_reachable_end = null;
-                } else {
-                    curr_reachable_end = child_result.reachable_end;
-                }
-
-                not_first_exec_link = true;
-            }
-        }
-
-        if (is_branch) {
-            const branch_reachable = analysis_ctx.popMergeBranch();
-            if (curr_reachable_end) |reachable_end| {
-                const joiner = self.findBranchJoinFromEnd(node, reachable_end, branch_reachable);
-                self.branch_joiner_map.put()
-                    catch |e| Result(NodeAnalysisResult).fmt_err(global_alloc, "{}", .{e});
-            }
-        }
-
-        return Result(NodeAnalysisResult).ok(.{
-            .reachable_end = curr_reachable_end,
-            .tree_size = tree_size,
-        });
-    }
-
-    /// we have already analyzed the reachable paths. Now walk backwards to find the
-    /// join point
-    fn findBranchJoinFromEnd(
+    fn analyzeBranch(
         self: @This(),
         branch: *const IndexedNode,
-        end: *const IndexedNode,
-        branch_reachable: std.RearBitSubSet,
-    ) *const IndexedNode {
-        var curr_node = end;
-        while (true) {
-            var in_exec_count: usize = 0;
-            var in_exec_link_iter = curr_node.iter_in_exec_links();
-            while (in_exec_link_iter.next()) |in_exec_link| {
-                if (branch_reachable.isSet(in_exec_link.target.index)) {
-                    in_exec_count += 1;
-                    curr_node = in_exec_link.target;
-                }
-            }
-            if (in_exec_count != 1)
-                break;
+        analysis_ctx: *AnalysisCtx,
+    ) Result(?*const IndexedNode) {
+        if (analysis_ctx.node_results.items(.visited)[node.index]) {
+            const prev_result = self.branch_joiner_map.get(node.index);
+            return .{ result = prev_result };
         }
-    }
 
+        analysis_ctx.node_results.items(.visited)[node.index] = 1;
+
+        const result = self.doAnalyzeBranch(branch, analysis_ctx);
+
+        if (result.is_ok())
+            self.branch_joiner_map.put(result.result)
+                catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
+
+        return result;
+    }
 
     // FIXME: handle macros, switches, etc
     // FIXME: prove the following, write down somewhere
     // NOTE: all multi-exec-input nodes necessarily are macros that just expand to single-exec-input nodes
     /// @returns the joining node for the branch, or null if it doesn't join
-    fn analyzeBranch(
+    fn doAnalyzeBranch(
         self: @This(),
         branch: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
-        collapsed_node_layer: *const std.AutoArrayHashMapUnmanaged(*const Node, {}),
     ) Result(?*const IndexedNode) {
-        if (analysis_ctx.node_results.items(.visited)[node.index])
-            return Result(void).ok({});
-        analysis_ctx.node_results.items(.visited)[node.index] = 1;
-
-        var new_collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const Node, {});
-        defer new_collapsed_node_layer.deinit(self.alloc);
-
-        for (collapsed_node_layer.items()) |collapsed_node| {
-            const is_branch = collapsed_node.desc.name == "if";
-
-            if (is_branch) {
-                var subbranch_first_layer = std.AutoArrayHashMapUnmanaged(*const Node, {});
-                subbranch_first_layer.put(collapsed_node)
-                    catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
-                const joiner = self.analyzeBranch(collapsed_node, analysis_ctx, subbranch_first_layer);
-                if (joiner.is_err() || joiner.result == null)
-                    return joiner
-                else
-                    new_collapsed_node_layer.put(exec_link.target)
-                        catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
-            } else {
-                var exec_link_iter = collapsed_node.iter_out_exec_links();
-                while (exec_link_iter.next()) |exec_link| {
-                    new_collapsed_node_layer.put(exec_link.target)
-                        catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
-                }
-            }
+        if (analysis_ctx.node_results.items(.visited)[node.index]) {
+            const prev_result = self.branch_joiner_map.get(node.index);
+            return .{ result = prev_result };
         }
 
+        analysis_ctx.node_results.items(.visited)[node.index] = 1;
 
+        var collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const Node, {});
+        collapsed_node_layer.put(collapsed_node)
+            catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
+        defer collapsed_node_layer.deinit(self.alloc);
+
+        while (true) {
+            var new_collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const Node, {});
+
+            for (collapsed_node_layer.items()) |collapsed_node| {
+                const is_branch = collapsed_node.desc.name == "if";
+
+                if (is_branch) {
+                    const joiner = self.analyzeBranch(collapsed_node, analysis_ctx);
+                    if (joiner.is_err() || joiner.result == null)
+                        return joiner
+                    else
+                        new_collapsed_node_layer.put(exec_link.target)
+                            catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
+                } else {
+                    var exec_link_iter = collapsed_node.iter_out_exec_links();
+                    while (exec_link_iter.next()) |exec_link| {
+                        new_collapsed_node_layer.put(exec_link.target)
+                            catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
+                    }
+                }
+            }
+
+            const new_layer_count = new_collapsed_node_layer.count();
+
+            if (new_layer_count == 0)
+                return .{ .result = null };
+            if (new_layer_count == 1)
+                return .{ .result = new_collapsed_node_layer.iterator.next() orelse unreachable };
+
+            collapsed_node_layer.clearAndFree(self.alloc);
+            // FIXME: what happens if we error before this swap? need an errdefer...
+            collapsed_node_layer = new_collapsed_node_layer; // FIXME: ummm doesn't this introduce a free?
+        }
     }
 
     fn toSexp(self: @This(), node: *const IndexedNode) Result(Sexp) {
