@@ -12,6 +12,8 @@ const Sexp = @import("./sexp.zig").Sexp;
 const syms = @import("./sexp.zig").syms;
 const ide_json_gen = @import("./ide_json_gen.zig");
 
+const OffsettedBitSet = @import("./OffsettedBitSet.zig").OffsettedBitSet;
+
 // FIXME: rename
 const Env = @import("./nodes/builtin.zig").Env;
 const Node = @import("./nodes/builtin.zig").Node;
@@ -105,7 +107,9 @@ const GraphBuilder = struct {
     const IndexedNode = struct { index: usize, node: Node };
 
     env: Env,
-    /// map of json node ids to its real node
+    // FIXME: add an optional debug step to verify topological order
+    /// map of json node ids to its real node,
+    /// in topological order!
     nodes: JsonIntArrayHashMap(i64,  10) = .{},
     alloc: std.mem.Allocator,
     err_alloc: std.mem.Allocator = global_alloc, // this must be freeable by exported API users
@@ -266,6 +270,21 @@ const GraphBuilder = struct {
             if (!visited.isSet(node_iter.index))
                 self.analyzeNode(node);
     }
+
+    /// context for analyzing an output-directed cyclic subtree of a graph rooted by a branch
+    const BranchTreeAnalysisCtx = struct {
+        sub_branch_stack: std.SegmentedList(OffsettedBitSet, 512) = .{},
+
+        pub fn pop_branch(self: @This()) ?std.DynamicBitSetUnmanaged {
+            const popped = self.sub_branch_stack.pop();
+            if (popped == null or self.sub_branch_stack.len <= 0)
+                return popped;
+
+            const top = self.sub_branch_stack.uncheckedAt(self.sub_branch_stack.len - 1);
+
+            return popped;
+        }
+    };
 
     fn analyzeNode(
         self: @This(),
