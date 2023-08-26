@@ -242,7 +242,7 @@ const GraphBuilder = struct {
         /// there can't not be an end, even if its the node itself
         reachable_end: ?*const IndexedNode = null,
         /// amount of nodes reachable from this one and itself
-        tree_size: usize = 1,
+        tree_size: usize = 0,
     };
 
     /// context for analyzing an output-directed cyclic subtree of a graph rooted by a branch
@@ -277,25 +277,33 @@ const GraphBuilder = struct {
     /// each branch will may have 1 (or 0) join node where the control flow for that branch converges
     /// first traverse all nodes getting for each its single end (or null if multiple), and its tree size
     pub fn analyzeNodes(self: @This()) Result(void) {
+        var result = Result(void).ok({});
+        defer if (result.is_err()) self.branch_joiner_map.clearAndFree(self.alloc);
 
         var analysis_ctx: AnalysisCtx = .{};
         defer analysis_ctx.deinit(self.alloc);
 
-        analysis_ctx.node_results.ensureTotalCapacity(selfalloc, self.nodes.map.count())
-            catch |e| Result(void).fmt_err(global_alloc, "{}", .{e});
+
+        analysis_ctx.node_results.resize(self.alloc, self.nodes.map.count())
+            catch |e| { result = Result(void).fmt_err(global_alloc, "{}", .{e}); return result };
 
         // initialize with empty data
-        for (self.nodes.keys) |node_key| analysis_ctx.node_results.appendAssumeCapacity(.{});
-
+        var slices = analysis_ctx.node_results.slice();
+        @memset(slices.items(.visited)[0..analysis_ctx.node_results.len], 0);
+        @memset(slices.items(.reachable_end)[0..analysis_ctx.node_results.len], null);
+        @memset(slices.items(.tree_size)[0..analysis_ctx.node_results.len], 0);
 
         var node_iter = self.nodes.map.iterator();
         while (node_iter) |node| {
-            // inlined precondition because not sure with recursion compiler can figure out inlining this
+            // inlined analyzeNode precondition because not sure with recursion compiler can figure it out
             if (analysis_ctx.node_results.items(.visited)[node.index])
                 continue;
 
-            self.analyzeNode(node, analysis_ctx);
+            const node_result = self.analyzeNode(node, analysis_ctx);
+            if (node_result.is_err()) { result = node_result; return node_result; };
         }
+
+        return result;
     }
 
     fn analyzeNode(
@@ -308,7 +316,10 @@ const GraphBuilder = struct {
         analysis_ctx.node_results.items(.visited)[node.index] = 1;
 
         const result = self.doAnalyzeNode(node, analysis_ctx);
-        analysis_ctx.node_results.slice().set(node.index, result);
+        if (result.is_err())
+            return result
+
+        analysis_ctx.node_results.slice().set(node.index, result.result);
     }
 
     fn doAnalyzeNode(
@@ -320,64 +331,75 @@ const GraphBuilder = struct {
         // FIXME: handle macros, switches, etc
         const is_branch = node.node.desc.name == "if";
 
+        // FIXME: this doesn't work on branches that have an unlinked output
         if (is_branch) {
-            var visited_nodes_slot = analysis_ctx.sub_branch_stack.addOne()
-                catch
-            
-                RearBitSubSet(self.alloc, self.nodes.map.count());
+            var subbranch_visited_nodes = analysis_ctx.sub_branch_stack.addOne()
+                catch |e| return Result(NodeAnalysisResult).fmt_err(global_alloc, "{}", .{e});
+
+            subbranch_visited_nodes.* = RearBitSubSet.initEmpty(self.alloc, self.nodes.map.count());
             defer self.alloc.free(visited_results);
         }
 
-        var not_first_exec_link = false;
         var curr_reachable_end: ?*const IndexedNode = node;
         var tree_size: usize = 1; // tree_size is 1 for itself + count of children
 
-        var exec_link_iter = node.node.iter_out_exec_links();
-        while (exec_link_iter.next()) |exec_link| {
-            const child_result = self.analyzeNode(exec_link.target, visited, visited_results);
+        {
+            var not_first_exec_link = false;
+            var exec_link_iter = node.node.iter_out_exec_links();
+            while (exec_link_iter.next()) |exec_link| {
+                const child_result = self.analyzeNode(exec_link.target, visited, visited_results);
+                const child_analysis_result = if (child_result.is_ok()) child_result.result else return child_result.err_as(NodeAnalysisResult);
 
-            tree_size += child_result.tree_size;
+                tree_size += child_result.tree_size;
 
-            const not_same_end = curr_reachable_end != null and curr_reachable_end.? != child_result.reachable_end;
-            if (not_same_end and not_first_exec_link) {
-                curr_reachable_end = null;
-            } else {
-                curr_reachable_end = child_result.reachable_end;
+                // NOTE: does this handle the bowtie case? A branch that joins then has another branch later?
+                const not_same_end = curr_reachable_end != null and curr_reachable_end.? != child_result.reachable_end;
+                if (not_same_end and not_first_exec_link) {
+                    curr_reachable_end = null;
+                } else {
+                    curr_reachable_end = child_result.reachable_end;
+                }
+
+                not_first_exec_link = true;
             }
-
-            not_first_exec_link = true;
         }
 
         if (is_branch) {
-            var visited_nodes = RearBitSubSet(self.alloc, );
-            defer self.alloc.free(visited_results);
+            const branch_reachable = analysis_ctx.popMergeBranch();
+            if (curr_reachable_end) |reachable_end| {
+                const joiner = self.findBranchJoinFromEnd(node, reachable_end, branch_reachable);
+                self.branch_joiner_map.put()
+                    catch |e| Result(NodeAnalysisResult).fmt_err(global_alloc, "{}", .{e});
+            }
         }
 
-        return .{
+        return Result(NodeAnalysisResult).ok(.{
             .reachable_end = curr_reachable_end,
             .tree_size = tree_size,
-        };
+        });
     }
 
-    /// we have already analyzed the node ends. Now walk backwards to find the 
-    fn analyzeBranch(
+    /// we have already analyzed the reachable paths. Now walk backwards to find the
+    /// join point
+    fn findBranchJoinFromEnd(
         self: @This(),
-        node: *const IndexedNode,
-        analysis_result: NodeAnalysisResult,
-    ) void {
-        _ = self;
-        _ = node;
-        _ = visited_results;
-    }
-
-    fn doAnalyzeBranch(
-        self: @This(),
-        node: *const IndexedNode,
-        visited_results: []NodeAnalysisResult,
-    ) void {
-        _ = self;
-        _ = node;
-        _ = visited_results;
+        branch: *const IndexedNode,
+        end: *const IndexedNode,
+        branch_reachable: std.RearBitSubSet,
+    ) *const IndexedNode {
+        var curr_node = end;
+        while (true) {
+            var in_exec_count: usize = 0;
+            var in_exec_link_iter = curr_node.iter_in_exec_links();
+            while (in_exec_link_iter.next()) |in_exec_link| {
+                if (branch_reachable.isSet(in_exec_link.target.index)) {
+                    in_exec_count += 1;
+                    curr_node = in_exec_link.target;
+                }
+            }
+            if (in_exec_count != 1)
+                break;
+        }
     }
 
     fn toSexp(self: @This(), node: *const IndexedNode) Result(Sexp) {
