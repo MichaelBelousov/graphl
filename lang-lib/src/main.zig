@@ -241,6 +241,15 @@ const GraphBuilder = struct {
         tree_size: usize,
     };
 
+    // NOTE: stack-space-bound
+    // To find the join of a branch, find all reachable end nodes
+    // if there is only 1, it joins.
+    //
+    // How to deal with inner branches:
+    // - If we encounter a branch within a branch, solve the inner branch first.
+    // - If it doesn't join, neither does the super branch
+    // - But if it does, that doesn't help us find the outer join node
+
     /// each branch will may have 1 (or 0) join node where the control flow for that branch converges
     /// first traverse all nodes getting for each its single end (or null if multiple), and its tree size
     pub fn analyzeNodes(self: @This()) Result(void) {
@@ -273,8 +282,10 @@ const GraphBuilder = struct {
 
         // FIXME: handle macros, switches, etc
         const is_branch = node.node.desc.name == "if";
-        if (is_branch)
-            doAnalyzeBranch(node, curr_reachable_end);
+        if (!is_branch)
+            return;
+
+        analyzeBranch(node, visited_results[node.index]);
     }
 
     fn doAnalyzeNode(
@@ -283,7 +294,7 @@ const GraphBuilder = struct {
         visited: *std.DynamicBitSetUnmanaged,
         visited_results: []NodeAnalysisResult,
     ) NodeAnalysisResult {
-        var first_exec_link = false;
+        var not_first_exec_link = false;
         var curr_reachable_end: ?*const IndexedNode = node;
         var tree_size: usize = 1; // tree_size is 1 for itself + count of children
 
@@ -293,14 +304,15 @@ const GraphBuilder = struct {
 
             tree_size += child_result.tree_size;
 
+            // FIXME: test!
             const not_same_end = curr_reachable_end != null and curr_reachable_end.? != child_result.reachable_end;
-            if (not_same_end and !first_exec_link) {
+            if (not_same_end and not_first_exec_link) {
                 curr_reachable_end = null;
             } else {
                 curr_reachable_end = child_result.reachable_end;
             }
 
-            first_exec_link = true;
+            not_first_exec_link = true;
         }
 
         return .{
@@ -309,23 +321,24 @@ const GraphBuilder = struct {
         };
     }
 
-    // NOTE: stack-space-bound
-    // To find the join of a branch, find all reachable end nodes
-    // if there is only 1, it joins.
-    // Could find join node without storing full paths by working backwards,
-    // ignoring source pins that were not in any paths, finding farthest node with multiple input pins
-    // Maybe could also traverse forwards again to accomplish this?
-    //
-    // How to deal with inner branches:
-    // - If we encounter a branch within a branch, solve the inner branch first.
-    // - If it doesn't join, neither does the super branch
-    // - But if it does, that doesn't help us find the outer join node
     /// we have already analyzed the node ends. Now walk backwards to find the 
+    fn analyzeBranch(
+        self: @This(),
+        node: *const IndexedNode,
+        analysis_result: NodeAnalysisResult,
+    ) void {
+        var visited_input_handles = std.DynamicBitSetUnmanaged(analysis_result.tree_size);
+        defer self.alloc.free(visited_results);
+
+
+    }
+
     fn doAnalyzeBranch(
         self: @This(),
         node: *const IndexedNode,
         visited_results: []NodeAnalysisResult,
-    ) NodeAnalysisResult {
+        visited_results: []NodeAnalysisResult,
+    ) void {
 
     }
 
