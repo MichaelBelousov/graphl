@@ -237,51 +237,26 @@ const GraphBuilder = struct {
     }
 
     const NodeAnalysisResult = struct {
+        visited: u1 = 0,
         /// null means there are multiple ends (a branch)
         /// there can't not be an end, even if its the node itself
-        reachable_end: ?*const IndexedNode,
-        // FIXME: rename to tree_size and add one to this?
+        reachable_end: ?*const IndexedNode = null,
         /// amount of nodes reachable from this one and itself
-        tree_size: usize,
+        tree_size: usize = 1,
     };
 
-    // NOTE: stack-space-bound
-    // To find the join of a branch, find all reachable end nodes
-    // if there is only 1, it joins.
-    //
-    // How to deal with inner branches:
-    // - If we encounter a branch within a branch, solve the inner branch first.
-    // - If it doesn't join, neither does the super branch
-    // - But if it does, that doesn't help us find the outer join node
-
-    /// each branch will may have 1 (or 0) join node where the control flow for that branch converges
-    /// first traverse all nodes getting for each its single end (or null if multiple), and its tree size
-    pub fn analyzeNodes(self: @This()) Result(void) {
-        var visited = std.DynamicBitSetUnmanaged.initEmpty(self.nodes.map.count());
-        defer visited.deinit(self.alloc);
-        visited.ensureTotalCapacity(self.nodes.map.count())
-            catch |e| Result(void).fmt_err(global_alloc, "{}", .{e});
-
-        var branch_analysis_ctx: BranchTreeAnalysisCtx = .{};
-
-        var visited_results = self.alloc.alloc(NodeAnalysisResult, self.nodes.map.count());
-        defer self.alloc.free(visited_results);
-
-        var node_iter = self.nodes.map.iterator();
-        while (node_iter) |node|
-            if (!visited.isSet(node_iter.index))
-                self.analyzeNode(node, visited, visited_results, branch_analysis_ctx);
-    }
-
     /// context for analyzing an output-directed cyclic subtree of a graph rooted by a branch
-    const BranchTreeAnalysisCtx = struct {
-        // FIXME: why not just a struct of arrays?
-        visited_nodes: *std.DynamicBitSetUnmanaged,
-        visited_results: []NodeAnalysisResult,
+    const AnalysisCtx = struct {
+        node_results: std.MultiArrayList(NodeAnalysisResult) = .{},
         sub_branch_stack: std.SegmentedList(RearBitSubSet, 512) = .{},
 
+        pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+            sub_branch_stack.deinit(alloc);
+            node_results.deinit(alloc);
+        }
+
         /// pop the top of the stack and union it into the remaining top
-        pub fn popMerge(self: @This()) ?RearBitSubSet {
+        pub fn popMergeBranch(self: @This()) ?RearBitSubSet {
             const popped = self.sub_branch_stack.pop();
             if (popped == null or self.sub_branch_stack.len <= 0)
                 return popped;
@@ -292,34 +267,67 @@ const GraphBuilder = struct {
         }
     };
 
+    // NOTE: stack-space-bound
+    // To find the join of a branch, find all reachable end nodes
+    // if there is only 1, it joins.
+    // How to deal with inner branches: - If we encounter a branch within a branch, solve the inner branch first.
+    // - If it doesn't join, neither does the super branch
+    // - But if it does, that doesn't help us find the outer join node
+
+    /// each branch will may have 1 (or 0) join node where the control flow for that branch converges
+    /// first traverse all nodes getting for each its single end (or null if multiple), and its tree size
+    pub fn analyzeNodes(self: @This()) Result(void) {
+
+        var analysis_ctx: AnalysisCtx = .{};
+        defer analysis_ctx.deinit(self.alloc);
+
+        analysis_ctx.node_results.ensureTotalCapacity(selfalloc, self.nodes.map.count())
+            catch |e| Result(void).fmt_err(global_alloc, "{}", .{e});
+
+        // initialize with empty data
+        for (self.nodes.keys) |node_key| analysis_ctx.node_results.appendAssumeCapacity(.{});
+
+
+        var node_iter = self.nodes.map.iterator();
+        while (node_iter) |node| {
+            // inlined precondition because not sure with recursion compiler can figure out inlining this
+            if (analysis_ctx.node_results.items(.visited)[node.index])
+                continue;
+
+            self.analyzeNode(node, analysis_ctx);
+        }
+    }
+
     fn analyzeNode(
         self: @This(),
         node: *const IndexedNode,
-        visited: *std.DynamicBitSetUnmanaged,
-        visited_results: []NodeAnalysisResult,
-        branch_analysis_ctx: ,
-    ) void {
-        if (visited.isSet(node.index))
+        analysis_ctx: *AnalysisCtx,
+    ) Result(void) {
+        if (analysis_ctx.node_results.items(.visited)[node.index])
             return;
-        visited.set(node.index);
+        analysis_ctx.node_results.items(.visited)[node.index] = 1;
 
-        const result = self.doAnalyzeNode(node, visited);
-        visited_results[node.index] = result;
-
-        // FIXME: handle macros, switches, etc
-        // const is_branch = node.node.desc.name == "if";
-        // if (!is_branch)
-        //     return;
-
-        // analyzeBranch(node, visited_results[node.index]);
+        const result = self.doAnalyzeNode(node, analysis_ctx);
+        analysis_ctx.node_results.slice().set(node.index, result);
     }
 
     fn doAnalyzeNode(
         self: @This(),
         node: *const IndexedNode,
-        visited: *std.DynamicBitSetUnmanaged,
-        visited_results: []NodeAnalysisResult,
-    ) NodeAnalysisResult {
+        analysis_ctx: *AnalysisCtx,
+    ) Result(NodeAnalysisResult) {
+        // FIXME: are all multi-exec-input nodes necessarily macros that just expand to single-exec-input nodes?
+        // FIXME: handle macros, switches, etc
+        const is_branch = node.node.desc.name == "if";
+
+        if (is_branch) {
+            var visited_nodes_slot = analysis_ctx.sub_branch_stack.addOne()
+                catch
+            
+                RearBitSubSet(self.alloc, self.nodes.map.count());
+            defer self.alloc.free(visited_results);
+        }
+
         var not_first_exec_link = false;
         var curr_reachable_end: ?*const IndexedNode = node;
         var tree_size: usize = 1; // tree_size is 1 for itself + count of children
@@ -330,7 +338,6 @@ const GraphBuilder = struct {
 
             tree_size += child_result.tree_size;
 
-            // FIXME: test!
             const not_same_end = curr_reachable_end != null and curr_reachable_end.? != child_result.reachable_end;
             if (not_same_end and not_first_exec_link) {
                 curr_reachable_end = null;
@@ -341,8 +348,6 @@ const GraphBuilder = struct {
             not_first_exec_link = true;
         }
 
-        // FIXME: are all multi-exec-input nodes necessarily macros that just expand to single-exec-input nodes?
-        const is_branch = node.node.desc.name == "if";
         if (is_branch) {
             var visited_nodes = RearBitSubSet(self.alloc, );
             defer self.alloc.free(visited_results);
