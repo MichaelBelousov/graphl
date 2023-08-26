@@ -37,7 +37,7 @@ pub const Pin = union (enum) {
 };
 
 pub const NodeDesc = struct {
-    context: *const align(@sizeof(usize)) anyopaque,
+    context: *const align(@sizeOf(usize)) anyopaque,
     // TODO: do I really need pointers? The types are all going to be well defined aggregates,
     // and the nodes too
     // FIXME: read https://pithlessly.github.io/allocgate.html, the same logic as to why zig

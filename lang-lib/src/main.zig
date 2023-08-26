@@ -110,10 +110,11 @@ const GraphBuilder = struct {
     // FIXME: add an optional debug step to verify topological order
     /// map of json node ids to its real node,
     /// in topological order!
-    nodes: JsonIntArrayHashMap(i64,  10) = .{},
+    nodes: JsonIntArrayHashMap(i64, *const IndexedNode, 10) = .{},
     alloc: std.mem.Allocator,
     err_alloc: std.mem.Allocator = global_alloc, // this must be freeable by exported API users
     branch_joiner_map: std.AutoHashMapUnmanaged(*const IndexedNode, *const IndexedNode) = .{},
+    entry: ?*const IndexedNode = null,
 
     const Self = @This();
 
@@ -150,6 +151,8 @@ const GraphBuilder = struct {
             return entry_result.err_as(void)
             else entry_result.result;
 
+        self.entry = entry;
+
         const link_result = self.link();
         if (link_result.is_err()) return link_result;
 
@@ -163,7 +166,7 @@ const GraphBuilder = struct {
     pub fn populateAndReturnEntry(
         self: *Self,
         json_graph: GraphDoc,
-    ) Result(*IndexedNode) {
+    ) Result(*const IndexedNode) {
         var result = Result(*IndexedNode).err("JSON graph contains no entry");
         // FIXME: this belongs in buildFromJson...
         defer if (result.is_err()) self.nodes.map.clearAndFree(self.alloc);
@@ -243,11 +246,9 @@ const GraphBuilder = struct {
     /// context for analyzing an output-directed cyclic subtree of a graph rooted by a branch
     const AnalysisCtx = struct {
         node_data: std.MultiArrayList(NodeAnalysisResult) = .{},
-        // FIXME: remove
-        //collapsed_nodes_stack: std.SegmentedList(std.ArrayListUnmanaged(usize)) = .{},
 
         pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-            node_results.deinit(alloc);
+            self.node_data.deinit(alloc);
         }
     };
 
@@ -268,21 +269,21 @@ const GraphBuilder = struct {
         defer analysis_ctx.deinit(self.alloc);
 
 
-        analysis_ctx.node_results.resize(self.alloc, self.nodes.map.count())
-            catch |e| { result = Result(void).fmt_err(global_alloc, "{}", .{e}); return result };
+        analysis_ctx.node_data.resize(self.alloc, self.nodes.map.count())
+            catch |e| { result = Result(void).fmt_err(global_alloc, "{}", .{e}); return result; };
 
         // initialize with empty data
-        var slices = analysis_ctx.node_results.slice();
-        @memset(slices.items(.visited)[0..analysis_ctx.node_results.len], 0);
+        var slices = analysis_ctx.node_data.slice();
+        @memset(slices.items(.visited)[0..analysis_ctx.node_data.len], 0);
 
         var node_iter = self.nodes.map.iterator();
         while (node_iter) |node| {
             // inlined analyzeNode precondition because not sure with recursion compiler can figure it out
-            if (analysis_ctx.node_results.items(.visited)[node.index])
+            if (analysis_ctx.node_data.items(.visited)[node.index])
                 continue;
 
             const node_result = self.analyzeNode(node, analysis_ctx);
-            if (node_result.is_err()) { result = node_result; return node_result; };
+            if (node_result.is_err()) { result = node_result; return node_result; }
         }
 
         return result;
@@ -292,16 +293,17 @@ const GraphBuilder = struct {
         self: @This(),
         node: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
-        collapsed_node_layer: *const std.AutoArrayHashMapUnmanaged(*const Node, {})
     ) Result(void) {
-        if (analysis_ctx.node_results.items(.visited)[node.index])
-            return Result(void).ok({});
-        analysis_ctx.node_results.items(.visited)[node.index] = 1;
+        if (analysis_ctx.node_data.items(.visited)[node.index])
+            return .{};
+        analysis_ctx.node_data.items(.visited)[node.index] = 1;
 
-        const is_branch = collapsed_node.desc.name == "if";
+        const is_branch = std.mem.eql(u8, node.node.desc.name, "if");
 
         if (is_branch)
-            _ = self.analyzeBranch(collapsed_node, analysis_ctx);
+            _ = self.analyzeBranch(node, analysis_ctx);
+
+        return .{};
     }
 
     fn analyzeBranch(
@@ -309,12 +311,12 @@ const GraphBuilder = struct {
         branch: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
     ) Result(?*const IndexedNode) {
-        if (analysis_ctx.node_results.items(.visited)[node.index]) {
-            const prev_result = self.branch_joiner_map.get(node.index);
-            return .{ result = prev_result };
+        if (analysis_ctx.node_data.items(.visited)[branch.index]) {
+            const prev_result = self.branch_joiner_map.get(branch.index);
+            return .{ .result = prev_result };
         }
 
-        analysis_ctx.node_results.items(.visited)[node.index] = 1;
+        analysis_ctx.node_data.items(.visited)[branch.index] = 1;
 
         const result = self.doAnalyzeBranch(branch, analysis_ctx);
 
@@ -334,15 +336,15 @@ const GraphBuilder = struct {
         branch: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
     ) Result(?*const IndexedNode) {
-        if (analysis_ctx.node_results.items(.visited)[node.index]) {
-            const prev_result = self.branch_joiner_map.get(node.index);
-            return .{ result = prev_result };
+        if (analysis_ctx.node_data.items(.visited)[branch.index]) {
+            const prev_result = self.branch_joiner_map.get(branch.index);
+            return .{ .result = prev_result };
         }
 
-        analysis_ctx.node_results.items(.visited)[node.index] = 1;
+        analysis_ctx.node_data.items(.visited)[branch.index] = 1;
 
         var collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const Node, {});
-        collapsed_node_layer.put(collapsed_node)
+        collapsed_node_layer.put(branch)
             catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
         defer collapsed_node_layer.deinit(self.alloc);
 
@@ -350,14 +352,14 @@ const GraphBuilder = struct {
             var new_collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const Node, {});
 
             for (collapsed_node_layer.items()) |collapsed_node| {
-                const is_branch = collapsed_node.desc.name == "if";
+                const is_branch = std.mem.eql(u8, collapsed_node.desc.name, "if");
 
                 if (is_branch) {
                     const joiner = self.analyzeBranch(collapsed_node, analysis_ctx);
                     if (joiner.is_err() || joiner.result == null)
                         return joiner
                     else
-                        new_collapsed_node_layer.put(exec_link.target)
+                        new_collapsed_node_layer.put(joiner.result)
                             catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
                 } else {
                     var exec_link_iter = collapsed_node.iter_out_exec_links();
@@ -383,35 +385,38 @@ const GraphBuilder = struct {
 
     fn toSexp(self: @This(), node: *const IndexedNode) Result(Sexp) {
         var result = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
+        _ = node;
 
-        // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-        (result.list.addOne()
-            catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-        ).* = Sexp{ .symbol = node.node.type };
+        // // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
+        // (result.list.addOne()
+        //     catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+        // ).* = Sexp{ .symbol = node.node.type };
 
-        // FIXME: handle literals...
-        for (node.node.inputs) |input| {
-            //if (input != .pin)
-                //@panic("not yet supported!");
+        // // FIXME: handle literals...
+        // for (node.node.inputs) |input| {
+        //     //if (input != .pin)
+        //         //@panic("not yet supported!");
 
-            const source_node = handle_srcnode_map.get(input)
-                orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})",
-                    .{ error.undefinedInputHandle, input });
+        //     const source_node = handle_srcnode_map.get(input)
+        //         orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})",
+        //             .{ error.undefinedInputHandle, input });
 
-            const next = self.buildFromJsonEntry(source_node.*, alloc);
-            if (next.is_err())
-                return next;
+        //     const next = self.buildFromJsonEntry(source_node.*, alloc);
+        //     if (next.is_err())
+        //         return next;
 
-            (result.list.addOne()
-                catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-            ).* = next.result;
-        }
+        //     (result.list.addOne()
+        //         catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+        //     ).* = next.result;
+        // }
 
         return Result(Sexp).ok(result);
     }
 
     pub fn rootToSexp(self: @This()) Result(Sexp) {
-        const root = self.x;
+        if (self.entry == null)
+            return Result(Sexp).fmt_err(global_alloc, "no entry or not yet set", .{});
+        return self.toSexp(self.entry);
     }
 };
 
