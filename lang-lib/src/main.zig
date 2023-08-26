@@ -12,7 +12,7 @@ const Sexp = @import("./sexp.zig").Sexp;
 const syms = @import("./sexp.zig").syms;
 const ide_json_gen = @import("./ide_json_gen.zig");
 
-const OffsettedBitSet = @import("./OffsettedBitSet.zig").OffsettedBitSet;
+const RearBitSubSet = @import("./RearBitSubSet.zig").RearBitSubSet;
 
 // FIXME: rename
 const Env = @import("./nodes/builtin.zig").Env;
@@ -273,7 +273,7 @@ const GraphBuilder = struct {
 
     /// context for analyzing an output-directed cyclic subtree of a graph rooted by a branch
     const BranchTreeAnalysisCtx = struct {
-        sub_branch_stack: std.SegmentedList(OffsettedBitSet, 512) = .{},
+        sub_branch_stack: std.SegmentedList(RearBitSubSet, 512) = .{},
 
         pub fn pop_branch(self: @This()) ?std.DynamicBitSetUnmanaged {
             const popped = self.sub_branch_stack.pop();
