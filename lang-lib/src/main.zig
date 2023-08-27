@@ -110,7 +110,7 @@ const GraphBuilder = struct {
     // FIXME: add an optional debug step to verify topological order
     /// map of json node ids to its real node,
     /// in topological order!
-    nodes: JsonIntArrayHashMap(i64, *const IndexedNode, 10) = .{},
+    nodes: JsonIntArrayHashMap(i64, IndexedNode, 10) = .{},
     alloc: std.mem.Allocator,
     err_alloc: std.mem.Allocator = global_alloc, // this must be freeable by exported API users
     branch_joiner_map: std.AutoHashMapUnmanaged(*const IndexedNode, *const IndexedNode) = .{},
@@ -153,7 +153,7 @@ const GraphBuilder = struct {
 
         self.entry = entry;
 
-        const link_result = self.link();
+        const link_result = self.link(json_graph);
         if (link_result.is_err()) return link_result;
 
         const exec_handle_result = Self.getSingleExecFromEntry(entry);
@@ -167,11 +167,12 @@ const GraphBuilder = struct {
         self: *Self,
         json_graph: GraphDoc,
     ) Result(*const IndexedNode) {
-        var result = Result(*IndexedNode).err("JSON graph contains no entry");
+        var result = Result(*const IndexedNode).err("JSON graph contains no entry");
         // FIXME: this belongs in buildFromJson...
         defer if (result.is_err()) self.nodes.map.clearAndFree(self.alloc);
 
         var branch_count: usize = 0;
+        var node_index: usize = 0;
 
         var json_nodes_iter = json_graph.nodes.map.iterator();
         while (json_nodes_iter.next()) |node_entry| {
@@ -179,11 +180,14 @@ const GraphBuilder = struct {
             // FIXME: accidental copy?
             const json_node = node_entry.value_ptr.*;
 
-            const node = json_node.toEmptyNode(self.env)
-                catch |e| { result = Result(*IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
+            const node = .{
+                .node = json_node.toEmptyNode(self.env)
+                    catch |e| { result = Result(*const IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; },
+                .index = node_index,
+            };
 
             const putResult = self.nodes.map.getOrPut(self.alloc, node_id)
-                catch |e| { result = Result(*IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
+                catch |e| { result = Result(*const IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
 
             putResult.value_ptr.* = node;
 
@@ -204,6 +208,8 @@ const GraphBuilder = struct {
             const is_branch = std.mem.eql(u8, json_node.type, "if");
             if (is_branch)
                 branch_count += 1;
+
+            node_index += 1;
         }
 
         self.branch_joiner_map.ensureTotalCapacity(branch_count)
@@ -414,9 +420,10 @@ const GraphBuilder = struct {
     }
 
     pub fn rootToSexp(self: @This()) Result(Sexp) {
-        if (self.entry == null)
-            return Result(Sexp).fmt_err(global_alloc, "no entry or not yet set", .{});
-        return self.toSexp(self.entry);
+        return if (self.entry) |entry|
+            self.toSexp(entry)
+        else
+            Result(Sexp).fmt_err(global_alloc, "no entry or not yet set", .{});
     }
 };
 
@@ -490,7 +497,7 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
     const build_result = builder.buildFromJson(graph);
     if (build_result.is_err()) return build_result.err_as([]const u8);
 
-    const sexp_result = builder.toSexp();
+    const sexp_result = builder.rootToSexp();
     const sexp = if (sexp_result.is_ok()) sexp_result.result else return sexp_result.err_as([]const u8);
 
     _ = sexp.write(page_writer.writer()) catch return err_explain(GraphToSourceResult, .ioErr);
