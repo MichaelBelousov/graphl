@@ -16,8 +16,9 @@ const RearBitSubSet = @import("./RearBitSubSet.zig").RearBitSubSet;
 
 // FIXME: rename
 const Env = @import("./nodes/builtin.zig").Env;
-const Node = @import("./nodes/builtin.zig").Node;
-const Link = @import("./nodes/builtin.zig").Link;
+const ExtraIndex = struct { index: usize };
+const IndexedNode = @import("./nodes/builtin.zig").Node(ExtraIndex);
+const IndexedLink = @import("./nodes/builtin.zig").Link(ExtraIndex);
 
 test {
     _ = @import("./nodes/builtin.zig");
@@ -67,7 +68,7 @@ fn err_explain(comptime R: type, e: GraphToSourceErr) R {
 
 const JsonNodeHandle = struct {
     nodeId: i64,
-    handleIndex: i64,
+    handleIndex: u32,
 };
 
 const JsonNodeInput = union (enum) {
@@ -83,8 +84,9 @@ const JsonNode = struct {
     outputs: []const JsonNodeHandle,
     data: struct { isEntry: bool, comment: ?[]const u8 },
 
-    pub fn toEmptyNode(self: @This(), env: Env) !Node {
-        var node = env.makeNode(self.type) orelse return error.UnknownNodeType;
+    pub fn toEmptyNode(self: @This(), env: Env, index: usize) !IndexedNode {
+        var node = env.makeNode(self.type, ExtraIndex{ .index = index })
+            orelse return error.UnknownNodeType;
         // NOTE: should probably add ownership to json parsed strings so we can deallocate some...
         node.comment = self.data.comment;
         return node;
@@ -104,8 +106,6 @@ const GraphDoc = struct {
 };
 
 const GraphBuilder = struct {
-    const IndexedNode = struct { index: usize, node: Node };
-
     env: Env,
     // FIXME: add an optional debug step to verify topological order
     /// map of json node ids to its real node,
@@ -125,16 +125,16 @@ const GraphBuilder = struct {
         };
     }
 
-    pub fn getSingleExecFromEntry(entry: *const IndexedNode) Result(Link) {
-        var entry_exec = Result(Link).err("No exec pins on entry node");
+    pub fn getSingleExecFromEntry(entry: *const IndexedNode) Result(IndexedLink) {
+        var entry_exec = Result(IndexedLink).err("No exec pins on entry node");
         for (entry.out_links, 0..) |out_link, i| {
             const out_pin = entry.desc.getOutputs()[i];
             if (out_pin == .exec) {
                 if (entry_exec.is_ok()) {
-                    entry_exec = Result(Link).err("Multiple exec pins on entry node");
+                    entry_exec = Result(IndexedLink).err("Multiple exec pins on entry node");
                     return entry_exec;
                 }
-                entry_exec = Result(Link).ok(out_link);
+                entry_exec = Result(IndexedLink).ok(out_link);
             }
         }
         return entry_exec;
@@ -171,7 +171,7 @@ const GraphBuilder = struct {
         // FIXME: this belongs in buildFromJson...
         defer if (result.is_err()) self.nodes.map.clearAndFree(self.alloc);
 
-        var branch_count: usize = 0;
+        var branch_count: u32 = 0;
         var node_index: usize = 0;
 
         var json_nodes_iter = json_graph.nodes.map.iterator();
@@ -180,11 +180,8 @@ const GraphBuilder = struct {
             // FIXME: accidental copy?
             const json_node = node_entry.value_ptr.*;
 
-            const node = .{
-                .node = json_node.toEmptyNode(self.env)
-                    catch |e| { result = Result(*const IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; },
-                .index = node_index,
-            };
+            const node = json_node.toEmptyNode(self.env, node_index)
+                catch |e| { result = Result(*const IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
 
             const putResult = self.nodes.map.getOrPut(self.alloc, node_id)
                 catch |e| { result = Result(*const IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
@@ -192,14 +189,14 @@ const GraphBuilder = struct {
             putResult.value_ptr.* = node;
 
             if (putResult.found_existing) {
-                result = Result(*IndexedNode).fmt_err(self.err_alloc, "Illegal duplicate node in graph", .{});
+                result = Result(*const IndexedNode).fmt_err(self.err_alloc, "Illegal duplicate node in graph", .{});
                 return result;
             }
 
             if (json_node.data.isEntry) {
-                result = Result(*IndexedNode).ok(putResult.value_ptr);
+                result = Result(*const IndexedNode).ok(putResult.value_ptr);
                 if (result.is_ok()) {
-                    result = Result(*IndexedNode).fmt_err(self.err_alloc, "JSON graph contains more than 1 entry", .{});
+                    result = Result(*const IndexedNode).fmt_err(self.err_alloc, "JSON graph contains more than 1 entry", .{});
                     return result;
                 }
             }
@@ -212,8 +209,8 @@ const GraphBuilder = struct {
             node_index += 1;
         }
 
-        self.branch_joiner_map.ensureTotalCapacity(branch_count)
-            catch |e| { result = Result(*IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
+        self.branch_joiner_map.ensureTotalCapacity(self.alloc, branch_count)
+            catch |e| { result = Result(*const IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
 
         return result;
     }
@@ -222,6 +219,7 @@ const GraphBuilder = struct {
         var nodes_iter = self.nodes.map.iterator();
         var json_nodes_iter = graph_json.nodes.map.iterator();
         std.debug.assert(nodes_iter.len == json_nodes_iter.len);
+
         while (true) {
             const node_entry = nodes_iter.next() orelse break;
             const node = node_entry.value_ptr;
@@ -229,17 +227,20 @@ const GraphBuilder = struct {
             const json_node_entry = json_nodes_iter.next() orelse unreachable;
             const json_node = json_node_entry.value_ptr;
 
-            self.linkNode(json_node, node)
-                catch |e| Result(void).fmt_err(global_alloc, "{}", .{e});
+            self.linkNode(json_node.*, node)
+                catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e});
         }
+
+        return Result(void).ok({});
     }
 
     /// link with other empty nodes in a graph
     pub fn linkNode(self: @This(), json_node: JsonNode, node: *IndexedNode) !void {
-        node.node.out_links = self.alloc.alloc(Link, json_node.outputs.len);
-        for (node.node.out_links, json_node.outputs) |*out_link, json_output| {
-            out_link.* = Link{
-                .target = self.nodes.map.get(json_output.nodeId) orelse return error.LinkToUnknownNode,
+        node.out_links = try self.alloc.alloc(IndexedLink, json_node.outputs.len);
+        errdefer self.alloc.free(node.out_links);
+        for (node.out_links, json_node.outputs) |*out_link, json_output| {
+            out_link.* = IndexedLink{
+                .target = self.nodes.map.getPtr(json_output.nodeId) orelse return error.LinkToUnknownNode,
                 .pin_index = json_output.handleIndex,
             };
         }
@@ -285,7 +286,7 @@ const GraphBuilder = struct {
         var node_iter = self.nodes.map.iterator();
         while (node_iter) |node| {
             // inlined analyzeNode precondition because not sure with recursion compiler can figure it out
-            if (analysis_ctx.node_data.items(.visited)[node.index])
+            if (analysis_ctx.node_data.items(.visited)[node.extra.index])
                 continue;
 
             const node_result = self.analyzeNode(node, analysis_ctx);
@@ -300,11 +301,11 @@ const GraphBuilder = struct {
         node: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
     ) Result(void) {
-        if (analysis_ctx.node_data.items(.visited)[node.index])
+        if (analysis_ctx.node_data.items(.visited)[node.extra.index])
             return .{};
-        analysis_ctx.node_data.items(.visited)[node.index] = 1;
+        analysis_ctx.node_data.items(.visited)[node.extra.index] = 1;
 
-        const is_branch = std.mem.eql(u8, node.node.desc.name, "if");
+        const is_branch = std.mem.eql(u8, node.desc.name, "if");
 
         if (is_branch)
             _ = self.analyzeBranch(node, analysis_ctx);
@@ -349,13 +350,13 @@ const GraphBuilder = struct {
 
         analysis_ctx.node_data.items(.visited)[branch.index] = 1;
 
-        var collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const Node, {});
+        var collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const IndexedNode, {});
         collapsed_node_layer.put(branch)
             catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
         defer collapsed_node_layer.deinit(self.alloc);
 
         while (true) {
-            var new_collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const Node, {});
+            var new_collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const IndexedNode, {});
 
             for (collapsed_node_layer.items()) |collapsed_node| {
                 const is_branch = std.mem.eql(u8, collapsed_node.desc.name, "if");
@@ -396,10 +397,10 @@ const GraphBuilder = struct {
         // // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
         // (result.list.addOne()
         //     catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-        // ).* = Sexp{ .symbol = node.node.type };
+        // ).* = Sexp{ .symbol = node.type };
 
         // // FIXME: handle literals...
-        // for (node.node.inputs) |input| {
+        // for (node.inputs) |input| {
         //     //if (input != .pin)
         //         //@panic("not yet supported!");
 

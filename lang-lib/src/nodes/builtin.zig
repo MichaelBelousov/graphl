@@ -49,43 +49,49 @@ pub const NodeDesc = struct {
     pub fn getOutputs(self: @This()) []const Pin { return self._getOutputs(self); }
 };
 
-pub const Link = struct {
-    target: *const Node,
-    pin_index: u32,
-    /// optional subindex (e.g. for variadic pins)
-    sub_index: u32 = 0,
-};
 
-pub const Node = struct {
-    desc: *const NodeDesc,
-    comment: ?[]const u8 = null,
-    out_links: []Link = &.{},
+pub fn Link(comptime Extra: type) type {
+    return struct {
+        target: *const Node(Extra),
+        pin_index: u32,
+        /// optional subindex (e.g. for variadic pins)
+        sub_index: u32 = 0,
+    };
+}
 
-    pub const ExecLinkIterator = struct {
-        index: usize = 0,
-        node: *const Node,
+pub fn Node(comptime Extra: type) type {
+    return struct {
+        desc: *const NodeDesc,
+        extra: Extra,
+        comment: ?[]const u8 = null,
+        out_links: []Link(Extra) = &.{},
 
-        pub fn next(self: @This()) ?Link {
-            while (self.index < self.node.out_links.len) : (self.index += 1) {
-                const is_exec = self.node.desc.getOutputs()[self.index] == .exec;
-                if (is_exec) {
-                    self.index += 1;
-                    return self.node.out_links[self.index];
+        pub const ExecLinkIterator = struct {
+            index: usize = 0,
+            node: *const Node,
+
+            pub fn next(self: @This()) ?Link(Extra) {
+                while (self.index < self.node.out_links.len) : (self.index += 1) {
+                    const is_exec = self.node.desc.getOutputs()[self.index] == .exec;
+                    if (is_exec) {
+                        self.index += 1;
+                        return self.node.out_links[self.index];
+                    }
                 }
+
+                return null;
             }
 
-            return null;
-        }
+            pub fn hasNext(self: @This()) bool {
+                return self.index < self.node.out_links.len;
+            }
+        };
 
-        pub fn hasNext(self: @This()) bool {
-            return self.index < self.node.out_links.len;
+        pub fn iter_out_exec_links(self: @This()) ExecLinkIterator {
+            return ExecLinkIterator{ .node = self };
         }
     };
-
-    pub fn iter_out_exec_links(self: @This()) ExecLinkIterator {
-        return ExecLinkIterator{ .node = self };
-    }
-};
+}
 
 pub const primitive_types = (struct {
     const f64_ = &TypeInfo{.name="f64"};
@@ -600,9 +606,9 @@ pub const Env = struct {
         return env;
     }
 
-    pub fn makeNode(self: @This(), kind: []const u8) ?Node {
-        return if (self.nodes.get(kind)) |desc|
-            Node { .desc = desc }
+    pub fn makeNode(self: @This(), kind: []const u8, extra: anytype) ?Node(@TypeOf(extra)) {
+        return if (self.nodes.getPtr(kind)) |desc|
+            .{ .desc = desc, .extra = extra }
         else
             null;
     }
