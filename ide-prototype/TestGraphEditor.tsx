@@ -641,7 +641,8 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
 
             function fromFlowNode(node: Node): SerializedNode {
               const nodeData = node.data as NodeData;
-              if (!("isEntry" in nodeData)) // todo: unscrew types
+              // TODO: unscrew types
+              if (!("isEntry" in nodeData))
                 (nodeData as NodeData).isEntry = node.type === "CustomTickEntry";
 
               const result = {

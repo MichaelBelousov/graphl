@@ -6,6 +6,9 @@ const io = std.io;
 const testing = std.testing;
 const json = std.json;
 
+const innerParse = json.innerParse;
+const innerParseFromValue = json.innerParseFromValue;
+
 const JsonIntArrayHashMap = @import("./json_int_map.zig").IntArrayHashMap;
 
 const Sexp = @import("./sexp.zig").Sexp;
@@ -73,16 +76,29 @@ const JsonNodeHandle = struct {
 
 const JsonNodeInput = union (enum) {
     handle: JsonNodeHandle,
-    integer: i64,
-    float: f64,
+    // FIXME: handle integers?
+    number: f64,
     string: []const u8,
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
+        return switch (try source.peekNextTokenType()) {
+            .object_begin  => .{.handle = try innerParse(JsonNodeHandle, allocator, source, options)},
+            .string => .{.string = try innerParse([]const u8, allocator, source, options)},
+            .number => .{.number = try innerParse(f64, allocator, source, options)},
+            else => error.UnexpectedToken,
+        };
+    }
 };
 
 const JsonNode = struct {
     type: []const u8,
-    inputs: []const JsonNodeInput,
-    outputs: []const JsonNodeHandle,
-    data: struct { isEntry: bool, comment: ?[]const u8 },
+    inputs: []const ?JsonNodeInput = &.{},
+    outputs: []const JsonNodeHandle = &.{},
+    // FIXME: create zig type json type that treats optionals not as possibly null but as possibly missing
+    data: struct {
+        isEntry: bool = false,
+        comment: ?[]const u8 = null
+    },
 
     pub fn toEmptyNode(self: @This(), env: Env, index: usize) !IndexedNode {
         var node = env.makeNode(self.type, ExtraIndex{ .index = index })
