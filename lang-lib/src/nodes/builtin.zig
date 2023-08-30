@@ -2,6 +2,8 @@
 
 const std = @import("std");
 
+const failing_allocator = std.testing.failing_allocator;
+
 pub const TypeInfo = struct {
     name: []const u8,
     field_names: []const []const u8 = &.{},
@@ -128,16 +130,16 @@ pub const primitive_types = (struct {
     //     // FIXME: which allocator?
     //     const name = if (@inComptime())
     //         std.fmt.comptimePrint("list({s})", t.name)
-    //         else std.fmt.allocPrint(std.testing.failing_allocator, "list({s})", t.name);
+    //         else std.fmt.allocPrint(failing_allocator, "list({s})", t.name);
 
     //     // can I just run an allocator at comptime? is that how zig is supposed to work?
     //     comptime var slot: TypeInfo = undefined;
     //     var new_type = fallback_alloc.create(TypeInfo);
     //     new_type.* = TypeInfo{
-    //         .name = std.fmt.allocPrint(std.testing.failing_allocator, "list({s})", t.name),
+    //         .name = std.fmt.allocPrint(failing_allocator, "list({s})", t.name),
     //     };
 
-    //     //env.types.put(std.testing.failing_allocator, t.name, new_type);
+    //     //env.types.put(failing_allocator, t.name, new_type);
     // }
 }){};
 
@@ -231,18 +233,11 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
 }
 
 // FIXME: isn't this going to be illegal? https://github.com/ziglang/zig/issues/7396
-// FIXME: move to own file
+// FIXME: this is broken when used multiple times, remove usages, it's just broken
 fn comptimeAllocOrFallback(fallback_allocator: std.mem.Allocator, comptime T: type, comptime count: usize) std.mem.Allocator.Error![]T {
     comptime var comptime_slot: [if (@inComptime()) count else 0]T = undefined;
     return if (@inComptime()) &comptime_slot
          else try fallback_allocator.alloc(T, count);
-}
-
-// after reviewing comptime semantics, not sure if current compiler blocks it, but this will be illegal
-fn comptimeCreateOrFallback(fallback_allocator: std.mem.Allocator, comptime T: type) std.mem.Allocator.Error!*T {
-    comptime var comptime_slot: T = undefined;
-    return if (@inComptime()) &comptime_slot
-         else try fallback_allocator.create(T);
 }
 
 pub const VarNodes = struct {
@@ -251,20 +246,27 @@ pub const VarNodes = struct {
 
     fn init(alloc: std.mem.Allocator, var_name: []const u8, var_type: Type) !VarNodes {
         // FIXME: test and plug non-comptime alloc leaks
-        const getterOutputs = try comptimeAllocOrFallback(alloc, Pin, 1);
-        getterOutputs[0] = Pin{.value=var_type};
+        comptime var getter_outputs_slot: [if (@inComptime()) 1 else 0]Pin = undefined;
+        const getter_outputs = if (@inComptime()) &getter_outputs_slot
+             else try alloc.alloc(Pin, 1);
+        getter_outputs[0] = Pin{.value=var_type};
 
         const getter_name =
             if (@inComptime()) std.fmt.comptimePrint("get_{s}", .{var_name})
             else std.fmt.allocPrint(alloc, "get_{s}", .{var_name});
 
-        const setterInputs = try comptimeAllocOrFallback(alloc, Pin, 2);
-        setterInputs[0] = .exec;
-        setterInputs[1] = Pin{.value=var_type};
+        // FIXME: is there a better way to do this?
+        comptime var setter_inputs_slot: [if (@inComptime()) 2 else 0]Pin = undefined;
+        const setter_inputs = if (@inComptime()) &setter_inputs_slot
+             else try alloc.alloc(Pin, 2);
+        setter_inputs[0] = .exec;
+        setter_inputs[1] = Pin{.value=var_type};
 
-        const setterOutputs = try comptimeAllocOrFallback(alloc, Pin, 2);
-        setterOutputs[0] = .exec;
-        setterOutputs[1] = Pin{.value=var_type};
+        comptime var setter_outputs_slot: [if (@inComptime()) 2 else 0]Pin = undefined;
+        const setter_outputs = if (@inComptime()) &setter_outputs_slot
+             else try alloc.alloc(Pin, 2);
+        setter_outputs[0] = .exec;
+        setter_outputs[1] = Pin{.value=var_type};
 
         const setter_name =
             if (@inComptime()) std.fmt.comptimePrint("get_{s}", .{var_name})
@@ -273,12 +275,12 @@ pub const VarNodes = struct {
         return VarNodes{
             .get = basicNode(&.{
                 .name = getter_name,
-                .outputs = getterOutputs,
+                .outputs = getter_outputs,
             }),
             .set = basicNode(&.{
                 .name = setter_name,
-                .inputs = setterInputs,
-                .outputs = setterOutputs,
+                .inputs = setter_inputs,
+                .outputs = setter_outputs,
             }),
         };
     }
@@ -445,18 +447,18 @@ pub const temp_ue = struct {
 
     const nodes = (struct {
         // TODO: replace with live vars
-        const capsule_component = VarNodes.init(std.testing.failing_allocator, "capsule_component", types.scene_component)
+        const capsule_component = VarNodes.init(failing_allocator, "capsule_component", types.scene_component)
             catch unreachable;
-        // const current_spawn_point = VarNodes.init(std.testing.failing_allocator, "current_spawn_point", types.scene_component)
-        //     catch unreachable;
-        // const drone_state = VarNodes.init(std.testing.failing_allocator, "drone_state", types.scene_component)
-        //     catch unreachable;
-        // const mesh = VarNodes.init(std.testing.failing_allocator, "mesh", types.scene_component)
-        //     catch unreachable;
-        // const over_time = VarNodes.init(std.testing.failing_allocator, "over-time", types.scene_component)
-        //     catch unreachable;
-        // const speed = VarNodes.init(std.testing.failing_allocator, "mesh", primitive_types.f32_)
-        //     catch unreachable;
+        const current_spawn_point = VarNodes.init(failing_allocator, "current_spawn_point", types.scene_component)
+            catch unreachable;
+        const drone_state = VarNodes.init(failing_allocator, "drone_state", types.scene_component)
+            catch unreachable;
+        const mesh = VarNodes.init(failing_allocator, "mesh", types.scene_component)
+            catch unreachable;
+        const over_time = VarNodes.init(failing_allocator, "over-time", types.scene_component)
+            catch unreachable;
+        const speed = VarNodes.init(failing_allocator, "mesh", primitive_types.f32_)
+            catch unreachable;
 
         custom_tick_call: NodeDesc = basicNode(&.{
             .name = "CustomTickCall",
@@ -487,29 +489,27 @@ pub const temp_ue = struct {
             .outputs = &.{ Pin{.exec={}}},
         }),
 
-        // FIXME: use non-testing failing allocator
         break_hit_result: NodeDesc =
-            makeBreakNodeForStruct(std.testing.failing_allocator, types.hit_result)
+            makeBreakNodeForStruct(failing_allocator, types.hit_result)
             catch unreachable,
 
         get_capsule_component: NodeDesc = capsule_component.get,
         set_capsule_component: NodeDesc = capsule_component.set,
 
-        // FIXME: un break
-        // get_current_spawn_point: NodeDesc = current_spawn_point.get,
-        // set_current_spawn_point: NodeDesc = current_spawn_point.set,
+        get_current_spawn_point: NodeDesc = current_spawn_point.get,
+        set_current_spawn_point: NodeDesc = current_spawn_point.set,
 
-        // get_drone_state: NodeDesc = drone_state.get,
-        // set_drone_state: NodeDesc = drone_state.set,
+        get_drone_state: NodeDesc = drone_state.get,
+        set_drone_state: NodeDesc = drone_state.set,
 
-        // get_mesh: NodeDesc = mesh.get,
-        // set_mesh: NodeDesc = mesh.set,
+        get_mesh: NodeDesc = mesh.get,
+        set_mesh: NodeDesc = mesh.set,
 
-        // get_over_time: NodeDesc = over_time.get,
-        // set_over_time: NodeDesc = over_time.set,
+        get_over_time: NodeDesc = over_time.get,
+        set_over_time: NodeDesc = over_time.set,
 
-        // get_speed: NodeDesc = speed.get,
-        // set_speed: NodeDesc = speed.set,
+        get_speed: NodeDesc = speed.get,
+        set_speed: NodeDesc = speed.set,
 
         cast: NodeDesc = basicNode(&.{
             .name = "cast",
