@@ -45,6 +45,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
     };
 }
 
+// NOTE: this is the problem, just creating two consts that use this causes the segfault it seems
 // FIXME: isn't this going to be illegal? https://github.com/ziglang/zig/issues/7396
 // FIXME: move to own file
 fn comptimeAllocOrFallback(fallback_allocator: std.mem.Allocator, comptime T: type, comptime count: usize) std.mem.Allocator.Error![]T {
