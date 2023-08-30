@@ -37,6 +37,10 @@ pub const Pin = union (enum) {
 };
 
 pub const NodeDesc = struct {
+    // FIXME: should be scoped
+    /// name of the node, used as the type tag in the json format, within a particular scope
+    name: []const u8,
+
     context: *const align(@sizeOf(usize)) anyopaque,
     // TODO: do I really need pointers? The types are all going to be well defined aggregates,
     // and the nodes too
@@ -197,6 +201,7 @@ pub fn returnType(builtin_node: *const NodeDesc, input_types: []const Type) Type
 }
 
 const BasicNodeDesc = struct {
+    name: []const u8,
     inputs: []const Pin = &.{},
     outputs: []const Pin = &.{}
 };
@@ -218,6 +223,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
     };
 
     return NodeDesc{
+        .name = in_desc.name,
         .context = @ptrCast(in_desc),
         ._getInputs = NodeImpl.getInputs,
         ._getOutputs = NodeImpl.getOutputs,
@@ -244,11 +250,13 @@ pub const VarNodes = struct {
     set: NodeDesc,
 
     fn init(alloc: std.mem.Allocator, var_name: []const u8, var_type: Type) !VarNodes {
-        // FIXME: node pins should have names
-        _ = var_name;
-
+        // FIXME: test and plug non-comptime alloc leaks
         const getterOutputs = try comptimeAllocOrFallback(alloc, Pin, 1);
         getterOutputs[0] = Pin{.value=var_type};
+
+        const getter_name =
+            if (@inComptime()) std.fmt.comptimePrint("get_{s}", .{var_name})
+            else std.fmt.allocPrint(alloc, "get_{s}", .{var_name});
 
         const setterInputs = try comptimeAllocOrFallback(alloc, Pin, 2);
         setterInputs[0] = .exec;
@@ -258,11 +266,17 @@ pub const VarNodes = struct {
         setterOutputs[0] = .exec;
         setterOutputs[1] = Pin{.value=var_type};
 
+        const setter_name =
+            if (@inComptime()) std.fmt.comptimePrint("get_{s}", .{var_name})
+            else std.fmt.allocPrint(alloc, "get_{s}", .{var_name});
+
         return VarNodes{
             .get = basicNode(&.{
+                .name = getter_name,
                 .outputs = getterOutputs,
             }),
             .set = basicNode(&.{
+                .name = setter_name,
                 .inputs = setterInputs,
                 .outputs = setterOutputs,
             }),
@@ -285,6 +299,10 @@ pub fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !N
         out_pin.* = Pin{.value=field_type};
     }
 
+    const name =
+        if (@inComptime()) std.fmt.comptimePrint("break_{s}", .{in_struct_type.name})
+        else std.fmt.allocPrint(alloc, "break_{s}", .{in_struct_type.name});
+
     const context: *const BreakNodeContext =
         if (@inComptime()) &BreakNodeContext{ .struct_type = in_struct_type, .out_pins = out_pins }
         else try alloc.create(BreakNodeContext{ .struct_type = in_struct_type, .out_pins = out_pins });
@@ -302,47 +320,80 @@ pub fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !N
             return ctx.out_pins;
         }
     };
+
     return NodeDesc{
+        .name = name,
         .context = context,
         ._getInputs = NodeImpl.getInputs,
         ._getOutputs = NodeImpl.getOutputs,
     };
 }
 
-// FIXME: nodes need to know their names
-pub const genericMathOp = basicNode(&.{
-    .inputs = &.{
-        Pin{.value=primitive_types.f64_},
-        Pin{.value=primitive_types.f64_},
-    },
-    .outputs = &.{ Pin{.value=primitive_types.f64_} },
-});
-
 pub const builtin_nodes = (struct {
-    @"+": NodeDesc = genericMathOp,
-    @"-": NodeDesc = genericMathOp,
-    max: NodeDesc = genericMathOp,
-    min: NodeDesc = genericMathOp,
-    @"*": NodeDesc = genericMathOp,
-    @"/": NodeDesc = genericMathOp,
-    @"if": NodeDesc = basicNode(&.{
+    @"+": NodeDesc = basicNode(&.{
+        .name = "+",
         .inputs = &.{
-            Pin{.exec={}},
-            Pin{.value=primitive_types.bool_},
+            Pin{.value=primitive_types.f64_}, Pin{.value=primitive_types.f64_}
         },
-        .outputs = &.{
-            Pin{.exec={}},
-            Pin{.exec={}},
+        .outputs = &.{ Pin{.value=primitive_types.f64_} }
+    }),
+    @"-": NodeDesc = basicNode(&.{
+        .name = "-",
+        .inputs = &.{
+            Pin{.value=primitive_types.f64_}, Pin{.value=primitive_types.f64_}
         },
+        .outputs = &.{ Pin{.value=primitive_types.f64_} }
+    }),
+    max: NodeDesc = basicNode(&.{
+        .name = "max",
+        .inputs = &.{
+            Pin{.value=primitive_types.f64_}, Pin{.value=primitive_types.f64_}
+        },
+        .outputs = &.{ Pin{.value=primitive_types.f64_} }
+    }),
+    min: NodeDesc = basicNode(&.{
+        .name = "max",
+        .inputs = &.{
+            Pin{.value=primitive_types.f64_}, Pin{.value=primitive_types.f64_}
+        },
+        .outputs = &.{ Pin{.value=primitive_types.f64_} }
+    }),
+    @"*": NodeDesc = basicNode(&.{
+        .name = "*",
+        .inputs = &.{
+            Pin{.value=primitive_types.f64_}, Pin{.value=primitive_types.f64_}
+        },
+        .outputs = &.{ Pin{.value=primitive_types.f64_} }
+    }),
+    @"/": NodeDesc = basicNode(&.{
+        .name = "/",
+        .inputs = &.{
+            Pin{.value=primitive_types.f64_}, Pin{.value=primitive_types.f64_}
+        },
+        .outputs = &.{ Pin{.value=primitive_types.f64_} }
+    }),
+    @"if": NodeDesc = basicNode(&.{
+        .name = "if",
+        .inputs = &.{ .exec, Pin{.value=primitive_types.bool_} },
+        .outputs = &.{ .exec, .exec },
     }),
     // TODO: function...
     sequence: NodeDesc = basicNode(&.{
+        .name = "sequence",
         .inputs = &.{ Pin{.exec={}} },
         .outputs = &.{ Pin{.variadic=.exec} },
     }),
-    // "set!":
+
+    @"set!": NodeDesc = basicNode(&.{
+        .name = "set!",
+        // FIXME: needs to be generic/per variable
+        .inputs = &.{ Pin{.exec={}}, Pin{.value=primitive_types.f64_} },
+        .outputs = &.{ .exec, Pin{.value=primitive_types.f64_} },
+    }),
+
     // "cast":
     @"switch": NodeDesc = basicNode(&.{
+        .name = "switch",
         .inputs = &.{
             Pin{.exec={}},
             Pin{.value=primitive_types.f64_},
@@ -408,15 +459,19 @@ pub const temp_ue = struct {
         //     catch unreachable;
 
         custom_tick_call: NodeDesc = basicNode(&.{
+            .name = "CustomTickCall",
             .inputs = &.{ Pin{.value=types.actor} },
             .outputs = &.{ Pin{.value=primitive_types.vec3 } },
         }),
 
+        // FIXME: remove and just have an entry
         custom_tick_entry: NodeDesc = basicNode(&.{
+            .name = "CustomTickEntry",
             .outputs = &.{ Pin{.exec={}}},
         }),
 
         move_component_to: NodeDesc = basicNode(&.{
+            .name = "MoveComponentTo",
             .inputs = &.{
                 // FIXME: what about pin names? :/
                 .exec,
@@ -432,7 +487,7 @@ pub const temp_ue = struct {
             .outputs = &.{ Pin{.exec={}}},
         }),
 
-        // FIXME: use null allocator?
+        // FIXME: use non-testing failing allocator
         break_hit_result: NodeDesc =
             makeBreakNodeForStruct(std.testing.failing_allocator, types.hit_result)
             catch unreachable,
@@ -440,6 +495,7 @@ pub const temp_ue = struct {
         get_capsule_component: NodeDesc = capsule_component.get,
         set_capsule_component: NodeDesc = capsule_component.set,
 
+        // FIXME: un break
         // get_current_spawn_point: NodeDesc = current_spawn_point.get,
         // set_current_spawn_point: NodeDesc = current_spawn_point.set,
 
@@ -456,6 +512,7 @@ pub const temp_ue = struct {
         // set_speed: NodeDesc = speed.set,
 
         cast: NodeDesc = basicNode(&.{
+            .name = "cast",
             .inputs = &. {
                 .exec,
                 Pin{.value=types.actor},
@@ -468,6 +525,7 @@ pub const temp_ue = struct {
         }),
 
         do_once: NodeDesc = basicNode(&.{
+            .name = "do-once",
             .inputs = &. {
                 .exec,
                 .exec, // reset
@@ -479,6 +537,7 @@ pub const temp_ue = struct {
         }),
 
         fake_switch: NodeDesc = basicNode(&.{
+            .name = "fake-switch",
             .inputs = &.{
                 .exec,
                 Pin{.value=primitive_types.f64_},
@@ -491,16 +550,19 @@ pub const temp_ue = struct {
         }),
 
         get_actor_location: NodeDesc = basicNode(&.{
+            .name = "get-actor-location",
             .inputs = &.{ Pin{.value=types.actor} },
             .outputs = &.{ Pin{.value=primitive_types.vec3} },
         }),
 
         get_actor_rotation: NodeDesc = basicNode(&.{
+            .name = "get-actor-rotation",
             .inputs = &.{ Pin{.value=types.actor} },
             .outputs = &.{ Pin{.value=primitive_types.vec4} },
         }),
 
         get_socket_location: NodeDesc = basicNode(&.{
+            .name = "get-socket-location",
             .inputs = &.{
                 Pin{.value=types.actor},
                 Pin{.value=primitive_types.string},
@@ -508,23 +570,14 @@ pub const temp_ue = struct {
             .outputs = &.{ Pin{.value=primitive_types.vec3} },
         }),
 
-        if_: NodeDesc = basicNode(&.{
-            .inputs = &. {
-                .exec,
-                Pin{.value=primitive_types.bool_},
-            },
-            .outputs = &.{
-                .exec, // then
-                .exec, // else
-            },
-        }),
-
         fake_sequence_3: NodeDesc = basicNode(&.{
+            .name = "fake-sequence-3",
             .inputs = &.{ .exec },
             .outputs = &.{ .exec, .exec, .exec },
         }),
 
         single_line_trace_by_channel: NodeDesc = basicNode(&.{
+            .name = "single-line-trace-by-channel",
             .inputs = &.{
                 .exec,
                 Pin{.value=primitive_types.vec3}, // start
@@ -543,6 +596,7 @@ pub const temp_ue = struct {
         }),
 
         vector_length: NodeDesc = basicNode(&.{
+            .name = "vector-length",
             .inputs = &.{ Pin{.value=primitive_types.vec3} },
             .outputs = &.{ Pin{.value=primitive_types.f64_} },
         }),
@@ -591,7 +645,8 @@ pub const Env = struct {
             const types_fields = @typeInfo(@TypeOf(types)).Struct.fields;
             try env.types.ensureTotalCapacity(alloc, types_fields.len);
             inline for (types_fields) |t| {
-                try env.types.put(alloc, t.name, @field(types, t.name).*);
+                const type_ = @field(types, t.name);
+                try env.types.put(alloc, type_.name, type_.*);
             }
         }
 
@@ -599,7 +654,8 @@ pub const Env = struct {
             const nodes_fields = @typeInfo(@TypeOf(nodes)).Struct.fields;
             try env.nodes.ensureTotalCapacity(alloc, nodes_fields.len);
             inline for (nodes_fields) |n| {
-                try env.nodes.put(alloc, n.name, @field(nodes, n.name));
+                const node = @field(nodes, n.name);
+                try env.nodes.put(alloc, node.name, node);
             }
         }
 
@@ -617,5 +673,5 @@ pub const Env = struct {
 test "env" {
     var env = try Env.initDefault(std.testing.allocator);
     defer env.deinit();
-    try std.testing.expect(env.types.contains("u32_"));
+    try std.testing.expect(env.types.contains("u32"));
 }

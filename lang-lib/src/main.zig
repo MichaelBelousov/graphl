@@ -243,8 +243,10 @@ const GraphBuilder = struct {
             // FIXME: accidental copy?
             const json_node = node_entry.value_ptr.*;
 
-            const node = json_node.toEmptyNode(self.env, node_index)
-                catch |e| { result = Result(*const IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
+            const node = json_node.toEmptyNode(self.env, node_index) catch |e| {
+                result = Result(*const IndexedNode).fmt_err(self.err_alloc, "{}: for node type: {s}", .{e, json_node.type});
+                return result;
+            };
 
             const putResult = self.nodes.map.getOrPut(self.alloc, node_id)
                 catch |e| { result = Result(*const IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
@@ -257,11 +259,12 @@ const GraphBuilder = struct {
             }
 
             if (json_node.data.isEntry) {
-                result = Result(*const IndexedNode).ok(putResult.value_ptr);
                 if (result.is_ok()) {
+                    std.debug.print("\nnode_id: {}\n", .{node_id});
                     result = Result(*const IndexedNode).fmt_err(self.err_alloc, "JSON graph contains more than 1 entry", .{});
                     return result;
                 }
+                result = Result(*const IndexedNode).ok(putResult.value_ptr);
             }
 
             // FIXME: a more sophisticated check for if it's a branch, including macro expansion
