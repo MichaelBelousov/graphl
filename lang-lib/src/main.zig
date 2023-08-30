@@ -76,15 +76,62 @@ const JsonNodeHandle = struct {
 
 const JsonNodeInput = union (enum) {
     handle: JsonNodeHandle,
-    // FIXME: handle integers?
+    // FIXME: handle integers separately? (e.g. check for '.' in token)
     number: f64,
     string: []const u8,
+    bool: bool,
+    null: void,
+    symbol: []const u8,
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
+        return switch (try source.peekNextTokenType()) {
+            .object_begin  => {
+                    const object = try innerParse(struct {
+                        symbol: ?[]const u8 = null,
+                        nodeId: ?i64 = null,
+                        handleIndex: ?u32 = null,
+                    }, allocator, source, options);
+
+                    if (object.symbol) |symbol| {
+                        if (object.nodeId != null or object.handleIndex != null)
+                            return error.UnknownField;
+                        return .{.symbol = symbol};
+                    }
+
+                    if (object.nodeId) |nodeId|
+                        if (object.handleIndex) |handleIndex| {
+                            if (object.symbol != null)
+                                return error.UnknownField;
+                            return .{.handle = .{ .nodeId = nodeId, .handleIndex = handleIndex }};
+                        }
+                        else return error.MissingField
+                    else return error.MissingField;
+
+                    unreachable;
+                },
+            .string => .{.string = try innerParse([]const u8, allocator, source, options)},
+            .number => .{.number = try innerParse(f64, allocator, source, options)},
+            .true, .false => .{.bool = try innerParse(bool, allocator, source, options)},
+            .null => _: {
+                _ = try source.next(); // consume null keyword
+                break :_ .null;
+            },
+            else => error.UnexpectedToken,
+        };
+    }
+};
+
+const JsonNodeOutput = union (enum) {
+    handle: JsonNodeHandle,
+    null: void,
 
     pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
         return switch (try source.peekNextTokenType()) {
             .object_begin  => .{.handle = try innerParse(JsonNodeHandle, allocator, source, options)},
-            .string => .{.string = try innerParse([]const u8, allocator, source, options)},
-            .number => .{.number = try innerParse(f64, allocator, source, options)},
+            .null => _: {
+                _ = try source.next(); // consume null keyword
+                break :_ .null;
+            },
             else => error.UnexpectedToken,
         };
     }
@@ -93,7 +140,7 @@ const JsonNodeInput = union (enum) {
 const JsonNode = struct {
     type: []const u8,
     inputs: []const ?JsonNodeInput = &.{},
-    outputs: []const JsonNodeHandle = &.{},
+    outputs: []const JsonNodeOutput = &.{},
     // FIXME: create zig type json type that treats optionals not as possibly null but as possibly missing
     data: struct {
         isEntry: bool = false,
@@ -255,9 +302,11 @@ const GraphBuilder = struct {
         node.out_links = try self.alloc.alloc(IndexedLink, json_node.outputs.len);
         errdefer self.alloc.free(node.out_links);
         for (node.out_links, json_node.outputs) |*out_link, json_output| {
+            if (json_output != .handle)
+                continue;
             out_link.* = IndexedLink{
-                .target = self.nodes.map.getPtr(json_output.nodeId) orelse return error.LinkToUnknownNode,
-                .pin_index = json_output.handleIndex,
+                .target = self.nodes.map.getPtr(json_output.handle.nodeId) orelse return error.LinkToUnknownNode,
+                .pin_index = json_output.handle.handleIndex,
             };
         }
     }
