@@ -69,73 +69,6 @@ fn err_explain(comptime R: type, e: GraphToSourceErr) R {
     return R.err(GraphToSourceErr.explain(e, global_alloc) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
 }
 
-const JsonNodeHandle = struct {
-    nodeId: i64,
-    handleIndex: u32,
-};
-
-const JsonNodeInput = union (enum) {
-    handle: JsonNodeHandle,
-    // FIXME: handle integers separately? (e.g. check for '.' in token)
-    number: f64,
-    string: []const u8,
-    bool: bool,
-    null: void,
-    symbol: []const u8,
-
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
-        return switch (try source.peekNextTokenType()) {
-            .object_begin  => {
-                    const object = try innerParse(struct {
-                        symbol: ?[]const u8 = null,
-                        nodeId: ?i64 = null,
-                        handleIndex: ?u32 = null,
-                    }, allocator, source, options);
-
-                    if (object.symbol) |symbol| {
-                        if (object.nodeId != null or object.handleIndex != null)
-                            return error.UnknownField;
-                        return .{.symbol = symbol};
-                    }
-
-                    if (object.nodeId) |nodeId|
-                        if (object.handleIndex) |handleIndex| {
-                            if (object.symbol != null)
-                                return error.UnknownField;
-                            return .{.handle = .{ .nodeId = nodeId, .handleIndex = handleIndex }};
-                        }
-                        else return error.MissingField
-                    else return error.MissingField;
-
-                    unreachable;
-                },
-            .string => .{.string = try innerParse([]const u8, allocator, source, options)},
-            .number => .{.number = try innerParse(f64, allocator, source, options)},
-            .true, .false => .{.bool = try innerParse(bool, allocator, source, options)},
-            .null => _: {
-                _ = try source.next(); // consume null keyword
-                break :_ .null;
-            },
-            else => error.UnexpectedToken,
-        };
-    }
-};
-
-const JsonNodeOutput = union (enum) {
-    handle: JsonNodeHandle,
-    null: void,
-
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
-        return switch (try source.peekNextTokenType()) {
-            .object_begin  => .{.handle = try innerParse(JsonNodeHandle, allocator, source, options)},
-            .null => _: {
-                _ = try source.next(); // consume null keyword
-                break :_ .null;
-            },
-            else => error.UnexpectedToken,
-        };
-    }
-};
 
 const JsonNode = struct {
     type: []const u8,
@@ -471,27 +404,27 @@ const GraphBuilder = struct {
         _ = node;
 
         // // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-        // (result.list.addOne()
-        //     catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-        // ).* = Sexp{ .symbol = node.type };
+        (result.list.addOne()
+            catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+        ).* = Sexp{ .symbol = node.type };
 
-        // // FIXME: handle literals...
-        // for (node.inputs) |input| {
-        //     //if (input != .pin)
-        //         //@panic("not yet supported!");
+        // FIXME: handle literals...
+        for (node.inputs) |input| {
+            //if (input != .pin)
+                //@panic("not yet supported!");
 
-        //     const source_node = handle_srcnode_map.get(input)
-        //         orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})",
-        //             .{ error.undefinedInputHandle, input });
+            const source_node = handle_srcnode_map.get(input)
+                orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})",
+                    .{ error.undefinedInputHandle, input });
 
-        //     const next = self.buildFromJsonEntry(source_node.*, alloc);
-        //     if (next.is_err())
-        //         return next;
+            const next = self.buildFromJsonEntry(source_node.*, alloc);
+            if (next.is_err())
+                return next;
 
-        //     (result.list.addOne()
-        //         catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-        //     ).* = next.result;
-        // }
+            (result.list.addOne()
+                catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+            ).* = next.result;
+        }
 
         return Result(Sexp).ok(result);
     }

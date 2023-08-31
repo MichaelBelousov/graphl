@@ -13,29 +13,101 @@ pub const TypeInfo = struct {
 
 pub const Type = *const TypeInfo;
 
-pub const Input = struct {
-    type_: Type,
-    //default: Value,
-};
-
-// FIXME: merge somehow?
-pub const VarPin = union (enum) {
+pub const PrimitivePin = union (enum) {
     exec,
     value: Type,
+};
 
-    fn toPin(self: @This()) Pin {
+pub const Pin = union (enum) {
+    primitive: PrimitivePin,
+    variadic: PrimitivePin,
+};
+
+const NodeHandle = struct {
+    nodeId: i64,
+    handleIndex: u32,
+};
+
+const Value = union (enum) {
+    number: f64,
+    string: []const u8,
+    bool: bool,
+    null: void,
+    symbol: []const u8,
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
+        // inputs are superset of values, and outputs
+        const parsed_superset = try NodeInput.jsonParse(allocator, source, options);
+        if (parsed_superset == .handle) return error.UnknownField;
+        return parsed_superset.toValue() orelse unreachable;
+    }
+};
+
+const NodeInput = union (enum) {
+    handle: JsonNodeHandle,
+    // FIXME: handle integers separately? (e.g. check for '.' in token)
+    number: f64,
+    string: []const u8,
+    bool: bool,
+    null: void,
+    symbol: []const u8,
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
+        return switch (try source.peekNextTokenType()) {
+            .object_begin  => {
+                const object = try innerParse(struct {
+                    symbol: ?[]const u8 = null,
+                    nodeId: ?i64 = null,
+                    handleIndex: ?u32 = null,
+                }, allocator, source, options);
+
+                if (object.symbol) |symbol| {
+                    if (object.nodeId != null or object.handleIndex != null)
+                        return error.UnknownField;
+                    return .{.symbol = symbol};
+                }
+
+                if (object.nodeId != null and object.handleIndex != null) {
+                    if (object.symbol != null) return error.UnknownField;
+                    return .{ .handle = .{ .nodeId = object.nodeId.?, .handleIndex = object.handleIndex.? } };
+                }
+
+                return error.MissingField;
+            },
+            .string => .{.string = try innerParse([]const u8, allocator, source, options)},
+            .number => .{.number = try innerParse(f64, allocator, source, options)},
+            .true, .false => .{.bool = try innerParse(bool, allocator, source, options)},
+            .null => _: {
+                _ = try source.next(); // consume null keyword
+                break :_ .null;
+            },
+            else => error.UnexpectedToken,
+        };
+    }
+
+    /// returns null if this is a handle, which is not a Value
+    pub fn toValue(self: @This()) ?Value {
         return switch (self) {
-            .exec => .exec,
-            .value => |v| Pin{.value=v},
+            .handle => null,
+            inline else => |v| @unionInit(Value, @tagName(self), v),
         };
     }
 };
 
-// FIXME: separate pin value, input pin type, output pin type
-pub const Pin = union (enum) {
-    exec,
-    value: Type,
-    variadic: VarPin,
+const NodeOutput = union (enum) {
+    handle: JsonNodeHandle,
+    null: void,
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
+        return switch (try source.peekNextTokenType()) {
+            .object_begin  => .{.handle = try innerParse(JsonNodeHandle, allocator, source, options)},
+            .null => _: {
+                _ = try source.next(); // consume null keyword
+                break :_ .null;
+            },
+            else => error.UnexpectedToken,
+        };
+    }
 };
 
 pub const NodeDesc = struct {
@@ -70,6 +142,7 @@ pub fn Node(comptime Extra: type) type {
         desc: *const NodeDesc,
         extra: Extra,
         comment: ?[]const u8 = null,
+        in_links: []Link(Extra) = &.{},
         out_links: []Link(Extra) = &.{},
 
         pub const ExecLinkIterator = struct {
