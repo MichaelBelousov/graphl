@@ -230,6 +230,7 @@ const GraphBuilder = struct {
         self: *Self,
         json_graph: GraphDoc,
     ) Result(*const IndexedNode) {
+        var entry_id: ?i64 = null;
         var result = Result(*const IndexedNode).err("JSON graph contains no entry");
         // FIXME: this belongs in buildFromJson...
         defer if (result.is_err()) self.nodes.map.clearAndFree(self.alloc);
@@ -259,12 +260,15 @@ const GraphBuilder = struct {
             }
 
             if (json_node.data.isEntry) {
-                if (result.is_ok()) {
-                    std.debug.print("\nnode_id: {}\n", .{node_id});
-                    result = Result(*const IndexedNode).fmt_err(self.err_alloc, "JSON graph contains more than 1 entry", .{});
+                if (entry_id != null) {
+                    result = Result(*const IndexedNode).fmt_err(
+                        self.err_alloc,
+                        "JSON graph contains more than 1 entry, second entry has id '{}'",
+                        .{node_id}
+                    );
                     return result;
                 }
-                result = Result(*const IndexedNode).ok(putResult.value_ptr);
+                entry_id = node_id;
             }
 
             // FIXME: a more sophisticated check for if it's a branch, including macro expansion
@@ -275,8 +279,12 @@ const GraphBuilder = struct {
             node_index += 1;
         }
 
-        self.branch_joiner_map.ensureTotalCapacity(self.alloc, branch_count)
-            catch |e| { result = Result(*const IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
+        if (entry_id) |id| {
+            result = Result(*const IndexedNode).ok(self.nodes.map.getPtr(id) orelse unreachable);
+
+            self.branch_joiner_map.ensureTotalCapacity(self.alloc, branch_count)
+                catch |e| { result = Result(*const IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
+        }
 
         return result;
     }

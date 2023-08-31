@@ -232,14 +232,6 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
     };
 }
 
-// FIXME: isn't this going to be illegal? https://github.com/ziglang/zig/issues/7396
-// FIXME: this is broken when used multiple times, remove usages, it's just broken
-fn comptimeAllocOrFallback(fallback_allocator: std.mem.Allocator, comptime T: type, comptime count: usize) std.mem.Allocator.Error![]T {
-    comptime var comptime_slot: [if (@inComptime()) count else 0]T = undefined;
-    return if (@inComptime()) &comptime_slot
-         else try fallback_allocator.alloc(T, count);
-}
-
 pub const VarNodes = struct {
     get: NodeDesc,
     set: NodeDesc,
@@ -296,7 +288,9 @@ pub const BreakNodeContext = struct {
 };
 
 pub fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !NodeDesc {
-    const out_pins = try comptimeAllocOrFallback(alloc, Pin, in_struct_type.field_types.len);
+    var out_pins_slot: [if (@inComptime()) in_struct_type.field_types.len else 0]Pin = undefined;
+    var out_pins = if (@inComptime()) &out_pins_slot else try alloc.alloc(Pin, in_struct_type.field_types.len);
+
     for (in_struct_type.field_types, out_pins) |field_type, *out_pin| {
         out_pin.* = Pin{.value=field_type};
     }
@@ -447,17 +441,17 @@ pub const temp_ue = struct {
 
     const nodes = (struct {
         // TODO: replace with live vars
-        const capsule_component = VarNodes.init(failing_allocator, "capsule_component", types.scene_component)
+        const capsule_component = VarNodes.init(failing_allocator, "capsule-component", types.scene_component)
             catch unreachable;
-        const current_spawn_point = VarNodes.init(failing_allocator, "current_spawn_point", types.scene_component)
+        const current_spawn_point = VarNodes.init(failing_allocator, "current-spawn-point", types.scene_component)
             catch unreachable;
-        const drone_state = VarNodes.init(failing_allocator, "drone_state", types.scene_component)
+        const drone_state = VarNodes.init(failing_allocator, "drone-state", types.scene_component)
             catch unreachable;
         const mesh = VarNodes.init(failing_allocator, "mesh", types.scene_component)
             catch unreachable;
         const over_time = VarNodes.init(failing_allocator, "over-time", types.scene_component)
             catch unreachable;
-        const speed = VarNodes.init(failing_allocator, "mesh", primitive_types.f32_)
+        const speed = VarNodes.init(failing_allocator, "speed", primitive_types.f32_)
             catch unreachable;
 
         custom_tick_call: NodeDesc = basicNode(&.{
@@ -473,7 +467,7 @@ pub const temp_ue = struct {
         }),
 
         move_component_to: NodeDesc = basicNode(&.{
-            .name = "MoveComponentTo",
+            .name = "Move Component To",
             .inputs = &.{
                 // FIXME: what about pin names? :/
                 .exec,
