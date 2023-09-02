@@ -8,8 +8,10 @@ const json = std.json;
 
 pub const Sexp = union(enum) {
     list: std.ArrayList(Sexp),
+    void,
     int: i64,
     float: f64,
+    bool: bool,
     /// this Sexp owns the referenced memory, it must be freed
     ownedString: []const u8,
     /// this Sexp is borrowing the referenced memory, it should not be freed
@@ -54,6 +56,8 @@ pub const Sexp = union(enum) {
             },
             // FIXME: the bytecounts here are ignored!
             .float => |v| try writer.print("{d}", .{v}),
+            .bool => |v| { _ = try writer.write(if (v) "#t" else "#f"); },
+            .void => { _ = try writer.write("#void"); },
             .int => |v| try writer.print("{d}", .{v}),
             .ownedString, .borrowedString => |v| try writer.print("\"{s}\"", .{v}),
             .symbol => |v| try writer.print("{s}", .{v}),
@@ -88,6 +92,8 @@ pub const Sexp = union(enum) {
                 return true;
             },
             .float => |v| return v == other.float,
+            .bool => |v| return v == other.bool,
+            .void => return true,
             .int => |v| return v == other.int,
             .ownedString => |v| return std.mem.eql(u8, v, other.ownedString),
             .borrowedString => |v| return std.mem.eql(u8, v, other.borrowedString),
@@ -107,6 +113,8 @@ pub const Sexp = union(enum) {
             },
             .float => |v| json.Value{ .float = v },
             .int => |v| json.Value{ .integer = v },
+            .bool => |v| json.Value{ .bool = v },
+            .void => .null,
             .ownedString => |v| json.Value{ .string = v },
             .borrowedString => |v| json.Value{ .string = v },
             .symbol => |v| _: {

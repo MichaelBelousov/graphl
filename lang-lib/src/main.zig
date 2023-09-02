@@ -494,7 +494,7 @@ const GraphBuilder = struct {
                 .number => |u| Sexp{.float = u},
                 .string => |u| Sexp{.borrowedString = u},
                 .bool => |u| Sexp{.bool = u},
-                .null => |u| Sexp{.null = u}, // FIXME empty list?
+                .null => .void,
                 .symbol => |u| Sexp{.symbol = u},
             },
         };
