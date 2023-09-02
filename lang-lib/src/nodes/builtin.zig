@@ -18,96 +18,21 @@ pub const PrimitivePin = union (enum) {
     value: Type,
 };
 
-pub const Pin = union (enum) {
-    primitive: PrimitivePin,
-    variadic: PrimitivePin,
-};
+pub const exec = Pin{.primitive=.exec};
 
-const NodeHandle = struct {
-    nodeId: i64,
-    handleIndex: u32,
-};
-
-const Value = union (enum) {
-    number: f64,
-    string: []const u8,
-    bool: bool,
-    null: void,
-    symbol: []const u8,
-
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
-        // inputs are superset of values, and outputs
-        const parsed_superset = try NodeInput.jsonParse(allocator, source, options);
-        if (parsed_superset == .handle) return error.UnknownField;
-        return parsed_superset.toValue() orelse unreachable;
-    }
-};
-
-const NodeInput = union (enum) {
-    handle: JsonNodeHandle,
+// FIXME: replace with or convert to sexp?
+pub const Value = union (enum) {
     // FIXME: handle integers separately? (e.g. check for '.' in token)
     number: f64,
     string: []const u8,
     bool: bool,
     null: void,
     symbol: []const u8,
-
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
-        return switch (try source.peekNextTokenType()) {
-            .object_begin  => {
-                const object = try innerParse(struct {
-                    symbol: ?[]const u8 = null,
-                    nodeId: ?i64 = null,
-                    handleIndex: ?u32 = null,
-                }, allocator, source, options);
-
-                if (object.symbol) |symbol| {
-                    if (object.nodeId != null or object.handleIndex != null)
-                        return error.UnknownField;
-                    return .{.symbol = symbol};
-                }
-
-                if (object.nodeId != null and object.handleIndex != null) {
-                    if (object.symbol != null) return error.UnknownField;
-                    return .{ .handle = .{ .nodeId = object.nodeId.?, .handleIndex = object.handleIndex.? } };
-                }
-
-                return error.MissingField;
-            },
-            .string => .{.string = try innerParse([]const u8, allocator, source, options)},
-            .number => .{.number = try innerParse(f64, allocator, source, options)},
-            .true, .false => .{.bool = try innerParse(bool, allocator, source, options)},
-            .null => _: {
-                _ = try source.next(); // consume null keyword
-                break :_ .null;
-            },
-            else => error.UnexpectedToken,
-        };
-    }
-
-    /// returns null if this is a handle, which is not a Value
-    pub fn toValue(self: @This()) ?Value {
-        return switch (self) {
-            .handle => null,
-            inline else => |v| @unionInit(Value, @tagName(self), v),
-        };
-    }
 };
 
-const NodeOutput = union (enum) {
-    handle: JsonNodeHandle,
-    null: void,
-
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
-        return switch (try source.peekNextTokenType()) {
-            .object_begin  => .{.handle = try innerParse(JsonNodeHandle, allocator, source, options)},
-            .null => _: {
-                _ = try source.next(); // consume null keyword
-                break :_ .null;
-            },
-            else => error.UnexpectedToken,
-        };
-    }
+pub const Pin = union (enum) {
+    primitive: PrimitivePin,
+    variadic: PrimitivePin,
 };
 
 pub const NodeDesc = struct {
@@ -127,48 +52,59 @@ pub const NodeDesc = struct {
     pub fn getOutputs(self: @This()) []const Pin { return self._getOutputs(self); }
 };
 
-
-pub fn Link(comptime Extra: type) type {
+pub fn GraphTypes(comptime Extra: type) type {
     return struct {
-        target: *const Node(Extra),
-        pin_index: u32,
-        /// optional subindex (e.g. for variadic pins)
-        sub_index: u32 = 0,
-    };
-}
-
-pub fn Node(comptime Extra: type) type {
-    return struct {
-        desc: *const NodeDesc,
-        extra: Extra,
-        comment: ?[]const u8 = null,
-        in_links: []Link(Extra) = &.{},
-        out_links: []Link(Extra) = &.{},
-
-        pub const ExecLinkIterator = struct {
-            index: usize = 0,
-            node: *const Node,
-
-            pub fn next(self: @This()) ?Link(Extra) {
-                while (self.index < self.node.out_links.len) : (self.index += 1) {
-                    const is_exec = self.node.desc.getOutputs()[self.index] == .exec;
-                    if (is_exec) {
-                        self.index += 1;
-                        return self.node.out_links[self.index];
-                    }
-                }
-
-                return null;
-            }
-
-            pub fn hasNext(self: @This()) bool {
-                return self.index < self.node.out_links.len;
-            }
+        pub const Link = struct {
+            target: *const Node,
+            pin_index: u32,
+            /// optional subindex (e.g. for variadic pins)
+            sub_index: u32 = 0,
         };
 
-        pub fn iter_out_exec_links(self: @This()) ExecLinkIterator {
-            return ExecLinkIterator{ .node = self };
-        }
+        pub const Input = union (enum) {
+            link: Link,
+            value: Value,
+        };
+
+        pub const Output = union (enum) {
+            link: Link,
+            null: void,
+        };
+
+        pub const Node = struct {
+            desc: *const NodeDesc,
+            extra: Extra,
+            comment: ?[]const u8 = null,
+            inputs: []Input = &.{},
+            outputs: []Output = &.{},
+
+            // FIXME: might be worth replacing this with a per-builtin-type getter
+            pub const OutExecIterator = struct {
+                index: usize = 0,
+                node: *const Node,
+
+                pub fn next(self: @This()) ?Link {
+                    while (self.index < self.node.outputs.len) : (self.index += 1) {
+                        const output = self.node.desc.getOutputs()[self.index];
+                        const is_exec = output == .primitive and output.primitive == .exec;
+                        if (is_exec) {
+                            self.index += 1;
+                            return self.node.outputs[self.index];
+                        }
+                    }
+
+                    return null;
+                }
+
+                pub fn hasNext(self: @This()) bool {
+                    return self.index < self.node.outputs.len;
+                }
+            };
+
+            pub fn iter_out_execs(self: @This()) OutExecIterator {
+                return OutExecIterator{ .node = self };
+            }
+        };
     };
 }
 
@@ -314,7 +250,7 @@ pub const VarNodes = struct {
         comptime var getter_outputs_slot: [if (@inComptime()) 1 else 0]Pin = undefined;
         const getter_outputs = if (@inComptime()) &getter_outputs_slot
              else try alloc.alloc(Pin, 1);
-        getter_outputs[0] = Pin{.value=var_type};
+        getter_outputs[0] = Pin{.primitive=.{.value=var_type}};
 
         const getter_name =
             if (@inComptime()) std.fmt.comptimePrint("get_{s}", .{var_name})
@@ -324,14 +260,14 @@ pub const VarNodes = struct {
         comptime var setter_inputs_slot: [if (@inComptime()) 2 else 0]Pin = undefined;
         const setter_inputs = if (@inComptime()) &setter_inputs_slot
              else try alloc.alloc(Pin, 2);
-        setter_inputs[0] = .exec;
-        setter_inputs[1] = Pin{.value=var_type};
+        setter_inputs[0] = Pin{.primitive=.exec};
+        setter_inputs[1] = Pin{.primitive=.{.value=var_type}};
 
         comptime var setter_outputs_slot: [if (@inComptime()) 2 else 0]Pin = undefined;
         const setter_outputs = if (@inComptime()) &setter_outputs_slot
              else try alloc.alloc(Pin, 2);
-        setter_outputs[0] = .exec;
-        setter_outputs[1] = Pin{.value=var_type};
+        setter_outputs[0] = Pin{.primitive=.exec};
+        setter_outputs[1] = Pin{.primitive=.{.value=var_type}};
 
         const setter_name =
             if (@inComptime()) std.fmt.comptimePrint("get_{s}", .{var_name})
@@ -365,7 +301,7 @@ pub fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !N
     var out_pins = if (@inComptime()) &out_pins_slot else try alloc.alloc(Pin, in_struct_type.field_types.len);
 
     for (in_struct_type.field_types, out_pins) |field_type, *out_pin| {
-        out_pin.* = Pin{.value=field_type};
+        out_pin.* = Pin{.primitive=.{.value=field_type}};
     }
 
     const name =
@@ -381,7 +317,7 @@ pub fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !N
 
         pub fn getInputs(node: NodeDesc) []const Pin {
             const ctx: *const BreakNodeContext = @ptrCast(node.context);
-            return &.{Pin{.value=ctx.struct_type}};
+            return &.{Pin{.primitive=.{.value=ctx.struct_type}}};
         }
 
         pub fn getOutputs(node: NodeDesc) []const Pin {
@@ -402,70 +338,70 @@ pub const builtin_nodes = (struct {
     @"+": NodeDesc = basicNode(&.{
         .name = "+",
         .inputs = &.{
-            Pin{.value=primitive_types.f64_}, Pin{.value=primitive_types.f64_}
+            Pin{.primitive=.{.value=primitive_types.f64_}}, Pin{.primitive=.{.value=primitive_types.f64_}}
         },
-        .outputs = &.{ Pin{.value=primitive_types.f64_} }
+        .outputs = &.{ Pin{.primitive=.{.value=primitive_types.f64_}} }
     }),
     @"-": NodeDesc = basicNode(&.{
         .name = "-",
         .inputs = &.{
-            Pin{.value=primitive_types.f64_}, Pin{.value=primitive_types.f64_}
+            Pin{.primitive=.{.value=primitive_types.f64_}}, Pin{.primitive=.{.value=primitive_types.f64_}}
         },
-        .outputs = &.{ Pin{.value=primitive_types.f64_} }
+        .outputs = &.{ Pin{.primitive=.{.value=primitive_types.f64_}} }
     }),
     max: NodeDesc = basicNode(&.{
         .name = "max",
         .inputs = &.{
-            Pin{.value=primitive_types.f64_}, Pin{.value=primitive_types.f64_}
+            Pin{.primitive=.{.value=primitive_types.f64_}}, Pin{.primitive=.{.value=primitive_types.f64_}}
         },
-        .outputs = &.{ Pin{.value=primitive_types.f64_} }
+        .outputs = &.{ Pin{.primitive=.{.value=primitive_types.f64_}} }
     }),
     min: NodeDesc = basicNode(&.{
         .name = "max",
         .inputs = &.{
-            Pin{.value=primitive_types.f64_}, Pin{.value=primitive_types.f64_}
+            Pin{.primitive=.{.value=primitive_types.f64_}}, Pin{.primitive=.{.value=primitive_types.f64_}}
         },
-        .outputs = &.{ Pin{.value=primitive_types.f64_} }
+        .outputs = &.{ Pin{.primitive=.{.value=primitive_types.f64_}} }
     }),
     @"*": NodeDesc = basicNode(&.{
         .name = "*",
         .inputs = &.{
-            Pin{.value=primitive_types.f64_}, Pin{.value=primitive_types.f64_}
+            Pin{.primitive=.{.value=primitive_types.f64_}}, Pin{.primitive=.{.value=primitive_types.f64_}}
         },
-        .outputs = &.{ Pin{.value=primitive_types.f64_} }
+        .outputs = &.{ Pin{.primitive=.{.value=primitive_types.f64_}} }
     }),
     @"/": NodeDesc = basicNode(&.{
         .name = "/",
         .inputs = &.{
-            Pin{.value=primitive_types.f64_}, Pin{.value=primitive_types.f64_}
+            Pin{.primitive=.{.value=primitive_types.f64_}}, Pin{.primitive=.{.value=primitive_types.f64_}}
         },
-        .outputs = &.{ Pin{.value=primitive_types.f64_} }
+        .outputs = &.{ Pin{.primitive=.{.value=primitive_types.f64_}} }
     }),
     @"if": NodeDesc = basicNode(&.{
         .name = "if",
-        .inputs = &.{ .exec, Pin{.value=primitive_types.bool_} },
-        .outputs = &.{ .exec, .exec },
+        .inputs = &.{ .{.primitive = .exec}, Pin{.primitive=.{.value=primitive_types.bool_}} },
+        .outputs = &.{ .{.primitive = .exec}, .{.primitive = .exec} },
     }),
     // TODO: function...
     sequence: NodeDesc = basicNode(&.{
         .name = "sequence",
-        .inputs = &.{ Pin{.exec={}} },
+        .inputs = &.{ Pin{.primitive=.exec} },
         .outputs = &.{ Pin{.variadic=.exec} },
     }),
 
     @"set!": NodeDesc = basicNode(&.{
         .name = "set!",
         // FIXME: needs to be generic/per variable
-        .inputs = &.{ Pin{.exec={}}, Pin{.value=primitive_types.f64_} },
-        .outputs = &.{ .exec, Pin{.value=primitive_types.f64_} },
+        .inputs = &.{ Pin{.primitive=.exec}, Pin{.primitive=.{.value=primitive_types.f64_}} },
+        .outputs = &.{ Pin{.primitive=.exec}, Pin{.primitive=.{.value=primitive_types.f64_}} },
     }),
 
     // "cast":
     @"switch": NodeDesc = basicNode(&.{
         .name = "switch",
         .inputs = &.{
-            Pin{.exec={}},
-            Pin{.value=primitive_types.f64_},
+            Pin{.primitive=.exec},
+            Pin{.primitive=.{.value=primitive_types.f64_}},
         },
         .outputs = &.{
             Pin{.variadic=.exec},
@@ -529,31 +465,31 @@ pub const temp_ue = struct {
 
         custom_tick_call: NodeDesc = basicNode(&.{
             .name = "CustomTickCall",
-            .inputs = &.{ Pin{.value=types.actor} },
-            .outputs = &.{ Pin{.value=primitive_types.vec3 } },
+            .inputs = &.{ Pin{.primitive=.{.value=types.actor}} },
+            .outputs = &.{ Pin{.primitive=.{.value=primitive_types.vec3 }} },
         }),
 
         // FIXME: remove and just have an entry
         custom_tick_entry: NodeDesc = basicNode(&.{
             .name = "CustomTickEntry",
-            .outputs = &.{ Pin{.exec={}}},
+            .outputs = &.{ Pin{.primitive=.exec} },
         }),
 
         move_component_to: NodeDesc = basicNode(&.{
             .name = "Move Component To",
             .inputs = &.{
                 // FIXME: what about pin names? :/
-                .exec,
-                .exec,
-                .exec,
-                Pin{.value=types.scene_component},
-                Pin{.value=primitive_types.vec3},
-                Pin{.value=primitive_types.vec4},
-                Pin{.value=primitive_types.bool_},
-                Pin{.value=primitive_types.bool_},
-                Pin{.value=primitive_types.f32_},
+                Pin{.primitive=.exec},
+                Pin{.primitive=.exec},
+                Pin{.primitive=.exec},
+                Pin{.primitive=.{.value=types.scene_component}},
+                Pin{.primitive=.{.value=primitive_types.vec3}},
+                Pin{.primitive=.{.value=primitive_types.vec4}},
+                Pin{.primitive=.{.value=primitive_types.bool_}},
+                Pin{.primitive=.{.value=primitive_types.bool_}},
+                Pin{.primitive=.{.value=primitive_types.f32_}},
             },
-            .outputs = &.{ Pin{.exec={}}},
+            .outputs = &.{ Pin{.primitive=.exec}},
         }),
 
         break_hit_result: NodeDesc =
@@ -581,91 +517,91 @@ pub const temp_ue = struct {
         cast: NodeDesc = basicNode(&.{
             .name = "cast",
             .inputs = &. {
-                .exec,
-                Pin{.value=types.actor},
+                exec,
+                exec,
             },
             .outputs = &.{
-                .exec,
-                .exec,
-                Pin{.value=types.actor},
+                exec,
+                exec,
+                Pin{.primitive=.{.value=types.actor}},
             },
         }),
 
         do_once: NodeDesc = basicNode(&.{
             .name = "do-once",
             .inputs = &. {
-                .exec,
-                .exec, // reset
-                Pin{.value=primitive_types.bool_}, // start closed
+                exec,
+                exec, // reset
+                Pin{.primitive=.{.value=primitive_types.bool_}}, // start closed
             },
             .outputs = &.{
-                Pin{.exec={}}, // completed
+                exec, // completed
             },
         }),
 
         fake_switch: NodeDesc = basicNode(&.{
             .name = "fake-switch",
             .inputs = &.{
-                .exec,
-                Pin{.value=primitive_types.f64_},
+                exec,
+                Pin{.primitive=.{.value=primitive_types.f64_}},
             },
             .outputs = &.{
-                .exec, // move to player
-                .exec, // move up
-                .exec, // dead
+                exec, // move to player
+                exec, // move up
+                exec, // dead
             },
         }),
 
         get_actor_location: NodeDesc = basicNode(&.{
             .name = "get-actor-location",
-            .inputs = &.{ Pin{.value=types.actor} },
-            .outputs = &.{ Pin{.value=primitive_types.vec3} },
+            .inputs = &.{ Pin{.primitive=.{.value=types.actor}} },
+            .outputs = &.{ Pin{.primitive=.{.value=primitive_types.vec3}} },
         }),
 
         get_actor_rotation: NodeDesc = basicNode(&.{
             .name = "get-actor-rotation",
-            .inputs = &.{ Pin{.value=types.actor} },
-            .outputs = &.{ Pin{.value=primitive_types.vec4} },
+            .inputs = &.{ Pin{.primitive=.{.value=types.actor}} },
+            .outputs = &.{ Pin{.primitive=.{.value=primitive_types.vec4}} },
         }),
 
         get_socket_location: NodeDesc = basicNode(&.{
             .name = "get-socket-location",
             .inputs = &.{
-                Pin{.value=types.actor},
-                Pin{.value=primitive_types.string},
+                Pin{.primitive=.{.value=types.actor}},
+                Pin{.primitive=.{.value=primitive_types.string}},
             },
-            .outputs = &.{ Pin{.value=primitive_types.vec3} },
+            .outputs = &.{ Pin{.primitive=.{.value=primitive_types.vec3}} },
         }),
 
         fake_sequence_3: NodeDesc = basicNode(&.{
             .name = "fake-sequence-3",
-            .inputs = &.{ .exec },
-            .outputs = &.{ .exec, .exec, .exec },
+            .inputs = &.{ exec },
+            .outputs = &.{ exec, exec, exec },
         }),
 
         single_line_trace_by_channel: NodeDesc = basicNode(&.{
             .name = "single-line-trace-by-channel",
             .inputs = &.{
-                .exec,
-                Pin{.value=primitive_types.vec3}, // start
-                Pin{.value=primitive_types.vec3}, // end
-                Pin{.value=types.trace_channels}, // channel
-                Pin{.value=primitive_types.bool_}, // trace-complex
-                Pin{.value=types.actor_list}, // actors-to-ignore
-                Pin{.value=types.draw_debug_types}, // draw-debug-type (default 'none)
-                Pin{.value=primitive_types.bool_}, // ignore-self (default false)
+                exec,
+                Pin{.primitive=.{.value=primitive_types.vec3}}, // start
+                Pin{.primitive=.{.value=primitive_types.vec3}}, // end
+                Pin{.primitive=.{.value=types.trace_channels}}, // channel
+                Pin{.primitive=.{.value=primitive_types.bool_}}, // trace-complex
+                Pin{.primitive=.{.value=types.actor_list}}, // actors-to-ignore
+                Pin{.primitive=.{.value=types.draw_debug_types}}, // draw-debug-type (default 'none)
+                Pin{.primitive=.{.value=primitive_types.bool_}}, // ignore-self (default false)
             },
             .outputs = &.{
-                .exec,
-                Pin{.value=types.hit_result}, // out hit
-                Pin{.value=primitive_types.bool_}, // did hit
+                exec,
+                Pin{.primitive=.{.value=types.hit_result}}, // out hit
+                Pin{.primitive=.{.value=primitive_types.bool_}}, // did hit
             },
         }),
 
         vector_length: NodeDesc = basicNode(&.{
             .name = "vector-length",
-            .inputs = &.{ Pin{.value=primitive_types.vec3} },
-            .outputs = &.{ Pin{.value=primitive_types.f64_} },
+            .inputs = &.{ Pin{.primitive=.{.value=primitive_types.vec3}} },
+            .outputs = &.{ Pin{.primitive=.{.value=primitive_types.f64_}} },
         }),
     }){};
 };
@@ -680,12 +616,12 @@ fn expectEqualTypes(actual: Type, expected: Type) !void {
 
 test "node types" {
     try std.testing.expectEqual(
-        builtin_nodes.@"+".getOutputs()[0].value,
+        builtin_nodes.@"+".getOutputs()[0].primitive.value,
         primitive_types.f64_,
     );
-    try std.testing.expect(temp_ue.nodes.custom_tick_entry.getOutputs()[0] == .exec);
+    try std.testing.expect(temp_ue.nodes.custom_tick_entry.getOutputs()[0].primitive == .exec);
     try expectEqualTypes(
-        temp_ue.nodes.break_hit_result.getOutputs()[2].value,
+        temp_ue.nodes.break_hit_result.getOutputs()[2].primitive.value,
         primitive_types.vec3
     );
 }
@@ -729,7 +665,7 @@ pub const Env = struct {
         return env;
     }
 
-    pub fn makeNode(self: @This(), kind: []const u8, extra: anytype) ?Node(@TypeOf(extra)) {
+    pub fn makeNode(self: @This(), kind: []const u8, extra: anytype) ?GraphTypes(@TypeOf(extra)).Node {
         return if (self.nodes.getPtr(kind)) |desc|
             .{ .desc = desc, .extra = extra }
         else

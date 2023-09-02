@@ -7,7 +7,6 @@ const testing = std.testing;
 const json = std.json;
 
 const innerParse = json.innerParse;
-const innerParseFromValue = json.innerParseFromValue;
 
 const JsonIntArrayHashMap = @import("./json_int_map.zig").IntArrayHashMap;
 
@@ -17,11 +16,12 @@ const ide_json_gen = @import("./ide_json_gen.zig");
 
 const RearBitSubSet = @import("./RearBitSubSet.zig").RearBitSubSet;
 
-// FIXME: rename
 const Env = @import("./nodes/builtin.zig").Env;
+const Value = @import("./nodes/builtin.zig").Value;
 const ExtraIndex = struct { index: usize };
-const IndexedNode = @import("./nodes/builtin.zig").Node(ExtraIndex);
-const IndexedLink = @import("./nodes/builtin.zig").Link(ExtraIndex);
+const GraphTypes = @import("./nodes/builtin.zig").GraphTypes(ExtraIndex);
+const IndexedNode = GraphTypes.Node;
+const IndexedLink = GraphTypes.Link;
 
 test {
     _ = @import("./nodes/builtin.zig");
@@ -69,6 +69,67 @@ fn err_explain(comptime R: type, e: GraphToSourceErr) R {
     return R.err(GraphToSourceErr.explain(e, global_alloc) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
 }
 
+const JsonNodeHandle = struct {
+    nodeId: i64,
+    handleIndex: u32,
+};
+
+const JsonNodeInput = union (enum) {
+    handle: JsonNodeHandle,
+    value: Value,
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
+        return switch (try source.peekNextTokenType()) {
+            .object_begin  => {
+                const object = try innerParse(struct {
+                    symbol: ?[]const u8 = null,
+                    nodeId: ?i64 = null,
+                    handleIndex: ?u32 = null,
+                }, allocator, source, options);
+
+                if (object.symbol) |symbol| {
+                    if (object.nodeId != null or object.handleIndex != null)
+                        return error.UnknownField;
+                    return .{.value = .{.symbol = symbol}};
+                }
+
+                if (object.nodeId != null and object.handleIndex != null) {
+                    if (object.symbol != null) return error.UnknownField;
+                    return .{ .handle = .{
+                        .nodeId = object.nodeId.?,
+                        .handleIndex = object.handleIndex.?
+                    } };
+                }
+
+                return error.MissingField;
+            },
+            .string => .{.value = .{.string = try innerParse([]const u8, allocator, source, options)}},
+            .number => .{.value = .{.number = try innerParse(f64, allocator, source, options)}},
+            .true, .false => .{.value = .{.bool = try innerParse(bool, allocator, source, options)}},
+            .null => _: {
+                _ = try source.next(); // consume null keyword
+                break :_ .{.value=.null};
+            },
+            else => error.UnexpectedToken,
+        };
+    }
+};
+
+const JsonNodeOutput = union (enum) {
+    handle: JsonNodeHandle,
+    null: void,
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
+        return switch (try source.peekNextTokenType()) {
+            .object_begin  => .{.handle = try innerParse(JsonNodeHandle, allocator, source, options)},
+            .null => _: {
+                _ = try source.next(); // consume null keyword
+                break :_ .null;
+            },
+            else => error.UnexpectedToken,
+        };
+    }
+};
 
 const JsonNode = struct {
     type: []const u8,
@@ -121,16 +182,16 @@ const GraphBuilder = struct {
         };
     }
 
-    pub fn getSingleExecFromEntry(entry: *const IndexedNode) Result(IndexedLink) {
-        var entry_exec = Result(IndexedLink).err("No exec pins on entry node");
-        for (entry.out_links, 0..) |out_link, i| {
-            const out_pin = entry.desc.getOutputs()[i];
-            if (out_pin == .exec) {
+    pub fn getSingleExecFromEntry(entry: *const IndexedNode) Result(GraphTypes.Output) {
+        var entry_exec = Result(GraphTypes.Output).err("No exec pins on entry node");
+        for (entry.outputs, 0..) |output, i| {
+            const out_type = entry.desc.getOutputs()[i];
+            if (out_type == .primitive and out_type.primitive == .exec) {
                 if (entry_exec.is_ok()) {
-                    entry_exec = Result(IndexedLink).err("Multiple exec pins on entry node");
+                    entry_exec = Result(GraphTypes.Output).err("Multiple exec pins on entry node");
                     return entry_exec;
                 }
-                entry_exec = Result(IndexedLink).ok(out_link);
+                entry_exec = Result(GraphTypes.Output).ok(output);
             }
         }
         return entry_exec;
@@ -243,14 +304,16 @@ const GraphBuilder = struct {
 
     /// link with other empty nodes in a graph
     pub fn linkNode(self: @This(), json_node: JsonNode, node: *IndexedNode) !void {
-        node.out_links = try self.alloc.alloc(IndexedLink, json_node.outputs.len);
-        errdefer self.alloc.free(node.out_links);
-        for (node.out_links, json_node.outputs) |*out_link, json_output| {
-            if (json_output != .handle)
-                continue;
-            out_link.* = IndexedLink{
-                .target = self.nodes.map.getPtr(json_output.handle.nodeId) orelse return error.LinkToUnknownNode,
-                .pin_index = json_output.handle.handleIndex,
+        node.outputs = try self.alloc.alloc(GraphTypes.Output, json_node.outputs.len);
+        errdefer self.alloc.free(node.outputs);
+
+        for (node.outputs, json_node.outputs) |*output, json_output| {
+            output.* = switch (json_output) {
+                .null => .null,
+                .handle => .{.link=.{
+                    .target = self.nodes.map.getPtr(json_output.handle.nodeId) orelse return error.LinkToUnknownNode,
+                    .pin_index = json_output.handle.handleIndex,
+                }}
             };
         }
     }
@@ -399,39 +462,49 @@ const GraphBuilder = struct {
         }
     }
 
-    fn toSexp(self: @This(), node: *const IndexedNode) Result(Sexp) {
-        var result = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
-        _ = node;
+    fn toSexp(self: @This(), in_link: GraphTypes.Input) Result(Sexp) {
+        const sexp = switch (in_link) {
+            .link => |v| _: {
+                // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
+                var result = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
 
-        // // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-        (result.list.addOne()
-            catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-        ).* = Sexp{ .symbol = node.type };
+                const node = v.target;
 
-        // FIXME: handle literals...
-        for (node.inputs) |input| {
-            //if (input != .pin)
-                //@panic("not yet supported!");
+                result.list.ensureTotalCapacityPrecise(node.inputs.len + 1)
+                    catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e});
 
-            const source_node = handle_srcnode_map.get(input)
-                orelse return Result(Sexp).fmt_err(global_alloc, "{} (handle {})",
-                    .{ error.undefinedInputHandle, input });
+                (result.list.addOne()
+                    // FIXME: for this case add a from_err helper?
+                    // and maybe c_from_err too to set allocator automatically?
+                    catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+                ).* = Sexp{ .symbol = node.desc.name };
 
-            const next = self.buildFromJsonEntry(source_node.*, alloc);
-            if (next.is_err())
-                return next;
+                for (node.inputs) |input| {
+                    const sexp_result = self.toSexp(input);
+                    const sexp = if (sexp_result.is_ok()) sexp_result.result else return sexp_result;
+                    (result.list.addOne()
+                        catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+                    ).* = sexp;
+                }
 
-            (result.list.addOne()
-                catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-            ).* = next.result;
-        }
+                break :_ result;
+            },
+            // FIXME: move to own func for Value=>Sexp?, or just make Value==Sexp now...
+            .value => |v| switch (v) {
+                .number => |u| Sexp{.float = u},
+                .string => |u| Sexp{.borrowedString = u},
+                .bool => |u| Sexp{.bool = u},
+                .null => |u| Sexp{.null = u}, // FIXME empty list?
+                .symbol => |u| Sexp{.symbol = u},
+            },
+        };
 
-        return Result(Sexp).ok(result);
+        return Result(Sexp).ok(sexp);
     }
 
     pub fn rootToSexp(self: @This()) Result(Sexp) {
         return if (self.entry) |entry|
-            self.toSexp(entry)
+            self.toSexp(.{.link=.{.target=entry, .pin_index=0}})
         else
             Result(Sexp).fmt_err(global_alloc, "no entry or not yet set", .{});
     }
