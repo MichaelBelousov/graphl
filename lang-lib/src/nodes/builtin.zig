@@ -33,6 +33,10 @@ pub const Value = union (enum) {
 pub const Pin = union (enum) {
     primitive: PrimitivePin,
     variadic: PrimitivePin,
+
+    pub fn isExec(self: @This()) bool {
+        return self == .primitive and self.primitive == .exec;
+    }
 };
 
 pub const NodeDesc = struct {
@@ -50,6 +54,27 @@ pub const NodeDesc = struct {
 
     pub fn getInputs(self: @This()) []const Pin { return self._getInputs(self); }
     pub fn getOutputs(self: @This()) []const Pin { return self._getOutputs(self); }
+
+    const FlowType = enum {
+        functionCall,
+        pure,
+        simpleBranch,
+    };
+
+    // FIXME: pre-calculate this at construction
+    pub fn isSimpleBranch(self: @This()) bool {
+        const is_branch = std.mem.eql(u8, node.target.desc.name, "if");
+        if (is_branch) {
+            std.debug.assert(node.target.desc.getOutputs().len == 2);
+            std.debug.assert(node.target.desc.getOutputs()[0].isExec());
+            std.debug.assert(node.target.desc.getOutputs()[1].isExec());
+        }
+        return is_branch;
+    }
+
+    pub fn isFunctionCall(self: @This()) bool {
+        return !self.isBranch();
+    }
 };
 
 pub fn GraphTypes(comptime Extra: type) type {

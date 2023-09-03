@@ -162,6 +162,7 @@ const GraphDoc = struct {
     imports: json.ArrayHashMap([]const Import) = empty_imports,
 };
 
+// FIXME: move out to own file...
 const GraphBuilder = struct {
     env: Env,
     // FIXME: add an optional debug step to verify topological order
@@ -174,6 +175,7 @@ const GraphBuilder = struct {
     entry: ?*const IndexedNode = null,
 
     const Self = @This();
+    const Types = GraphTypes;
 
     pub fn init(alloc: std.mem.Allocator, env: Env) Self {
         return Self {
@@ -462,7 +464,7 @@ const GraphBuilder = struct {
         }
     }
 
-    fn toSexp(self: @This(), in_link: GraphTypes.Input) Result(Sexp) {
+    fn nodeInputTreeToSexp(self: @This(), in_link: GraphTypes.Input) Result(Sexp) {
         const sexp = switch (in_link) {
             .link => |v| _: {
                 // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
@@ -502,11 +504,57 @@ const GraphBuilder = struct {
         return Result(Sexp).ok(sexp);
     }
 
+    const ToSexp = struct {
+        graph: *const GraphBuilder,
+
+        const NodeData = struct {
+            visited: u1,
+        };
+
+        const Context = struct {
+            data: std.MultiArrayList(NodeData) = .{},
+            block: std.SegmentedList(Sexp, 16) = .{},
+        };
+
+        pub fn toSexp(self: @This(), node: IndexedNode) Result(Sexp) {
+            var block = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
+            onNode(node, block);
+        }
+
+        pub fn onNode(self: @This(), node: IndexedNode, context: *Context) void {
+            if (node.target.desc.isSimpleBranch())
+                onBranchNode()
+            else
+                onFunctionCallNode();
+        }
+
+        // FIXME: refactor to find joins during this?
+        /// analyze the two branches as separate blocks, returning if its a join
+        pub fn onBranchNode(self: @This(), node: IndexedNode, context: *Context) void {
+            const then = std.SegmentedList(Sexp, 16){};
+            const else_ = std.SegmentedList(Sexp, 16){};
+        }
+
+        pub fn onFunctionCallNode(self: @This(), node: IndexedNode, context: *Context) void {
+            // FIXME: use an explicit stack
+            var maybe_curr_node = self.entry;
+            while (maybe_curr_node) |curr_node| {
+                const input_sexp = self.nodeInputTreeToSexp(.{.link=.{.target=entry, .pin_index=0}});
+
+                (result.list.addOne()
+                    catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+                ).* = Sexp{ .symbol = node.desc.name };
+
+                curr_node = null;
+            }
+        }
+    };
+
     pub fn rootToSexp(self: @This()) Result(Sexp) {
-        return if (self.entry) |entry|
-            self.toSexp(.{.link=.{.target=entry, .pin_index=0}})
-        else
-            Result(Sexp).fmt_err(global_alloc, "no entry or not yet set", .{});
+        if (self.entry == null)
+            return Result(Sexp).fmt_err(global_alloc, "no entry or not yet set", .{});
+
+        return ToSexp{.graph=&self}.toSexp(self.entry.?);
     }
 };
 
