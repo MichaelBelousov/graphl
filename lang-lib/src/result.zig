@@ -156,7 +156,7 @@ pub fn Result(comptime R: type) type {
                 return Self{
                     .result = undefined,
                     .err = e,
-                    .errCode = fmtStringId(e),
+                    .errCode = 1, // TODO: determine from e
                 };
             }
 

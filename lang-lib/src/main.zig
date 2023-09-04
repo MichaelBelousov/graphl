@@ -23,6 +23,9 @@ const GraphTypes = @import("./nodes/builtin.zig").GraphTypes(ExtraIndex);
 const IndexedNode = GraphTypes.Node;
 const IndexedLink = GraphTypes.Link;
 
+// NOTE: .always_tail is not fully implemented (won't throw an error)
+const debug_tail_call = if (builtin.mode == .Debug) .never_inline else .always_tail;
+
 test {
     _ = @import("./nodes/builtin.zig");
 }
@@ -115,26 +118,10 @@ const JsonNodeInput = union (enum) {
     }
 };
 
-const JsonNodeOutput = union (enum) {
-    handle: JsonNodeHandle,
-    null: void,
-
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: json.ParseOptions) !@This() {
-        return switch (try source.peekNextTokenType()) {
-            .object_begin  => .{.handle = try innerParse(JsonNodeHandle, allocator, source, options)},
-            .null => _: {
-                _ = try source.next(); // consume null keyword
-                break :_ .null;
-            },
-            else => error.UnexpectedToken,
-        };
-    }
-};
-
 const JsonNode = struct {
     type: []const u8,
     inputs: []const ?JsonNodeInput = &.{},
-    outputs: []const JsonNodeOutput = &.{},
+    outputs: []const ?JsonNodeHandle = &.{},
     // FIXME: create zig type json type that treats optionals not as possibly null but as possibly missing
     data: struct {
         isEntry: bool = false,
@@ -165,22 +152,29 @@ const GraphDoc = struct {
 // FIXME: move out to own file...
 const GraphBuilder = struct {
     env: Env,
-    // FIXME: add an optional debug step to verify topological order
+    // FIXME: does this need to be in topological order? Is that advantageous?
     /// map of json node ids to its real node,
-    /// in topological order!
     nodes: JsonIntArrayHashMap(i64, IndexedNode, 10) = .{},
     alloc: std.mem.Allocator,
-    err_alloc: std.mem.Allocator = global_alloc, // this must be freeable by exported API users
+    err_alloc: std.mem.Allocator = global_alloc, // TODO: this must be freeable by exported API users
+    // FIXME: fill the analysis context instead of keeping this in the graph metadata itself
     branch_joiner_map: std.AutoHashMapUnmanaged(*const IndexedNode, *const IndexedNode) = .{},
+    is_join_set: std.DynamicBitSetUnmanaged,
     entry: ?*const IndexedNode = null,
 
     const Self = @This();
     const Types = GraphTypes;
 
-    pub fn init(alloc: std.mem.Allocator, env: Env) Self {
+    pub fn isJoin(self: @This(), node: *const IndexedNode) bool {
+        return self.is_join_set.isSet(node.extra.index);
+    }
+
+    // FIXME: remove buildFromJson and just do it all in init?
+    pub fn init(alloc: std.mem.Allocator, env: Env) !Self {
         return Self {
             .env = env,
             .alloc = alloc,
+            .is_join_set = try std.DynamicBitSetUnmanaged.initEmpty(alloc, 0),
         };
     }
 
@@ -205,19 +199,17 @@ const GraphBuilder = struct {
     ) Result(void) {
         const entry_result = self.populateAndReturnEntry(json_graph);
         if (entry_result.is_err()) return entry_result.err_as(void);
-        // PLEASE RENAME TO .value
+
         const entry = if (entry_result.is_err())
+            // also let's make it not nullable since it's required...
             return entry_result.err_as(void)
+            // PLEASE RENAME TO .value
             else entry_result.result;
 
         self.entry = entry;
 
         const link_result = self.link(json_graph);
         if (link_result.is_err()) return link_result;
-
-        const exec_handle_result = Self.getSingleExecFromEntry(entry);
-        const exec_handle = if (exec_handle_result.is_err()) return exec_handle_result.err_as(void) else exec_handle_result.result;
-        _ = exec_handle;
 
         return Result(void).ok({});
     }
@@ -280,6 +272,9 @@ const GraphBuilder = struct {
 
             self.branch_joiner_map.ensureTotalCapacity(self.alloc, branch_count)
                 catch |e| { result = Result(*const IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
+
+            self.is_join_set.resize(self.alloc, self.nodes.map.count(), false)
+                catch |e| { result = Result(*const IndexedNode).fmt_err(self.err_alloc, "{}", .{e}); return result; };
         }
 
         return result;
@@ -306,17 +301,16 @@ const GraphBuilder = struct {
 
     /// link with other empty nodes in a graph
     pub fn linkNode(self: @This(), json_node: JsonNode, node: *IndexedNode) !void {
-        node.outputs = try self.alloc.alloc(GraphTypes.Output, json_node.outputs.len);
+        node.outputs = try self.alloc.alloc(?GraphTypes.Output, json_node.outputs.len);
         errdefer self.alloc.free(node.outputs);
 
-        for (node.outputs, json_node.outputs) |*output, json_output| {
-            output.* = switch (json_output) {
-                .null => .null,
-                .handle => .{.link=.{
-                    .target = self.nodes.map.getPtr(json_output.handle.nodeId) orelse return error.LinkToUnknownNode,
-                    .pin_index = json_output.handle.handleIndex,
-                }}
-            };
+        for (node.outputs, json_node.outputs) |*output, maybe_json_output| {
+            if (maybe_json_output) |json_output| {
+                output.* = .{.link=.{
+                    .target = self.nodes.map.getPtr(json_output.nodeId) orelse return error.LinkToUnknownNode,
+                    .pin_index = json_output.handleIndex,
+                }};
+            }
         }
     }
 
@@ -345,6 +339,7 @@ const GraphBuilder = struct {
     pub fn analyzeNodes(self: @This()) Result(void) {
         var result = Result(void).ok({});
         defer if (result.is_err()) self.branch_joiner_map.clearAndFree(self.alloc);
+        defer if (result.is_err()) self.is_join_set.deinit(self.alloc);
 
         var analysis_ctx: AnalysisCtx = .{};
         defer analysis_ctx.deinit(self.alloc);
@@ -401,9 +396,12 @@ const GraphBuilder = struct {
 
         const result = self.doAnalyzeBranch(branch, analysis_ctx);
 
-        if (result.is_ok())
-            self.branch_joiner_map.put(result.result)
+        if (result.is_ok()) {
+            const value = result.value;
+            self.branch_joiner_map.put(value)
                 catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
+            self.is_join_set.set(value.extra.index, true);
+        }
 
         return result;
     }
@@ -476,61 +474,62 @@ const GraphBuilder = struct {
             visited: u1,
         };
 
-        const Block = std.SegmentedList(Sexp, 16);
+        // must be same as sexp...
+        const Block = std.ArrayList(Sexp);
 
         const Context = struct {
             node_data: std.MultiArrayList(NodeData) = .{},
-            block: Block = .{},
+            block: Block,
         };
 
         pub fn toSexp(self: @This(), node: *const IndexedNode) Result(Sexp) {
-            var block = Block{};
-            @call(debug_tail_call, onNode, .{node, block});
+            var ctx = Context{ .block = Block.init(self.graph.alloc) };
+            const result = self.onNode(node, &ctx);
+            if (result.is_err()) return result.err_as(Sexp);
+            return Result(Sexp).ok(Sexp{.list = ctx.block });
         }
 
-        // FIXME: tail calling is not fully implemented (won't throw an error)
-        pub fn onNode(self: @This(), node: *const IndexedNode, context: *Context) Result(Sexp) {
+        pub fn onNode(self: @This(), node: *const IndexedNode, context: *Context) Result(void) {
             // FIXME: not handled
-            if (context.node_data.slice(.visited).get(node.extra.index))
-                return Result(void).ok({});
+            if (context.node_data.items(.visited)[node.extra.index] == 1)
+                return Result(void).err("Cycle detected! This isn't yet supported.");
 
-            context.node_data.slice(.visited).set(node.extra.index, true);
+            context.node_data.items(.visited)[node.extra.index] = 1;
 
             return if (node.desc.isSimpleBranch())
-                @call(debug_tail_call, onBranchNode, .{node, context})
+                @call(debug_tail_call, onBranchNode, .{self, node, context})
             else
-                @call(debug_tail_call, onFunctionCallNode, .{node, context});
+                @call(debug_tail_call, onFunctionCallNode, .{self, node, context});
         }
 
         // FIXME: refactor to find joins during this?
-        /// analyze the two branches as separate blocks, returning on a join
         pub fn onBranchNode(self: @This(), node: *const IndexedNode, context: *Context) Result(void) {
             std.debug.assert(node.desc.isSimpleBranch());
 
             var consequence_sexp: Sexp = undefined;
             var alternative_sexp: Sexp = undefined;
 
-            // FIXME: use an enum of node types
             if (node.outputs[0]) |consequence| {
-                const consequence_result = self.onNode(consequence.link, .{
+                var consequence_ctx = Context{
                     .node_data = context.node_data,
-                    .block = Block{},
-                });
-                consequence_sexp = if (consequence_result.is_ok()) consequence_result.result
-                    else return consequence_result.err_as(void);
+                    .block = Block.init(self.graph.alloc),
+                };
+                const consequence_result = self.onNode(consequence.link.target, &consequence_ctx);
+                if (consequence_result.is_err()) return consequence_result;
+                consequence_sexp = Sexp{.list = consequence_ctx.block};
             }
 
-            const alternative_block = Block{};
             if (node.outputs[1]) |alternative| {
-                const alternative_result = self.onNode(alternative.link, .{
+                var alternative_ctx = Context{
                     .node_data = context.node_data,
-                    .block = Block{},
-                });
-                alternative_sexp = if (alternative_result.is_ok()) alternative_result.result
-                    else return alternative_result.err_as(void);
+                    .block = Block.init(self.graph.alloc),
+                };
+                const alternative_result = self.onNode(alternative.link.target, &alternative_ctx);
+                if (alternative_result.is_err()) return alternative_result;
+                alternative_sexp = Sexp{.list = alternative_ctx.block};
             }
 
-            var branch_sexp = context.block.addOne(self.graph.alloc)
+            var branch_sexp = context.block.addOne()
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e});
 
             // FIXME: errdefer, maybe just force an arena and call it a day?
@@ -558,20 +557,18 @@ const GraphBuilder = struct {
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
             ).* = alternative_sexp;
 
-            (context.block.addOne(self.graph.alloc)
-                catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
-            ).* = branch_sexp;
-
-            if (self.graph.branch_joiner_map.get(&node)) |join| {
-                @call(debug_tail_call, onNode, .{join, context})
+            if (self.graph.branch_joiner_map.get(node)) |join| {
+                return @call(debug_tail_call, onNode, .{self, join, context});
             }
+
+            return Result(void).ok({});
         }
 
         pub fn onFunctionCallNode(self: @This(), node: *const IndexedNode, context: *Context) Result(void) {
-            if (isJoin())
-                return;
+            if (self.graph.isJoin(node))
+                return Result(void).ok({});
 
-            var call_sexp = context.block.addOne(self.graph.alloc)
+            var call_sexp = context.block.addOne()
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e});
 
             // FIXME: errdefer
@@ -581,21 +578,25 @@ const GraphBuilder = struct {
             ).* = Sexp{ .symbol = node.desc.name };
 
             for (node.inputs[1..]) |input| {
+                const input_tree_result = self.nodeInputTreeToSexp(input);
+                const input_tree = if (input_tree_result.is_ok()) input_tree_result.result else return input_tree_result.err_as(void);
                 (call_sexp.list.addOne()
                     catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
-                ).* = nodeInputTreeToSexp(input);
+                ).* = input_tree;
             }
 
-            const next = node.outputs[0].link.target;
+            if (node.outputs[0]) |next| {
+                return @call(debug_tail_call, onNode, .{self, next.link.target, context});
+            }
 
-            return @call(debug_tail_call, onNode, .{next});
+            return Result(void).ok({});
         }
 
         fn nodeInputTreeToSexp(self: @This(), in_link: GraphTypes.Input) Result(Sexp) {
             const sexp = switch (in_link) {
                 .link => |v| _: {
                     // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-                    var result = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
+                    var result = Sexp{ .list = std.ArrayList(Sexp).init(self.graph.alloc) };
 
                     const node = v.target;
 
@@ -609,7 +610,7 @@ const GraphBuilder = struct {
                     ).* = Sexp{ .symbol = node.desc.name };
 
                     for (node.inputs) |input| {
-                        const sexp_result = self.toSexp(input);
+                        const sexp_result = self.nodeInputTreeToSexp(input);
                         const sexp = if (sexp_result.is_ok()) sexp_result.result else return sexp_result;
                         (result.list.addOne()
                             catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
@@ -706,7 +707,8 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
         }
     }
 
-    var builder = GraphBuilder.init(arena_alloc, env);
+    var builder = GraphBuilder.init(arena_alloc, env)
+        catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
     const build_result = builder.buildFromJson(graph);
     if (build_result.is_err()) return build_result.err_as([]const u8);
 

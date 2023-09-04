@@ -63,11 +63,11 @@ pub const NodeDesc = struct {
 
     // FIXME: pre-calculate this at construction (or cache it?)
     pub fn isSimpleBranch(self: @This()) bool {
-        const is_branch = std.mem.eql(u8, node.target.desc.name, "if");
+        const is_branch = std.mem.eql(u8, self.name, "if");
         if (is_branch) {
-            std.debug.assert(node.target.desc.getOutputs().len == 2);
-            std.debug.assert(node.target.desc.getOutputs()[0].isExec());
-            std.debug.assert(node.target.desc.getOutputs()[1].isExec());
+            std.debug.assert(self.getOutputs().len == 2);
+            std.debug.assert(self.getOutputs()[0].isExec());
+            std.debug.assert(self.getOutputs()[1].isExec());
         }
         return is_branch;
     }
