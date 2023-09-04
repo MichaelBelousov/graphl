@@ -483,56 +483,112 @@ const GraphBuilder = struct {
             block: Block = .{},
         };
 
-        pub fn toSexp(self: @This(), node: IndexedNode) Result(Sexp) {
-            var block = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
-            @call(.always_tail, onNode, .{node, block});
+        pub fn toSexp(self: @This(), node: *const IndexedNode) Result(Sexp) {
+            var block = Block{};
+            @call(debug_tail_call, onNode, .{node, block});
         }
 
         // FIXME: tail calling is not fully implemented (won't throw an error)
-        pub fn onNode(self: @This(), node: IndexedNode, context: *Context) void {
-            if (node.desc.isSimpleBranch())
-                @call(.always_tail, onBranchNode, .{node, context})
+        pub fn onNode(self: @This(), node: *const IndexedNode, context: *Context) Result(Sexp) {
+            // FIXME: not handled
+            if (context.node_data.slice(.visited).get(node.extra.index))
+                return Result(void).ok({});
+
+            context.node_data.slice(.visited).set(node.extra.index, true);
+
+            return if (node.desc.isSimpleBranch())
+                @call(debug_tail_call, onBranchNode, .{node, context})
             else
-                @call(.always_tail, onFunctionCallNode, .{node, context});
+                @call(debug_tail_call, onFunctionCallNode, .{node, context});
         }
 
         // FIXME: refactor to find joins during this?
         /// analyze the two branches as separate blocks, returning on a join
-        pub fn onBranchNode(self: @This(), node: IndexedNode, context: *Context) Result(void) {
+        pub fn onBranchNode(self: @This(), node: *const IndexedNode, context: *Context) Result(void) {
             std.debug.assert(node.desc.isSimpleBranch());
 
+            var consequence_sexp: Sexp = undefined;
+            var alternative_sexp: Sexp = undefined;
+
             // FIXME: use an enum of node types
-            const consequence_block = Block{};
-            const consequence = node.outputs[0]; // asserted by caller
-            const consequence_sexp = self.onNode();
+            if (node.outputs[0]) |consequence| {
+                const consequence_result = self.onNode(consequence.link, .{
+                    .node_data = context.node_data,
+                    .block = Block{},
+                });
+                consequence_sexp = if (consequence_result.is_ok()) consequence_result.result
+                    else return consequence_result.err_as(void);
+            }
 
             const alternative_block = Block{};
-            const alternative = node.outputs[1];
-            const alternative_sexp = self.onNode();
+            if (node.outputs[1]) |alternative| {
+                const alternative_result = self.onNode(alternative.link, .{
+                    .node_data = context.node_data,
+                    .block = Block{},
+                });
+                alternative_sexp = if (alternative_result.is_ok()) alternative_result.result
+                    else return alternative_result.err_as(void);
+            }
 
+            var branch_sexp = context.block.addOne(self.graph.alloc)
+                catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e});
+
+            // FIXME: errdefer, maybe just force an arena and call it a day?
+            branch_sexp.* = Sexp{ .list = std.ArrayList(Sexp).init(self.graph.alloc) };
+
+            // (if
+            (branch_sexp.list.addOne()
+                catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
+            ).* = Sexp{ .symbol = node.desc.name };
+
+            // condition
+            const condition_result = self.nodeInputTreeToSexp(node.inputs[1]);
+            const condition_sexp = if (condition_result.is_ok()) condition_result.result else return condition_result.err_as(void);
+            (branch_sexp.list.addOne()
+                catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
+            ).* = condition_sexp;
+
+            // FIXME: wish I could make this more terse...
+            (branch_sexp.list.addOne()
+                catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
+            ).* = consequence_sexp;
+
+            // alternative
+            (branch_sexp.list.addOne()
+                catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
+            ).* = alternative_sexp;
+
+            (context.block.addOne(self.graph.alloc)
+                catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
+            ).* = branch_sexp;
+
+            if (self.graph.branch_joiner_map.get(&node)) |join| {
+                @call(debug_tail_call, onNode, .{join, context})
+            }
         }
 
-        pub fn onFunctionCallNode(self: @This(), node: IndexedNode, context: *Context) Result(void) {
+        pub fn onFunctionCallNode(self: @This(), node: *const IndexedNode, context: *Context) Result(void) {
             if (isJoin())
                 return;
 
-            var call_sexp = result.list.addOne()
-                catch |e| return Result(Sexp).c_fmt_err("{}", .{e});
+            var call_sexp = context.block.addOne(self.graph.alloc)
+                catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e});
 
+            // FIXME: errdefer
             call_sexp.* = Sexp{ .list = std.ArrayList(Sexp).init(self.graph.alloc) };
             (call_sexp.list.addOne()
-                catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+                catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
             ).* = Sexp{ .symbol = node.desc.name };
 
             for (node.inputs[1..]) |input| {
                 (call_sexp.list.addOne()
-                    catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-                ).* = Sexp{ .symbol = node.desc.name };
+                    catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
+                ).* = nodeInputTreeToSexp(input);
             }
 
             const next = node.outputs[0].link.target;
 
-            @call(.always_tail, onNode, .{next});
+            return @call(debug_tail_call, onNode, .{next});
         }
 
         fn nodeInputTreeToSexp(self: @This(), in_link: GraphTypes.Input) Result(Sexp) {

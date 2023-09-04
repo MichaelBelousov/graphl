@@ -91,19 +91,19 @@ pub fn GraphTypes(comptime Extra: type) type {
             value: Value,
         };
 
-        pub const Output = union (enum) {
+        pub const Output = struct {
             link: Link,
-            null: void,
         };
 
         pub const Node = struct {
             desc: *const NodeDesc,
             extra: Extra,
             comment: ?[]const u8 = null,
+            // FIMXE: how do we handle default inputs?
             inputs: []Input = &.{},
-            outputs: []Output = &.{},
+            outputs: []?Output = &.{},
 
-            // FIXME: might be worth replacing this with a per-builtin-type getter
+            // FIXME: replace this, each node belongs to a well defined flow control archetype
             pub const OutExecIterator = struct {
                 index: usize = 0,
                 node: *const Node,
