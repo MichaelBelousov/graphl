@@ -61,7 +61,7 @@ pub const NodeDesc = struct {
         simpleBranch,
     };
 
-    // FIXME: pre-calculate this at construction
+    // FIXME: pre-calculate this at construction (or cache it?)
     pub fn isSimpleBranch(self: @This()) bool {
         const is_branch = std.mem.eql(u8, node.target.desc.name, "if");
         if (is_branch) {

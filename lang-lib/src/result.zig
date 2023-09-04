@@ -1,9 +1,13 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 // TODO: use this for a compressed logging library
-fn fmtStringId(comptime fmt_str: []const u8) usize {
+fn fmtStringId(
+    comptime fmt_str: []const u8
+    // FIXME: also need to take the args into account, which can be done by generating a custom type
+    // comptime fmt_args_type: type
+) usize {
     return @intFromPtr(fmt_str.ptr);
-    //return @intFromPtr(fmt_str.ptr);
 }
 
 fn ResultDecls(comptime R: type, comptime Self: type) type {
@@ -49,6 +53,12 @@ fn ResultDecls(comptime R: type, comptime Self: type) type {
                 .err = std.fmt.allocPrintZ(alloc, "Error: " ++ fmt_str, fmt_args) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}),
                 .errCode = fmtStringId(fmt_str),
             };
+        }
+
+        pub fn c_fmt_err(comptime fmt_str: []const u8, fmt_args: anytype) Self {
+            return if (builtin.link_libc)
+                Result(@TypeOf(R.result)).fmt_err(std.heap.raw_c_allocator, fmt_str, fmt_args)
+            else @compileError("Must compile with libc");
         }
     };
 }
@@ -103,6 +113,12 @@ pub fn Result(comptime R: type) type {
                     .errCode = fmtStringId(fmt_str),
                 };
             }
+
+            pub fn c_fmt_err(comptime fmt_str: []const u8, fmt_args: anytype) Self {
+                return if (builtin.link_libc)
+                    Result(@TypeOf(R.result)).fmt_err(std.heap.raw_c_allocator, fmt_str, fmt_args)
+                else @compileError("Must compile with libc");
+            }
         };
     } else {
         return struct {
@@ -133,14 +149,14 @@ pub fn Result(comptime R: type) type {
                 };
             }
 
-            /// NOTE: this is designed to be free'd from C libraries, and as such, you
+            /// FIXME: this is designed to be free'd from C libraries, and the current implementation
+            /// doesn't support that for string literals
             /// you can't pass a string literal to it
             pub fn err(e: [*:0]const u8) Self {
                 return Self{
                     .result = undefined,
                     .err = e,
-                    // FIXME: not used
-                    .errCode = 1,
+                    .errCode = fmtStringId(e),
                 };
             }
 
@@ -159,6 +175,12 @@ pub fn Result(comptime R: type) type {
                     .err = std.fmt.allocPrintZ(alloc, "Error: " ++ fmt_str, fmt_args) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}),
                     .errCode = fmtStringId(fmt_str),
                 };
+            }
+
+            pub fn c_fmt_err(comptime fmt_str: []const u8, fmt_args: anytype) Self {
+                return if (builtin.link_libc)
+                    Result(@TypeOf(R.result)).fmt_err(std.heap.raw_c_allocator, fmt_str, fmt_args)
+                else @compileError("Must compile with libc");
             }
         };
     }

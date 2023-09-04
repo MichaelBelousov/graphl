@@ -464,46 +464,11 @@ const GraphBuilder = struct {
         }
     }
 
-    fn nodeInputTreeToSexp(self: @This(), in_link: GraphTypes.Input) Result(Sexp) {
-        const sexp = switch (in_link) {
-            .link => |v| _: {
-                // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-                var result = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
-
-                const node = v.target;
-
-                result.list.ensureTotalCapacityPrecise(node.inputs.len + 1)
-                    catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e});
-
-                (result.list.addOne()
-                    // FIXME: for this case add a from_err helper?
-                    // and maybe c_from_err too to set allocator automatically?
-                    catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-                ).* = Sexp{ .symbol = node.desc.name };
-
-                for (node.inputs) |input| {
-                    const sexp_result = self.toSexp(input);
-                    const sexp = if (sexp_result.is_ok()) sexp_result.result else return sexp_result;
-                    (result.list.addOne()
-                        catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-                    ).* = sexp;
-                }
-
-                break :_ result;
-            },
-            // FIXME: move to own func for Value=>Sexp?, or just make Value==Sexp now...
-            .value => |v| switch (v) {
-                .number => |u| Sexp{.float = u},
-                .string => |u| Sexp{.borrowedString = u},
-                .bool => |u| Sexp{.bool = u},
-                .null => .void,
-                .symbol => |u| Sexp{.symbol = u},
-            },
-        };
-
-        return Result(Sexp).ok(sexp);
-    }
-
+    /// overall algorithm:
+    /// 1. allocate a "block" for the path
+    /// 2. traverse the exec tree starting at the entry, stopping before any join nodes
+    /// 3. when encountering a branch, recurse on the paths starting with the consequence and alternative
+    ///    to build the branch expression, then continue the path starting from its join
     const ToSexp = struct {
         graph: *const GraphBuilder,
 
@@ -511,42 +476,103 @@ const GraphBuilder = struct {
             visited: u1,
         };
 
+        const Block = std.SegmentedList(Sexp, 16);
+
         const Context = struct {
-            data: std.MultiArrayList(NodeData) = .{},
-            block: std.SegmentedList(Sexp, 16) = .{},
+            node_data: std.MultiArrayList(NodeData) = .{},
+            block: Block = .{},
         };
 
         pub fn toSexp(self: @This(), node: IndexedNode) Result(Sexp) {
             var block = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
-            onNode(node, block);
+            @call(.always_tail, onNode, .{node, block});
         }
 
+        // FIXME: tail calling is not fully implemented (won't throw an error)
         pub fn onNode(self: @This(), node: IndexedNode, context: *Context) void {
-            if (node.target.desc.isSimpleBranch())
-                onBranchNode()
+            if (node.desc.isSimpleBranch())
+                @call(.always_tail, onBranchNode, .{node, context})
             else
-                onFunctionCallNode();
+                @call(.always_tail, onFunctionCallNode, .{node, context});
         }
 
         // FIXME: refactor to find joins during this?
-        /// analyze the two branches as separate blocks, returning if its a join
-        pub fn onBranchNode(self: @This(), node: IndexedNode, context: *Context) void {
-            const then = std.SegmentedList(Sexp, 16){};
-            const else_ = std.SegmentedList(Sexp, 16){};
+        /// analyze the two branches as separate blocks, returning on a join
+        pub fn onBranchNode(self: @This(), node: IndexedNode, context: *Context) Result(void) {
+            std.debug.assert(node.desc.isSimpleBranch());
+
+            // FIXME: use an enum of node types
+            const consequence_block = Block{};
+            const consequence = node.outputs[0]; // asserted by caller
+            const consequence_sexp = self.onNode();
+
+            const alternative_block = Block{};
+            const alternative = node.outputs[1];
+            const alternative_sexp = self.onNode();
+
         }
 
-        pub fn onFunctionCallNode(self: @This(), node: IndexedNode, context: *Context) void {
-            // FIXME: use an explicit stack
-            var maybe_curr_node = self.entry;
-            while (maybe_curr_node) |curr_node| {
-                const input_sexp = self.nodeInputTreeToSexp(.{.link=.{.target=entry, .pin_index=0}});
+        pub fn onFunctionCallNode(self: @This(), node: IndexedNode, context: *Context) Result(void) {
+            if (isJoin())
+                return;
 
-                (result.list.addOne()
+            var call_sexp = result.list.addOne()
+                catch |e| return Result(Sexp).c_fmt_err("{}", .{e});
+
+            call_sexp.* = Sexp{ .list = std.ArrayList(Sexp).init(self.graph.alloc) };
+            (call_sexp.list.addOne()
+                catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+            ).* = Sexp{ .symbol = node.desc.name };
+
+            for (node.inputs[1..]) |input| {
+                (call_sexp.list.addOne()
                     catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
                 ).* = Sexp{ .symbol = node.desc.name };
-
-                curr_node = null;
             }
+
+            const next = node.outputs[0].link.target;
+
+            @call(.always_tail, onNode, .{next});
+        }
+
+        fn nodeInputTreeToSexp(self: @This(), in_link: GraphTypes.Input) Result(Sexp) {
+            const sexp = switch (in_link) {
+                .link => |v| _: {
+                    // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
+                    var result = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
+
+                    const node = v.target;
+
+                    result.list.ensureTotalCapacityPrecise(node.inputs.len + 1)
+                        catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e});
+
+                    (result.list.addOne()
+                        // FIXME: for this case add a from_err helper?
+                        // and maybe c_from_err too to set allocator automatically?
+                        catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+                    ).* = Sexp{ .symbol = node.desc.name };
+
+                    for (node.inputs) |input| {
+                        const sexp_result = self.toSexp(input);
+                        const sexp = if (sexp_result.is_ok()) sexp_result.result else return sexp_result;
+                        (result.list.addOne()
+                            catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
+                        ).* = sexp;
+                    }
+
+                    break :_ result;
+                },
+                // FIXME: move to own func for Value=>Sexp?, or just make Value==Sexp now...
+                .value => |v| switch (v) {
+                    .number => |u| Sexp{.float = u},
+                    .string => |u| Sexp{.borrowedString = u},
+                    .bool => |u| Sexp{.bool = u},
+                    .null => .void,
+                    .symbol => |u| Sexp{.symbol = u},
+                },
+            };
+
+            return Result(Sexp).ok(sexp);
         }
     };
 
@@ -554,7 +580,7 @@ const GraphBuilder = struct {
         if (self.entry == null)
             return Result(Sexp).fmt_err(global_alloc, "no entry or not yet set", .{});
 
-        return ToSexp{.graph=&self}.toSexp(self.entry.?);
+        return (ToSexp{.graph=&self}).toSexp(self.entry.?);
     }
 };
 
