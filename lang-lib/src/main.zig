@@ -483,7 +483,11 @@ const GraphBuilder = struct {
         };
 
         pub fn toSexp(self: @This(), node: *const IndexedNode) Result(Sexp) {
-            var ctx = Context{ .block = Block.init(self.graph.alloc) };
+            var ctx = Context{
+                .block = Block.init(self.graph.alloc),
+            };
+            ctx.node_data.resize(self.graph.alloc, self.graph.nodes.map.count())
+                catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e});
             const result = self.onNode(node, &ctx);
             if (result.is_err()) return result.err_as(Sexp);
             return Result(Sexp).ok(Sexp{.list = ctx.block });
@@ -573,9 +577,14 @@ const GraphBuilder = struct {
 
             // FIXME: errdefer
             call_sexp.* = Sexp{ .list = std.ArrayList(Sexp).init(self.graph.alloc) };
+
             (call_sexp.list.addOne()
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
             ).* = Sexp{ .symbol = node.desc.name };
+
+            if (node.inputs.len == 0) {
+                std.debug.print("desc: {s}\n", .{node.desc.name});
+            }
 
             for (node.inputs[1..]) |input| {
                 const input_tree_result = self.nodeInputTreeToSexp(input);
@@ -634,10 +643,11 @@ const GraphBuilder = struct {
     };
 
     pub fn rootToSexp(self: @This()) Result(Sexp) {
-        if (self.entry == null)
-            return Result(Sexp).fmt_err(global_alloc, "no entry or not yet set", .{});
-
-        return (ToSexp{.graph=&self}).toSexp(self.entry.?);
+        return if (self.entry) |entry|
+            if (entry.outputs[0]) |first_node|
+                (ToSexp{.graph=&self}).toSexp(first_node.link.target)
+            else Result(Sexp).ok(.void)
+        else Result(Sexp).fmt_err(global_alloc, "no entry or not yet set", .{});
     }
 };
 
