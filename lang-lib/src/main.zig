@@ -301,6 +301,21 @@ const GraphBuilder = struct {
 
     /// link with other empty nodes in a graph
     pub fn linkNode(self: @This(), json_node: JsonNode, node: *IndexedNode) !void {
+        node.inputs = try self.alloc.alloc(GraphTypes.Input, json_node.inputs.len);
+        errdefer self.alloc.free(node.inputs);
+
+        for (node.inputs, json_node.inputs) |*input, maybe_json_input| {
+            if (maybe_json_input) |json_input| {
+                input.* = switch (json_input) {
+                    .handle => |h| .{.link=.{
+                        .target = self.nodes.map.getPtr(h.nodeId) orelse return error.LinkToUnknownNode,
+                        .pin_index = h.handleIndex,
+                    }},
+                    .value => |v| .{.value = v},
+                };
+            }
+        }
+
         node.outputs = try self.alloc.alloc(?GraphTypes.Output, json_node.outputs.len);
         errdefer self.alloc.free(node.outputs);
 
@@ -584,6 +599,11 @@ const GraphBuilder = struct {
 
             if (node.inputs.len == 0) {
                 std.debug.print("desc: {s}\n", .{node.desc.name});
+                std.debug.print("inputs:\n", .{});
+                for (node.inputs) |input| {
+                    std.debug.print("- {any}\n", .{input});
+                }
+                std.debug.print("inputs done\n", .{});
             }
 
             for (node.inputs[1..]) |input| {
