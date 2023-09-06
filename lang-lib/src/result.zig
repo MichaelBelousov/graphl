@@ -22,7 +22,7 @@ fn ResultDecls(comptime R: type, comptime Self: type) type {
 
         pub fn ok(r: R) Self {
             return Self{
-                .result = r,
+                .value = r,
                 .err = null,
                 .errCode = 0,
             };
@@ -30,7 +30,7 @@ fn ResultDecls(comptime R: type, comptime Self: type) type {
 
         pub fn err(e: [*:0]const u8) Self {
             return Self{
-                .result = undefined,
+                .value = undefined,
                 .err = e,
                 // FIXME: not used
                 .errCode = 1,
@@ -40,7 +40,7 @@ fn ResultDecls(comptime R: type, comptime Self: type) type {
         pub fn err_as(self: @This(), comptime T: type) Result(T) {
             std.debug.assert(self.is_err());
             return Result(T) {
-                .result = undefined,
+                .value = undefined,
                 .err = self.err,
                 .errCode = self.errCode,
             };
@@ -49,7 +49,7 @@ fn ResultDecls(comptime R: type, comptime Self: type) type {
 
         pub fn fmt_err(alloc: std.mem.Allocator, comptime fmt_str: []const u8, fmt_args: anytype) Self {
             return Self{
-                .result = undefined,
+                .value = undefined,
                 .err = std.fmt.allocPrintZ(alloc, "Error: " ++ fmt_str, fmt_args) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}),
                 .errCode = fmtStringId(fmt_str),
             };
@@ -57,7 +57,7 @@ fn ResultDecls(comptime R: type, comptime Self: type) type {
 
         pub fn c_fmt_err(comptime fmt_str: []const u8, fmt_args: anytype) Self {
             return if (builtin.link_libc)
-                Result(@TypeOf(R.result)).fmt_err(std.heap.raw_c_allocator, fmt_str, fmt_args)
+                Result(@TypeOf(R.value)).fmt_err(std.heap.raw_c_allocator, fmt_str, fmt_args)
             else @compileError("Must compile with libc");
         }
     };
@@ -68,10 +68,10 @@ pub fn Result(comptime R: type) type {
     if (@typeInfo(R) == .Struct and @typeInfo(R).Struct.layout == .Extern or @typeInfo(R) == .Union and @typeInfo(R).Union.layout == .Extern) {
         return extern struct {
             /// not initialized if err is not 0/null
-            result: R = undefined,
+            value: R = undefined,
             err: ?[*:0]const u8 = null,
             // TODO: try to compress to u16 if possible
-            /// 0 if result is valid
+            /// 0 if value is valid
             errCode: usize = 0,
 
             const Self = @This();
@@ -87,7 +87,7 @@ pub fn Result(comptime R: type) type {
             }
 
             pub fn ok(r: R) Self {
-                return Self{ .result = r };
+                return Self{ .value = r };
             }
 
             pub fn err_as(self: @This(), comptime T: type) Result(T) {
@@ -108,7 +108,7 @@ pub fn Result(comptime R: type) type {
 
             pub fn fmt_err(alloc: std.mem.Allocator, comptime fmt_str: []const u8, fmt_args: anytype) Self {
                 return Self{
-                    .result = undefined,
+                    .value = undefined,
                     .err = std.fmt.allocPrintZ(alloc, "Error: " ++ fmt_str, fmt_args) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}),
                     .errCode = fmtStringId(fmt_str),
                 };
@@ -116,17 +116,17 @@ pub fn Result(comptime R: type) type {
 
             pub fn c_fmt_err(comptime fmt_str: []const u8, fmt_args: anytype) Self {
                 return if (builtin.link_libc)
-                    Result(@TypeOf(R.result)).fmt_err(std.heap.raw_c_allocator, fmt_str, fmt_args)
+                    Result(@TypeOf(R.value)).fmt_err(std.heap.raw_c_allocator, fmt_str, fmt_args)
                 else @compileError("Must compile with libc");
             }
         };
     } else {
         return struct {
             /// not initialized if err is not 0/null
-            result: R,
+            value: R,
             err: ?[*:0]const u8,
             // TODO: try to compress to u16 if possible
-            /// 0 if result is valid
+            /// 0 if value is valid
             errCode: usize,
 
             const Self = @This();
@@ -143,7 +143,7 @@ pub fn Result(comptime R: type) type {
 
             pub fn ok(r: R) Self {
                 return Self{
-                    .result = r,
+                    .value = r,
                     .err = null,
                     .errCode = 0,
                 };
@@ -154,7 +154,7 @@ pub fn Result(comptime R: type) type {
             /// you can't pass a string literal to it
             pub fn err(e: [*:0]const u8) Self {
                 return Self{
-                    .result = undefined,
+                    .value = undefined,
                     .err = e,
                     .errCode = 1, // TODO: determine from e
                 };
@@ -163,7 +163,7 @@ pub fn Result(comptime R: type) type {
             pub fn err_as(self: @This(), comptime T: type) Result(T) {
                 std.debug.assert(self.is_err());
                 return Result(T) {
-                    .result = undefined,
+                    .value = undefined,
                     .err = self.err,
                     .errCode = self.errCode,
                 };
@@ -171,7 +171,7 @@ pub fn Result(comptime R: type) type {
 
             pub fn fmt_err(alloc: std.mem.Allocator, comptime fmt_str: []const u8, fmt_args: anytype) Self {
                 return Self{
-                    .result = undefined,
+                    .value = undefined,
                     .err = std.fmt.allocPrintZ(alloc, "Error: " ++ fmt_str, fmt_args) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}),
                     .errCode = fmtStringId(fmt_str),
                 };
@@ -179,7 +179,7 @@ pub fn Result(comptime R: type) type {
 
             pub fn c_fmt_err(comptime fmt_str: []const u8, fmt_args: anytype) Self {
                 return if (builtin.link_libc)
-                    Result(@TypeOf(R.result)).fmt_err(std.heap.raw_c_allocator, fmt_str, fmt_args)
+                    Result(@TypeOf(R.value)).fmt_err(std.heap.raw_c_allocator, fmt_str, fmt_args)
                 else @compileError("Must compile with libc");
             }
         };
@@ -189,7 +189,7 @@ pub fn Result(comptime R: type) type {
 test "result" {
     const T = extern struct { i: i64 };
     try std.testing.expectEqual(Result(T).ok(T{ .i = 100 }), Result(T){
-        .result = T{ .i = 100 },
+        .value = T{ .i = 100 },
         .errCode = 0,
         .err = null,
     });

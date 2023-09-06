@@ -203,8 +203,7 @@ const GraphBuilder = struct {
         const entry = if (entry_result.is_err())
             // also let's make it not nullable since it's required...
             return entry_result.err_as(void)
-            // PLEASE RENAME TO .value
-            else entry_result.result;
+            else entry_result.value;
 
         self.entry = entry;
 
@@ -400,7 +399,7 @@ const GraphBuilder = struct {
     ) Result(?*const IndexedNode) {
         if (analysis_ctx.node_data.items(.visited)[branch.index]) {
             const prev_result = self.branch_joiner_map.get(branch.index);
-            return .{ .result = prev_result };
+            return .{ .value = prev_result };
         }
 
         analysis_ctx.node_data.items(.visited)[branch.index] = 1;
@@ -428,7 +427,7 @@ const GraphBuilder = struct {
     ) Result(?*const IndexedNode) {
         if (analysis_ctx.node_data.items(.visited)[branch.index]) {
             const prev_result = self.branch_joiner_map.get(branch.index);
-            return .{ .result = prev_result };
+            return .{ .value = prev_result };
         }
 
         analysis_ctx.node_data.items(.visited)[branch.index] = 1;
@@ -446,10 +445,10 @@ const GraphBuilder = struct {
 
                 if (is_branch) {
                     const joiner = self.analyzeBranch(collapsed_node, analysis_ctx);
-                    if (joiner.is_err() || joiner.result == null)
+                    if (joiner.is_err() || joiner.value == null)
                         return joiner
                     else
-                        new_collapsed_node_layer.put(joiner.result)
+                        new_collapsed_node_layer.put(joiner.value)
                             catch |e| return Result(?*const IndexedNode).fmt_err(global_alloc, "{}", .{e});
                 } else {
                     var exec_link_iter = collapsed_node.iter_out_exec_links();
@@ -463,9 +462,9 @@ const GraphBuilder = struct {
             const new_layer_count = new_collapsed_node_layer.count();
 
             if (new_layer_count == 0)
-                return .{ .result = null };
+                return .{ .value = null };
             if (new_layer_count == 1)
-                return .{ .result = new_collapsed_node_layer.iterator.next() orelse unreachable };
+                return .{ .value = new_collapsed_node_layer.iterator.next() orelse unreachable };
 
             collapsed_node_layer.clearAndFree(self.alloc);
             // FIXME: what happens if we error before this swap? need an errdefer...
@@ -557,7 +556,7 @@ const GraphBuilder = struct {
 
             // condition
             const condition_result = self.nodeInputTreeToSexp(node.inputs[1]);
-            const condition_sexp = if (condition_result.is_ok()) condition_result.result else return condition_result.err_as(void);
+            const condition_sexp = if (condition_result.is_ok()) condition_result.value else return condition_result.err_as(void);
             (branch_sexp.list.addOne()
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
             ).* = condition_sexp;
@@ -599,7 +598,7 @@ const GraphBuilder = struct {
 
             for (node.inputs[1..]) |input| {
                 const input_tree_result = self.nodeInputTreeToSexp(input);
-                const input_tree = if (input_tree_result.is_ok()) input_tree_result.result else return input_tree_result.err_as(void);
+                const input_tree = if (input_tree_result.is_ok()) input_tree_result.value else return input_tree_result.err_as(void);
                 (call_sexp.list.addOne()
                     catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
                 ).* = input_tree;
@@ -635,7 +634,7 @@ const GraphBuilder = struct {
 
                     for (node.inputs) |input| {
                         const sexp_result = self.nodeInputTreeToSexp(input);
-                        const sexp = if (sexp_result.is_ok()) sexp_result.result else return sexp_result;
+                        const sexp = if (sexp_result.is_ok()) sexp_result.value else return sexp_result;
                         (result.list.addOne()
                             catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
                         ).* = sexp;
@@ -738,7 +737,7 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
     if (build_result.is_err()) return build_result.err_as([]const u8);
 
     const sexp_result = builder.rootToSexp();
-    const sexp = if (sexp_result.is_ok()) sexp_result.result else return sexp_result.err_as([]const u8);
+    const sexp = if (sexp_result.is_ok()) sexp_result.value else return sexp_result.err_as([]const u8);
 
     switch (sexp) {
         .list => |l| {
@@ -781,13 +780,13 @@ test "big graph_to_source" {
         std.debug.print("\n{?s}\n", .{result.err});
         return error.FailTest;
     }
-    try testing.expectEqualStrings(source.buffer, Slice.toZig(result.result));
+    try testing.expectEqualStrings(source.buffer, Slice.toZig(result.value));
 }
 
 export fn graph_to_source(graph_json: Slice) Result(Slice) {
     const zig_result = graphToSource(graph_json.toZig());
     return Result(Slice){
-        .result = Slice.fromZig(zig_result.result),
+        .value = Slice.fromZig(zig_result.value),
         .err = zig_result.err,
         .errCode = zig_result.errCode,
     };
