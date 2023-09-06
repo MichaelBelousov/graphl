@@ -302,12 +302,12 @@ test "parse 1" {
     (try expected_list.addOne()).* = Sexp{ .value = .{.int = 2 } };
     (try expected_list.addOne()).* = Sexp{ .value = .{.borrowedString = "hel\\\"lo\nworld" } };
     (try expected_list.addOne()).* = Sexp{ .value = .{.list = std.ArrayList(Sexp).init(t.allocator) } };
-    (try expected_list.items[2].list.addOne()).* = Sexp{ .value = .{ .symbol = "+" } };
-    (try expected_list.items[2].list.addOne()).* = Sexp{ .value = .{ .int = 3 } };
-    (try expected_list.items[2].list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
-    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{ .value = .{ .symbol = "-" } };
-    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{ .value = .{ .int = 210 } };
-    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{ .value = .{ .int = 5 } };
+    (try expected_list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "+" } };
+    (try expected_list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 3 } };
+    (try expected_list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
+    (try expected_list.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "-" } };
+    (try expected_list.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 210 } };
+    (try expected_list.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 5 } };
 
     var expected = Parser.Result{ .ok = expected_list };
     defer expected.deinit();

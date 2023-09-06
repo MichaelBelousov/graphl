@@ -83,24 +83,30 @@ pub const Sexp = struct {
         if (std.meta.activeTag(self.value) != std.meta.activeTag(other.value))
             return false;
 
+        if ((self.comment == null) != (other.comment == null))
+            return false;
+
+        if (!std.meta.eql(self.comment, other.comment))
+            return false;
+
         switch (self.value) {
             .list => |v| {
-                if (v.items.len != other.list.items.len)
+                if (v.items.len != other.value.list.items.len)
                     return false;
                 for (v.items, 0..) |item, i| {
-                    const other_item = other.list.items[i];
+                    const other_item = other.value.list.items[i];
                     if (!item.recursive_eq(other_item))
                         return false;
                 }
                 return true;
             },
-            .float => |v| return v == other.float,
-            .bool => |v| return v == other.bool,
+            .float => |v| return v == other.value.float,
+            .bool => |v| return v == other.value.bool,
             .void => return true,
-            .int => |v| return v == other.int,
-            .ownedString => |v| return std.mem.eql(u8, v, other.ownedString),
-            .borrowedString => |v| return std.mem.eql(u8, v, other.borrowedString),
-            .symbol => |v| return std.mem.eql(u8, v, other.symbol),
+            .int => |v| return v == other.value.int,
+            .ownedString => |v| return std.mem.eql(u8, v, other.value.ownedString),
+            .borrowedString => |v| return std.mem.eql(u8, v, other.value.borrowedString),
+            .symbol => |v| return std.mem.eql(u8, v, other.value.symbol),
         }
     }
 

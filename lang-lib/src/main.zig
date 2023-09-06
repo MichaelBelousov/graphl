@@ -500,7 +500,7 @@ const GraphBuilder = struct {
                 catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e});
             const result = self.onNode(node, &ctx);
             if (result.is_err()) return result.err_as(Sexp);
-            return Result(Sexp).ok(Sexp{.list = ctx.block });
+            return Result(Sexp).ok(Sexp{ .value = .{.list = ctx.block } });
         }
 
         pub fn onNode(self: @This(), node: *const IndexedNode, context: *Context) Result(void) {
@@ -530,7 +530,7 @@ const GraphBuilder = struct {
                 };
                 const consequence_result = self.onNode(consequence.link.target, &consequence_ctx);
                 if (consequence_result.is_err()) return consequence_result;
-                consequence_sexp = Sexp{.list = consequence_ctx.block};
+                consequence_sexp = Sexp{ .value = .{.list = consequence_ctx.block} };
             }
 
             if (node.outputs[1]) |alternative| {
@@ -540,34 +540,34 @@ const GraphBuilder = struct {
                 };
                 const alternative_result = self.onNode(alternative.link.target, &alternative_ctx);
                 if (alternative_result.is_err()) return alternative_result;
-                alternative_sexp = Sexp{.list = alternative_ctx.block};
+                alternative_sexp = Sexp{ .value = .{.list = alternative_ctx.block} };
             }
 
             var branch_sexp = context.block.addOne()
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e});
 
             // FIXME: errdefer, maybe just force an arena and call it a day?
-            branch_sexp.* = Sexp{ .list = std.ArrayList(Sexp).init(self.graph.alloc) };
+            branch_sexp.* = Sexp{ .value = .{.list = std.ArrayList(Sexp).init(self.graph.alloc) } };
 
             // (if
-            (branch_sexp.list.addOne()
+            (branch_sexp.value.list.addOne()
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
-            ).* = Sexp{ .symbol = node.desc.name };
+            ).* = Sexp{ .value = .{ .symbol = node.desc.name } };
 
             // condition
             const condition_result = self.nodeInputTreeToSexp(node.inputs[1]);
             const condition_sexp = if (condition_result.is_ok()) condition_result.value else return condition_result.err_as(void);
-            (branch_sexp.list.addOne()
+            (branch_sexp.value.list.addOne()
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
             ).* = condition_sexp;
 
             // FIXME: wish I could make this more terse...
-            (branch_sexp.list.addOne()
+            (branch_sexp.value.list.addOne()
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
             ).* = consequence_sexp;
 
             // alternative
-            (branch_sexp.list.addOne()
+            (branch_sexp.value.list.addOne()
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
             ).* = alternative_sexp;
 
@@ -586,11 +586,11 @@ const GraphBuilder = struct {
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e});
 
             // FIXME: errdefer
-            call_sexp.* = Sexp{ .list = std.ArrayList(Sexp).init(self.graph.alloc) };
+            call_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.graph.alloc) } };
 
-            (call_sexp.list.addOne()
+            (call_sexp.value.list.addOne()
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
-            ).* = Sexp{ .symbol = node.desc.name };
+            ).* = Sexp{ .value = .{ .symbol = node.desc.name } };
 
             if (builtin.mode == .Debug and node.inputs.len == 0) {
                 std.debug.print("no inputs, desc: {s}\n", .{node.desc.name});
@@ -599,7 +599,7 @@ const GraphBuilder = struct {
             for (node.inputs[1..]) |input| {
                 const input_tree_result = self.nodeInputTreeToSexp(input);
                 const input_tree = if (input_tree_result.is_ok()) input_tree_result.value else return input_tree_result.err_as(void);
-                (call_sexp.list.addOne()
+                (call_sexp.value.list.addOne()
                     catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
                 ).* = input_tree;
             }
@@ -619,23 +619,23 @@ const GraphBuilder = struct {
             const sexp = switch (in_link) {
                 .link => |v| _: {
                     // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-                    var result = Sexp{ .list = std.ArrayList(Sexp).init(self.graph.alloc) };
+                    var result = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.graph.alloc) } };
 
                     const node = v.target;
 
-                    result.list.ensureTotalCapacityPrecise(node.inputs.len + 1)
+                    result.value.list.ensureTotalCapacityPrecise(node.inputs.len + 1)
                         catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e});
 
-                    (result.list.addOne()
+                    (result.value.list.addOne()
                         // FIXME: for this case add a from_err helper?
                         // and maybe c_from_err too to set allocator automatically?
                         catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
-                    ).* = Sexp{ .symbol = node.desc.name };
+                    ).* = Sexp{ .value = .{ .symbol = node.desc.name } };
 
                     for (node.inputs) |input| {
                         const sexp_result = self.nodeInputTreeToSexp(input);
                         const sexp = if (sexp_result.is_ok()) sexp_result.value else return sexp_result;
-                        (result.list.addOne()
+                        (result.value.list.addOne()
                             catch |e| return Result(Sexp).fmt_err(global_alloc, "{}", .{e})
                         ).* = sexp;
                     }
@@ -644,11 +644,11 @@ const GraphBuilder = struct {
                 },
                 // FIXME: move to own func for Value=>Sexp?, or just make Value==Sexp now...
                 .value => |v| switch (v) {
-                    .number => |u| Sexp{.float = u},
-                    .string => |u| Sexp{.borrowedString = u},
-                    .bool => |u| Sexp{.bool = u},
-                    .null => .void,
-                    .symbol => |u| Sexp{.symbol = u},
+                    .number => |u| Sexp{ .value = .{.float = u} },
+                    .string => |u| Sexp{ .value = .{.borrowedString = u} },
+                    .bool => |u| Sexp{ .value = .{.bool = u} },
+                    .null => Sexp{.value = .void },
+                    .symbol => |u| Sexp{ .value = .{.symbol = u} },
                 },
             };
 
@@ -660,7 +660,7 @@ const GraphBuilder = struct {
         return if (self.entry) |entry|
             if (entry.outputs[0]) |first_node|
                 (ToSexp{.graph=&self}).toSexp(first_node.link.target)
-            else Result(Sexp).ok(.void)
+            else Result(Sexp).ok(Sexp{.value=.void})
         else Result(Sexp).fmt_err(global_alloc, "no entry or not yet set", .{});
     }
 };
@@ -702,24 +702,24 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
 
                 // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
                 new_import.* = Sexp{
-                    .list = std.ArrayList(Sexp).init(arena_alloc),
+                    .value = .{.list = std.ArrayList(Sexp).init(arena_alloc)},
                 };
-                (new_import.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = syms.import;
-                (new_import.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = Sexp{ .symbol = json_import_name };
+                (new_import.*.value.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = syms.import;
+                (new_import.*.value.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = Sexp{ .value = .{.symbol = json_import_name } };
 
-                const imported_bindings = new_import.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory);
-                imported_bindings.* = Sexp{ .list = std.ArrayList(Sexp).init(arena_alloc) };
+                const imported_bindings = new_import.*.value.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory);
+                imported_bindings.* = Sexp{ .value = .{.list = std.ArrayList(Sexp).init(arena_alloc) } };
 
                 for (json_import_bindings) |json_imported_binding| {
                     const ref = json_imported_binding.ref;
-                    var added = imported_bindings.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory);
+                    var added = imported_bindings.*.value.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory);
 
                     if (json_imported_binding.alias) |alias| {
-                        (added.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = syms.as;
-                        (added.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = Sexp{ .symbol = ref };
-                        (added.*.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = Sexp{ .symbol = alias };
+                        (added.*.value.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = syms.as;
+                        (added.*.value.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = Sexp{ .value = .{.symbol = ref } };
+                        (added.*.value.list.addOne() catch return err_explain(GraphToSourceResult, .OutOfMemory)).* = Sexp{ .value = .{.symbol = alias } };
                     } else {
-                        added.* = Sexp{ .symbol = ref };
+                        added.* = Sexp{ .value = .{ .symbol = ref } };
                     }
                 }
             }
@@ -739,7 +739,7 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
     const sexp_result = builder.rootToSexp();
     const sexp = if (sexp_result.is_ok()) sexp_result.value else return sexp_result.err_as([]const u8);
 
-    switch (sexp) {
+    switch (sexp.value) {
         .list => |l| {
             for (l.items) |s| {
                 _ = s.write(page_writer.writer())
