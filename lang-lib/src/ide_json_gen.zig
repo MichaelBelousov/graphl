@@ -88,38 +88,38 @@ const NodeDef = struct {
 };
 
 fn readDefineFuncPrototype(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
-    if (defined != .list)
+    if (defined.value != .list)
         return null;
-    if (defined.list.items.len < 1)
+    if (defined.value.list.items.len < 1)
         return null;
-    if (defined.list.items[0] != .symbol) {
+    if (defined.value.list.items[0].value != .symbol) {
         if (builtin.os.tag != .freestanding)
             std.debug.print("prototype name not a symbol", .{});
         return null;
     }
 
-    const name = defined.list.items[0].symbol;
+    const name = defined.value.list.items[0].value.symbol;
 
     // FIXME: add deinit to the NodeDef type
     var inputs = std.ArrayList(Input).init(alloc);
     errdefer inputs.deinit();
-    try inputs.ensureTotalCapacityPrecise(defined.list.items.len - 1);
+    try inputs.ensureTotalCapacityPrecise(defined.value.list.items.len - 1);
 
-    for (defined.list.items[1..]) |arg| {
-        switch (arg) {
+    for (defined.value.list.items[1..]) |arg| {
+        switch (arg.value) {
             // FIXME: this is a simplification of what should actually happen...
             // (i32 x) is a real macro that returns a typed slot...
             .symbol => |v| (try inputs.addOne()).* = .{ .label = v, .type = "T" }, // FIXME: unevaled type
             .list => |v| {
                 if (v.items.len < 2)
                     std.debug.panic("unsupported type syntax: {s}", .{name});
-                if (v.items[0] != .symbol)
+                if (v.items[0].value != .symbol)
                     std.debug.panic("unsupported type syntax type: {s}", .{name});
-                if (v.items[1] != .symbol)
+                if (v.items[1].value != .symbol)
                     std.debug.panic("unsupported type syntax name: {s}", .{name});
                 (try inputs.addOne()).* = .{
-                    .label = v.items[1].symbol,
-                    .type = v.items[0].symbol,
+                    .label = v.items[1].value.symbol,
+                    .type = v.items[0].value.symbol,
                     .default = if (v.items.len >= 3) try v.items[2].jsonValue(alloc) else null,
                 };
             },
@@ -155,10 +155,10 @@ fn readDefineFuncPrototype(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
 }
 
 fn readDefineVarPrototype(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
-    if (defined != .symbol)
+    if (defined.value != .symbol)
         return null;
 
-    const name = defined.symbol;
+    const name = defined.value.symbol;
 
     return NodeDef{
         .id = name,
@@ -178,21 +178,21 @@ fn readDefine(alloc: std.mem.Allocator, defined: Sexp) !?NodeDef {
 
 /// NOTE: this does not yet expand macros to find top-level defines
 pub fn readTopLevelExpr(alloc: std.mem.Allocator, expr: Sexp) !?NodeDef {
-    if (expr != .list)
+    if (expr.value != .list)
         return null;
 
-    if (expr.list.items.len < 2)
+    if (expr.value.list.items.len < 2)
         return null;
 
     // NOTE: this is temporary! if we do real macros, we must
     // evaluate a file to get all of its definitions
-    const first = expr.list.items[0];
-    const second = expr.list.items[1];
+    const first = expr.value.list.items[0];
+    const second = expr.value.list.items[1];
 
-    if (first != .symbol)
+    if (first.value != .symbol)
         return null;
 
-    if (std.mem.eql(u8, first.symbol, "define"))
+    if (std.mem.eql(u8, first.value.symbol, "define"))
         return readDefine(alloc, second);
     // if (std.mem.eql(u8, first.symbol, "define-macro"))
     //     //return readDefineMacro(second);

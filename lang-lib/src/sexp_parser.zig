@@ -66,6 +66,7 @@ pub const Parser = struct {
         }
     };
 
+    // FIXME: use @import("Result")
     pub const Result = union(enum) {
         ok: std.ArrayList(Sexp),
         err: Error,
@@ -151,7 +152,7 @@ pub const Parser = struct {
                     },
                     '(' => {
                         var top = self.stack.addOne(self.alloc) catch return .OutOfMemory;
-                        top.* = Sexp{ .list = std.ArrayList(Sexp).init(self.alloc) };
+                        top.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.alloc) } };
                         self.state = .between;
                     },
                     ')' => {
@@ -160,7 +161,7 @@ pub const Parser = struct {
                             old_top.deinit(self.alloc);
                             return Error{ .unmatchedCloser = self.loc };
                         };
-                        (new_top.list.addOne() catch return .OutOfMemory).* = old_top;
+                        (new_top.value.list.addOne() catch return .OutOfMemory).* = old_top;
                         self.state = .between;
                     },
                     ' ', '\t', '\n' => self.state = .between,
@@ -193,7 +194,9 @@ pub const Parser = struct {
 
         // FIXME: had to move this out of AlgoState.init due to a zig compiler bug
         algo_state.alloc = alloc;
-        (algo_state.stack.addOne(algo_state.alloc) catch return Result.err(.OutOfMemory)).* = Sexp{ .list = std.ArrayList(Sexp).init(algo_state.alloc) };
+        (algo_state.stack.addOne(algo_state.alloc)
+            catch return Result.err(.OutOfMemory)
+        ).* = Sexp{ .value = .{.list = std.ArrayList(Sexp).init(algo_state.alloc)} };
 
         defer if (result == .err) algo_state.deinit();
 
@@ -217,8 +220,8 @@ pub const Parser = struct {
                 .symbol => switch (c) {
                     ' ', '\n', '\t', ')', '(' => {
                         const top = peek(&algo_state.stack) orelse unreachable;
-                        const last = top.list.addOne() catch return Result.err(.OutOfMemory);
-                        last.* = Sexp{ .symbol = tok_slice };
+                        const last = top.value.list.addOne() catch return Result.err(.OutOfMemory);
+                        last.* = Sexp{ .value = .{.symbol = tok_slice} };
                         algo_state.tok_start = algo_state.loc.index;
                         if (algo_state.onNextCharAfterTok()) |err| {
                             result = Result.err(err);
@@ -231,8 +234,8 @@ pub const Parser = struct {
                     // TODO: handle escapes
                     '"' => {
                         const top = peek(&algo_state.stack) orelse unreachable;
-                        const last = top.list.addOne() catch return Result.err(.OutOfMemory);
-                        last.* = Sexp{ .borrowedString = tok_slice };
+                        const last = top.value.list.addOne() catch return Result.err(.OutOfMemory);
+                        last.* = Sexp{ .value = .{ .borrowedString = tok_slice } };
                         algo_state.tok_start = algo_state.loc.index;
                         algo_state.loc.increment(src[algo_state.loc.index]); // skip ending quote
                         if (algo_state.onNextCharAfterTok()) |err| {
@@ -249,9 +252,9 @@ pub const Parser = struct {
                     '.' => algo_state.state = .float_fraction_start,
                     ' ', '\n', '\t', ')', '(' => {
                         const top = peek(&algo_state.stack) orelse unreachable;
-                        const last = top.list.addOne() catch return Result.err(.OutOfMemory);
+                        const last = top.value.list.addOne() catch return Result.err(.OutOfMemory);
                         const int = std.fmt.parseInt(i64, tok_slice, 10) catch return Result{ .err = .{ .badInteger = tok_slice } };
-                        last.* = Sexp{ .int = int };
+                        last.* = Sexp{ .value = .{ .int = int } };
                         if (algo_state.onNextCharAfterTok()) |err| {
                             result = Result.err(err);
                             return result;
@@ -272,7 +275,7 @@ pub const Parser = struct {
                 .bool => switch (c) {
                     ' ', '\n', '\t', '(', ')' => {
                         const top = peek(&algo_state.stack) orelse unreachable;
-                        const last = top.list.addOne() catch return Result.err(.OutOfMemory);
+                        const last = top.value.list.addOne() catch return Result.err(.OutOfMemory);
                         last.* = if (c == 't') sexp.syms.true else sexp.syms.false;
                         if (algo_state.onNextCharAfterTok()) |err| {
                             result = Result.err(err);
@@ -288,7 +291,7 @@ pub const Parser = struct {
 
         const top = peek(&algo_state.stack) orelse unreachable;
 
-        return .{ .ok = top.list };
+        return .{ .ok = top.value.list };
     }
 };
 
@@ -296,15 +299,15 @@ const t = std.testing;
 
 test "parse 1" {
     var expected_list = std.ArrayList(Sexp).init(t.allocator);
-    (try expected_list.addOne()).* = Sexp{ .int = 2 };
-    (try expected_list.addOne()).* = Sexp{ .borrowedString = "hel\\\"lo\nworld" };
-    (try expected_list.addOne()).* = Sexp{ .list = std.ArrayList(Sexp).init(t.allocator) };
-    (try expected_list.items[2].list.addOne()).* = Sexp{ .symbol = "+" };
-    (try expected_list.items[2].list.addOne()).* = Sexp{ .int = 3 };
-    (try expected_list.items[2].list.addOne()).* = Sexp{ .list = std.ArrayList(Sexp).init(t.allocator) };
-    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{ .symbol = "-" };
-    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{ .int = 210 };
-    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{ .int = 5 };
+    (try expected_list.addOne()).* = Sexp{ .value = .{.int = 2 } };
+    (try expected_list.addOne()).* = Sexp{ .value = .{.borrowedString = "hel\\\"lo\nworld" } };
+    (try expected_list.addOne()).* = Sexp{ .value = .{.list = std.ArrayList(Sexp).init(t.allocator) } };
+    (try expected_list.items[2].list.addOne()).* = Sexp{ .value = .{ .symbol = "+" } };
+    (try expected_list.items[2].list.addOne()).* = Sexp{ .value = .{ .int = 3 } };
+    (try expected_list.items[2].list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
+    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{ .value = .{ .symbol = "-" } };
+    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{ .value = .{ .int = 210 } };
+    (try expected_list.items[2].list.items[2].list.addOne()).* = Sexp{ .value = .{ .int = 5 } };
 
     var expected = Parser.Result{ .ok = expected_list };
     defer expected.deinit();
