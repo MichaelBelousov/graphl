@@ -37,7 +37,7 @@ pub fn build(b: *std.Build) void {
     });
     web_lib.rdynamic = true;
     b.installArtifact(web_lib);
-    const web_lib_install = b.addInstallArtifact(web_lib);
+    const web_lib_install = b.addInstallArtifact(web_lib, .{});
     web_step.dependOn(&web_lib_install.step);
 
     const ide_json_gen_step = b.step("ide-json-gen", "Build ide-json-gen");
@@ -48,6 +48,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
     b.installArtifact(ide_json_gen);
-    const ide_json_gen_install = b.addInstallArtifact(ide_json_gen);
+    const ide_json_gen_install = b.addInstallArtifact(ide_json_gen, .{});
     ide_json_gen_step.dependOn(&ide_json_gen_install.step);
 }
