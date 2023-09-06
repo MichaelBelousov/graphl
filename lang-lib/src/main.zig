@@ -305,27 +305,23 @@ const GraphBuilder = struct {
         errdefer self.alloc.free(node.inputs);
 
         for (node.inputs, json_node.inputs) |*input, maybe_json_input| {
-            if (maybe_json_input) |json_input| {
-                input.* = switch (json_input) {
-                    .handle => |h| .{.link=.{
-                        .target = self.nodes.map.getPtr(h.nodeId) orelse return error.LinkToUnknownNode,
-                        .pin_index = h.handleIndex,
-                    }},
-                    .value => |v| .{.value = v},
-                };
-            }
+            input.* = switch (maybe_json_input orelse JsonNodeInput{.value = .null}) {
+                .handle => |h| .{.link=.{
+                    .target = self.nodes.map.getPtr(h.nodeId) orelse return error.LinkToUnknownNode,
+                    .pin_index = h.handleIndex,
+                }},
+                .value => |v| .{.value = v},
+            };
         }
 
         node.outputs = try self.alloc.alloc(?GraphTypes.Output, json_node.outputs.len);
         errdefer self.alloc.free(node.outputs);
 
         for (node.outputs, json_node.outputs) |*output, maybe_json_output| {
-            if (maybe_json_output) |json_output| {
-                output.* = .{.link=.{
-                    .target = self.nodes.map.getPtr(json_output.nodeId) orelse return error.LinkToUnknownNode,
-                    .pin_index = json_output.handleIndex,
-                }};
-            }
+            output.* = if (maybe_json_output) |json_output| .{.link=.{
+                .target = self.nodes.map.getPtr(json_output.nodeId) orelse return error.LinkToUnknownNode,
+                .pin_index = json_output.handleIndex,
+            }} else null;
         }
     }
 
@@ -597,13 +593,8 @@ const GraphBuilder = struct {
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
             ).* = Sexp{ .symbol = node.desc.name };
 
-            if (node.inputs.len == 0) {
-                std.debug.print("desc: {s}\n", .{node.desc.name});
-                std.debug.print("inputs:\n", .{});
-                for (node.inputs) |input| {
-                    std.debug.print("- {any}\n", .{input});
-                }
-                std.debug.print("inputs done\n", .{});
+            if (builtin.mode == .Debug and node.inputs.len == 0) {
+                std.debug.print("no inputs, desc: {s}\n", .{node.desc.name});
             }
 
             for (node.inputs[1..]) |input| {
@@ -612,6 +603,10 @@ const GraphBuilder = struct {
                 (call_sexp.list.addOne()
                     catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
                 ).* = input_tree;
+            }
+
+            if (builtin.mode == .Debug and node.outputs.len == 0) {
+                std.debug.print("no outputs, desc: {s}\n", .{node.desc.name});
             }
 
             if (node.outputs[0]) |next| {
@@ -745,8 +740,22 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
     const sexp_result = builder.rootToSexp();
     const sexp = if (sexp_result.is_ok()) sexp_result.result else return sexp_result.err_as([]const u8);
 
-    _ = sexp.write(page_writer.writer()) catch return err_explain(GraphToSourceResult, .ioErr);
-    _ = page_writer.writer().write("\n") catch return err_explain(GraphToSourceResult, .ioErr);
+    switch (sexp) {
+        .list => |l| {
+            for (l.items) |s| {
+                _ = s.write(page_writer.writer())
+                    catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
+                _ = page_writer.writer().write("\n")
+                    catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
+            }
+        },
+        else => {
+            _ = sexp.write(page_writer.writer())
+                catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
+            _ = page_writer.writer().write("\n")
+                catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
+        },
+    }
 
     _ = page_writer.writer().write("\n") catch return err_explain(GraphToSourceResult, .ioErr);
 
