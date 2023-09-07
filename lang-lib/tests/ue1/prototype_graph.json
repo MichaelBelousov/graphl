@@ -277,7 +277,7 @@
       "width": 263,
       "height": 67,
       "id": "7704992052953362",
-      "type": "get_current-spawn-point",
+      "type": "current-spawn-point",
       "data": {
         "literalInputs": {},
         "typeIfDefaulted": "current-spawn-point",
@@ -367,7 +367,7 @@
       "width": 131,
       "height": 67,
       "id": "3331194487680485",
-      "type": "get_speed",
+      "type": "speed",
       "data": {
         "literalInputs": {},
         "typeIfDefaulted": "speed",
@@ -486,7 +486,7 @@
       "width": 183,
       "height": 67,
       "id": "7624704203347018",
-      "type": "get_drone-state",
+      "type": "drone-state",
       "data": {
         "literalInputs": {},
         "typeIfDefaulted": "drone-state",
@@ -824,7 +824,7 @@
       "width": 263,
       "height": 67,
       "id": "794784524235348",
-      "type": "get_current-spawn-point",
+      "type": "current-spawn-point",
       "data": {
         "literalInputs": {},
         "typeIfDefaulted": "current-spawn-point",
@@ -864,7 +864,7 @@
       "width": 255,
       "height": 67,
       "id": "6220765936570289",
-      "type": "get_capsule-component",
+      "type": "capsule-component",
       "data": {
         "literalInputs": {},
         "typeIfDefaulted": "capsule-component",
@@ -951,7 +951,7 @@
       "width": 166,
       "height": 67,
       "id": "6981422926286386",
-      "type": "get_over-time",
+      "type": "over-time",
       "data": {
         "literalInputs": {},
         "typeIfDefaulted": "over-time",
@@ -1261,7 +1261,7 @@
       "width": 128,
       "height": 67,
       "id": "2733983040735191",
-      "type": "get_mesh",
+      "type": "mesh",
       "data": {
         "literalInputs": {},
         "typeIfDefaulted": "mesh",
@@ -1368,12 +1368,12 @@
       "width": 247,
       "height": 277,
       "id": "6646546780227932",
-      "type": "break_hit_result",
+      "type": "break-hit-result",
       "data": {
         "literalInputs": {
           "0": ""
         },
-        "typeIfDefaulted": "break_hit_result",
+        "typeIfDefaulted": "break-hit-result",
         "fullDesc": {
           "description": "break a hit result struct",
           "label": "Break Hit Result",
@@ -2077,7 +2077,7 @@
       "width": 128,
       "height": 67,
       "id": "678640560324665",
-      "type": "get_mesh",
+      "type": "mesh",
       "data": {
         "literalInputs": {},
         "typeIfDefaulted": "mesh",
@@ -2665,7 +2665,7 @@
       "data": {
         "literalInputs": {
           "0": 0,
-          "1": ""
+          "1": null
         },
         "typeIfDefaulted": "+",
         "fullDesc": {
@@ -2717,7 +2717,7 @@
           "nodeId": "3629499109084281",
           "handleIndex": 0
         },
-        ""
+        null
       ],
       "outputs": [
         {
@@ -2777,7 +2777,7 @@
       "width": 255,
       "height": 67,
       "id": "8247692273086280",
-      "type": "get_capsule-component",
+      "type": "capsule-component",
       "data": {
         "literalInputs": {},
         "typeIfDefaulted": "capsule-component",
@@ -2817,7 +2817,7 @@
       "width": 131,
       "height": 67,
       "id": "7695242292049520",
-      "type": "get_speed",
+      "type": "speed",
       "data": {
         "literalInputs": {},
         "typeIfDefaulted": "speed",
@@ -3011,6 +3011,397 @@
           "nodeId": "3361034480373710",
           "handleIndex": 0
         }
+      ]
+    },
+    "1459298598546983": {
+      "width": 222,
+      "height": 95,
+      "id": "1459298598546983",
+      "type": "if",
+      "data": {
+        "literalInputs": {
+          "0": "",
+          "1": false
+        },
+        "typeIfDefaulted": "if",
+        "fullDesc": {
+          "label": "if",
+          "inputs": [
+            {
+              "label": "",
+              "type": "exec"
+            },
+            {
+              "label": "condition",
+              "type": "bool"
+            }
+          ],
+          "outputs": [
+            {
+              "label": "then",
+              "type": "exec"
+            },
+            {
+              "label": "else",
+              "type": "exec"
+            }
+          ]
+        },
+        "isEntry": false
+      },
+      "position": {
+        "x": -660,
+        "y": -150
+      },
+      "positionAbsolute": {
+        "x": -660,
+        "y": -150
+      },
+      "selected": false,
+      "dragging": false,
+      "inputs": [
+        "",
+        false
+      ],
+      "outputs": [
+        {
+          "nodeId": "2507305185054891",
+          "handleIndex": 0
+        },
+        {
+          "nodeId": "7761815174899513",
+          "handleIndex": 0
+        }
+      ]
+    },
+    "2507305185054891": {
+      "width": 182,
+      "height": 95,
+      "id": "2507305185054891",
+      "type": "set!",
+      "data": {
+        "literalInputs": {
+          "0": "",
+          "1": ""
+        },
+        "typeIfDefaulted": "set!",
+        "fullDesc": {
+          "label": "set!",
+          "data": {
+            "variable": {
+              "name": null,
+              "type": null
+            }
+          },
+          "inputs": [
+            {
+              "label": "",
+              "type": "exec"
+            },
+            {
+              "label": "value",
+              "type": "data.variable.type"
+            }
+          ],
+          "outputs": [
+            {
+              "label": "",
+              "type": "exec"
+            },
+            {
+              "label": "value",
+              "type": "data.variable.type"
+            }
+          ]
+        },
+        "isEntry": false
+      },
+      "position": {
+        "x": -375,
+        "y": -285
+      },
+      "positionAbsolute": {
+        "x": -375,
+        "y": -285
+      },
+      "selected": false,
+      "dragging": false,
+      "inputs": [
+        {
+          "nodeId": "1459298598546983",
+          "handleIndex": 0
+        },
+        ""
+      ],
+      "outputs": [
+        {
+          "nodeId": "8804705444244709",
+          "handleIndex": 0
+        },
+        null
+      ]
+    },
+    "7761815174899513": {
+      "width": 182,
+      "height": 95,
+      "id": "7761815174899513",
+      "type": "set!",
+      "data": {
+        "literalInputs": {
+          "0": "",
+          "1": ""
+        },
+        "typeIfDefaulted": "set!",
+        "fullDesc": {
+          "label": "set!",
+          "data": {
+            "variable": {
+              "name": null,
+              "type": null
+            }
+          },
+          "inputs": [
+            {
+              "label": "",
+              "type": "exec"
+            },
+            {
+              "label": "value",
+              "type": "data.variable.type"
+            }
+          ],
+          "outputs": [
+            {
+              "label": "",
+              "type": "exec"
+            },
+            {
+              "label": "value",
+              "type": "data.variable.type"
+            }
+          ]
+        },
+        "isEntry": false,
+        "setTarget": "OverTime"
+      },
+      "position": {
+        "x": 150,
+        "y": -120
+      },
+      "positionAbsolute": {
+        "x": 150,
+        "y": -120
+      },
+      "selected": false,
+      "dragging": false,
+      "inputs": [
+        {
+          "nodeId": "8804705444244709",
+          "handleIndex": 1
+        },
+        ""
+      ],
+      "outputs": [
+        {
+          "nodeId": "8448172004179405",
+          "handleIndex": 0
+        },
+        null
+      ]
+    },
+    "8804705444244709": {
+      "width": 222,
+      "height": 95,
+      "id": "8804705444244709",
+      "type": "if",
+      "data": {
+        "literalInputs": {
+          "0": "",
+          "1": false
+        },
+        "typeIfDefaulted": "if",
+        "fullDesc": {
+          "label": "if",
+          "inputs": [
+            {
+              "label": "",
+              "type": "exec"
+            },
+            {
+              "label": "condition",
+              "type": "bool"
+            }
+          ],
+          "outputs": [
+            {
+              "label": "then",
+              "type": "exec"
+            },
+            {
+              "label": "else",
+              "type": "exec"
+            }
+          ]
+        },
+        "isEntry": false
+      },
+      "position": {
+        "x": -135,
+        "y": -300
+      },
+      "positionAbsolute": {
+        "x": -135,
+        "y": -300
+      },
+      "selected": false,
+      "dragging": false,
+      "inputs": [
+        {
+          "nodeId": "2507305185054891",
+          "handleIndex": 0
+        },
+        false
+      ],
+      "outputs": [
+        {
+          "nodeId": "4419187657767709",
+          "handleIndex": 0
+        },
+        {
+          "nodeId": "7761815174899513",
+          "handleIndex": 0
+        }
+      ]
+    },
+    "8448172004179405": {
+      "width": 182,
+      "height": 95,
+      "id": "8448172004179405",
+      "type": "set!",
+      "data": {
+        "literalInputs": {
+          "0": "",
+          "1": ""
+        },
+        "typeIfDefaulted": "set!",
+        "fullDesc": {
+          "label": "set!",
+          "data": {
+            "variable": {
+              "name": null,
+              "type": null
+            }
+          },
+          "inputs": [
+            {
+              "label": "",
+              "type": "exec"
+            },
+            {
+              "label": "value",
+              "type": "data.variable.type"
+            }
+          ],
+          "outputs": [
+            {
+              "label": "",
+              "type": "exec"
+            },
+            {
+              "label": "value",
+              "type": "data.variable.type"
+            }
+          ]
+        },
+        "isEntry": false
+      },
+      "position": {
+        "x": 450,
+        "y": -300
+      },
+      "positionAbsolute": {
+        "x": 450,
+        "y": -300
+      },
+      "selected": false,
+      "dragging": false,
+      "inputs": [
+        {
+          "nodeId": "4419187657767709",
+          "handleIndex": 0
+        },
+        ""
+      ],
+      "outputs": [
+        null,
+        null
+      ]
+    },
+    "4419187657767709": {
+      "width": 182,
+      "height": 95,
+      "id": "4419187657767709",
+      "type": "set!",
+      "data": {
+        "literalInputs": {
+          "0": "",
+          "1": ""
+        },
+        "typeIfDefaulted": "set!",
+        "fullDesc": {
+          "label": "set!",
+          "data": {
+            "variable": {
+              "name": null,
+              "type": null
+            }
+          },
+          "inputs": [
+            {
+              "label": "",
+              "type": "exec"
+            },
+            {
+              "label": "value",
+              "type": "data.variable.type"
+            }
+          ],
+          "outputs": [
+            {
+              "label": "",
+              "type": "exec"
+            },
+            {
+              "label": "value",
+              "type": "data.variable.type"
+            }
+          ]
+        },
+        "isEntry": false
+      },
+      "position": {
+        "x": 165,
+        "y": -300
+      },
+      "positionAbsolute": {
+        "x": 165,
+        "y": -300
+      },
+      "selected": false,
+      "dragging": false,
+      "inputs": [
+        {
+          "nodeId": "8804705444244709",
+          "handleIndex": 0
+        },
+        ""
+      ],
+      "outputs": [
+        {
+          "nodeId": "8448172004179405",
+          "handleIndex": 0
+        },
+        null
       ]
     }
   },
@@ -3413,6 +3804,55 @@
       "target": "7011717988783239",
       "targetHandle": "7011717988783239_false_0",
       "id": "reactflow__edge-33610344803737103361034480373710_true_0-70117179887832397011717988783239_false_0"
+    },
+    {
+      "source": "2507305185054891",
+      "sourceHandle": "2507305185054891_true_0",
+      "target": "1459298598546983",
+      "targetHandle": "1459298598546983_false_0",
+      "id": "reactflow__edge-25073051850548912507305185054891_true_0-14592985985469831459298598546983_false_0"
+    },
+    {
+      "source": "7761815174899513",
+      "sourceHandle": "7761815174899513_true_0",
+      "target": "1459298598546983",
+      "targetHandle": "1459298598546983_false_1",
+      "id": "reactflow__edge-77618151748995137761815174899513_true_0-14592985985469831459298598546983_false_1"
+    },
+    {
+      "source": "8804705444244709",
+      "sourceHandle": "8804705444244709_true_0",
+      "target": "2507305185054891",
+      "targetHandle": "2507305185054891_false_0",
+      "id": "reactflow__edge-88047054442447098804705444244709_true_0-25073051850548912507305185054891_false_0"
+    },
+    {
+      "source": "7761815174899513",
+      "sourceHandle": "7761815174899513_true_0",
+      "target": "8804705444244709",
+      "targetHandle": "8804705444244709_false_1",
+      "id": "reactflow__edge-77618151748995137761815174899513_true_0-88047054442447098804705444244709_false_1"
+    },
+    {
+      "source": "8448172004179405",
+      "sourceHandle": "8448172004179405_true_0",
+      "target": "7761815174899513",
+      "targetHandle": "7761815174899513_false_0",
+      "id": "reactflow__edge-84481720041794058448172004179405_true_0-77618151748995137761815174899513_false_0"
+    },
+    {
+      "source": "4419187657767709",
+      "sourceHandle": "4419187657767709_true_0",
+      "target": "8804705444244709",
+      "targetHandle": "8804705444244709_false_0",
+      "id": "reactflow__edge-44191876577677094419187657767709_true_0-88047054442447098804705444244709_false_0"
+    },
+    {
+      "source": "8448172004179405",
+      "sourceHandle": "8448172004179405_true_0",
+      "target": "4419187657767709",
+      "targetHandle": "4419187657767709_false_0",
+      "id": "reactflow__edge-84481720041794058448172004179405_true_0-44191876577677094419187657767709_false_0"
     }
   ]
 }
