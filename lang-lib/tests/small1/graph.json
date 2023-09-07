@@ -1,0 +1,559 @@
+{
+  "nodes": {
+    "1786967944785462": {
+      "width": 150,
+      "height": 65,
+      "id": "1786967944785462",
+      "type": "CustomTickEntry",
+      "data": {
+        "literalInputs": {},
+        "typeIfDefaulted": "CustomTickEntry",
+        "fullDesc": {
+          "label": "CustomTick",
+          "description": "close custom tick",
+          "inputs": [],
+          "outputs": [
+            {
+              "label": "",
+              "type": "exec"
+            }
+          ]
+        },
+        "isEntry": true
+      },
+      "position": {
+        "x": -165,
+        "y": 210
+      },
+      "positionAbsolute": {
+        "x": -165,
+        "y": 210
+      },
+      "selected": false,
+      "dragging": false,
+      "inputs": [
+        null
+      ],
+      "outputs": [
+        {
+          "nodeId": "3349452269105633",
+          "handleIndex": 0
+        }
+      ]
+    },
+    "3349452269105633": {
+      "width": 196,
+      "height": 95,
+      "id": "3349452269105633",
+      "type": "if",
+      "data": {
+        "literalInputs": {
+          "0": "",
+          "1": false
+        },
+        "typeIfDefaulted": "if",
+        "fullDesc": {
+          "label": "if",
+          "inputs": [
+            {
+              "label": "",
+              "type": "exec"
+            },
+            {
+              "label": "condition",
+              "type": "bool"
+            }
+          ],
+          "outputs": [
+            {
+              "label": "then",
+              "type": "exec"
+            },
+            {
+              "label": "else",
+              "type": "exec"
+            }
+          ]
+        },
+        "isEntry": false
+      },
+      "position": {
+        "x": 225,
+        "y": 285
+      },
+      "positionAbsolute": {
+        "x": 225,
+        "y": 285
+      },
+      "selected": false,
+      "dragging": false,
+      "inputs": [
+        {
+          "nodeId": "1786967944785462",
+          "handleIndex": 0
+        },
+        {
+          "nodeId": "1109882633881029",
+          "handleIndex": 0
+        }
+      ],
+      "outputs": [
+        {
+          "nodeId": "7826633044562578",
+          "handleIndex": 0
+        },
+        null
+      ]
+    },
+    "1109882633881029": {
+      "width": 202,
+      "height": 99,
+      "id": "1109882633881029",
+      "type": "/",
+      "data": {
+        "literalInputs": {
+          "0": 1,
+          "1": 1
+        },
+        "typeIfDefaulted": "/",
+        "fullDesc": {
+          "label": "div",
+          "inputs": [
+            {
+              "label": "",
+              "type": "num",
+              "default": 1
+            },
+            {
+              "label": "",
+              "type": "num",
+              "default": 1
+            }
+          ],
+          "outputs": [
+            {
+              "label": "",
+              "type": "num"
+            }
+          ]
+        },
+        "isEntry": false
+      },
+      "position": {
+        "x": -165,
+        "y": 435
+      },
+      "positionAbsolute": {
+        "x": -165,
+        "y": 435
+      },
+      "selected": false,
+      "dragging": false,
+      "inputs": [
+        1,
+        {
+          "nodeId": "6383242170002915",
+          "handleIndex": 0
+        }
+      ],
+      "outputs": [
+        {
+          "nodeId": "3349452269105633",
+          "handleIndex": 1
+        }
+      ]
+    },
+    "2091381536909337": {
+      "width": 166,
+      "height": 67,
+      "id": "2091381536909337",
+      "type": "get_over-time",
+      "data": {
+        "literalInputs": {},
+        "typeIfDefaulted": "get_over-time",
+        "fullDesc": {
+          "label": "get_over-time",
+          "inputs": [],
+          "outputs": [
+            {
+              "label": "get",
+              "type": "T"
+            }
+          ]
+        },
+        "isEntry": false
+      },
+      "position": {
+        "x": -630,
+        "y": 465
+      },
+      "positionAbsolute": {
+        "x": -630,
+        "y": 465
+      },
+      "selected": false,
+      "dragging": false,
+      "inputs": [
+        null
+      ],
+      "outputs": [
+        {
+          "nodeId": "6383242170002915",
+          "handleIndex": 1
+        }
+      ]
+    },
+    "6383242170002915": {
+      "width": 202,
+      "height": 99,
+      "id": "6383242170002915",
+      "type": "+",
+      "data": {
+        "literalInputs": {
+          "0": 100,
+          "1": 0
+        },
+        "typeIfDefaulted": "+",
+        "fullDesc": {
+          "description": "",
+          "label": "add",
+          "typevars": [
+            {
+              "name": "num",
+              "extends": {
+                "union": [
+                  "num"
+                ]
+              }
+            }
+          ],
+          "inputs": [
+            {
+              "label": "",
+              "type": "num",
+              "default": 0
+            },
+            {
+              "label": "",
+              "type": "num",
+              "default": 0
+            }
+          ],
+          "outputs": [
+            {
+              "label": "",
+              "type": "num"
+            }
+          ]
+        },
+        "isEntry": false
+      },
+      "position": {
+        "x": -420,
+        "y": 435
+      },
+      "positionAbsolute": {
+        "x": -420,
+        "y": 435
+      },
+      "selected": false,
+      "dragging": false,
+      "inputs": [
+        100,
+        {
+          "nodeId": "2091381536909337",
+          "handleIndex": 0
+        }
+      ],
+      "outputs": [
+        {
+          "nodeId": "1109882633881029",
+          "handleIndex": 1
+        }
+      ]
+    },
+    "7826633044562578": {
+      "width": 353,
+      "height": 279,
+      "id": "7826633044562578",
+      "type": "single-line-trace-by-channel",
+      "data": {
+        "literalInputs": {
+          "0": "",
+          "1": "",
+          "2": "",
+          "3": "visibility",
+          "4": true,
+          "5": "",
+          "6": "arrow",
+          "7": false
+        },
+        "typeIfDefaulted": "single-line-trace-by-channel",
+        "fullDesc": {
+          "label": "single-line-trace-by-channel",
+          "inputs": [
+            {
+              "label": "",
+              "type": "exec"
+            },
+            {
+              "label": "start",
+              "type": "vector"
+            },
+            {
+              "label": "end",
+              "type": "vector"
+            },
+            {
+              "label": "channel",
+              "type": "trace-channels"
+            },
+            {
+              "label": "trace-complex",
+              "type": "bool"
+            },
+            {
+              "label": "actors-to-ignore",
+              "type": "actor-list"
+            },
+            {
+              "label": "draw-debug-type",
+              "type": "draw-debug-types",
+              "default": {
+                "symbol": "'none"
+              }
+            },
+            {
+              "label": "ignore-self",
+              "type": "bool",
+              "default": false
+            }
+          ],
+          "outputs": [
+            {
+              "label": "",
+              "type": "exec"
+            },
+            {
+              "label": "Out Hit",
+              "type": "Hit"
+            },
+            {
+              "label": "DidHit",
+              "type": "bool"
+            }
+          ]
+        },
+        "isEntry": false
+      },
+      "position": {
+        "x": 930,
+        "y": -15
+      },
+      "positionAbsolute": {
+        "x": 930,
+        "y": -15
+      },
+      "selected": true,
+      "dragging": false,
+      "inputs": [
+        {
+          "nodeId": "3349452269105633",
+          "handleIndex": 0
+        },
+        {
+          "nodeId": "580822441825790",
+          "handleIndex": 0
+        },
+        {
+          "nodeId": "8102487849209316",
+          "handleIndex": 0
+        },
+        "visibility",
+        true,
+        "",
+        "arrow",
+        false
+      ],
+      "outputs": [
+        null,
+        null,
+        null
+      ]
+    },
+    "580822441825790": {
+      "width": 204,
+      "height": 67,
+      "id": "580822441825790",
+      "type": "get-actor-location",
+      "data": {
+        "literalInputs": {
+          "0": ""
+        },
+        "typeIfDefaulted": "get-actor-location",
+        "fullDesc": {
+          "label": "get-actor-location",
+          "inputs": [
+            {
+              "label": "a",
+              "type": "actor"
+            }
+          ],
+          "outputs": [
+            {
+              "label": "a",
+              "type": "vector"
+            }
+          ]
+        },
+        "isEntry": false
+      },
+      "position": {
+        "x": 180,
+        "y": 0
+      },
+      "positionAbsolute": {
+        "x": 180,
+        "y": 0
+      },
+      "selected": false,
+      "dragging": false,
+      "inputs": [
+        ""
+      ],
+      "outputs": [
+        {
+          "nodeId": "8102487849209316",
+          "handleIndex": 0
+        }
+      ]
+    },
+    "8102487849209316": {
+      "width": 202,
+      "height": 99,
+      "id": "8102487849209316",
+      "type": "+",
+      "data": {
+        "literalInputs": {
+          "0": 0,
+          "1": 100
+        },
+        "typeIfDefaulted": "+",
+        "fullDesc": {
+          "description": "",
+          "label": "add",
+          "typevars": [
+            {
+              "name": "num",
+              "extends": {
+                "union": [
+                  "num"
+                ]
+              }
+            }
+          ],
+          "inputs": [
+            {
+              "label": "",
+              "type": "num",
+              "default": 0
+            },
+            {
+              "label": "",
+              "type": "num",
+              "default": 0
+            }
+          ],
+          "outputs": [
+            {
+              "label": "",
+              "type": "num"
+            }
+          ]
+        },
+        "isEntry": false
+      },
+      "position": {
+        "x": 420,
+        "y": 75
+      },
+      "positionAbsolute": {
+        "x": 420,
+        "y": 75
+      },
+      "selected": false,
+      "dragging": false,
+      "inputs": [
+        {
+          "nodeId": "580822441825790",
+          "handleIndex": 0
+        },
+        100
+      ],
+      "outputs": [
+        {
+          "nodeId": "7826633044562578",
+          "handleIndex": 2
+        }
+      ]
+    }
+  },
+  "edges": [
+    {
+      "source": "3349452269105633",
+      "sourceHandle": "3349452269105633_true_0",
+      "target": "1786967944785462",
+      "targetHandle": "1786967944785462_false_0",
+      "id": "reactflow__edge-33494522691056333349452269105633_true_0-17869679447854621786967944785462_false_0"
+    },
+    {
+      "source": "3349452269105633",
+      "sourceHandle": "3349452269105633_true_1",
+      "target": "1109882633881029",
+      "targetHandle": "1109882633881029_false_0",
+      "id": "reactflow__edge-33494522691056333349452269105633_true_1-11098826338810291109882633881029_false_0"
+    },
+    {
+      "source": "6383242170002915",
+      "sourceHandle": "6383242170002915_true_1",
+      "target": "2091381536909337",
+      "targetHandle": "2091381536909337_false_0",
+      "id": "reactflow__edge-63832421700029156383242170002915_true_1-20913815369093372091381536909337_false_0"
+    },
+    {
+      "source": "1109882633881029",
+      "sourceHandle": "1109882633881029_true_1",
+      "target": "6383242170002915",
+      "targetHandle": "6383242170002915_false_0",
+      "id": "reactflow__edge-11098826338810291109882633881029_true_1-63832421700029156383242170002915_false_0"
+    },
+    {
+      "source": "7826633044562578",
+      "sourceHandle": "7826633044562578_true_0",
+      "target": "3349452269105633",
+      "targetHandle": "3349452269105633_false_0",
+      "id": "reactflow__edge-78266330445625787826633044562578_true_0-33494522691056333349452269105633_false_0"
+    },
+    {
+      "source": "7826633044562578",
+      "sourceHandle": "7826633044562578_true_1",
+      "target": "580822441825790",
+      "targetHandle": "580822441825790_false_0",
+      "id": "reactflow__edge-78266330445625787826633044562578_true_1-580822441825790580822441825790_false_0"
+    },
+    {
+      "source": "8102487849209316",
+      "sourceHandle": "8102487849209316_true_0",
+      "target": "580822441825790",
+      "targetHandle": "580822441825790_false_0",
+      "id": "reactflow__edge-81024878492093168102487849209316_true_0-580822441825790580822441825790_false_0"
+    },
+    {
+      "source": "7826633044562578",
+      "sourceHandle": "7826633044562578_true_2",
+      "target": "8102487849209316",
+      "targetHandle": "8102487849209316_false_0",
+      "id": "reactflow__edge-78266330445625787826633044562578_true_2-81024878492093168102487849209316_false_0"
+    }
+  ]
+}

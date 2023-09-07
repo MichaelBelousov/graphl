@@ -765,9 +765,9 @@ fn graphToSource(graph_json: []const u8) GraphToSourceResult {
 
 test "big graph_to_source" {
     const alloc = std.testing.allocator;
-    const source = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/ue1/source.scm");
+    const source = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/source.scm");
     defer source.free(alloc);
-    const graph_json = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/ue1/prototype_graph.json");
+    const graph_json = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/graph.json");
     defer graph_json.free(alloc);
 
     // NOTE: it is extremely vague how we're going to isomorphically convert
