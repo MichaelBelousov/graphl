@@ -37,6 +37,7 @@ pub const Sexp = struct {
     }
 
     const WriteState = struct {
+        /// number of spaces we are in
         indent_level: usize = 0,
     };
 
@@ -46,15 +47,23 @@ pub const Sexp = struct {
         switch (self.value) {
             .list => |v| {
                 _ = try writer.write("(");
-                for (v.items, 0..) |item, i| {
-                    if (i != 0) {
-                        try writer.writeByteNTimes(' ', (state.indent_level + 1) * 2);
-                    }
-                    _ = try item._write(writer, .{ .indent_level = state.indent_level + 1});
-                    if (i != v.items.len - 1)
-                        // need like a counting writer to know how long lines will be
-                        _ = try writer.write("\n");
+
+                if (v.items.len >= 1) {
+                    _ = try v.items[0]._write(writer, .{ .indent_level = state.indent_level + 1});
                 }
+
+                if (v.items.len >= 2) {
+                    _ = try writer.write(" ");
+                    _ = try v.items[1]._write(writer, .{ .indent_level = state.indent_level + 1});
+
+                    for (v.items[2..]) |item| {
+                        _ = try writer.write("\n");
+                        // FIXME: use counting writer...
+                        try writer.writeByteNTimes(' ', state.indent_level);
+                        _ = try item._write(writer, .{ .indent_level = state.indent_level + 1});
+                    }
+                }
+
                 _ = try writer.write(")");
             },
             // FIXME: the bytecounts here are ignored!
@@ -156,8 +165,7 @@ test "write sexp" {
     const bytes_written = try root_sexp.write(writer);
 
     try testing.expectEqualStrings(
-        \\(hello
-        \\  0.5)
+        \\(hello 0.5)
     , buff[0..bytes_written]);
 }
 
