@@ -137,9 +137,13 @@ const LiteralInput = (props: {
   if (!(props.index in props.literalInputs))
     props.literalInputs[props.index] = props.default;
 
+  const noder = React.useContext(NoderContext);
+  const typeDescriptor = noder.lastTypeDefs[props.type];
+  const isEnum = typeof typeDescriptor === "object" && typeDescriptor && "enum" in typeDescriptor;
+
   // TODO: highlight bad values and explain
   const [literalValue, literalValueInput, setLiteralValueInput, _errorStatus, _errorReason]
-    = useValidatedInput<boolean | string | number>(props.literalInputs[props.index], {
+    = useValidatedInput<boolean | string | number | { symbol: string }>(props.literalInputs[props.index], {
     ...props.type === "bool" ? {
       parse: (x) => ({ value: !!x }),
       validate: () => ({ valid: true }),
@@ -156,6 +160,10 @@ const LiteralInput = (props: {
       parse: (x) => ({ value: x }),
       validate: () => ({ valid: true }),
       pattern: /.*/
+    } : isEnum ? {
+      parse: (x) => ({ value: { symbol: x } }),
+      validate: () => ({ valid: true }),
+      pattern: /.*/
     } : {
       parse: (x) => ({ value: x }),
       validate: () => ({ valid: true }),
@@ -164,7 +172,6 @@ const LiteralInput = (props: {
   });
 
   const graph = useReactFlow();
-  const noder = React.useContext(NoderContext);
 
   React.useEffect(() => {
     graph.setNodes(prev => prev.map((n: Node<NodeData>) => {
@@ -174,9 +181,9 @@ const LiteralInput = (props: {
       }
       return n;
     }));
-  }, [literalValue, props.owningNodeId]);
-
-  const typeDescriptor = noder.lastTypeDefs[props.type];
+  // HACK: literal value may not be referentially stable, so effect dependency is its input, which
+  // thank goodness uses useMemo so should be correct
+  }, [literalValueInput, props.owningNodeId]);
 
   const forceUpdateNode = useForceUpdateNode();
 
@@ -207,19 +214,30 @@ const LiteralInput = (props: {
     />;
   }
 
-  if (typeof typeDescriptor === "object" && typeDescriptor && "enum" in typeDescriptor) {
-    return <select defaultValue={props.literalInputs[props.index]} value={literalValueInput} onChange={e => setLiteralValueInput(e.currentTarget.value)}>
-      //<option value=""/>
-      {typeDescriptor.enum.map((v) =>
-        <option
-          defaultValue={props.literalInputs[props.index]}
-          value={v}
-          key={v}
-        >
-          {v}
-        </option>
-      )}
-    </select>
+  if (isEnum) {
+    return (
+      <select
+        defaultValue={props.literalInputs[props.index]}
+        value={literalValueInput}
+        onChange={e => setLiteralValueInput(e.currentTarget.value)}
+      >
+        <option value=""/>
+        {typeDescriptor.enum.map((v, i) => {
+          const [key, label] = typeof v === "object" && v !== null && "symbol" in v
+            ? [v.symbol, `'${v.symbol}`]
+            : [`${v}`, `${v}`];
+          return (
+            <option
+              defaultValue={props.literalInputs[props.index]}
+              value={key}
+              key={key}
+            >
+              {label}
+            </option>
+          );
+        })}
+      </select>
+    );
   }
 
   return null;
@@ -468,7 +486,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
         { "label": "channel", "type": "trace-channels" },
         { "label": "trace-complex", "type": "bool" },
         { "label": "actors-to-ignore", "type": "actor-list" },
-        { "label": "draw-debug-type", "type": "draw-debug-types", "default": { "symbol": "'none" } },
+        { "label": "draw-debug-type", "type": "draw-debug-types", "default": { "symbol": "none" } },
         { "label": "ignore-self", "type": "bool", "default": false }
       ];
       result["single-line-trace-by-channel"].outputs = [{label: "", type: "exec"}, {label:"Out Hit", type: "Hit"}, {label:"DidHit", type: "bool"}];
@@ -720,6 +738,14 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
           }}
         >
           Load
+        </button>
+        <button
+          onClick={async () => {
+            graph.setNodes([]);
+            graph.setEdges([]);
+          }}
+        >
+          Reset
         </button>
       </div>
       {/* TODO: must memoize the context value */}

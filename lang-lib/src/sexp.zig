@@ -76,7 +76,6 @@ pub const Sexp = struct {
 
     // eventually we want to format according to macro syntax
     const SpecialWriter = struct {
-
         pub fn @"if"(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
             _ = self;
             return state;

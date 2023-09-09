@@ -21,7 +21,7 @@ function sourceDefinesToNodeTypes(source: string) {
   return value;
 }
 
-type Value = any;
+type Value = number | string | boolean | { symbol: string };
 
 type Type =
   | "num"
@@ -48,9 +48,9 @@ const defaultTypes: Record<string, Type> = {
   // FIXME: fake ue types
   "actor": "ptr-to-opaque",
   "vector": { struct: { x: "f32", y: "f32", z: "f32" }},
-  "drone-state": { enum: ["move-up", "move-to-player", "dead"] },
-  "trace-channels": { enum: ["visibility", "collision"] },
-  "draw-debug-types": { enum: ["none", "line", "arrow"] },
+  "drone-state": { enum: [{ symbol: "move-up" }, { symbol: "move-to-player" }, { symbol: "dead" }] },
+  "trace-channels": { enum: [{ symbol: "visibility" }, { symbol: "collision" }] },
+  "draw-debug-types": { enum: [{ symbol: "none" }, { symbol: "line" }, { symbol: "arrow" }] },
 };
 
 interface NoderContextType {

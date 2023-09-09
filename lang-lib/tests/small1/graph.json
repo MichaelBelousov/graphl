@@ -273,7 +273,7 @@
       ]
     },
     "7826633044562578": {
-      "width": 353,
+      "width": 357,
       "height": 279,
       "id": "7826633044562578",
       "type": "single-line-trace-by-channel",
@@ -282,10 +282,14 @@
           "0": "",
           "1": "",
           "2": "",
-          "3": "visibility",
+          "3": {
+            "symbol": "collision"
+          },
           "4": true,
           "5": "",
-          "6": "arrow",
+          "6": {
+            "symbol": "arrow"
+          },
           "7": false
         },
         "typeIfDefaulted": "single-line-trace-by-channel",
@@ -369,10 +373,14 @@
           "nodeId": "8102487849209316",
           "handleIndex": 0
         },
-        "visibility",
+        {
+          "symbol": "collision"
+        },
         true,
         "",
-        "arrow",
+        {
+          "symbol": "arrow"
+        },
         false
       ],
       "outputs": [
