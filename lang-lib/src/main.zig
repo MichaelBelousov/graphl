@@ -528,6 +528,10 @@ const GraphBuilder = struct {
                     .node_data = context.node_data,
                     .block = Block.init(self.graph.alloc),
                 };
+                // FIXME: only add `begin` if it's multiple expressions
+                (consequence_ctx.block.addOne()
+                    catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
+                ).* = syms.begin;
                 const consequence_result = self.onNode(consequence.link.target, &consequence_ctx);
                 if (consequence_result.is_err()) return consequence_result;
                 consequence_sexp = Sexp{ .value = .{.list = consequence_ctx.block} };
@@ -538,6 +542,10 @@ const GraphBuilder = struct {
                     .node_data = context.node_data,
                     .block = Block.init(self.graph.alloc),
                 };
+                // FIXME: only add `begin` if it's multiple expressions
+                (alternative_ctx.block.addOne()
+                    catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
+                ).* = syms.begin;
                 const alternative_result = self.onNode(alternative.link.target, &alternative_ctx);
                 if (alternative_result.is_err()) return alternative_result;
                 alternative_sexp = Sexp{ .value = .{.list = alternative_ctx.block} };
@@ -561,7 +569,7 @@ const GraphBuilder = struct {
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
             ).* = condition_sexp;
 
-            // FIXME: wish I could make this more terse...
+            // FIXME: wish I could make this terser...
             (branch_sexp.value.list.addOne()
                 catch |e| return Result(void).fmt_err(global_alloc, "{}", .{e})
             ).* = consequence_sexp;

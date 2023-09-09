@@ -41,37 +41,58 @@ pub const Sexp = struct {
         depth: usize = 0,
     };
 
+    fn genericWriteForm(
+        form: std.ArrayList(Sexp),
+        writer: anytype,
+        state: WriteState
+    ) @TypeOf(writer).Error!WriteState {
+
+        var depth: usize = 0;
+
+        depth += try writer.write("(");
+
+        if (form.items.len >= 1) {
+            depth += (
+                try form.items[0]._write(writer, .{ .depth = state.depth + depth })
+            ).depth;
+        }
+
+        if (form.items.len >= 2) {
+            depth += try writer.write(" ");
+
+            _ = try form.items[1]._write(writer, .{ .depth = state.depth + depth});
+
+            for (form.items[2..]) |item| {
+                _ = try writer.write("\n");
+                try writer.writeByteNTimes(' ', state.depth + depth);
+                _ = try item._write(writer, .{ .depth = state.depth + depth});
+            }
+        }
+
+        _ = try writer.write(")");
+
+        return .{ .depth = depth };
+    }
+
+    // eventually we want to format according to macro syntax
+    const SpecialWriter = struct {
+
+        pub fn @"if"(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
+            _ = self;
+            return state;
+        }
+
+        pub fn @"begin"(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
+            _ = self;
+            return state;
+        }
+    };
+
     // explicit Error works around https://github.com/ziglang/zig/issues/2971
     fn _write(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
         // TODO: calculate stack space requirements?
         return switch (self.value) {
-            .list => |v| _: {
-                var depth: usize = 0;
-
-                depth += try writer.write("(");
-
-                if (v.items.len >= 1) {
-                    depth += (
-                        try v.items[0]._write(writer, .{ .depth = state.depth + depth })
-                    ).depth;
-                }
-
-                if (v.items.len >= 2) {
-                    depth += try writer.write(" ");
-
-                    _ = try v.items[1]._write(writer, .{ .depth = state.depth + depth});
-
-                    for (v.items[2..]) |item| {
-                        _ = try writer.write("\n");
-                        try writer.writeByteNTimes(' ', state.depth + depth);
-                        _ = try item._write(writer, .{ .depth = state.depth + depth});
-                    }
-                }
-
-                _ = try writer.write(")");
-
-                break :_ .{ .depth = depth };
-            },
+            .list => |v| genericWriteForm(v, writer, state),
             inline .float, .int => |v| _: {
                 var counting_writer = std.io.countingWriter(writer);
                 try counting_writer.writer().print("{d}", .{v});
@@ -197,6 +218,7 @@ pub const syms = struct {
     pub const import = Sexp{ .value = .{ .symbol = "import" } };
     pub const define = Sexp{ .value = .{ .symbol = "define" } };
     pub const as = Sexp{ .value = .{ .symbol = "as" } };
+    pub const begin = Sexp{ .value = .{ .symbol = "begin" } };
     // FIXME: is this really a symbol?
     pub const @"true" = Sexp{ .value = .{ .symbol = "#t" } };
     pub const @"false" = Sexp{ .value = .{ .symbol = "#f" } };
