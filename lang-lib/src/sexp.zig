@@ -38,42 +38,64 @@ pub const Sexp = struct {
 
     const WriteState = struct {
         /// number of spaces we are in
-        indent_level: usize = 0,
+        depth: usize = 0,
     };
 
     // explicit Error works around https://github.com/ziglang/zig/issues/2971
-    fn _write(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!void {
+    fn _write(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
         // TODO: calculate stack space requirements?
-        switch (self.value) {
-            .list => |v| {
-                _ = try writer.write("(");
+        return switch (self.value) {
+            .list => |v| _: {
+                var depth: usize = 0;
+
+                depth += try writer.write("(");
 
                 if (v.items.len >= 1) {
-                    _ = try v.items[0]._write(writer, .{ .indent_level = state.indent_level + 1});
+                    depth += (
+                        try v.items[0]._write(writer, .{ .depth = state.depth + depth })
+                    ).depth;
                 }
 
                 if (v.items.len >= 2) {
-                    _ = try writer.write(" ");
-                    _ = try v.items[1]._write(writer, .{ .indent_level = state.indent_level + 1});
+                    depth += try writer.write(" ");
+
+                    _ = try v.items[1]._write(writer, .{ .depth = state.depth + depth});
 
                     for (v.items[2..]) |item| {
                         _ = try writer.write("\n");
-                        // FIXME: use counting writer...
-                        try writer.writeByteNTimes(' ', state.indent_level);
-                        _ = try item._write(writer, .{ .indent_level = state.indent_level + 1});
+                        try writer.writeByteNTimes(' ', state.depth + depth);
+                        _ = try item._write(writer, .{ .depth = state.depth + depth});
                     }
                 }
 
                 _ = try writer.write(")");
+
+                break :_ .{ .depth = depth };
             },
-            // FIXME: the bytecounts here are ignored!
-            .float => |v| try writer.print("{d}", .{v}),
-            .bool => |v| { _ = try writer.write(if (v) "#t" else "#f"); },
-            .void => { _ = try writer.write("#void"); },
-            .int => |v| try writer.print("{d}", .{v}),
-            .ownedString, .borrowedString => |v| try writer.print("\"{s}\"", .{v}),
-            .symbol => |v| try writer.print("{s}", .{v}),
-        }
+            inline .float, .int => |v| _: {
+                var counting_writer = std.io.countingWriter(writer);
+                try counting_writer.writer().print("{d}", .{v});
+                break :_ .{ .depth = counting_writer.bytes_written };
+            },
+            .bool => |v| _: {
+                _ = try writer.write(if (v) syms.@"true".value.symbol else syms.@"false".value.symbol );
+                std.debug.assert(syms.@"true".value.symbol.len == syms.@"false".value.symbol.len);
+                break :_ .{ .depth = syms.@"true".value.symbol.len };
+            },
+            .void => _: {
+                _ = try writer.write(syms.@"true".value.symbol);
+                break :_ .{ .depth = syms.@"true".value.symbol.len };
+            },
+            .ownedString, .borrowedString => |v| _: {
+                // FIXME: this obviously doesn't handle characters that need escaping
+                try writer.print("\"{s}\"", .{v});
+                break :_ .{ .depth = v.len + 2 };
+            },
+            .symbol => |v| _: {
+                try writer.print("{s}", .{v});
+                break :_ .{ .depth = v.len };
+            },
+        };
     }
 
     pub fn write(self: Self, writer: anytype) !usize {
@@ -155,6 +177,7 @@ test "write sexp" {
     var list = std.ArrayList(Sexp).init(std.testing.allocator);
     (try list.addOne()).* = Sexp{ .value = .{ .symbol = "hello" } };
     (try list.addOne()).* = Sexp{ .value = .{ .float = 0.5 } };
+    (try list.addOne()).* = Sexp{ .value = .{ .float = 1.0 } };
     defer list.deinit();
     var root_sexp = Sexp{ .value = .{ .list = list } };
 
@@ -165,7 +188,8 @@ test "write sexp" {
     const bytes_written = try root_sexp.write(writer);
 
     try testing.expectEqualStrings(
-        \\(hello 0.5)
+        \\(hello 0.5
+        \\       1)
     , buff[0..bytes_written]);
 }
 
@@ -176,4 +200,5 @@ pub const syms = struct {
     // FIXME: is this really a symbol?
     pub const @"true" = Sexp{ .value = .{ .symbol = "#t" } };
     pub const @"false" = Sexp{ .value = .{ .symbol = "#f" } };
+    pub const @"void" = Sexp{ .value = .{ .symbol = "#void" } };
 };
