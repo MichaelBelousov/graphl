@@ -165,7 +165,7 @@ const LiteralInput = (props: {
       validate: () => ({ valid: true }),
       pattern: /.*/
     } : {
-      parse: (x) => ({ value: x }),
+      parse: () => ({ value: { symbol: "#void" } }),
       validate: () => ({ valid: true }),
       pattern: /.*/
     },
