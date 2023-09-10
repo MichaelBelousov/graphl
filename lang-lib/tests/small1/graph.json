@@ -167,7 +167,7 @@
       "width": 166,
       "height": 67,
       "id": "2091381536909337",
-      "type": "get_over-time",
+      "type": "get",
       "data": {
         "literalInputs": {},
         "typeIfDefaulted": "get_over-time",
@@ -395,9 +395,7 @@
       "id": "580822441825790",
       "type": "get-actor-location",
       "data": {
-        "literalInputs": {
-          "0": ""
-        },
+        "literalInputs": {},
         "typeIfDefaulted": "get-actor-location",
         "fullDesc": {
           "label": "get-actor-location",
@@ -427,7 +425,7 @@
       "selected": false,
       "dragging": false,
       "inputs": [
-        ""
+        null
       ],
       "outputs": [
         {
