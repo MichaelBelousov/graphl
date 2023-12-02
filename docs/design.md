@@ -42,7 +42,6 @@ The above solution is somewhat unaligned with achieving parity but more aligned 
 
 ```graphlang
 
-
 ;; need to look at a typed lisp, assume for now i32 allows you to define bindings that only accept an i32
 (define (max (i32 a) (i32 b))
   (if (> a b) a b))
@@ -147,6 +146,33 @@ expansions.
 
 A subbranch that joins can be reduced as a direct input for a superbranch
 
+##### Graph joins
+
+Attempts to create a cycle will be met with a label
+```graphlang
+(define (till5 (i32 x))
+  ;; labels attach to right before the first expression of a line
+  ;; if there is no expression on the line, it attaches to the next expression
+  (if (< x 5)) #:a
+    (begin
+      (++ x)
+      (goto a))
+    (print x))
+```
+
+is isomorphic to:
+
+```dot
+digraph till5 {
+  get_x_1 -> (< _ 5)
+  (< x 5) -> (++ x)
+  get_x_2 -> (++ x)
+  (++ x) -> (goto a)
+  (< x 5) -> (print x)
+  get_x_3 -> (print x)
+}
+```
+
 #### segment sequence
 
 This is hard because `a->b->c` is different in the visual realm from `sequence(->a ->b ->c)`,
@@ -213,5 +239,3 @@ digraph segmentSequenceBackwards {
 ```
 
 Maybe instead of supporting sequences we can do vertical reroutes?
-
-#####
