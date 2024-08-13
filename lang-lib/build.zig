@@ -1,4 +1,5 @@
 const std = @import("std");
+const CrossTarget = std.zig.CrossTarget;
 
 pub fn build(b: *std.Build) void {
     // Standard release options allow the person running `zig build` to select
@@ -8,16 +9,16 @@ pub fn build(b: *std.Build) void {
 
     const lib = b.addStaticLibrary(.{
         .name = "graph-lang",
-        .root_source_file = std.build.FileSource.relative("src/main.zig"),
+        .root_source_file = b.path("src/main.zig"),
         .optimize = optimize,
         .target = target,
+        .pic = true,
     });
     b.installArtifact(lib);
-    lib.force_pic = true;
 
     const main_tests = b.addTest(.{
         .name = "main-tests",
-        .root_source_file = std.build.FileSource.relative("src/main.zig"),
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -25,25 +26,28 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
 
+    const web_target_query = CrossTarget.parse(.{ .arch_os_abi = "wasm32-freestanding" }) catch unreachable;
+    const web_target = b.resolveTargetQuery(web_target_query);
+
     const web_step = b.step("web", "Build for web");
-    var web_target = target;
-    web_target.cpu_arch = .wasm32;
-    web_target.os_tag = .freestanding;
-    const web_lib = b.addSharedLibrary(.{
+    const web_lib = b.addExecutable(.{
         .name = "graph-lang",
-        .root_source_file = std.build.FileSource.relative("src/main.zig"),
+        .root_source_file = b.path("src/main.zig"),
         .target = web_target,
         .optimize = optimize,
+        .pic = true,
     });
     web_lib.rdynamic = true;
+    web_lib.entry = .disabled;
     b.installArtifact(web_lib);
+
     const web_lib_install = b.addInstallArtifact(web_lib, .{});
     web_step.dependOn(&web_lib_install.step);
 
     const ide_json_gen_step = b.step("ide-json-gen", "Build ide-json-gen");
     const ide_json_gen = b.addExecutable(.{
         .name = "ide-json-gen",
-        .root_source_file = std.build.FileSource.relative("src/ide_json_gen.zig"),
+        .root_source_file = b.path("src/ide_json_gen.zig"),
         .optimize = optimize,
         .target = target,
     });
