@@ -41,31 +41,24 @@ pub const Sexp = struct {
         depth: usize = 0,
     };
 
-    fn genericWriteForm(
-        form: std.ArrayList(Sexp),
-        writer: anytype,
-        state: WriteState
-    ) @TypeOf(writer).Error!WriteState {
-
+    fn genericWriteForm(form: std.ArrayList(Sexp), writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
         var depth: usize = 0;
 
         depth += try writer.write("(");
 
         if (form.items.len >= 1) {
-            depth += (
-                try form.items[0]._write(writer, .{ .depth = state.depth + depth })
-            ).depth;
+            depth += (try form.items[0]._write(writer, .{ .depth = state.depth + depth })).depth;
         }
 
         if (form.items.len >= 2) {
             depth += try writer.write(" ");
 
-            _ = try form.items[1]._write(writer, .{ .depth = state.depth + depth});
+            _ = try form.items[1]._write(writer, .{ .depth = state.depth + depth });
 
             for (form.items[2..]) |item| {
                 _ = try writer.write("\n");
                 try writer.writeByteNTimes(' ', state.depth + depth);
-                _ = try item._write(writer, .{ .depth = state.depth + depth});
+                _ = try item._write(writer, .{ .depth = state.depth + depth });
             }
         }
 
@@ -81,7 +74,7 @@ pub const Sexp = struct {
             return state;
         }
 
-        pub fn @"begin"(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
+        pub fn begin(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
             _ = self;
             return state;
         }
@@ -98,13 +91,13 @@ pub const Sexp = struct {
                 break :_ .{ .depth = counting_writer.bytes_written };
             },
             .bool => |v| _: {
-                _ = try writer.write(if (v) syms.@"true".value.symbol else syms.@"false".value.symbol );
-                std.debug.assert(syms.@"true".value.symbol.len == syms.@"false".value.symbol.len);
-                break :_ .{ .depth = syms.@"true".value.symbol.len };
+                _ = try writer.write(if (v) syms.true.value.symbol else syms.false.value.symbol);
+                std.debug.assert(syms.true.value.symbol.len == syms.false.value.symbol.len);
+                break :_ .{ .depth = syms.true.value.symbol.len };
             },
             .void => _: {
-                _ = try writer.write(syms.@"true".value.symbol);
-                break :_ .{ .depth = syms.@"true".value.symbol.len };
+                _ = try writer.write(syms.true.value.symbol);
+                break :_ .{ .depth = syms.true.value.symbol.len };
             },
             .ownedString, .borrowedString => |v| _: {
                 // FIXME: this obviously doesn't handle characters that need escaping
@@ -203,7 +196,7 @@ test "write sexp" {
 
     var buff: [1024]u8 = undefined;
     var fixed_buffer_stream = std.io.fixedBufferStream(&buff);
-    var writer = fixed_buffer_stream.writer();
+    const writer = fixed_buffer_stream.writer();
 
     const bytes_written = try root_sexp.write(writer);
 

@@ -151,7 +151,7 @@ pub const Parser = struct {
                         self.state = .integer;
                     },
                     '(' => {
-                        var top = self.stack.addOne(self.alloc) catch return .OutOfMemory;
+                        const top = self.stack.addOne(self.alloc) catch return .OutOfMemory;
                         top.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.alloc) } };
                         self.state = .between;
                     },
@@ -194,9 +194,7 @@ pub const Parser = struct {
 
         // FIXME: had to move this out of AlgoState.init due to a zig compiler bug
         algo_state.alloc = alloc;
-        (algo_state.stack.addOne(algo_state.alloc)
-            catch return Result.err(.OutOfMemory)
-        ).* = Sexp{ .value = .{.list = std.ArrayList(Sexp).init(algo_state.alloc)} };
+        (algo_state.stack.addOne(algo_state.alloc) catch return Result.err(.OutOfMemory)).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(algo_state.alloc) } };
 
         defer if (result == .err) algo_state.deinit();
 
@@ -204,7 +202,7 @@ pub const Parser = struct {
             const c = src[algo_state.loc.index];
             const tok_slice = src[algo_state.tok_start..algo_state.loc.index];
 
-            if (std.os.getenv("DEBUG") != null and builtin.os.tag != .freestanding) {
+            if (std.posix.getenv("DEBUG") != null and builtin.os.tag != .freestanding) {
                 std.debug.print("c: {c}, loc: {any}, state: {any}\n", .{ c, algo_state.loc, algo_state.state });
             }
 
@@ -221,7 +219,7 @@ pub const Parser = struct {
                     ' ', '\n', '\t', ')', '(' => {
                         const top = peek(&algo_state.stack) orelse unreachable;
                         const last = top.value.list.addOne() catch return Result.err(.OutOfMemory);
-                        last.* = Sexp{ .value = .{.symbol = tok_slice} };
+                        last.* = Sexp{ .value = .{ .symbol = tok_slice } };
                         algo_state.tok_start = algo_state.loc.index;
                         if (algo_state.onNextCharAfterTok()) |err| {
                             result = Result.err(err);
@@ -299,9 +297,9 @@ const t = std.testing;
 
 test "parse 1" {
     var expected_list = std.ArrayList(Sexp).init(t.allocator);
-    (try expected_list.addOne()).* = Sexp{ .value = .{.int = 2 } };
-    (try expected_list.addOne()).* = Sexp{ .value = .{.borrowedString = "hel\\\"lo\nworld" } };
-    (try expected_list.addOne()).* = Sexp{ .value = .{.list = std.ArrayList(Sexp).init(t.allocator) } };
+    (try expected_list.addOne()).* = Sexp{ .value = .{ .int = 2 } };
+    (try expected_list.addOne()).* = Sexp{ .value = .{ .borrowedString = "hel\\\"lo\nworld" } };
+    (try expected_list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
     (try expected_list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "+" } };
     (try expected_list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 3 } };
     (try expected_list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };

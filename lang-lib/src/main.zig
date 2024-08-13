@@ -58,7 +58,7 @@ pub fn main() void {}
 
 comptime {
     if (builtin.target.cpu.arch == .wasm32) {
-        @export(alloc_string, .{ .name = "alloc_string", .linkage = .Strong });
-        @export(free_string, .{ .name = "free_string", .linkage = .Strong });
+        @export(alloc_string, .{ .name = "alloc_string", .linkage = .strong });
+        @export(free_string, .{ .name = "free_string", .linkage = .strong });
     }
 }

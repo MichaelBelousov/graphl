@@ -64,7 +64,7 @@ pub fn IntArrayHashMap(comptime Key: type, comptime T: type, comptime base: u8) 
         }
 
         pub fn jsonStringify(self: @This(), jws: anytype) !void {
-            var intBuf: u8[32] = undefined; // TODO: generate buff size from base
+            const intBuf: u8[32] = undefined; // TODO: generate buff size from base
             try jws.beginObject();
             var it = self.map.iterator();
             while (it.next()) |kv| {

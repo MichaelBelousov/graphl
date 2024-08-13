@@ -29,7 +29,7 @@ pub const PageWriter = struct {
         while (pages_iter.next()) |page| {
             const is_last = index == self.pages.count() - 1;
             const copy_size = if (is_last) last_page_written_num else page_size;
-            std.mem.copy(u8, buff[cursor .. cursor + copy_size], page[0..copy_size]);
+            std.mem.copyForwards(u8, buff[cursor .. cursor + copy_size], page[0..copy_size]);
             index += 1;
             cursor += copy_size;
         }
@@ -39,7 +39,7 @@ pub const PageWriter = struct {
 
     pub fn init(alloc: std.mem.Allocator) !Self {
         var pages = std.SegmentedList(Page, 0){};
-        var first_page = try pages.addOne(alloc);
+        const first_page = try pages.addOne(alloc);
         return Self{
             .alloc = alloc,
             .pages = pages,
@@ -62,7 +62,7 @@ pub const PageWriter = struct {
             }
             const next_end = @min(self.writeable_page.len, remaining_bytes.len);
             const bytes_for_current_page = remaining_bytes[0..next_end];
-            std.mem.copy(u8, self.writeable_page, bytes_for_current_page);
+            std.mem.copyForwards(u8, self.writeable_page, bytes_for_current_page);
             self.writeable_page = self.writeable_page[bytes_for_current_page.len..self.writeable_page.len];
             remaining_bytes = remaining_bytes[bytes_for_current_page.len..];
         }

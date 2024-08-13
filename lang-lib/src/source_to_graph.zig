@@ -43,9 +43,9 @@ export fn source_to_graph(source: Slice) Result(Slice) {
 // TODO: only export in wasi
 pub fn main() void {}
 
-comptime {
-    if (builtin.target.cpu.arch == .wasm32) {
-        @export(alloc_string, .{ .name = "alloc_string", .linkage = .Strong });
-        @export(free_string, .{ .name = "free_string", .linkage = .Strong });
-    }
-}
+// comptime {
+//     if (builtin.target.cpu.arch == .wasm32) {
+//         @export(alloc_string, .{ .name = "alloc_string", .linkage = .Strong });
+//         @export(free_string, .{ .name = "free_string", .linkage = .Strong });
+//     }
+// }
