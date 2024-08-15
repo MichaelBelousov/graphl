@@ -61,19 +61,38 @@
     (set! x (- x 1.0))
     (io.console.print x)))
 
-;; inspired by similar ue4 macro
-(expr-macro (gate start-closed)
-  (define locked start-closed)
-  (if cond #!start
-    (begin loop ...)
-    (goto start)))
-
-(expr-macro (sql x ...)
-  '(x $(x)))
-
 ;;; MACROS THAT CREATE DEFINITIONS
 ;;; this is a tough one, because ideally the visual editor lists definitions,
 ;;; so where would you "edit" the code that expands to definitions?
+
+
+
+;; note that the callback on-enter must be easily interpretable
+;; as an output of the visual node version!
+
+;; inspired by similar ue4 macro
+;; idea: use a namespace as a node...
+(macro (gate start-closed on-enter)
+  ;; basically just a closure
+  ;; defines a node with exec pin entries defined by the labels, and exec out pins
+  ;; defined by the 
+  (namespace
+    (var closed start-closed)
+
+    #!is-closed
+    (begin closed)
+
+    #!enter
+    (lambda ()
+      (cond ((not closed) (on-enter))))
+
+    #!open
+    (lambda ()
+      (set! closed false))
+
+    #!close
+    (lambda ()
+      (set! closed true))))
 
 (defs-macro (define-ast x)
   (define (symbol (fmt "print-{}" x)) 5)
