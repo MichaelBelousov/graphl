@@ -626,6 +626,8 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
     };
   }, [nodeDescs]);
 
+  const [fileName, setFileName] = React.useState("graph.json");
+
   return (
     <div className={styles.page}>
       <ContextMenu>
@@ -712,7 +714,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
             }
 
             downloadFile({
-              fileName: 'graph.json',
+              fileName,
               content: JSON.stringify({
                 nodes: Object.fromEntries(nodes.entries()),
                 edges,
@@ -747,6 +749,10 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
         >
           Reset
         </button>
+        <input
+          value={fileName}
+          onChange={(e) => setFileName(e.currentTarget.value)}
+        />
       </div>
       {/* TODO: must memoize the context value */}
       <AppCtx.Provider value={{graph: {}}}>
