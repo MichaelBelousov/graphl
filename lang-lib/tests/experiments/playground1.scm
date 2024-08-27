@@ -54,10 +54,21 @@
     (cond (c (begin body ...))))
   (impl))
 
+;; variant three (multi-entry closure)
+(type (while bool (func () R)) R)
+(macro (while c body)
+  #!start
+  (if c
+    (begin
+      (body)
+      (goto #!start)
+    )))
+
+;; usage of while
 (define (contrived1)
   (type x rational)
   (var x 5.0)
-  (while (< x 0)
+  (while (< x 0.0)
     (set! x (- x 1.0))
     (io.console.print x)))
 
@@ -75,7 +86,7 @@
 (macro (gate start-closed on-enter)
   ;; basically just a closure
   ;; defines a node with exec pin entries defined by the labels, and exec out pins
-  ;; defined by the 
+  ;; defined by the function outputs...
   (namespace
     (var closed start-closed)
 
