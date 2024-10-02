@@ -20,35 +20,12 @@ const IndexedNode = GraphTypes.Node;
 const IndexedLink = GraphTypes.Link;
 
 const Slice = @import("./slice.zig").Slice;
-const Result = @import("./result.zig").Result;
 
 const JsonNodeHandle = @import("./json_format.zig").JsonNodeHandle;
 const JsonNodeInput = @import("./json_format.zig").JsonNodeInput;
 const JsonNode = @import("./json_format.zig").JsonNode;
 const Import = @import("./json_format.zig").Import;
 const GraphDoc = @import("./json_format.zig").GraphDoc;
-
-// FIXME: remove
-const GraphToSourceErr = union(enum) {
-    ioErr: void,
-    OutOfMemory: void,
-
-    /// caller must free the result
-    pub fn explain(self: @This(), al: std.mem.Allocator) ![*:0]const u8 {
-        return switch (self) {
-            inline else => |v| try std.fmt.allocPrintZ(al, "Error: '{s}', {}", .{ @tagName(self), v }),
-        };
-    }
-};
-
-// FIXME: remove
-const GraphToSourceResult = Result([]const u8);
-/// TODO: infer the error type from the result
-
-// FIXME: remove
-fn err_explain(comptime R: type, e: GraphToSourceErr) R {
-    return R.err(GraphToSourceErr.explain(e, global_alloc) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
-}
 
 const GraphBuilder = struct {
     env: Env,
@@ -554,8 +531,62 @@ const GraphBuilder = struct {
     }
 };
 
+
+const GraphToSourceErr = union (enum) {
+    IoErr: void,
+    OutOfMemory: void,
+
+    const Code = error {
+        IoErr,
+        OutOfMemory,
+    };
+
+    const fmts = .{
+        .{ .key = GraphToSourceErr.IoErr, .fmt = "An IO Error" },
+        .{ .key = GraphToSourceErr.OutOfMemory, .fmt = "Out of memory" },
+    };
+
+    const max_fmt_size = _: {
+        var max: usize = 0;
+        for (fmts) |f| {
+            if (f.fmt.len > max)
+                max = f.fmt.len;
+        }
+        break :_ max;
+    };
+
+    pub fn fmt(self: @This(), buffer: *[max_fmt_size]u8) ![]const u8 {
+        inline for (fmts) |f| {
+            if (self == f.key) {
+                std.fmt.bufPrint(buffer, f.fmt, .{self});
+            }
+        }
+    }
+
+    pub fn format(
+        self: @This(),
+        comptime fmt_str: []const u8,
+        fmt_opts: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        _ = fmt_str;
+        _ = fmt_opts;
+        switch (self) {
+            .unknownRoute => |v| try writer.print("Unknown Route: '{s}'", .{v}),
+            .userNameTooLong => |v| try writer.print("User name '{s}' is too long, a max of {} bytes per name is allowed", .{ v, MAX_USERNAME_LEN }),
+            .dbNameTooLong => |v| try writer.print("Database name '{s}' is too long, a max of {} bytes per name is allowed", .{ v, MAX_DBNAME_LEN }),
+            .invalidChangesetIndex => |v| try writer.print("Changeset index '{s}' is not valid, it must be a positive integer", .{v}),
+        }
+    }
+
+    // FIXME: remove
+    fn err_explain(comptime R: type, e: GraphToSourceErr) R {
+        return R.err(GraphToSourceErr.explain(e, global_alloc) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
+    }
+};
+
 /// caller must free result with {TBD}
-fn graphToSource(graph_json: []const u8) GraphToSourceResult {
+fn graphToSource(graph_json: []const u8) ![]const u8 {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const arena_alloc = arena.allocator();

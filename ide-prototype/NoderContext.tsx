@@ -1,24 +1,11 @@
 import React from "react";
-import initLangLogic from "../lang-lib/zig-out/bin/graph-lang.wasm?init";
-import { makeWasmHelper } from "./wasm";
-import { useStable } from "@bentley/react-hooks";
-
 // FIXME: show loading
-const langLib = await initLangLogic() as WebAssembly.Instance;
-const wasmUtils = makeWasmHelper(langLib);
-
-globalThis._noder = langLib;
-globalThis._wasmUtils = wasmUtils;
+import native from "../lang-lib/src/main.zig";
+import { useStable } from "@bentley/react-hooks";
 
 /** caller must free the result */
 function sourceDefinesToNodeTypes(source: string) {
-  const marshalledSrc = wasmUtils.marshalString(source);
-  const resultPtr = langLib.exports.readSrc(marshalledSrc.ptr);
-  const result = wasmUtils.ptrToStr(resultPtr);
-  const { value } = result;
-  result.free();
-  marshalledSrc.free();
-  return value;
+  return native.readSrc(source);
 }
 
 type Value = number | string | boolean | { symbol: string };
@@ -54,8 +41,6 @@ const defaultTypes: Record<string, Type> = {
 };
 
 interface NoderContextType {
-  langLib: WebAssembly.Instance;
-  wasmUtils: ReturnType<typeof makeWasmHelper>;
   sourceDefinesToNodeTypes(source: string): string;
   // TODO: move mutating state into their own hooks
   lastNodeTypes: any;
@@ -69,8 +54,6 @@ interface NoderContextType {
 }
 
 const defaultContext: NoderContextType = {
-  langLib,
-  wasmUtils,
   sourceDefinesToNodeTypes,
   lastNodeTypes: {},
   lastFunctionDefs: {},

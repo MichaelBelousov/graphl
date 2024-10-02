@@ -3,8 +3,11 @@ import rollupVisualizer from "rollup-plugin-visualizer";
 import viteInspect from "vite-plugin-inspect";
 import { defineConfig, loadEnv } from "vite";
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(async ({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ""));
+
+  // TODO: use node version that supports require?
+  const zigar = (await import("rollup-plugin-zigar")).default;
 
   return {
     server: {
@@ -13,6 +16,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
+      zigar({ topLevelAwait: false }),
       ...(mode === "development" ? [viteInspect({ build: true })] : []),
     ],
     css: {

@@ -68,6 +68,9 @@ importers:
       rollup-plugin-visualizer:
         specifier: ^5.9.0
         version: 5.9.2(rollup@3.26.0)
+      rollup-plugin-zigar:
+        specifier: ^0.13.2
+        version: 0.13.2
       sinon:
         specifier: ^15.0.1
         version: 15.2.0
@@ -1325,6 +1328,9 @@ packages:
       rollup:
         optional: true
 
+  rollup-plugin-zigar@0.13.2:
+    resolution: {integrity: sha512-loAWLULNSHQPO59WAXneeebw633q6R2o00efXcJuVTbil/sNAxK0KzyXJlg0OafGvKksrjDhZkdPF/ta0VMfEw==}
+
   rollup@3.26.0:
     resolution: {integrity: sha512-YzJH0eunH2hr3knvF3i6IkLO/jTjAEwU4HoMUbQl4//Tnl3ou0e7P5SjxdDr8HQJdeUJShlbEHXrrnEHy1l7Yg==}
     engines: {node: '>=14.18.0', npm: '>=8.0.0'}
@@ -1617,6 +1623,12 @@ packages:
   yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
+
+  zigar-compiler@0.13.2:
+    resolution: {integrity: sha512-Fd1WouXy7EyWxmVUKR2JmizGP0cfT6Z9bzvcW0eKM5jfH1J4MLtK/Lf4x2hW13mEbHurD4TzAQyNiFL1mwe2nQ==}
+
+  zigar-runtime@0.13.2:
+    resolution: {integrity: sha512-l2kQOVehiawttaeNtNhex5rt/VkH39Rv0z1D4Dojhl3AHJk1DXV93kbIZAfXk4bwCgArvChNf4Pt521d6BF+fg==}
 
   zustand@4.3.9:
     resolution: {integrity: sha512-Tat5r8jOMG1Vcsj8uldMyqYKC5IZvQif8zetmLHs9WoZlntTHmIoNM8TpLRY31ExncuUvUOXehd0kvahkuHjDw==}
@@ -2903,6 +2915,11 @@ snapshots:
     optionalDependencies:
       rollup: 3.26.0
 
+  rollup-plugin-zigar@0.13.2:
+    dependencies:
+      zigar-compiler: 0.13.2
+      zigar-runtime: 0.13.2
+
   rollup@3.26.0:
     optionalDependencies:
       fsevents: 2.3.2
@@ -3155,6 +3172,10 @@ snapshots:
   yn@3.1.1: {}
 
   yocto-queue@0.1.0: {}
+
+  zigar-compiler@0.13.2: {}
+
+  zigar-runtime@0.13.2: {}
 
   zustand@4.3.9(react@18.2.0):
     dependencies:
