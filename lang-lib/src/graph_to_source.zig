@@ -55,16 +55,16 @@ const GraphBuilder = struct {
         };
     }
 
-    pub fn getSingleExecFromEntry(entry: *const IndexedNode) Result(GraphTypes.Output) {
-        var entry_exec = Result(GraphTypes.Output).err("No exec pins on entry node");
+    pub fn getSingleExecFromEntry(entry: *const IndexedNode) !GraphTypes.Output {
+        var entry_exec = error.EntryNodeNoExecPins;
         for (entry.outputs, 0..) |output, i| {
             const out_type = entry.desc.getOutputs()[i];
             if (out_type == .primitive and out_type.primitive == .exec) {
                 if (entry_exec.is_ok()) {
-                    entry_exec = Result(GraphTypes.Output).err("Multiple exec pins on entry node");
+                    entry_exec = error.ExecNodeMultiExecPin;
                     return entry_exec;
                 }
-                entry_exec = Result(GraphTypes.Output).ok(output);
+                entry_exec = output;
             }
         }
         return entry_exec;
@@ -73,32 +73,21 @@ const GraphBuilder = struct {
     pub fn buildFromJson(
         self: *Self,
         json_graph: GraphDoc,
-    ) Result(void) {
-        const entry_result = self.populateAndReturnEntry(json_graph);
-        if (entry_result.is_err()) return entry_result.err_as(void);
-
-        const entry = if (entry_result.is_err())
-            // also let's make it not nullable since it's required...
-            return entry_result.err_as(void)
-        else
-            entry_result.value;
-
+    ) !void {
+        const entry = try self.populateAndReturnEntry(json_graph);
         self.entry = entry;
-
-        const link_result = self.link(json_graph);
-        if (link_result.is_err()) return link_result;
-
-        return Result(void).ok({});
+        try self.link(json_graph);
     }
 
     pub fn populateAndReturnEntry(
         self: *Self,
         json_graph: GraphDoc,
-    ) Result(*const IndexedNode) {
+    ) !*const IndexedNode {
         var entry_id: ?i64 = null;
-        var result = Result(*const IndexedNode).err("JSON graph contains no entry");
+        var result = error.GraphHasNoEntry;
+
         // FIXME: this belongs in buildFromJson...
-        defer if (result.is_err()) self.nodes.map.clearAndFree(self.alloc);
+        errdefer self.nodes.map.clearAndFree(self.alloc);
 
         var branch_count: u32 = 0;
         var node_index: usize = 0;
@@ -533,7 +522,8 @@ const GraphBuilder = struct {
 
 
 const GraphToSourceErr = union (enum) {
-    IoErr: void,
+    None,
+    IoErr: anyerror,
     OutOfMemory: void,
 
     const Code = error {
@@ -541,25 +531,16 @@ const GraphToSourceErr = union (enum) {
         OutOfMemory,
     };
 
-    const fmts = .{
-        .{ .key = GraphToSourceErr.IoErr, .fmt = "An IO Error" },
-        .{ .key = GraphToSourceErr.OutOfMemory, .fmt = "Out of memory" },
-    };
+    pub fn from(err: error.OutOfMemory) GraphToSourceErr {
+        return switch (err) {
+            error.OutOfMemory => GraphToSourceErr{ .OutOfMemory = {} },
+        };
+    }
 
-    const max_fmt_size = _: {
-        var max: usize = 0;
-        for (fmts) |f| {
-            if (f.fmt.len > max)
-                max = f.fmt.len;
-        }
-        break :_ max;
-    };
-
-    pub fn fmt(self: @This(), buffer: *[max_fmt_size]u8) ![]const u8 {
-        inline for (fmts) |f| {
-            if (self == f.key) {
-                std.fmt.bufPrint(buffer, f.fmt, .{self});
-            }
+    pub fn code(self: @This()) Code {
+        switch (self) {
+            .IoErr => Code.IoErr,
+            .OutOfMemory => Code.OutOfMemory,
         }
     }
 
@@ -572,26 +553,25 @@ const GraphToSourceErr = union (enum) {
         _ = fmt_str;
         _ = fmt_opts;
         switch (self) {
-            .unknownRoute => |v| try writer.print("Unknown Route: '{s}'", .{v}),
-            .userNameTooLong => |v| try writer.print("User name '{s}' is too long, a max of {} bytes per name is allowed", .{ v, MAX_USERNAME_LEN }),
-            .dbNameTooLong => |v| try writer.print("Database name '{s}' is too long, a max of {} bytes per name is allowed", .{ v, MAX_DBNAME_LEN }),
-            .invalidChangesetIndex => |v| try writer.print("Changeset index '{s}' is not valid, it must be a positive integer", .{v}),
+            .IoErr => |e| try writer.print("IO Error ({})", .{e}),
+            .OutOfMemory => try writer.print("Out of memory", .{}),
         }
-    }
-
-    // FIXME: remove
-    fn err_explain(comptime R: type, e: GraphToSourceErr) R {
-        return R.err(GraphToSourceErr.explain(e, global_alloc) catch |sub_err| std.debug.panic("error '{}' while explaining an error", .{sub_err}));
     }
 };
 
+const GraphToSourceDiagnostic = GraphToSourceErr;
+
 /// caller must free result with {TBD}
-fn graphToSource(graph_json: []const u8) ![]const u8 {
+fn graphToSource(graph_json: []const u8, diagnostic: ?*GraphToSourceDiagnostic) ![]const u8 {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const arena_alloc = arena.allocator();
 
-    const env = Env.initDefault(arena_alloc) catch |e| return GraphToSourceResult.fmt_err(global_alloc, "{}", .{e});
+    const env = Env.initDefault(arena_alloc) catch |e| return {
+        const err = GraphToSourceErr.from(e);
+        if (diagnostic) |d| d.* = err;
+        return err.code();
+    };
 
     var json_diagnostics = json.Diagnostics{};
     var graph_json_reader = json.Scanner.initCompleteInput(arena_alloc, graph_json);
