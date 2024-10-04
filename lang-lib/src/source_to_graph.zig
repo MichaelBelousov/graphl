@@ -9,7 +9,6 @@ const Sexp = @import("./sexp.zig").Sexp;
 const syms = @import("./sexp.zig").syms;
 const ide_json_gen = @import("./ide_json_gen.zig");
 
-const Result = @import("./result.zig").Result;
 const Loc = @import("./loc.zig").Loc;
 
 const Env = @import("./nodes/builtin.zig").Env;
@@ -29,15 +28,10 @@ const GraphDoc = @import("./json_format.zig").GraphDoc;
 
 test "source_to_graph" {}
 
-// FIXME use wasm known memory limits or something
-var result_buffer: [std.mem.page_size * 512]u8 = undefined;
-var global_allocator_inst = std.heap.FixedBufferAllocator.init(&result_buffer);
-const global_alloc = global_allocator_inst.allocator();
-
 /// call c free on result
-export fn source_to_graph(source: Slice) Result(Slice) {
+export fn source_to_graph(source: Slice) ![]const u8 {
     _ = source;
-    return Result(Slice).ok(Slice.fromZig(""));
+    return "";
 }
 
 // TODO: only export in wasi

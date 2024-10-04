@@ -18,15 +18,7 @@ test {
 pub const source_to_graph = @import("./source_to_graph.zig");
 pub const graph_to_source = @import("./graph_to_source.zig");
 
-fn alloc_string(byte_count: usize) callconv(.C) [*:0]u8 {
-    return (global_alloc.allocSentinel(u8, byte_count, 0) catch |e| return std.debug.panic("alloc error: {}", .{e})).ptr;
-}
-
-fn free_string(str: [*:0]u8) callconv(.C) void {
-    return global_alloc.free(str[0..std.mem.len(str)]);
-}
-
-export fn readSrc(src: [*:0]const u8, in_status: ?*c_int) [*:0]const u8 {
+pub export fn readSrc(src: [*:0]const u8, in_status: ?*c_int) [*:0]const u8 {
     var ignored_status: c_int = 0;
     const out_status = in_status orelse &ignored_status;
 
@@ -51,14 +43,4 @@ export fn readSrc(src: [*:0]const u8, in_status: ?*c_int) [*:0]const u8 {
         out_status.* = 1;
         return "Error: alloc concat error";
     }).ptr));
-}
-
-// TODO: only export in wasi
-pub fn main() void {}
-
-comptime {
-    if (builtin.target.cpu.arch == .wasm32) {
-        @export(alloc_string, .{ .name = "alloc_string", .linkage = .strong });
-        @export(free_string, .{ .name = "free_string", .linkage = .strong });
-    }
 }
