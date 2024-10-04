@@ -32,7 +32,7 @@ pub fn build(b: *std.Build) void {
     const web_step = b.step("web", "Build for web");
     const web_lib = b.addExecutable(.{
         .name = "graph-lang",
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/c_api.zig"),
         .target = web_target,
         .optimize = optimize,
         .pic = true,

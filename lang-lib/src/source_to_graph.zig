@@ -29,13 +29,10 @@ const GraphDoc = @import("./json_format.zig").GraphDoc;
 test "source_to_graph" {}
 
 /// call c free on result
-export fn source_to_graph(source: Slice) ![]const u8 {
+pub fn sourceToGraph(source: []const u8) ![]const u8 {
     _ = source;
     return "";
 }
-
-// TODO: only export in wasi
-pub fn main() void {}
 
 // comptime {
 //     if (builtin.target.cpu.arch == .wasm32) {

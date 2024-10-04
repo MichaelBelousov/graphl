@@ -316,17 +316,22 @@ pub const BreakNodeContext = struct {
 
 pub fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !NodeDesc {
     var out_pins_slot: [if (@inComptime()) in_struct_type.field_types.len else 0]Pin = undefined;
+
     const out_pins = if (@inComptime()) &out_pins_slot else try alloc.alloc(Pin, in_struct_type.field_types.len);
 
     for (in_struct_type.field_types, out_pins) |field_type, *out_pin| {
         out_pin.* = Pin{ .primitive = .{ .value = field_type } };
     }
 
+    const done_pins_slot = out_pins_slot;
+
+    const done_out_pins = if (@inComptime()) &done_pins_slot else out_pins;
+
     const name =
         if (@inComptime()) std.fmt.comptimePrint("break_{s}", .{in_struct_type.name}) else std.fmt.allocPrint(alloc, "break_{s}", .{in_struct_type.name});
 
     const context: *const BreakNodeContext =
-        if (@inComptime()) &BreakNodeContext{ .struct_type = in_struct_type, .out_pins = out_pins } else try alloc.create(BreakNodeContext{ .struct_type = in_struct_type, .out_pins = out_pins });
+        if (@inComptime()) &BreakNodeContext{ .struct_type = in_struct_type, .out_pins = done_out_pins } else try alloc.create(BreakNodeContext{ .struct_type = in_struct_type, .out_pins = out_pins });
 
     const NodeImpl = struct {
         const Self = @This();

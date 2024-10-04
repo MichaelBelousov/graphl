@@ -491,10 +491,13 @@ const GraphBuilder = struct {
     }
 };
 
-const GraphToSourceErr = union(enum) {
-    None,
+// TODO: rework to use errors explicitly
+const GraphToSourceErr = union(enum(u16)) {
+    None = 0,
+    // TODO: remove
+    OutOfMemory: void = @intFromError(error.OutOfMemory),
+    // TODO: remove
     IoErr: anyerror,
-    OutOfMemory: void,
 
     const Code = error{
         IoErr,
@@ -529,10 +532,10 @@ const GraphToSourceErr = union(enum) {
     }
 };
 
-const GraphToSourceDiagnostic = GraphToSourceErr;
+pub const GraphToSourceDiagnostic = GraphToSourceErr;
 
 /// caller must free result with {TBD}
-fn graphToSource(graph_json: []const u8, diagnostic: ?*GraphToSourceDiagnostic) ![]const u8 {
+pub fn graphToSource(graph_json: []const u8, diagnostic: ?*GraphToSourceDiagnostic) ![]const u8 {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const arena_alloc = arena.allocator();
@@ -635,15 +638,11 @@ test "big graph_to_source" {
     // will scoping be function-level?
     // Does synchronizing graph changes into the source affect those?
 
-    const result = graph_to_source(graph_json.buffer);
+    const result = graphToSource(graph_json.buffer, null);
     if (result) |value| {
         try testing.expectEqualStrings(source.buffer, value);
     } else |err| {
         std.debug.print("\n{?s}\n", .{err});
         return error.FailTest;
     }
-}
-
-export fn graph_to_source(graph_json: []const u8) []const u8 {
-    return graphToSource(graph_json.toZig());
 }
