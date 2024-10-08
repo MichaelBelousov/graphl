@@ -28,8 +28,8 @@ pub export fn grappl_graph_to_source(in_src: [*:0]const u8, out_status: ?*c_int)
     // TODO: use function that allocates with null terminator
     const out = graph2src.graphToSource(src, &diagnostic) catch |e| {
         if (out_status) |s| s.* = @intFromError(e);
-        std.debug.print("graphToSource error:\n{}\n", .{diagnostic});
-        return;
+        // FIXME: can't free this pointer so maybe better to crash with unreachable
+        return std.fmt.allocPrintZ(global_alloc, "graphToSource error:\n{}\n", .{diagnostic}) catch "OutOfMemory trying to format error";
     };
     defer global_alloc.free(out);
 

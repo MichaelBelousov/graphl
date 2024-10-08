@@ -16,6 +16,7 @@ const Value = @import("./nodes/builtin.zig").Value;
 const debug_tail_call = @import("./common.zig").debug_tail_call;
 const global_alloc = @import("./common.zig").global_alloc;
 const GraphTypes = @import("./common.zig").GraphTypes;
+
 const IndexedNode = GraphTypes.Node;
 const IndexedLink = GraphTypes.Link;
 
@@ -26,6 +27,29 @@ const JsonNodeInput = @import("./json_format.zig").JsonNodeInput;
 const JsonNode = @import("./json_format.zig").JsonNode;
 const Import = @import("./json_format.zig").Import;
 const GraphDoc = @import("./json_format.zig").GraphDoc;
+
+// TODO: make optional
+// in freestanding environment, an imported function that allows printing to the console
+extern fn _wasm_debug_print(str: [*]const u8, len: usize) void;
+
+fn debug_print(comptime fmt_str: []const u8, fmt_args: anytype) void {
+    switch (builtin.target.os.tag) {
+        // NOTE: a more sophisticated implementation would create a writer around _wasm_debug_print and
+        .freestanding => {
+            if (fmt_str.len > 3072)
+                @compileError("format string too long");
+
+            // NOTE: clip long strings in fmt_args to fit into the buf
+            var buf: [4096]u8 = undefined;
+            const printed = std.fmt.bufPrint(&buf, fmt_str, fmt_args) catch |e| std.debug.panic("Print too long ({})", .{e});
+            _wasm_debug_print(printed.ptr, printed.len);
+        },
+        .wasi, .linux, .macos, .windows => {
+            std.debug.print(fmt_str, fmt_args);
+        },
+        else => @compileError("unsupported architecture"),
+    }
+}
 
 const GraphBuilder = struct {
     env: Env,
@@ -42,6 +66,7 @@ const GraphBuilder = struct {
     const Self = @This();
     const Types = GraphTypes;
 
+    // FIXME: replace pointers with indices into an allocator? Could be faster
     pub fn isJoin(self: @This(), node: *const IndexedNode) bool {
         return self.is_join_set.isSet(node.extra.index);
     }
@@ -60,7 +85,7 @@ const GraphBuilder = struct {
         for (entry.outputs, 0..) |output, i| {
             const out_type = entry.desc.getOutputs()[i];
             if (out_type == .primitive and out_type.primitive == .exec) {
-                if (entry_exec.is_ok()) {
+                if (entry_exec != error.EntryNodeNoExecPins) {
                     entry_exec = error.ExecNodeMultiExecPin;
                     return entry_exec;
                 }
@@ -70,18 +95,36 @@ const GraphBuilder = struct {
         return entry_exec;
     }
 
+    pub const BuildFromJsonDiagnostic = PopulateAndReturnEntryDiagnostic;
+
     pub fn buildFromJson(
         self: *Self,
         json_graph: GraphDoc,
+        diagnostic: ?*BuildFromJsonDiagnostic,
     ) !void {
-        const entry = try self.populateAndReturnEntry(json_graph);
+        const entry = try self.populateAndReturnEntry(json_graph, diagnostic);
         self.entry = entry;
         try self.link(json_graph);
     }
 
-    pub const PopulateAndReturnEntryDiagnostic = union(enum) {
+    // TODO: use a known enum tag
+    pub const PopulateAndReturnEntryDiagnostic = union(enum(u16)) {
         DuplicateNode: i64,
         MultipleEntries: i64,
+
+        pub fn format(
+            self: @This(),
+            comptime fmt_str: []const u8,
+            fmt_opts: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            _ = fmt_str;
+            _ = fmt_opts;
+            switch (self) {
+                .DuplicateNode => |v| try writer.print("Duplicate node found. First duplicate id={}", .{v}),
+                .MultipleEntries => |v| try writer.print("Multiple entries found. Second entry id={}", .{v}),
+            }
+        }
     };
 
     pub fn populateAndReturnEntry(
@@ -90,7 +133,7 @@ const GraphBuilder = struct {
         diagnostic: ?*PopulateAndReturnEntryDiagnostic,
     ) !*const IndexedNode {
         var entry_id: ?i64 = null;
-        var result = error.GraphHasNoEntry;
+        var result: @typeInfo(@TypeOf(populateAndReturnEntry)).Fn.return_type.? = error.GraphHasNoEntry;
 
         // FIXME: this belongs in buildFromJson...
         errdefer self.nodes.map.clearAndFree(self.alloc);
@@ -111,13 +154,13 @@ const GraphBuilder = struct {
             putResult.value_ptr.* = node;
 
             if (putResult.found_existing) {
-                if (diagnostic) |d| d.* = node_id;
+                if (diagnostic) |d| d.* = .{ .DuplicateNode = node_id };
                 return error.DuplicateNode;
             }
 
             if (json_node.data.isEntry) {
                 if (entry_id != null) {
-                    if (diagnostic) |d| d.* = node_id;
+                    if (diagnostic) |d| d.* = .{ .MultipleEntries = node_id };
                     return error.MultipleEntries;
                 }
                 entry_id = node_id;
@@ -146,8 +189,7 @@ const GraphBuilder = struct {
         var json_nodes_iter = graph_json.nodes.map.iterator();
         std.debug.assert(nodes_iter.len == json_nodes_iter.len);
 
-        while (true) {
-            const node_entry = nodes_iter.next() orelse break;
+        while (nodes_iter.next()) |node_entry| {
             const node = node_entry.value_ptr;
 
             const json_node_entry = json_nodes_iter.next() orelse unreachable;
@@ -248,7 +290,7 @@ const GraphBuilder = struct {
         self: @This(),
         branch: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
-    ) ?*const IndexedNode {
+    ) !?*const IndexedNode {
         if (analysis_ctx.node_data.items(.visited)[branch.index]) {
             const prev_result = self.branch_joiner_map.get(branch.index);
             return .{ .value = prev_result };
@@ -256,13 +298,10 @@ const GraphBuilder = struct {
 
         analysis_ctx.node_data.items(.visited)[branch.index] = 1;
 
-        const result = self.doAnalyzeBranch(branch, analysis_ctx);
+        const result = try self.doAnalyzeBranch(branch, analysis_ctx);
 
-        if (result.is_ok()) {
-            const value = result.value;
-            try self.branch_joiner_map.put(value);
-            self.is_join_set.set(value.extra.index, true);
-        }
+        try self.branch_joiner_map.put(result);
+        self.is_join_set.set(result.extra.index, true);
 
         return result;
     }
@@ -275,7 +314,7 @@ const GraphBuilder = struct {
         self: @This(),
         branch: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
-    ) ?*const IndexedNode {
+    ) !?*const IndexedNode {
         if (analysis_ctx.node_data.items(.visited)[branch.index]) {
             const prev_result = self.branch_joiner_map.get(branch.index);
             return .{ .value = prev_result };
@@ -294,11 +333,8 @@ const GraphBuilder = struct {
                 const is_branch = std.mem.eql(u8, collapsed_node.desc.name, "if");
 
                 if (is_branch) {
-                    const joiner = self.analyzeBranch(collapsed_node, analysis_ctx);
-                    if (joiner.is_err() || joiner.value == null)
-                        return joiner
-                    else
-                        try new_collapsed_node_layer.put(joiner.value);
+                    const joiner = try self.analyzeBranch(collapsed_node, analysis_ctx);
+                    try new_collapsed_node_layer.put(joiner);
                 } else {
                     var exec_link_iter = collapsed_node.iter_out_exec_links();
                     while (exec_link_iter.next()) |exec_link| {
@@ -340,20 +376,24 @@ const GraphBuilder = struct {
             block: Block,
         };
 
-        pub fn toSexp(self: @This(), node: *const IndexedNode) Sexp {
+        pub fn toSexp(self: @This(), node: *const IndexedNode) !Sexp {
             var ctx = Context{
                 .block = Block.init(self.graph.alloc),
             };
             try ctx.node_data.resize(self.graph.alloc, self.graph.nodes.map.count());
-            const result = self.onNode(node, &ctx);
-            if (result.is_err()) return result.err_as(Sexp);
+            try self.onNode(node, &ctx);
             return Sexp{ .value = .{ .list = ctx.block } };
         }
 
-        pub fn onNode(self: @This(), node: *const IndexedNode, context: *Context) void {
+        const Error = error{
+            CyclesNotSupported,
+            OutOfMemory,
+        };
+
+        pub fn onNode(self: @This(), node: *const IndexedNode, context: *Context) Error!void {
             // FIXME: not handled
             if (context.node_data.items(.visited)[node.extra.index] == 1)
-                return error.CyclesNotSupported;
+                return Error.CyclesNotSupported;
 
             context.node_data.items(.visited)[node.extra.index] = 1;
 
@@ -364,7 +404,7 @@ const GraphBuilder = struct {
         }
 
         // FIXME: refactor to find joins during this?
-        pub fn onBranchNode(self: @This(), node: *const IndexedNode, context: *Context) void {
+        pub fn onBranchNode(self: @This(), node: *const IndexedNode, context: *Context) !void {
             std.debug.assert(node.desc.isSimpleBranch());
 
             var consequence_sexp: Sexp = undefined;
@@ -396,13 +436,13 @@ const GraphBuilder = struct {
 
             // FIXME: errdefer, maybe just force an arena and call it a day?
             branch_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.graph.alloc) } };
+            errdefer branch_sexp.deinit(self.graph.alloc);
 
             // (if
             (try branch_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc.name } };
 
             // condition
-            const condition_result = self.nodeInputTreeToSexp(node.inputs[1]);
-            const condition_sexp = if (condition_result.is_ok()) condition_result.value else return condition_result.err_as(void);
+            const condition_sexp = try self.nodeInputTreeToSexp(node.inputs[1]);
             (try branch_sexp.value.list.addOne()).* = condition_sexp;
 
             // FIXME: wish I could make this terser...
@@ -416,7 +456,7 @@ const GraphBuilder = struct {
             }
         }
 
-        pub fn onFunctionCallNode(self: @This(), node: *const IndexedNode, context: *Context) void {
+        pub fn onFunctionCallNode(self: @This(), node: *const IndexedNode, context: *Context) !void {
             if (self.graph.isJoin(node))
                 return;
 
@@ -428,17 +468,16 @@ const GraphBuilder = struct {
             (try call_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc.name } };
 
             if (builtin.mode == .Debug and node.inputs.len == 0) {
-                std.debug.print("no inputs, desc: {s}\n", .{node.desc.name});
+                debug_print("no inputs, desc: {s}\n", .{node.desc.name});
             }
 
             for (node.inputs[1..]) |input| {
-                const input_tree_result = self.nodeInputTreeToSexp(input);
-                const input_tree = if (input_tree_result.is_ok()) input_tree_result.value else return input_tree_result.err_as(void);
+                const input_tree = try self.nodeInputTreeToSexp(input);
                 (try call_sexp.value.list.addOne()).* = input_tree;
             }
 
             if (builtin.mode == .Debug and node.outputs.len == 0) {
-                std.debug.print("no outputs, desc: {s}\n", .{node.desc.name});
+                debug_print("no outputs, desc: {s}\n", .{node.desc.name});
             }
 
             if (node.outputs[0]) |next| {
@@ -446,7 +485,7 @@ const GraphBuilder = struct {
             }
         }
 
-        fn nodeInputTreeToSexp(self: @This(), in_link: GraphTypes.Input) Sexp {
+        fn nodeInputTreeToSexp(self: @This(), in_link: GraphTypes.Input) !Sexp {
             const sexp = switch (in_link) {
                 .link => |v| _: {
                     // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
@@ -480,10 +519,10 @@ const GraphBuilder = struct {
         }
     };
 
-    pub fn rootToSexp(self: @This()) Sexp {
+    pub fn rootToSexp(self: @This()) !Sexp {
         return if (self.entry) |entry|
             if (entry.outputs[0]) |first_node|
-                (ToSexp{ .graph = &self }).toSexp(first_node.link.target)
+                try (ToSexp{ .graph = &self }).toSexp(first_node.link.target)
             else
                 Sexp{ .value = .void }
         else
@@ -498,6 +537,8 @@ const GraphToSourceErr = union(enum(u16)) {
     OutOfMemory: void = @intFromError(error.OutOfMemory),
     // TODO: remove
     IoErr: anyerror,
+
+    Compile: GraphBuilder.BuildFromJsonDiagnostic,
 
     const Code = error{
         IoErr,
@@ -528,6 +569,8 @@ const GraphToSourceErr = union(enum(u16)) {
         switch (self) {
             .IoErr => |e| try writer.print("IO Error ({})", .{e}),
             .OutOfMemory => try writer.print("Out of memory", .{}),
+            .None => _ = try writer.write("NotAnError"),
+            .Compile => |v| try writer.print("Compile error: {}", .{v}),
         }
     }
 };
@@ -601,11 +644,9 @@ pub fn graphToSource(graph_json: []const u8, diagnostic: ?*GraphToSourceDiagnost
     }
 
     var builder = try GraphBuilder.init(arena_alloc, env);
-    const build_result = try builder.buildFromJson(graph, if (diagnostic) |d| &d.BuildError else null);
-    if (build_result.is_err()) return build_result.err_as([]const u8);
+    try builder.buildFromJson(graph, if (diagnostic) |d| &d.Compile else null);
 
-    const sexp_result = builder.rootToSexp();
-    const sexp = if (sexp_result.is_ok()) sexp_result.value else return sexp_result.err_as([]const u8);
+    const sexp = try builder.rootToSexp();
 
     switch (sexp.value) {
         .list => |l| {
@@ -642,7 +683,7 @@ test "big graph_to_source" {
     if (result) |value| {
         try testing.expectEqualStrings(source.buffer, value);
     } else |err| {
-        std.debug.print("\n{?s}\n", .{err});
+        debug_print("\n{?s}\n", .{err});
         return error.FailTest;
     }
 }

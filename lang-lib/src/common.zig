@@ -10,12 +10,13 @@ pub const debug_tail_call = if (builtin.mode == .Debug) .never_inline else .alwa
 
 var global_allocator_inst = switch (builtin.target.os.tag) {
     .wasi, .freestanding => std.heap.WasmAllocator{},
-    .linux, .macos, .windows => std.heap.GeneralPurposeAllocator,
+    // FIXME: use c allocator in the future, it's decently more performant
+    .linux, .macos, .windows => std.heap.GeneralPurposeAllocator(.{}){},
     else => @compileError("unsupported architecture"),
 };
 
 pub const global_alloc = switch (builtin.target.os.tag) {
     .wasi, .freestanding => std.heap.wasm_allocator,
-    .linux, .macos, .windows => global_alloc.allocator(),
+    .linux, .macos, .windows => global_allocator_inst.allocator(),
     else => @compileError("unsupported architecture"),
 };

@@ -88,7 +88,7 @@ pub const Sexp = struct {
             inline .float, .int => |v| _: {
                 var counting_writer = std.io.countingWriter(writer);
                 try counting_writer.writer().print("{d}", .{v});
-                break :_ .{ .depth = counting_writer.bytes_written };
+                break :_ .{ .depth = @intCast(counting_writer.bytes_written) };
             },
             .bool => |v| _: {
                 _ = try writer.write(if (v) syms.true.value.symbol else syms.false.value.symbol);
