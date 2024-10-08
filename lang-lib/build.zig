@@ -18,13 +18,15 @@ pub fn build(b: *std.Build) void {
 
     const main_tests = b.addTest(.{
         .name = "main-tests",
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("./src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
+    const main_tests_run = b.addRunArtifact(main_tests);
+
     const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&main_tests.step);
+    test_step.dependOn(&main_tests_run.step);
 
     const web_target_query = CrossTarget.parse(.{ .arch_os_abi = "wasm32-freestanding" }) catch unreachable;
     const web_target = b.resolveTargetQuery(web_target_query);

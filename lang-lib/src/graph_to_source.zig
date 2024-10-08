@@ -107,10 +107,22 @@ const GraphBuilder = struct {
         try self.link(json_graph);
     }
 
-    // TODO: use a known enum tag
+    // TODO: make errors stable somehow
     pub const PopulateAndReturnEntryDiagnostic = union(enum(u16)) {
         DuplicateNode: i64,
         MultipleEntries: i64,
+
+        const Code = error{
+            DuplicateNode,
+            MultipleEntries,
+        };
+
+        pub fn code(self: @This()) Code {
+            return switch (self) {
+                .DuplicateNode => Code.DuplicateNode,
+                .MultipleEntries => Code.MultipleEntries,
+            };
+        }
 
         pub fn format(
             self: @This(),
@@ -543,19 +555,21 @@ const GraphToSourceErr = union(enum(u16)) {
     const Code = error{
         IoErr,
         OutOfMemory,
-    };
+    } || GraphBuilder.BuildFromJsonDiagnostic.Code;
 
-    pub fn from(err: error.OutOfMemory) GraphToSourceErr {
+    pub fn from(err: error{OutOfMemory}) GraphToSourceErr {
         return switch (err) {
             error.OutOfMemory => GraphToSourceErr{ .OutOfMemory = {} },
         };
     }
 
     pub fn code(self: @This()) Code {
-        switch (self) {
-            .IoErr => Code.IoErr,
+        return switch (self) {
+            .None => unreachable,
             .OutOfMemory => Code.OutOfMemory,
-        }
+            .IoErr => Code.IoErr,
+            .Compile => |v| v.code(), // FIXME: need Code to merge with errors from
+        };
     }
 
     pub fn format(
@@ -683,7 +697,7 @@ test "big graph_to_source" {
     if (result) |value| {
         try testing.expectEqualStrings(source.buffer, value);
     } else |err| {
-        debug_print("\n{?s}\n", .{err});
+        debug_print("\n{}\n", .{err});
         return error.FailTest;
     }
 }
