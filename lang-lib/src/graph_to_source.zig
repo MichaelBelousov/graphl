@@ -112,10 +112,12 @@ const GraphBuilder = struct {
         None = 0,
         DuplicateNode: i64,
         MultipleEntries: i64,
+        UnknownNodeType: []const u8,
 
         const Code = error{
             DuplicateNode,
             MultipleEntries,
+            UnknownNodeType,
         };
 
         pub fn code(self: @This()) Code {
@@ -123,6 +125,7 @@ const GraphBuilder = struct {
                 .None => unreachable,
                 .DuplicateNode => Code.DuplicateNode,
                 .MultipleEntries => Code.MultipleEntries,
+                .UnknownNodeType => Code.UnknownNodeType,
             };
         }
 
@@ -135,8 +138,10 @@ const GraphBuilder = struct {
             _ = fmt_str;
             _ = fmt_opts;
             switch (self) {
+                .None => _ = try writer.write("Not an error"),
                 .DuplicateNode => |v| try writer.print("Duplicate node found. First duplicate id={}", .{v}),
                 .MultipleEntries => |v| try writer.print("Multiple entries found. Second entry id={}", .{v}),
+                .UnknownNodeType => |v| try writer.print("Unknown node type '{s}'", .{v}),
             }
         }
     };
@@ -161,7 +166,10 @@ const GraphBuilder = struct {
             // FIXME: accidental copy?
             const json_node = node_entry.value_ptr.*;
 
-            const node = try json_node.toEmptyNode(self.env, node_index);
+            const node = json_node.toEmptyNode(self.env, node_index) catch |e| {
+                if (diagnostic) |d| d.* = .{ .UnknownNodeType = json_node.type };
+                return e;
+            };
 
             const putResult = try self.nodes.map.getOrPut(self.alloc, node_id);
 
@@ -703,7 +711,7 @@ test "big graph_to_source" {
     if (result) |value| {
         try testing.expectEqualStrings(source.buffer, value);
     } else |err| {
-        debug_print("\nDIAGNOSTIC\n{}\n", .{err});
+        debug_print("\nDIAGNOSTIC ({}):\n{}\n", .{ err, diagnostic });
         return error.FailTest;
     }
 }
