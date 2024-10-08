@@ -109,6 +109,7 @@ const GraphBuilder = struct {
 
     // TODO: make errors stable somehow
     pub const PopulateAndReturnEntryDiagnostic = union(enum(u16)) {
+        None = 0,
         DuplicateNode: i64,
         MultipleEntries: i64,
 
@@ -119,6 +120,7 @@ const GraphBuilder = struct {
 
         pub fn code(self: @This()) Code {
             return switch (self) {
+                .None => unreachable,
                 .DuplicateNode => Code.DuplicateNode,
                 .MultipleEntries => Code.MultipleEntries,
             };
@@ -658,7 +660,10 @@ pub fn graphToSource(graph_json: []const u8, diagnostic: ?*GraphToSourceDiagnost
     }
 
     var builder = try GraphBuilder.init(arena_alloc, env);
-    try builder.buildFromJson(graph, if (diagnostic) |d| &d.Compile else null);
+    try builder.buildFromJson(graph, if (diagnostic) |d| _: {
+        d.* = .{ .Compile = .None };
+        break :_ &d.Compile;
+    } else null);
 
     const sexp = try builder.rootToSexp();
 
@@ -693,11 +698,12 @@ test "big graph_to_source" {
     // will scoping be function-level?
     // Does synchronizing graph changes into the source affect those?
 
-    const result = graphToSource(graph_json.buffer, null);
+    var diagnostic: GraphToSourceDiagnostic = undefined;
+    const result = graphToSource(graph_json.buffer, &diagnostic);
     if (result) |value| {
         try testing.expectEqualStrings(source.buffer, value);
     } else |err| {
-        debug_print("\n{}\n", .{err});
+        debug_print("\nDIAGNOSTIC\n{}\n", .{err});
         return error.FailTest;
     }
 }
