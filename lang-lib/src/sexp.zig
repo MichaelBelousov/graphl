@@ -80,7 +80,6 @@ pub const Sexp = struct {
         }
     };
 
-    // explicit Error works around https://github.com/ziglang/zig/issues/2971
     fn _write(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
         // TODO: calculate stack space requirements?
         return switch (self.value) {

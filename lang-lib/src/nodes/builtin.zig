@@ -279,9 +279,9 @@ pub const VarNodes = struct {
         const getter_outputs = if (@inComptime()) &getter_outputs_slot_sealed else _getter_outputs;
 
         const getter_name: []const u8 = if (@inComptime())
-            std.fmt.comptimePrint("set_{s}", .{var_name})
+            std.fmt.comptimePrint("#GET#{s}", .{var_name})
         else
-            try std.fmt.allocPrint(alloc, "set_{s}", .{var_name});
+            try std.fmt.allocPrint(alloc, "#GET#{s}", .{var_name});
 
         // FIXME: is there a better way to do this?
         comptime var setter_inputs_slot: [if (@inComptime()) 2 else 0]Pin = undefined;
@@ -300,9 +300,9 @@ pub const VarNodes = struct {
 
         const setter_name: []const u8 =
             if (@inComptime())
-            std.fmt.comptimePrint("get_{s}", .{var_name})
+            std.fmt.comptimePrint("#SET#{s}", .{var_name})
         else
-            try std.fmt.allocPrint(alloc, "get_{s}", .{var_name});
+            try std.fmt.allocPrint(alloc, "#SET#{s}", .{var_name});
 
         return VarNodes{
             .get = basicNode(&.{
@@ -547,19 +547,19 @@ pub const temp_ue = struct {
         });
 
         pub const get_actor_location: NodeDesc = basicNode(&.{
-            .name = "get-actor-location",
+            .name = "#GET#actor-location",
             .inputs = &.{Pin{ .primitive = .{ .value = types.actor } }},
             .outputs = &.{Pin{ .primitive = .{ .value = primitive_types.vec3 } }},
         });
 
         pub const get_actor_rotation: NodeDesc = basicNode(&.{
-            .name = "get-actor-rotation",
+            .name = "#GET#actor-rotation",
             .inputs = &.{Pin{ .primitive = .{ .value = types.actor } }},
             .outputs = &.{Pin{ .primitive = .{ .value = primitive_types.vec4 } }},
         });
 
         pub const get_socket_location: NodeDesc = basicNode(&.{
-            .name = "get-socket-location",
+            .name = "#GET#socket-location",
             .inputs = &.{
                 Pin{ .primitive = .{ .value = types.actor } },
                 Pin{ .primitive = .{ .value = primitive_types.string } },

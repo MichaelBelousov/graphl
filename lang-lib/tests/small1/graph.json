@@ -167,7 +167,7 @@
       "width": 166,
       "height": 67,
       "id": "2091381536909337",
-      "type": "get",
+      "type": "#GET#over-time",
       "data": {
         "literalInputs": {},
         "typeIfDefaulted": "get_over-time",
@@ -393,7 +393,7 @@
       "width": 204,
       "height": 67,
       "id": "580822441825790",
-      "type": "get-actor-location",
+      "type": "#GET#actor-location",
       "data": {
         "literalInputs": {},
         "typeIfDefaulted": "get-actor-location",

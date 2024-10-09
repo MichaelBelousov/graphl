@@ -29,7 +29,8 @@ const GraphDoc = @import("./json_format.zig").GraphDoc;
 test "source_to_graph" {}
 
 /// call c free on result
-pub fn sourceToGraph(source: []const u8) ![]const u8 {
+pub fn sourceToGraph(a: std.mem.Allocator, source: []const u8) ![]const u8 {
+    _ = a;
     _ = source;
     return "";
 }

@@ -64,13 +64,13 @@ pub const JsonNode = struct {
 
     pub fn toEmptyNode(self: @This(), env: Env, index: usize) !IndexedNode {
         var node = env.makeNode(self.type, ExtraIndex{ .index = index }) orelse {
-            // if (builtin.mode == .Debug) {
-            var iter = env.nodes.iterator();
-            std.debug.print("existing nodes:\n", .{});
-            while (iter.next()) |node| {
-                std.debug.print("{s}\n", .{node.key_ptr.*});
+            if (builtin.mode == .Debug) {
+                var iter = env.nodes.iterator();
+                std.debug.print("existing nodes:\n", .{});
+                while (iter.next()) |node| {
+                    std.debug.print("{s}\n", .{node.key_ptr.*});
+                }
             }
-            // }
             return error.UnknownNodeType;
         };
         // NOTE: should probably add ownership to json parsed strings so we can deallocate some...

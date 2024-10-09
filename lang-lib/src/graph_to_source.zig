@@ -390,18 +390,23 @@ const GraphBuilder = struct {
             visited: u1,
         };
 
-        // must be same as sexp...
         const Block = std.ArrayList(Sexp);
 
         const Context = struct {
             node_data: std.MultiArrayList(NodeData) = .{},
             block: Block,
+
+            pub fn deinit(self: *@This(), a: std.mem.Allocator) void {
+                self.node_data.deinit(a);
+                self.block.deinit();
+            }
         };
 
         pub fn toSexp(self: @This(), node: *const IndexedNode) !Sexp {
             var ctx = Context{
                 .block = Block.init(self.graph.alloc),
             };
+            errdefer ctx.deinit(self.graph.alloc);
             try ctx.node_data.resize(self.graph.alloc, self.graph.nodes.map.count());
             try self.onNode(node, &ctx);
             return Sexp{ .value = .{ .list = ctx.block } };
@@ -466,10 +471,8 @@ const GraphBuilder = struct {
             // condition
             const condition_sexp = try self.nodeInputTreeToSexp(node.inputs[1]);
             (try branch_sexp.value.list.addOne()).* = condition_sexp;
-
-            // FIXME: wish I could make this terser...
+            // consequence
             (try branch_sexp.value.list.addOne()).* = consequence_sexp;
-
             // alternative
             (try branch_sexp.value.list.addOne()).* = alternative_sexp;
 
@@ -482,24 +485,33 @@ const GraphBuilder = struct {
             if (self.graph.isJoin(node))
                 return;
 
+            const special_type: enum { none, getter, setter } = if (std.mem.startsWith(u8, node.desc.name, "#"))
+                if (std.mem.startsWith(u8, node.desc.name, "#GET#")) .getter else .setter
+            else
+                .none;
+
+            const name =
+                if (special_type != .none)
+                node.desc.name["#GET#".len..]
+            else
+                node.desc.name;
+
             var call_sexp = try context.block.addOne();
 
-            // FIXME: errdefer
-            call_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.graph.alloc) } };
+            // FIXME: this must be unified with nodeInputTreeToSexp!
+            call_sexp.* =
+                if (special_type == .getter)
+                Sexp{ .value = .{ .symbol = name } }
+            else
+                Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.graph.alloc) } };
 
-            (try call_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc.name } };
+            if (special_type != .getter) {
+                (try call_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
 
-            if (builtin.mode == .Debug and node.inputs.len == 0) {
-                debug_print("no inputs, desc: {s}\n", .{node.desc.name});
-            }
-
-            for (node.inputs[1..]) |input| {
-                const input_tree = try self.nodeInputTreeToSexp(input);
-                (try call_sexp.value.list.addOne()).* = input_tree;
-            }
-
-            if (builtin.mode == .Debug and node.outputs.len == 0) {
-                debug_print("no outputs, desc: {s}\n", .{node.desc.name});
+                for (node.inputs[1..]) |input| {
+                    const input_tree = try self.nodeInputTreeToSexp(input);
+                    (try call_sexp.value.list.addOne()).* = input_tree;
+                }
             }
 
             if (node.outputs[0]) |next| {
@@ -510,16 +522,28 @@ const GraphBuilder = struct {
         fn nodeInputTreeToSexp(self: @This(), in_link: GraphTypes.Input) !Sexp {
             const sexp = switch (in_link) {
                 .link => |v| _: {
-                    // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-                    var result = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.graph.alloc) } };
-
                     const node = v.target;
+
+                    // TODO: should have a comptime sexp parsing utility, or otherwise terser syntax...
+                    const special_type: enum { none, getter, setter } = if (std.mem.startsWith(u8, node.desc.name, "#"))
+                        if (std.mem.startsWith(u8, node.desc.name, "#GET#")) .getter else .setter
+                    else
+                        .none;
+
+                    const name =
+                        if (special_type != .none)
+                        node.desc.name["#GET#".len..]
+                    else
+                        node.desc.name;
+
+                    if (special_type == .getter)
+                        break :_ Sexp{ .value = .{ .symbol = name } };
+
+                    var result = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.graph.alloc) } };
 
                     try result.value.list.ensureTotalCapacityPrecise(node.inputs.len + 1);
 
-                    // FIXME: for this case add a from_err helper?
-                    // and maybe c_from_err too to set allocator automatically?
-                    (try result.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc.name } };
+                    (try result.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
 
                     for (node.inputs) |input| {
                         (try result.value.list.addOne()).* = try self.nodeInputTreeToSexp(input);
@@ -601,9 +625,11 @@ const GraphToSourceErr = union(enum(u16)) {
 
 pub const GraphToSourceDiagnostic = GraphToSourceErr;
 
-/// caller must free result with {TBD}
-pub fn graphToSource(graph_json: []const u8, diagnostic: ?*GraphToSourceDiagnostic) ![]const u8 {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+// TODO: use cap'n proto instead of JSON
+
+/// caller must free result with the given allocator
+pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?*GraphToSourceDiagnostic) ![]const u8 {
+    var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const arena_alloc = arena.allocator();
 
@@ -616,7 +642,7 @@ pub fn graphToSource(graph_json: []const u8, diagnostic: ?*GraphToSourceDiagnost
         .ignore_unknown_fields = true,
     });
 
-    var page_writer = try PageWriter.init(std.heap.page_allocator);
+    var page_writer = try PageWriter.init(a);
     defer page_writer.deinit();
 
     var import_exprs = std.ArrayList(Sexp).init(arena_alloc);
@@ -707,9 +733,9 @@ test "big graph_to_source" {
     // Does synchronizing graph changes into the source affect those?
 
     var diagnostic: GraphToSourceDiagnostic = undefined;
-    const result = graphToSource(graph_json.buffer, &diagnostic);
-    if (result) |value| {
-        try testing.expectEqualStrings(source.buffer, value);
+    const result = graphToSource(std.testing.allocator, graph_json.buffer, &diagnostic);
+    if (result) |compiledSource| {
+        try testing.expectEqualStrings(source.buffer, compiledSource);
     } else |err| {
         debug_print("\nDIAGNOSTIC ({}):\n{}\n", .{ err, diagnostic });
         return error.FailTest;
