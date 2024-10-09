@@ -240,7 +240,9 @@ pub fn main() !void {
     _ = args_iter.next(); // skip first arg since it is our own program
 
     while (args_iter.next()) |arg| {
-        if (std.posix.getenv("DEBUG") != null)
+        var env = try std.process.getEnvMap(alloc);
+        defer env.deinit();
+        if (std.process.getEnvMap(env.get("DEBUG")) != null)
             std.debug.print("input_file: {s}\n", .{arg});
 
         const file = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), arg);

@@ -33,6 +33,7 @@ pub const SpacePrint = struct {
 };
 
 pub const Parser = struct {
+    // FIXME: turn into a diagnostic and don't use results
     pub const Error = union(enum) {
         expectedFraction: Loc,
         unmatchedCloser: Loc,
@@ -202,7 +203,9 @@ pub const Parser = struct {
             const c = src[algo_state.loc.index];
             const tok_slice = src[algo_state.tok_start..algo_state.loc.index];
 
-            if (std.posix.getenv("DEBUG") != null and builtin.os.tag != .freestanding) {
+            var env = std.process.getEnvMap(alloc) catch return Result.err(.OutOfMemory);
+            defer env.deinit();
+            if (env.get("DEBUG") != null and builtin.os.tag != .freestanding) {
                 std.debug.print("c: {c}, loc: {any}, state: {any}\n", .{ c, algo_state.loc, algo_state.state });
             }
 

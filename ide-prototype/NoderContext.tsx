@@ -1,10 +1,16 @@
 import React from "react";
 // FIXME: show loading
+
+declare module "../lang-lib/src/main.zig" {
+    export function x(): number;
+}
+
 import native from "../lang-lib/src/main.zig";
+
 import { useStable } from "@bentley/react-hooks";
 
 /** caller must free the result */
-function sourceDefinesToNodeTypes(source: string) {
+function sourceDefinesToNodeTypes(source: string): Promise<string> {
   return native.readSrc(source);
 }
 

@@ -1,0 +1,22 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    devDependencies:
+      zigar-runtime:
+        specifier: ^0.13.2
+        version: 0.13.2
+
+packages:
+
+  zigar-runtime@0.13.2:
+    resolution: {integrity: sha512-l2kQOVehiawttaeNtNhex5rt/VkH39Rv0z1D4Dojhl3AHJk1DXV93kbIZAfXk4bwCgArvChNf4Pt521d6BF+fg==}
+
+snapshots:
+
+  zigar-runtime@0.13.2: {}
