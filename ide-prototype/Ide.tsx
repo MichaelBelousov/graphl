@@ -7,14 +7,14 @@ import { NoderContext } from "./NoderContext";
 
 const apiBaseUrl = "http://localhost:3001"
 
-async function onSyncGraph(graph: any) {
+async function onSyncGraph(_graph: any) {
   const resp = await fetch(`${apiBaseUrl}/graph_to_source`);
-  const t = await resp.text()
+  const _t = await resp.text()
 }
 
-async function onSyncSource(source: any) {
+async function onSyncSource(_source: any) {
   const resp = await fetch(`${apiBaseUrl}/source_to_graph`);
-  const t = await resp.text()
+  const _t = await resp.text()
 }
 
 export function TextEditor(props: TextEditor.Props) {
@@ -27,7 +27,7 @@ export function TextEditor(props: TextEditor.Props) {
 
   // TODO: do this in a worker with cancellation cuz it's slow...
   useEffect(() => {
-    const result = noder.sourceDefinesToNodeTypes(editorProgram);
+    noder.updateNodeTypesFromSource(editorProgram);
   }, [editorProgram]);
 
   useEffect(() => {

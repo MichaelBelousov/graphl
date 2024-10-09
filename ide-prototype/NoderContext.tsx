@@ -47,7 +47,7 @@ const defaultTypes: Record<string, Type> = {
 };
 
 interface NoderContextType {
-  sourceDefinesToNodeTypes(source: string): string;
+  updateNodeTypesFromSource(source: string): Promise<string>;
   // TODO: move mutating state into their own hooks
   lastNodeTypes: any;
   lastFunctionDefs: {
@@ -60,7 +60,7 @@ interface NoderContextType {
 }
 
 const defaultContext: NoderContextType = {
-  sourceDefinesToNodeTypes,
+  updateNodeTypesFromSource: sourceDefinesToNodeTypes,
   lastNodeTypes: {},
   lastFunctionDefs: {},
   lastVarDefs: {},
@@ -72,8 +72,8 @@ export const NoderContext = React.createContext<NoderContextType>(defaultContext
 export const NoderProvider = (props: React.PropsWithChildren<{}>) => {
   const [lastNodeTypes, setLastNodeTypes] = React.useState({});
 
-  const sourceDefinesToNodeTypes = useStable(() => (s: string) => {
-    const result = defaultContext.sourceDefinesToNodeTypes(s);
+  const updateNodeTypesFromSource = useStable(() => async (s: string) => {
+    const result = await defaultContext.updateNodeTypesFromSource(s);
     try {
       setLastNodeTypes(JSON.parse(result));
     } catch (error) {
@@ -85,7 +85,7 @@ export const NoderProvider = (props: React.PropsWithChildren<{}>) => {
 
   return <NoderContext.Provider value={{
     ...defaultContext,
-    sourceDefinesToNodeTypes,
+    updateNodeTypesFromSource,
     lastNodeTypes,
   }}>
     {props.children}

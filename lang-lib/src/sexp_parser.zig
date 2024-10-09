@@ -33,19 +33,36 @@ pub const SpacePrint = struct {
 };
 
 pub const Parser = struct {
-    // FIXME: turn into a diagnostic and don't use results
-    pub const Error = union(enum) {
+    pub const Diagnostic = union(enum(u16)) {
+        none = 0,
         expectedFraction: Loc,
         unmatchedCloser: Loc,
         unknownToken: Loc,
         OutOfMemory: void,
         badInteger: []const u8,
 
+        const Code = error{
+            ExpectedFraction,
+            UnmatchedCloser,
+            UnknownToken,
+            OutOfMemory,
+            BadInteger,
+        };
+
+        pub fn code(self: @This()) Code {
+            return switch (self) {
+                .None => unreachable,
+                .DuplicateNode => Code.DuplicateNode,
+                .MultipleEntries => Code.MultipleEntries,
+                .UnknownNodeType => Code.UnknownNodeType,
+            };
+        }
+
         /// returned slice must be freed by the passed in allocator
-        pub fn contextualize(self: @This(), alloc: std.mem.Allocator, source: []const u8) ![]const u8 {
+        pub fn contextualize(self: @This(), writer: std.io.GenericWriter, source: []const u8) ![]const u8 {
             return switch (self) {
                 .expectedFraction => |loc| {
-                    return try std.fmt.allocPrint(alloc,
+                    return try writer.print(
                         \\There is a decimal point here so expected a fraction:
                         \\ at {}
                         \\  | {s}
@@ -53,7 +70,7 @@ pub const Parser = struct {
                     , .{ loc, try loc.containing_line(source), SpacePrint.init(loc.col - 1) });
                 },
                 .unmatchedCloser => |loc| {
-                    return try std.fmt.allocPrint(alloc,
+                    return try writer.print(
                         \\Closing parenthesis with no opener:
                         \\ at {}
                         \\  | {s}
@@ -65,46 +82,29 @@ pub const Parser = struct {
                 .badInteger => "Fatal: parser thought this token was an integer: '{s}'",
             };
         }
-    };
 
-    // FIXME: use @import("Result")
-    pub const Result = union(enum) {
-        ok: std.ArrayList(Sexp),
-        err: Error,
-
-        fn err(e: Error) @This() {
-            return Result{ .err = e };
-        }
-
-        fn deinit(self: *@This()) void {
-            if (self.* == .ok) {
-                const alloc = self.ok.allocator;
-                for (self.ok.items) |item| item.deinit(alloc);
-                self.ok.deinit();
+        pub fn format(
+            self: @This(),
+            comptime fmt_str: []const u8,
+            fmt_opts: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            _ = fmt_str;
+            _ = fmt_opts;
+            switch (self) {
+                .None => _ = try writer.write("Not an error"),
+                .DuplicateNode => |v| try writer.print("Duplicate node found. First duplicate id={}", .{v}),
+                .MultipleEntries => |v| try writer.print("Multiple entries found. Second entry id={}", .{v}),
+                .UnknownNodeType => |v| try writer.print("Unknown node type '{s}'", .{v}),
             }
-        }
-
-        /// for testing only for now
-        fn recursive_eq(self: @This(), other: @This()) bool {
-            if (self == .err or other == .err)
-                @panic("comparing errors not supported");
-
-            if (self.ok.items.len != other.ok.items.len)
-                return false;
-
-            for (self.ok.items, 0..) |item, i| {
-                const other_item = other.ok.items[i];
-                if (!item.recursive_eq(other_item))
-                    return false;
-            }
-
-            return true;
         }
     };
 
-    pub fn parse(alloc: std.mem.Allocator, src: []const u8) Result {
-        // NOTE: tagged union errdefer hack
-        var result: Result = undefined;
+    pub const Error = Diagnostic.Code;
+
+    pub fn parse(alloc: std.mem.Allocator, src: []const u8, maybe_out_diagnostic: ?*Diagnostic) Error!std.ArrayList(Sexp) {
+        var ignored_diagnostic: Diagnostic = undefined;
+        const out_diag = if (maybe_out_diagnostic) |d| d else &ignored_diagnostic;
 
         const State = enum {
             symbol,
@@ -129,11 +129,11 @@ pub const Parser = struct {
             stack: std.SegmentedList(Sexp, 32),
             alloc: std.mem.Allocator,
 
-            pub fn init(_src: []const u8) !@This() {
+            pub fn init(a: std.mem.Allocator, _src: []const u8) !@This() {
                 return .{
                     .p_src = _src,
                     .stack = std.SegmentedList(Sexp, 32){},
-                    .alloc = undefined,
+                    .alloc = a,
                 };
             }
 
@@ -144,7 +144,7 @@ pub const Parser = struct {
                 self.stack.deinit(self.alloc);
             }
 
-            fn onNextCharAfterTok(self: *@This()) ?Error {
+            fn onNextCharAfterTok(self: *@This(), algo_diag: *Diagnostic) Error!void {
                 const c = self.p_src[self.loc.index];
                 switch (c) {
                     '1'...'9' => {
@@ -152,7 +152,7 @@ pub const Parser = struct {
                         self.state = .integer;
                     },
                     '(' => {
-                        const top = self.stack.addOne(self.alloc) catch return .OutOfMemory;
+                        const top = try self.stack.addOne(self.alloc);
                         top.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.alloc) } };
                         self.state = .between;
                     },
@@ -160,9 +160,9 @@ pub const Parser = struct {
                         const old_top = self.stack.pop() orelse unreachable;
                         const new_top = peek(&self.stack) orelse {
                             old_top.deinit(self.alloc);
-                            return Error{ .unmatchedCloser = self.loc };
+                            algo_diag.* = .{ .unmatchedCloser = self.loc };
                         };
-                        (new_top.value.list.addOne() catch return .OutOfMemory).* = old_top;
+                        (try new_top.value.list.addOne()).* = old_top;
                         self.state = .between;
                     },
                     ' ', '\t', '\n' => self.state = .between,
@@ -183,7 +183,6 @@ pub const Parser = struct {
                         self.state = .symbol;
                     },
                 }
-                return null;
             }
 
             fn unimplemented(_: @This(), feature: []const u8) noreturn {
@@ -191,29 +190,26 @@ pub const Parser = struct {
             }
         };
 
-        var algo_state = AlgoState.init(src) catch return Result.err(.OutOfMemory);
+        // FIXME: confirm there is no compiler bug anymore
+        var algo_state = try AlgoState.init(alloc, src);
+        errdefer algo_state.deinit();
 
         // FIXME: had to move this out of AlgoState.init due to a zig compiler bug
-        algo_state.alloc = alloc;
-        (algo_state.stack.addOne(algo_state.alloc) catch return Result.err(.OutOfMemory)).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(algo_state.alloc) } };
 
-        defer if (result == .err) algo_state.deinit();
+        (try algo_state.stack.addOne(algo_state.alloc)).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(algo_state.alloc) } };
 
         while (algo_state.loc.index < src.len) : (algo_state.loc.increment(src[algo_state.loc.index])) {
             const c = src[algo_state.loc.index];
             const tok_slice = src[algo_state.tok_start..algo_state.loc.index];
 
-            var env = std.process.getEnvMap(alloc) catch return Result.err(.OutOfMemory);
+            var env = try std.process.getEnvMap(alloc);
             defer env.deinit();
             if (env.get("DEBUG") != null and builtin.os.tag != .freestanding) {
                 std.debug.print("c: {c}, loc: {any}, state: {any}\n", .{ c, algo_state.loc, algo_state.state });
             }
 
             switch (algo_state.state) {
-                .between => if (algo_state.onNextCharAfterTok()) |err| {
-                    result = Result.err(err);
-                    return result;
-                },
+                .between => try algo_state.onNextCharAfterTok(out_diag),
                 .line_comments => switch (c) {
                     '\n' => algo_state.state = .between,
                     else => {},
@@ -221,28 +217,23 @@ pub const Parser = struct {
                 .symbol => switch (c) {
                     ' ', '\n', '\t', ')', '(' => {
                         const top = peek(&algo_state.stack) orelse unreachable;
-                        const last = top.value.list.addOne() catch return Result.err(.OutOfMemory);
+                        const last = try top.value.list.addOne();
                         last.* = Sexp{ .value = .{ .symbol = tok_slice } };
                         algo_state.tok_start = algo_state.loc.index;
-                        if (algo_state.onNextCharAfterTok()) |err| {
-                            result = Result.err(err);
-                            return result;
-                        }
+                        try algo_state.onNextCharAfterTok(out_diag);
                     },
                     else => {},
                 },
                 .string => switch (c) {
                     // TODO: handle escapes
                     '"' => {
+                        // FIXME: document why this is unreachable
                         const top = peek(&algo_state.stack) orelse unreachable;
-                        const last = top.value.list.addOne() catch return Result.err(.OutOfMemory);
+                        const last = try top.value.list.addOne();
                         last.* = Sexp{ .value = .{ .borrowedString = tok_slice } };
                         algo_state.tok_start = algo_state.loc.index;
                         algo_state.loc.increment(src[algo_state.loc.index]); // skip ending quote
-                        if (algo_state.onNextCharAfterTok()) |err| {
-                            result = Result.err(err);
-                            return result;
-                        }
+                        try algo_state.onNextCharAfterTok(out_diag);
                     },
                     '\\' => algo_state.state = .string_escaped_quote,
                     else => {},
@@ -252,38 +243,48 @@ pub const Parser = struct {
                     '0'...'9' => {},
                     '.' => algo_state.state = .float_fraction_start,
                     ' ', '\n', '\t', ')', '(' => {
+                        // TODO: document why this is unreachable
                         const top = peek(&algo_state.stack) orelse unreachable;
-                        const last = top.value.list.addOne() catch return Result.err(.OutOfMemory);
-                        const int = std.fmt.parseInt(i64, tok_slice, 10) catch return Result{ .err = .{ .badInteger = tok_slice } };
+                        const last = try top.value.list.addOne();
+                        const int = std.fmt.parseInt(i64, tok_slice, 10) catch {
+                            out_diag.* = Diagnostic{ .badInteger = tok_slice };
+                            return Error.BadInteger;
+                        };
                         last.* = Sexp{ .value = .{ .int = int } };
-                        if (algo_state.onNextCharAfterTok()) |err| {
-                            result = Result.err(err);
-                            return result;
-                        }
+                        try algo_state.onNextCharAfterTok(out_diag);
                     },
-                    else => return Result{ .err = .{ .unknownToken = algo_state.loc } },
+                    else => {
+                        out_diag.* = Diagnostic{ .unknownToken = algo_state.loc };
+                        return Error.UnknownToken;
+                    },
                 },
                 .float_fraction_start => switch (c) {
                     '0'...'9' => algo_state.state = .float,
-                    else => return Result{ .err = .{ .expectedFraction = algo_state.loc } },
+                    else => {
+                        out_diag.* = Diagnostic{ .expectedFraction = algo_state.loc };
+                        return Error.ExpectedFraction;
+                    },
                 },
                 .float => algo_state.unimplemented("float literals"),
                 .bool_or_char => switch (c) {
                     't', 'f' => algo_state.state = .bool,
                     '\\' => algo_state.state = .char,
-                    else => return Result{ .err = .{ .unknownToken = algo_state.loc } },
+                    else => {
+                        out_diag.* = Diagnostic{ .unknownToken = algo_state.loc };
+                        return Error.UnknownToken;
+                    },
                 },
                 .bool => switch (c) {
                     ' ', '\n', '\t', '(', ')' => {
                         const top = peek(&algo_state.stack) orelse unreachable;
-                        const last = top.value.list.addOne() catch return Result.err(.OutOfMemory);
+                        const last = try top.value.list.addOne();
                         last.* = if (c == 't') sexp.syms.true else sexp.syms.false;
-                        if (algo_state.onNextCharAfterTok()) |err| {
-                            result = Result.err(err);
-                            return result;
-                        }
+                        try algo_state.onNextCharAfterTok(out_diag);
                     }, // TODO: use token
-                    else => return Result{ .err = .{ .unknownToken = algo_state.loc } },
+                    else => {
+                        out_diag.* = Diagnostic{ .unknownToken = algo_state.loc };
+                        return Error.UnknownToken;
+                    },
                 },
                 .char => algo_state.unimplemented("char literals"),
                 else => algo_state.unimplemented("unhandled case"),
@@ -345,7 +346,9 @@ test "parse recovery" {
 
     try t.expect(actual == .err);
 
-    const err_str = try actual.err.contextualize(t.allocator, source);
+    var buf: [4096]u8 = undefined;
+    var buf_writer = std.io.fixedBufferStream(&buf);
+    const err_str = try actual.err.contextualize(buf_writer.writer(), source);
     defer t.allocator.free(err_str);
 
     try t.expectEqualStrings(

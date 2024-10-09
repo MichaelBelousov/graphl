@@ -132,6 +132,9 @@ const GraphBuilder = struct {
         var entry_id: ?i64 = null;
         var result: @typeInfo(@TypeOf(populateAndReturnEntry)).Fn.return_type.? = error.GraphHasNoEntry;
 
+        var ignored_diagnostic: PopulateAndReturnEntryDiagnostic = undefined;
+        const out_diagnostic = diagnostic orelse &ignored_diagnostic;
+
         // FIXME: this belongs in buildFromJson...
         errdefer self.nodes.map.clearAndFree(self.alloc);
 
@@ -145,7 +148,7 @@ const GraphBuilder = struct {
             const json_node = node_entry.value_ptr.*;
 
             const node = json_node.toEmptyNode(self.env, node_index) catch |e| {
-                if (diagnostic) |d| d.* = .{ .UnknownNodeType = json_node.type };
+                out_diagnostic.* = .{ .UnknownNodeType = json_node.type };
                 return e;
             };
 
@@ -154,13 +157,13 @@ const GraphBuilder = struct {
             putResult.value_ptr.* = node;
 
             if (putResult.found_existing) {
-                if (diagnostic) |d| d.* = .{ .DuplicateNode = node_id };
+                out_diagnostic.* = .{ .DuplicateNode = node_id };
                 return error.DuplicateNode;
             }
 
             if (json_node.data.isEntry) {
                 if (entry_id != null) {
-                    if (diagnostic) |d| d.* = .{ .MultipleEntries = node_id };
+                    out_diagnostic.* = .{ .MultipleEntries = node_id };
                     return error.MultipleEntries;
                 }
                 entry_id = node_id;

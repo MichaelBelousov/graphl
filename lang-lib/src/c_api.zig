@@ -9,9 +9,7 @@ const ide_json_gen = @import("./ide_json_gen.zig");
 const global_alloc = @import("./common.zig").global_alloc;
 
 test {
-    _ = @import("./graph_to_source.zig");
-    _ = @import("./source_to_graph.zig");
-    _ = @import("./nodes/builtin.zig");
+    std.testing.refAllDeclsRecursive(@This());
 }
 
 const src2graph = @import("./source_to_graph.zig");
