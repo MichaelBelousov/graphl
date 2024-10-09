@@ -273,46 +273,46 @@ pub const VarNodes = struct {
     fn init(alloc: std.mem.Allocator, var_name: []const u8, var_type: Type) !VarNodes {
         // FIXME: test and plug non-comptime alloc leaks
         comptime var getter_outputs_slot: [if (@inComptime()) 1 else 0]Pin = undefined;
-        const getter_outputs = if (@inComptime()) &getter_outputs_slot else try alloc.alloc(Pin, 1);
-        getter_outputs[0] = Pin{ .primitive = .{ .value = var_type } };
+        const _getter_outputs = if (@inComptime()) &getter_outputs_slot else try alloc.alloc(Pin, 1);
+        _getter_outputs[0] = Pin{ .primitive = .{ .value = var_type } };
+        const getter_outputs_slot_sealed = getter_outputs_slot;
+        const getter_outputs = if (@inComptime()) &getter_outputs_slot_sealed else _getter_outputs;
 
-        // const getter_name: []const u8 = if (@inComptime())
-        //     std.fmt.comptimePrint("set_{s}", .{var_name})
-        // else
-        //     try std.fmt.allocPrint(alloc, "set_{s}", .{var_name});
+        const getter_name: []const u8 = if (@inComptime())
+            std.fmt.comptimePrint("set_{s}", .{var_name})
+        else
+            try std.fmt.allocPrint(alloc, "set_{s}", .{var_name});
 
         // FIXME: is there a better way to do this?
         comptime var setter_inputs_slot: [if (@inComptime()) 2 else 0]Pin = undefined;
-        const setter_inputs = if (@inComptime()) &setter_inputs_slot else try alloc.alloc(Pin, 2);
-        setter_inputs[0] = Pin{ .primitive = .exec };
-        setter_inputs[1] = Pin{ .primitive = .{ .value = var_type } };
+        const _setter_inputs = if (@inComptime()) &setter_inputs_slot else try alloc.alloc(Pin, 2);
+        _setter_inputs[0] = Pin{ .primitive = .exec };
+        _setter_inputs[1] = Pin{ .primitive = .{ .value = var_type } };
+        const setter_inputs_slot_sealed = setter_inputs_slot;
+        const setter_inputs = if (@inComptime()) &setter_inputs_slot_sealed else _setter_inputs;
 
         comptime var setter_outputs_slot: [if (@inComptime()) 2 else 0]Pin = undefined;
-        const setter_outputs = if (@inComptime()) &setter_outputs_slot else try alloc.alloc(Pin, 2);
-        setter_outputs[0] = Pin{ .primitive = .exec };
-        setter_outputs[1] = Pin{ .primitive = .{ .value = var_type } };
+        const _setter_outputs = if (@inComptime()) &setter_outputs_slot else try alloc.alloc(Pin, 2);
+        _setter_outputs[0] = Pin{ .primitive = .exec };
+        _setter_outputs[1] = Pin{ .primitive = .{ .value = var_type } };
+        const setter_outputs_slot_sealed = setter_outputs_slot;
+        const setter_outputs = if (@inComptime()) &setter_outputs_slot_sealed else _setter_outputs;
 
-        // const setter_name: []const u8 =
-        //     if (@inComptime())
-        //     std.fmt.comptimePrint("get_{s}", .{var_name})
-        // else
-        //     try std.fmt.allocPrint(alloc, "get_{s}", .{var_name});
-        _ = var_name;
+        const setter_name: []const u8 =
+            if (@inComptime())
+            std.fmt.comptimePrint("get_{s}", .{var_name})
+        else
+            try std.fmt.allocPrint(alloc, "get_{s}", .{var_name});
 
         return VarNodes{
             .get = basicNode(&.{
-                //.name = getter_name,
-                //.outputs = getter_outputs,
-                .name = "get_test",
-                .outputs = &.{},
+                .name = getter_name,
+                .outputs = getter_outputs,
             }),
             .set = basicNode(&.{
-                .name = "set_test",
-                //.name = setter_name,
-                //.inputs = setter_inputs,
-                //.outputs = setter_outputs,
-                .inputs = &.{},
-                .outputs = &.{},
+                .name = setter_name,
+                .inputs = setter_inputs,
+                .outputs = setter_outputs,
             }),
         };
     }
