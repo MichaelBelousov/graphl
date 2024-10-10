@@ -10,7 +10,7 @@ import native from "../lang-lib/src/main.zig";
 import { useStable } from "@bentley/react-hooks";
 
 /** caller must free the result */
-function sourceDefinesToNodeTypes(source: string): Promise<string> {
+function updateNodeTypesFromSource(source: string): Promise<string> {
   return native.readSrc(source);
 }
 
@@ -60,7 +60,7 @@ interface NoderContextType {
 }
 
 const defaultContext: NoderContextType = {
-  updateNodeTypesFromSource: sourceDefinesToNodeTypes,
+  updateNodeTypesFromSource,
   lastNodeTypes: {},
   lastFunctionDefs: {},
   lastVarDefs: {},

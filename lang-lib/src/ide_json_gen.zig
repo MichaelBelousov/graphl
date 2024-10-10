@@ -5,6 +5,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const json = std.json;
 
+const PageWriter = @import("./PageWriter.zig").PageWriter;
+
 const Parser = @import("./sexp_parser.zig").Parser;
 const FileBuffer = @import("./FileBuffer.zig");
 
@@ -207,28 +209,47 @@ pub fn readTopLevelExpr(alloc: std.mem.Allocator, expr: Sexp) !?NodeDef {
     return null;
 }
 
-pub fn readSrc(alloc: std.mem.Allocator, src: []const u8, writer: anytype) !void {
-    const parse_result = Parser.parse(alloc, src);
+// TODO: rename to like extractSourceDefinesWriteToJson
+fn readSrcImpl(alloc: std.mem.Allocator, src: []const u8, writer: anytype, diag: ?*Parser.Diagnostic) !void {
+    var ignored_diagnostic: Parser.Diagnostic = undefined;
+    const out_diag = if (diag) |d| d else &ignored_diagnostic;
+    out_diag.* = Parser.Diagnostic{ .source = src };
 
-    if (parse_result == .err) {
+    const parse_result = Parser.parse(alloc, src, diag) catch {
         if (builtin.os.tag != .freestanding)
-            std.debug.print("error reading:\n{}\n", .{parse_result.err});
+            std.debug.print("error reading:\n{}\n", .{out_diag.*});
         return error.ParseError;
-    }
+    };
 
     var write_stream = json.writeStream(writer, .{ .whitespace = .indent_1 });
     try write_stream.beginObject();
 
-    for (parse_result.ok.items) |expr| {
-        const maybe_node = try readTopLevelExpr(alloc, expr);
-        if (maybe_node) |node| {
-            try write_stream.objectField(node.id);
-            try node.emitDef(&write_stream);
-        }
+    switch (parse_result.value) {
+        .list => |list| {
+            for (list.items) |expr| {
+                const maybe_node = try readTopLevelExpr(alloc, expr);
+                if (maybe_node) |node| {
+                    try write_stream.objectField(node.id);
+                    try node.emitDef(&write_stream);
+                }
+            }
+        },
+        else => {},
     }
 
     try write_stream.endObject();
     _ = try writer.write("\n");
+}
+
+pub fn readSrc(a: std.mem.Allocator, src: []const u8) ![]const u8 {
+    var page_writer = try PageWriter.init(a);
+    defer page_writer.deinit();
+    var diagnostic: Parser.Diagnostic = undefined;
+    readSrcImpl(a, src, page_writer.writer(), &diagnostic) catch {
+        std.debug.print("readSrc error:\n{}\n", .{diagnostic});
+    };
+    // FIXME: leak
+    return try page_writer.concat(a);
 }
 
 pub fn main() !void {
@@ -242,13 +263,16 @@ pub fn main() !void {
     while (args_iter.next()) |arg| {
         var env = try std.process.getEnvMap(alloc);
         defer env.deinit();
-        if (std.process.getEnvMap(env.get("DEBUG")) != null)
+        if (env.get("DEBUG") != null)
             std.debug.print("input_file: {s}\n", .{arg});
 
         const file = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), arg);
         defer file.free(alloc);
 
         const stdout_writer = std.io.getStdOut().writer();
-        readSrc(alloc, file.buffer, stdout_writer) catch continue;
+        var diagnostic: Parser.Diagnostic = undefined;
+        readSrcImpl(alloc, file.buffer, stdout_writer, &diagnostic) catch {
+            std.debug.print("readSrc error '{s}':\n{}\n", .{ arg, diagnostic });
+        };
     }
 }

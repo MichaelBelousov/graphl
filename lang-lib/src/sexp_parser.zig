@@ -33,13 +33,18 @@ pub const SpacePrint = struct {
 };
 
 pub const Parser = struct {
-    pub const Diagnostic = union(enum(u16)) {
-        none = 0,
-        expectedFraction: Loc,
-        unmatchedCloser: Loc,
-        unknownToken: Loc,
-        OutOfMemory: void,
-        badInteger: []const u8,
+    pub const Diagnostic = struct {
+        source: []const u8,
+        result: Result = .none,
+
+        const Result = union(enum(u16)) {
+            none = 0,
+            expectedFraction: Loc,
+            unmatchedCloser: Loc,
+            unknownToken: Loc,
+            OutOfMemory: void,
+            badInteger: []const u8,
+        };
 
         const Code = error{
             ExpectedFraction,
@@ -50,24 +55,27 @@ pub const Parser = struct {
         };
 
         pub fn code(self: @This()) Code {
-            return switch (self) {
-                .None => unreachable,
-                .DuplicateNode => Code.DuplicateNode,
-                .MultipleEntries => Code.MultipleEntries,
-                .UnknownNodeType => Code.UnknownNodeType,
+            return switch (self.result) {
+                .none => unreachable,
+                .expectedFraction => Code.ExpectedFraction,
+                .unmatchedCloser => Code.UnmatchedCloser,
+                .unknownToken => Code.UnknownToken,
+                .OutOfMemory => Code.OutOfMemory,
+                .badInteger => Code.BadInteger,
             };
         }
 
         /// returned slice must be freed by the passed in allocator
-        pub fn contextualize(self: @This(), writer: std.io.GenericWriter, source: []const u8) ![]const u8 {
-            return switch (self) {
+        pub fn contextualize(self: @This(), writer: anytype) @TypeOf(writer).Error!void {
+            return switch (self.result) {
+                .none => _ = try writer.write("NotAnError"),
                 .expectedFraction => |loc| {
                     return try writer.print(
                         \\There is a decimal point here so expected a fraction:
                         \\ at {}
                         \\  | {s}
                         \\    {}^
-                    , .{ loc, try loc.containing_line(source), SpacePrint.init(loc.col - 1) });
+                    , .{ loc, try loc.containing_line(self.source), SpacePrint.init(loc.col - 1) });
                 },
                 .unmatchedCloser => |loc| {
                     return try writer.print(
@@ -75,11 +83,11 @@ pub const Parser = struct {
                         \\ at {}
                         \\  | {s}
                         \\    {}^
-                    , .{ loc, try loc.containing_line(source), SpacePrint.init(loc.col - 1) });
+                    , .{ loc, try loc.containing_line(self.source), SpacePrint.init(loc.col - 1) });
                 },
-                .unknownToken => "Fatal: unknownToken: '{s}'",
-                .OutOfMemory => "Fatal: System out of memory",
-                .badInteger => "Fatal: parser thought this token was an integer: '{s}'",
+                .unknownToken => |v| try writer.print("Fatal: unknownToken at {}", .{v}),
+                .OutOfMemory => _ = try writer.write("Fatal: System out of memory"),
+                .badInteger => _ = try writer.write("Fatal: parser thought this token was an integer: '{s}'"),
             };
         }
 
@@ -91,20 +99,17 @@ pub const Parser = struct {
         ) @TypeOf(writer).Error!void {
             _ = fmt_str;
             _ = fmt_opts;
-            switch (self) {
-                .None => _ = try writer.write("Not an error"),
-                .DuplicateNode => |v| try writer.print("Duplicate node found. First duplicate id={}", .{v}),
-                .MultipleEntries => |v| try writer.print("Multiple entries found. Second entry id={}", .{v}),
-                .UnknownNodeType => |v| try writer.print("Unknown node type '{s}'", .{v}),
-            }
+            // TODO: use contextualize
+            return self.contextualize(writer);
         }
     };
 
     pub const Error = Diagnostic.Code;
 
-    pub fn parse(alloc: std.mem.Allocator, src: []const u8, maybe_out_diagnostic: ?*Diagnostic) Error!std.ArrayList(Sexp) {
+    pub fn parse(alloc: std.mem.Allocator, src: []const u8, maybe_out_diagnostic: ?*Diagnostic) Error!Sexp {
         var ignored_diagnostic: Diagnostic = undefined;
         const out_diag = if (maybe_out_diagnostic) |d| d else &ignored_diagnostic;
+        out_diag.* = Diagnostic{ .source = src };
 
         const State = enum {
             symbol,
@@ -160,7 +165,8 @@ pub const Parser = struct {
                         const old_top = self.stack.pop() orelse unreachable;
                         const new_top = peek(&self.stack) orelse {
                             old_top.deinit(self.alloc);
-                            algo_diag.* = .{ .unmatchedCloser = self.loc };
+                            algo_diag.*.result = .{ .unmatchedCloser = self.loc };
+                            return error.UnmatchedCloser;
                         };
                         (try new_top.value.list.addOne()).* = old_top;
                         self.state = .between;
@@ -202,11 +208,13 @@ pub const Parser = struct {
             const c = src[algo_state.loc.index];
             const tok_slice = src[algo_state.tok_start..algo_state.loc.index];
 
-            var env = try std.process.getEnvMap(alloc);
-            defer env.deinit();
-            if (env.get("DEBUG") != null and builtin.os.tag != .freestanding) {
-                std.debug.print("c: {c}, loc: {any}, state: {any}\n", .{ c, algo_state.loc, algo_state.state });
-            }
+            var maybe_env = std.process.getEnvMap(alloc);
+            if (maybe_env) |*env| {
+                defer env.deinit();
+                if (env.get("DEBUG") != null and builtin.os.tag != .freestanding) {
+                    std.debug.print("c: {c}, loc: {any}, state: {any}\n", .{ c, algo_state.loc, algo_state.state });
+                }
+            } else |_| {}
 
             switch (algo_state.state) {
                 .between => try algo_state.onNextCharAfterTok(out_diag),
@@ -247,21 +255,21 @@ pub const Parser = struct {
                         const top = peek(&algo_state.stack) orelse unreachable;
                         const last = try top.value.list.addOne();
                         const int = std.fmt.parseInt(i64, tok_slice, 10) catch {
-                            out_diag.* = Diagnostic{ .badInteger = tok_slice };
+                            out_diag.*.result = .{ .badInteger = tok_slice };
                             return Error.BadInteger;
                         };
                         last.* = Sexp{ .value = .{ .int = int } };
                         try algo_state.onNextCharAfterTok(out_diag);
                     },
                     else => {
-                        out_diag.* = Diagnostic{ .unknownToken = algo_state.loc };
+                        out_diag.*.result = .{ .unknownToken = algo_state.loc };
                         return Error.UnknownToken;
                     },
                 },
                 .float_fraction_start => switch (c) {
                     '0'...'9' => algo_state.state = .float,
                     else => {
-                        out_diag.* = Diagnostic{ .expectedFraction = algo_state.loc };
+                        out_diag.*.result = .{ .expectedFraction = algo_state.loc };
                         return Error.ExpectedFraction;
                     },
                 },
@@ -270,7 +278,7 @@ pub const Parser = struct {
                     't', 'f' => algo_state.state = .bool,
                     '\\' => algo_state.state = .char,
                     else => {
-                        out_diag.* = Diagnostic{ .unknownToken = algo_state.loc };
+                        out_diag.*.result = .{ .unknownToken = algo_state.loc };
                         return Error.UnknownToken;
                     },
                 },
@@ -282,7 +290,7 @@ pub const Parser = struct {
                         try algo_state.onNextCharAfterTok(out_diag);
                     }, // TODO: use token
                     else => {
-                        out_diag.* = Diagnostic{ .unknownToken = algo_state.loc };
+                        out_diag.*.result = .{ .unknownToken = algo_state.loc };
                         return Error.UnknownToken;
                     },
                 },
@@ -293,34 +301,33 @@ pub const Parser = struct {
 
         const top = peek(&algo_state.stack) orelse unreachable;
 
-        return .{ .ok = top.value.list };
+        // FIXME: what if the top level isn't a sexp?
+        return Sexp{ .value = .{ .list = top.value.list } };
     }
 };
 
 const t = std.testing;
 
 test "parse 1" {
-    var expected_list = std.ArrayList(Sexp).init(t.allocator);
-    (try expected_list.addOne()).* = Sexp{ .value = .{ .int = 2 } };
-    (try expected_list.addOne()).* = Sexp{ .value = .{ .borrowedString = "hel\\\"lo\nworld" } };
-    (try expected_list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
-    (try expected_list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "+" } };
-    (try expected_list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 3 } };
-    (try expected_list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
-    (try expected_list.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "-" } };
-    (try expected_list.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 210 } };
-    (try expected_list.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 5 } };
+    var expected = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
+    (try expected.value.list.addOne()).* = Sexp{ .value = .{ .int = 2 } };
+    (try expected.value.list.addOne()).* = Sexp{ .value = .{ .borrowedString = "hel\\\"lo\nworld" } };
+    (try expected.value.list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
+    (try expected.value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "+" } };
+    (try expected.value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 3 } };
+    (try expected.value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
+    (try expected.value.list.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "-" } };
+    (try expected.value.list.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 210 } };
+    (try expected.value.list.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 5 } };
+    defer expected.deinit(t.allocator);
 
-    var expected = Parser.Result{ .ok = expected_list };
-    defer expected.deinit();
-
-    var actual = Parser.parse(t.allocator,
+    var actual = try Parser.parse(t.allocator,
         \\2
         \\"hel\"lo
         \\world" ;; comment
         \\(+ 3(- 210 5))
-    );
-    defer actual.deinit();
+    , null);
+    defer actual.deinit(t.allocator);
 
     // std.debug.print("\n{any}\n", .{actual});
     // std.debug.print("=========================\n", .{});
@@ -330,8 +337,6 @@ test "parse 1" {
     // }
     // std.debug.print("=========================\n", .{});
 
-    try t.expect(expected == .ok);
-    try t.expect(actual == .ok);
     try t.expect(expected.recursive_eq(actual));
 }
 
@@ -341,15 +346,15 @@ test "parse recovery" {
         \\(+ ('extra 5)))
     ;
 
-    var actual = Parser.parse(t.allocator, source);
-    defer actual.deinit();
-
-    try t.expect(actual == .err);
+    var diagnostic: Parser.Diagnostic = undefined;
+    const actual = Parser.parse(t.allocator, source, &diagnostic);
+    defer {
+        if (actual) |a| a.deinit(t.allocator) else |_| {}
+    }
+    try t.expectError(error.UnmatchedCloser, actual);
 
     var buf: [4096]u8 = undefined;
-    var buf_writer = std.io.fixedBufferStream(&buf);
-    const err_str = try actual.err.contextualize(buf_writer.writer(), source);
-    defer t.allocator.free(err_str);
+    const err_str = try std.fmt.bufPrint(&buf, "{}", .{diagnostic});
 
     try t.expectEqualStrings(
         \\Closing parenthesis with no opener:
@@ -363,7 +368,9 @@ test "simple error1" {
     const source =
         \\())
     ;
-    var actual = Parser.parse(t.allocator, source);
-    defer actual.deinit();
-    try t.expect(actual == .err);
+    const actual = Parser.parse(t.allocator, source, null);
+    defer {
+        if (actual) |a| a.deinit(t.allocator) else |_| {}
+    }
+    try t.expectError(error.UnmatchedCloser, actual);
 }
