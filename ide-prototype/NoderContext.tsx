@@ -10,8 +10,10 @@ import native from "../lang-lib/src/main.zig";
 import { useStable } from "@bentley/react-hooks";
 
 /** caller must free the result */
-function updateNodeTypesFromSource(source: string): Promise<string> {
-  return native.readSrc(source);
+async function updateNodeTypesFromSource(source: string): Promise<string> {
+  const result = await native.readSrc(source);
+  // TODO: use types from zigar
+  return result.string;
 }
 
 type Value = number | string | boolean | { symbol: string };
@@ -27,6 +29,7 @@ type Type =
   | { struct: Record<string, string> }
   | "ptr-to-opaque";
 
+// TODO: make a function that returns this from zig
 const defaultTypes: Record<string, Type> = {
   "num": "num",
   "string": "string",

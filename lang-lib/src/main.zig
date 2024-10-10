@@ -8,6 +8,6 @@ test {
 }
 
 // import to export these public functions
-pub usingnamespace @import("./source_to_graph.zig");
-pub usingnamespace @import("./graph_to_source.zig");
-pub usingnamespace @import("./ide_json_gen.zig");
+pub const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
+pub const graphToSource = @import("./graph_to_source.zig").graphToSource;
+pub const readSrc = @import("./ide_json_gen.zig").readSrc;

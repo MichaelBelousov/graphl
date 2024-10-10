@@ -1,8 +1,8 @@
 (if (/ 1
        (+ 100
           over-time))
-    (single-line-trace-by-channel (get-actor-location #void)
-                                  (+ (get-actor-location #void)
+    (single-line-trace-by-channel actor-location
+                                  (+ actor-location
                                      100)
                                   'visibility
                                   #t
