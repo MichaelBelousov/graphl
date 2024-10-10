@@ -16,7 +16,10 @@ export default defineConfig(async ({ mode }) => {
     },
     plugins: [
       react(),
-      zigar({ topLevelAwait: false }),
+      zigar({
+        topLevelAwait: false,
+        optimize: mode === 'production' ? 'ReleaseSmall' : 'Debug',
+      }),
       ...(mode === "development" ? [viteInspect({ build: true })] : []),
     ],
     css: {

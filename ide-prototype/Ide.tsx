@@ -4,6 +4,7 @@ import * as monaco from "monaco-editor/esm/vs/editor/editor.api"
 import styles from "./Ide.module.css"
 import { persistentData } from "./AppPersistentState";
 import { NoderContext } from "./NoderContext";
+import debounce from "lodash.debounce";
 
 const apiBaseUrl = "http://localhost:3001"
 
@@ -25,10 +26,12 @@ export function TextEditor(props: TextEditor.Props) {
 
   const noder = useContext(NoderContext);
 
+  const debouncedUpdateNodeTypesFromSource = React.useMemo(() => debounce(noder.updateNodeTypesFromSource, 200), [noder.updateNodeTypesFromSource]);
+
   // TODO: do this in a worker with cancellation cuz it's slow...
   useEffect(() => {
-    noder.updateNodeTypesFromSource(editorProgram);
-  }, [editorProgram]);
+    debouncedUpdateNodeTypesFromSource(editorProgram);
+  }, [editorProgram, debouncedUpdateNodeTypesFromSource]);
 
   useEffect(() => {
     if (monacoElem.current)

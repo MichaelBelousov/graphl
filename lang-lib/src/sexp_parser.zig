@@ -208,13 +208,14 @@ pub const Parser = struct {
             const c = src[algo_state.loc.index];
             const tok_slice = src[algo_state.tok_start..algo_state.loc.index];
 
-            var maybe_env = std.process.getEnvMap(alloc);
-            if (maybe_env) |*env| {
-                defer env.deinit();
-                if (env.get("DEBUG") != null and builtin.os.tag != .freestanding) {
-                    std.debug.print("c: {c}, loc: {any}, state: {any}\n", .{ c, algo_state.loc, algo_state.state });
-                }
-            } else |_| {}
+            // FIXME: this causes some weird errors (errno 38 or something) to print in the console
+            // var maybe_env = std.process.getEnvMap(alloc);
+            // if (maybe_env) |*env| {
+            //     defer env.deinit();
+            //     if (env.get("DEBUG") != null and builtin.os.tag != .freestanding) {
+            //         std.debug.print("c: {c}, loc: {any}, state: {any}\n", .{ c, algo_state.loc, algo_state.state });
+            //     }
+            // } else |_| {}
 
             switch (algo_state.state) {
                 .between => try algo_state.onNextCharAfterTok(out_diag),

@@ -23,3 +23,7 @@ lib
 
 # node
 node_modules
+
+# wasm
+*.wasm
+*.wasm.o
