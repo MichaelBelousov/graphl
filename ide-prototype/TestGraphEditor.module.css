@@ -1,19 +1,11 @@
 :root {
-  --toolbarHeight: 60px;
+  --var-thing: 60px;
 }
 
 .page {}
 
-.toolbar {
-  box-sizing: border-box;
-  height: var(--toolbarHeight);
-  display: flex;
-  padding: 11px 22px 11px 22px;
-  gap: 22px;
-}
-
 .graph {
-  height: calc(100vh - var(--toolbarHeight));
+  height: calc(100vh - 0px);
 }
 
 :root {

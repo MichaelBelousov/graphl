@@ -15,6 +15,9 @@ import ReactFlow, {
   BaseEdge,
   useEdges,
   useNodes,
+  Background,
+  ReactFlowInstance,
+  Panel,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import styles from './TestGraphEditor.module.css'
@@ -457,8 +460,137 @@ const edgeTypes = {
   default: CustomEdge,
 } as const
 
+const save = (edges: Edge[], fileName: string) => {
+  interface SerializedNode extends Node {
+    inputs: string[];
+    outputs: string[];
+  }
+  const nodes = new Map<string, SerializedNode>();
+
+  function fromFlowNode(node: Node): SerializedNode {
+    const nodeData = node.data as NodeData;
+    // TODO: unscrew types
+    if (!("isEntry" in nodeData))
+      (nodeData as NodeData).isEntry = node.type === "CustomTickEntry";
+
+    const result = {
+      ...node,
+      inputs: new Array(nodeData.fullDesc.inputs.length ?? 0),
+      outputs: new Array(nodeData.fullDesc.outputs.length ?? 0),
+    };
+
+    for (const [key, value] of Object.entries(nodeData.literalInputs)) {
+      const index = +key;
+      result.inputs[key] = value;
+    }
+
+    return result;
+  }
+
+  for (let i = 0; i < edges.length; ++i) {
+    const edge = edges[i];
+    assert(edge.sourceHandle && edge.targetHandle);
+    // flow's graph directionality is arbitrary to us
+    // establish direction based on whether handle is input or output
+    const [handle1NodeId, handle1IsInput, handle1Index] = edge.sourceHandle.split("_");
+    const [handle2NodeId, handle2IsInput, handle2Index] = edge.targetHandle.split("_");
+    assert(handle1NodeId && handle1IsInput && handle1Index);
+    assert(handle2NodeId && handle2IsInput && handle2Index);
+    const handle1 = { nodeId: handle1NodeId, handleIndex: +handle1Index, handleId: edge.sourceHandle };
+    const handle2 = { nodeId: handle2NodeId, handleIndex: +handle2Index, handleId: edge.targetHandle };
+    const toZigHandle = ({ nodeId, handleIndex }: typeof handle1) => ({ nodeId, handleIndex });
+    const { source, target } = handle1IsInput
+      ? { source: handle2, target: handle1 }
+      : { source: handle1, target: handle2 };
+    const sourceNode = graph.getNode(source.nodeId);
+    const targetNode = graph.getNode(target.nodeId);
+    assert(sourceNode && targetNode);
+
+    let sourceResultNode = nodes.get(source.nodeId);
+    if (sourceResultNode === undefined) {
+      sourceResultNode = fromFlowNode(sourceNode);
+      nodes.set(source.nodeId, sourceResultNode);
+    }
+    sourceResultNode.outputs[source.handleIndex] = toZigHandle(target);
+
+    let targetResultNode = nodes.get(target.nodeId);
+    if (targetResultNode === undefined) {
+      targetResultNode = fromFlowNode(targetNode);
+      nodes.set(target.nodeId, targetResultNode);
+    }
+    targetResultNode.inputs[target.handleIndex] = toZigHandle(source);
+  }
+
+  downloadFile({
+    fileName,
+    content: JSON.stringify({
+      nodes: Object.fromEntries(nodes.entries()),
+      edges,
+    }, null, "  "),
+  })
+};
+
+
+const ToolsPanel = (props: {
+  graph: ReactFlowInstance<{}, {}>,
+  fileName: string,
+  setFileName: (v: string) => void,
+}) => {
+  return (
+    <div style={{ display: "flex", flexDirection: "row", alignItems: "center" }}>
+      <>
+        <button
+          title={"Save"}
+          onClick={() => save(props.graph.getEdges(), props.fileName)}
+        >
+          Save
+          {/*<img width={20} style={{ objectFit: "contain" }} src={defaultParticipantIconUrl} />*/}
+        </button>
+      </>
+
+      <>
+        <button
+          onClick={async () => {
+            //props.onSyncGraph({ nodes, edges });
+          }}
+        >
+          Sync
+        </button>
+      </>
+
+      <button
+        onClick={async () => {
+          const file = await uploadFile({ type: 'text' })
+          const json = JSON.parse(file.content)
+          props.graph.setNodes(Object.values(json.nodes));
+          props.graph.setEdges(json.edges);
+        }}
+      >
+        Load
+      </button>
+
+      <button
+        onClick={async () => {
+          props.graph.setNodes([]);
+          props.graph.setEdges([]);
+        }}
+      >
+        Reset
+      </button>
+
+      <input
+        style={{ border: 0, backgroundColor: "transparent" }}
+        value={props.fileName}
+        onChange={(e) => props.setFileName(e.currentTarget.value)}
+        placeholder="filename"
+      />
+
+    </div>
+  );
+};
+
 const TestGraphEditor = (props: TestGraphEditor.Props) => {
-  const graph = useReactFlow();
+  const graph = useReactFlow<{}, {}>();
   const edges = useEdges<{}>();
   const nodes = useNodes<{}>();
 
@@ -649,111 +781,6 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
         </div>
       </ContextMenu>
       <div className={styles.rightClickMenu} />
-      <div className={styles.toolbar}>
-        <button
-          onClick={() => {
-            interface SerializedNode extends Node {
-              inputs: string[];
-              outputs: string[];
-            }
-
-            const nodes = new Map<string, SerializedNode>();
-
-            function fromFlowNode(node: Node): SerializedNode {
-              const nodeData = node.data as NodeData;
-              // TODO: unscrew types
-              if (!("isEntry" in nodeData))
-                (nodeData as NodeData).isEntry = node.type === "CustomTickEntry";
-
-              const result = {
-                ...node,
-                inputs: new Array(nodeData.fullDesc.inputs.length ?? 0),
-                outputs: new Array(nodeData.fullDesc.outputs.length ?? 0),
-              };
-
-              for (const [key, value] of Object.entries(nodeData.literalInputs)) {
-                const index = +key;
-                result.inputs[key] = value;
-              }
-
-              return result;
-            }
-
-            for (let i = 0; i < edges.length; ++i) {
-              const edge = edges[i];
-              assert(edge.sourceHandle && edge.targetHandle);
-              // flow's graph directionality is arbitrary to us
-              // establish direction based on whether handle is input or output
-              const [handle1NodeId, handle1IsInput, handle1Index] = edge.sourceHandle.split("_");
-              const [handle2NodeId, handle2IsInput, handle2Index] = edge.targetHandle.split("_");
-              assert(handle1NodeId && handle1IsInput && handle1Index);
-              assert(handle2NodeId && handle2IsInput && handle2Index);
-              const handle1 = { nodeId: handle1NodeId, handleIndex: +handle1Index, handleId: edge.sourceHandle };
-              const handle2 = { nodeId: handle2NodeId, handleIndex: +handle2Index, handleId: edge.targetHandle };
-              const toZigHandle = ({ nodeId, handleIndex }: typeof handle1) => ({ nodeId, handleIndex });
-              const { source, target } = handle1IsInput
-                ? { source: handle2, target: handle1 }
-                : { source: handle1, target: handle2 };
-              const sourceNode = graph.getNode(source.nodeId);
-              const targetNode = graph.getNode(target.nodeId);
-              assert(sourceNode && targetNode);
-
-              let sourceResultNode = nodes.get(source.nodeId);
-              if (sourceResultNode === undefined) {
-                sourceResultNode = fromFlowNode(sourceNode);
-                nodes.set(source.nodeId, sourceResultNode);
-              }
-              sourceResultNode.outputs[source.handleIndex] = toZigHandle(target);
-
-              let targetResultNode = nodes.get(target.nodeId);
-              if (targetResultNode === undefined) {
-                targetResultNode = fromFlowNode(targetNode);
-                nodes.set(target.nodeId, targetResultNode);
-              }
-              targetResultNode.inputs[target.handleIndex] = toZigHandle(source);
-            }
-
-            downloadFile({
-              fileName,
-              content: JSON.stringify({
-                nodes: Object.fromEntries(nodes.entries()),
-                edges,
-              }, null, "  "),
-            })
-          }}
-        >
-          Save
-        </button>
-        <button
-          onClick={async () => {
-            //props.onSyncGraph({ nodes, edges });
-          }}
-        >
-          Sync
-        </button>
-        <button
-          onClick={async () => {
-            const file = await uploadFile({ type: 'text' })
-            const json = JSON.parse(file.content)
-            graph.setNodes(Object.values(json.nodes));
-            graph.setEdges(json.edges);
-          }}
-        >
-          Load
-        </button>
-        <button
-          onClick={async () => {
-            graph.setNodes([]);
-            graph.setEdges([]);
-          }}
-        >
-          Reset
-        </button>
-        <input
-          value={fileName}
-          onChange={(e) => setFileName(e.currentTarget.value)}
-        />
-      </div>
       {/* TODO: must memoize the context value */}
       <AppCtx.Provider value={{graph: {}}}>
         <div className={styles.graph} ref={graphContainerElem}>
@@ -782,7 +809,19 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
             }}
           >
             <Controls />
-            <MiniMap />
+            <MiniMap
+              zoomable pannable
+              color="var(--fg-1)"
+              // FIXME: node color should be  a function that returns based on types...
+              maskColor="#2d2d2dcc" // FIXME: reference var(--bg-1)
+              style={{
+                backgroundColor: "var(--bg-2)",
+              }}
+            />
+            <Background />
+            <Panel position="top-left">
+              <ToolsPanel fileName={fileName} setFileName={setFileName} graph={graph} />
+            </Panel>
           </ReactFlow>
         </div>
       </AppCtx.Provider>
