@@ -35,6 +35,11 @@
     "ts-node": "^10.9.1",
     "typescript": "5.0.0-beta",
     "vite": "^4.0.4",
-    "vite-plugin-inspect": "^0.7.15"
+    "vite-plugin-inspect": "^0.7.15",
+    "zigar-runtime": "^0.13.2"
+  },
+  "dependencies": {
+    "@types/lodash.debounce": "^4.0.9",
+    "lodash.debounce": "^4.0.8"
   }
 }
