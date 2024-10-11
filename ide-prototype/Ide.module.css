@@ -1,7 +1,26 @@
 
-.split {
+.ide {
   display: grid;
   grid-template-columns: 1fr 1fr;
+}
+
+.editor {
+
+}
+
+.visualEditor {
+  display: grid;
+  grid-template-columns: 3fr 1fr;
+}
+
+.graphEditor {
+
+}
+
+
+.contextEditor {
+  padding: 10px;
+  border-left: 1px solid black;
 }
 
 .textEditor {

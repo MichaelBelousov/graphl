@@ -27,7 +27,7 @@ import { useValidatedInput, useStable, useOnMount } from "@bentley/react-hooks"
 import { InputStatus } from '@bentley/react-hooks/lib/useValidatedInput'
 import { Center } from "./Center";
 import { persistentData } from "./AppPersistentState";
-import { NoderContext } from './NoderContext'
+import { NoderContext, Type, Value, Variable, Function } from './NoderContext'
 
 function sortedKeys<T>(t: T): T {
   return Object.fromEntries(Object.entries(t).sort(([ka], [kb]) => ka.localeCompare(kb)));
@@ -544,7 +544,6 @@ const ToolsPanel = (props: {
           onClick={() => save(props.graph.getEdges(), props.fileName)}
         >
           Save
-          {/*<img width={20} style={{ objectFit: "contain" }} src={defaultParticipantIconUrl} />*/}
         </button>
       </>
 
@@ -589,7 +588,7 @@ const ToolsPanel = (props: {
   );
 };
 
-const TestGraphEditor = (props: TestGraphEditor.Props) => {
+const TestGraphEditor = (_props: TestGraphEditor.Props) => {
   const graph = useReactFlow<{}, {}>();
   const edges = useEdges<{}>();
   const nodes = useNodes<{}>();
@@ -748,6 +747,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
   const connectingNodeId = React.useRef<string>();
   const graphContainerElem = React.useRef<HTMLDivElement>(null);
 
+  // TODO: make the nodes dynamic so Reactflow doesn't re-render them
   const nodeTypes = React.useMemo(() => {
     return {
       ...Object.fromEntries(

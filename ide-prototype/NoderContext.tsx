@@ -16,21 +16,22 @@ async function updateNodeTypesFromSource(source: string): Promise<string> {
   return result.string;
 }
 
-type Value = number | string | boolean | { symbol: string };
+export type Value = number | string | boolean | { symbol: string };
 
-type Type =
+// TODO: make always an object type with some builtin type ids
+export type Type =
   | "num"
   | "string"
   | "exec"
   | "bool"
   | "i32" | "i64" | "f32" | "f64" | "u32" | "u64"
-  | { enum: Value[] }
-  | { union: string[] }
-  | { struct: Record<string, string> }
+  | { name: string; enum: Value[] }
+  | { name: string; union: string[] }
+  | { name: string; struct: Record<string, string> }
   | "ptr-to-opaque";
 
 // TODO: make a function that returns this from zig
-const defaultTypes: Record<string, Type> = {
+export const defaultTypes: Record<string, Type> = {
   "num": "num",
   "string": "string",
   "exec": "exec",
@@ -48,6 +49,21 @@ const defaultTypes: Record<string, Type> = {
   "trace-channels": { enum: [{ symbol: "visibility" }, { symbol: "collision" }] },
   "draw-debug-types": { enum: [{ symbol: "none" }, { symbol: "line" }, { symbol: "arrow" }] },
 };
+
+
+export interface Variable {
+  name: string;
+  type: Type;
+  initial: Value;
+  comment: string | undefined;
+}
+
+export interface Function {
+  name: string;
+  params: Variable[],
+  return: Variable | undefined;
+  comment: string | undefined;
+}
 
 interface NoderContextType {
   updateNodeTypesFromSource(source: string): Promise<string>;
