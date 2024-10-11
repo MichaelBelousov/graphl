@@ -4,7 +4,7 @@
   border: 0;
   background-color: transparent;
   min-width: 1em;
-  width: max-content;
+  max-width: max-content;
 }
 
 .transparentInput:hover:not(:focus) {

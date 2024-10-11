@@ -126,7 +126,11 @@ function ParamEditor(props: { paramIndex: number, func: GetSet<Function> }) {
   );
 }
 
-function DeclEditor(props: { decl: Variable | Function }) {
+interface DeclEditorHandle {
+  focus: () => void ;
+}
+
+const DeclEditor = React.forwardRef<DeclEditorHandle, { decl: Variable | Function }>((props, ref) => {
   const { decl } = props;
 
   const progCtx = React.useContext(ProgramContext);
@@ -134,51 +138,106 @@ function DeclEditor(props: { decl: Variable | Function }) {
   const type: DeclType = "params" in props.decl ? "functions" : "variables";
   const getset = progCtx[type] as GetSet<Record<string, Variable | Function>>;
 
+  const prevName = React.useRef(decl.name);
+
   const setDecl: React.Dispatch<React.SetStateAction<Variable | Function>> = React.useCallback(
     (v) => {
       getset.set(prev => {
         const newVal = typeof v === "function" ? v(prev[decl.name]) : v;
         const result = { ...prev };
-        delete result[decl.name];
-        result[decl.name] = newVal;
+        delete result[prevName.current];
+        result[newVal.name] = newVal;
+        prevName.current = newVal.name;
         return result;
       });
     },
     [getset, decl.name],
   );
 
-  const params = React.useMemo(() => {
+  const nameInputRef = React.useRef<HTMLInputElement>(null);
+
+  const firstRender = React.useRef(true);
+
+  React.useEffect(() => {
+    if (firstRender.current) {
+      nameInputRef.current?.select();
+      firstRender.current = false;
+    }
+  }, []);
+
+  React.useImperativeHandle(ref, () => {
+    return {
+      focus: () => {
+        nameInputRef.current?.focus();
+      },
+    };
+  }, [nameInputRef]);
+
+  const nameInput = React.useMemo(() =>
+    <input
+      ref={nameInputRef}
+      className={sharedStyles.transparentInput}
+      onKeyDown={e => {
+        if (e.key === "Enter") {
+          e.currentTarget.blur();
+          return false;
+        }
+      }}
+      onBlur={e => {
+        const val = e.currentTarget.value;
+        if (val.length > 0)
+          setDecl(prev => ({ ...prev, name: val }));
+        else
+          e.currentTarget.focus();
+      }}
+    />
+  , [setDecl]);
+
+  React.useLayoutEffect(() => {
+    if (nameInputRef.current !== null)
+      nameInputRef.current.value = decl.name;
+  }, []);
+
+  const funcView = React.useMemo(() => {
     if (!("params" in decl))
       return undefined;
 
-    return decl.params.map((_, i) => (
-      <ul style={{ listStyle: "none", display: "inline", margin: 0 }}>
-        <li key={i} style={{display: "inline"}}>
-          <ParamEditor paramIndex={i} func={{
-            value: decl,
-            set: setDecl as React.Dispatch<React.SetStateAction<Function>>,
-          }} />
-        </li>
-      </ul>
-    ));
-  }, [decl, setDecl]);
+    return (
+      <>
+        {nameInput}
+        <ul style={{ listStyle: "none", display: "inline", margin: 0 }}>
+          {decl.params.map((_d, i) => (
+            <li key={/*i*/i} style={{display: "inline"}}>
+              <ParamEditor paramIndex={i} func={{
+                value: decl,
+                set: setDecl as React.Dispatch<React.SetStateAction<Function>>,
+              }} />
+            </li>
+          ))}
+        </ul>
+      </>
+    );
+  }, [decl, setDecl, nameInput]);
+
+  const varView = <>
+    {nameInput}
+  </>;
 
   return (
     <div>
-      <strong>{decl.name}</strong>
       {"params" in decl ? (
-        <>{params}</>
+        funcView
       ) : (
-        <>
-        </>
+        varView
       )}
     </div>
   );
-};
+});
 
 function ProgramContextEditor() {
   const [variables, setVariables] = React.useState({} as Record<string, Variable>);
   const [functions, setFunctions] = React.useState({} as Record<string, Function>);
+  const [types, setTypes] = React.useState({} as Record<string, Type>);
 
   const programContext: ProgramContext = React.useMemo(() => ({
     variables: {
@@ -189,47 +248,67 @@ function ProgramContextEditor() {
       value: functions,
       set: setFunctions,
     },
-  }), [variables, functions, setVariables, setFunctions]);
+    types: {
+      value: types,
+      set: setTypes,
+    },
+  }), [variables, functions, setVariables, setFunctions, types, setTypes]);
+
+  const lastVar = React.createRef<DeclEditorHandle>();
+  const lastFunc = React.createRef<DeclEditorHandle>();
+
+  const functionList = Object.values(functions);
+  const variableList = Object.values(variables);
 
   return (
     <ProgramContext.Provider value={programContext}>
       <div>
         <section>
-          <h3> Functions </h3>
+          <strong>Functions</strong>
           <ul style={{ listStyle: "none", margin: 0}}>
-            {Object.values(functions).map((v, i) => (
+            {functionList.map((v, i) => (
               <li key={i}>
-                <DeclEditor decl={v} />
+                <DeclEditor decl={v} ref={i === functionList.length - 1 ? lastFunc : undefined} />
               </li>
             ))}
           </ul>
           <button
-            onClick={() => setFunctions(prev => ({ ...prev, "newFunc": {
-              name: "",
-              params: [],
-              return: undefined,
-              comment: undefined
-            }}))}
+            onClick={() => {
+              setFunctions(prev => ({
+                ...prev,
+                new: prev.new || {
+                  name: "new",
+                  params: [],
+                  return: undefined,
+                  comment: undefined,
+                },
+              }));
+            }}
           >+</button>
         </section>
+
         <section>
-          <h3> Variables </h3>
+          <strong>Variables</strong>
           <ul style={{ listStyle: "none" }}>
-            {Object.values(variables).map((v, i) => (
+            {variableList.map((v, i) => (
               <li key={i}>
-                <DeclEditor decl={v} />
+                <DeclEditor decl={v} ref={i === variableList.length - 1 ? lastVar : undefined} />
               </li>
             ))}
           </ul>
           <button
-            onClick={() => setVariables(prev => ({ ...prev, "newVar": {
-              name: "",
-              type: "i32",
-              initial: 0,
-              comment: undefined,
-            }}))}
+            onClick={() => setVariables(prev => ({
+              ...prev,
+              new: prev.new || {
+                name: "new",
+                type: "i32",
+                value: 0,
+                comment: undefined
+              },
+            }))}
           >+</button>
         </section>
+
       </div>
     </ProgramContext.Provider>
   );
