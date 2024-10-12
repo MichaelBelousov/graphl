@@ -16,6 +16,7 @@ const Value = @import("./nodes/builtin.zig").Value;
 const debug_tail_call = @import("./common.zig").debug_tail_call;
 const global_alloc = @import("./common.zig").global_alloc;
 const GraphTypes = @import("./common.zig").GraphTypes;
+const ExtraIndex = @import("./common.zig").ExtraIndex;
 
 const IndexedNode = GraphTypes.Node;
 const IndexedLink = GraphTypes.Link;
@@ -40,6 +41,9 @@ const GraphBuilder = struct {
     branch_joiner_map: std.AutoHashMapUnmanaged(*const IndexedNode, *const IndexedNode) = .{},
     is_join_set: std.DynamicBitSetUnmanaged,
     entry: ?*const IndexedNode = null,
+    entry_id: ?i64 = null,
+    branch_count: u32 = 0,
+    next_node_index: usize = 0,
 
     const Self = @This();
     const Types = GraphTypes;
@@ -56,6 +60,18 @@ const GraphBuilder = struct {
             .alloc = alloc,
             .is_join_set = try std.DynamicBitSetUnmanaged.initEmpty(alloc, 0),
         };
+    }
+
+    pub fn deinit(self: @This()) void {
+        self.is_join_set.deinit(self.alloc);
+        {
+            var node_iter = self.nodes.map.iterator();
+            while (node_iter.next()) |node| {
+                node.value_ptr.deinit();
+            }
+        }
+        self.nodes.deinit(self.alloc);
+        self.env.deinit();
     }
 
     pub fn getSingleExecFromEntry(entry: *const IndexedNode) !GraphTypes.Output {
@@ -75,18 +91,73 @@ const GraphBuilder = struct {
 
     pub const BuildFromJsonDiagnostic = PopulateAndReturnEntryDiagnostic;
 
+    // TODO: return a pointer to the newly placed node?
+    // TODO: remove node_id requirement
+    pub fn addNode(self: *@This(), node_id: i64, node: *IndexedNode, is_entry: bool, diag: ?*PopulateAndReturnEntryDiagnostic) !void {
+        // FIXME: why is this assigning to a constant?
+        node.extra.index = self.next_node_index;
+        self.next_node_index += 1;
+        errdefer self.next_node_index -= 1;
+
+        const putResult = try self.nodes.map.getOrPut(self.alloc, node_id);
+
+        putResult.value_ptr.* = node.*;
+
+        if (putResult.found_existing) {
+            if (diag) |d| d.* = .{ .DuplicateNode = node_id };
+            return error.DuplicateNode;
+        }
+
+        errdefer std.debug.assert(self.nodes.map.swapRemove(node_id));
+
+        if (is_entry) {
+            if (self.entry_id != null) {
+                if (diag) |d| d.* = .{ .MultipleEntries = node_id };
+                return error.MultipleEntries;
+            }
+            self.entry_id = node_id;
+        }
+
+        // FIXME: a more sophisticated check for if it's a branch, including macro expansion
+        const is_branch = std.mem.eql(u8, node.desc.name, "if");
+
+        if (is_branch)
+            self.branch_count += 1;
+
+        errdefer if (is_branch) {
+            self.branch_count -= 1;
+        };
+    }
+
+    pub fn addEdge(self: @This(), start_id: i64, start_index: u32, end_id: i64, end_index: u32) !void {
+        const start = self.nodes.map.getPtr(start_id) orelse return error.StartNodeNotFound;
+        const end = self.nodes.map.getPtr(end_id) orelse return error.EndNodeNotFound;
+
+        if (start_index >= start.inputs.len)
+            return error.StartIndexInvalid;
+
+        if (end_index >= end.inputs.len)
+            return error.EndIndexInvalid;
+
+        start.inputs[start_index] = .{ .link = .{
+            .target = end,
+            .pin_index = end_index,
+        } };
+    }
+
+    // FIXME: this should return a separate object
     pub fn buildFromJson(
         self: *Self,
         json_graph: GraphDoc,
         diagnostic: ?*BuildFromJsonDiagnostic,
     ) !void {
-        const entry = try self.populateAndReturnEntry(json_graph, diagnostic);
+        const entry = try self.populateFromJsonAndReturnEntry(json_graph, diagnostic);
         self.entry = entry;
         try self.link(json_graph);
     }
 
     // TODO: make errors stable somehow
-    pub const PopulateAndReturnEntryDiagnostic = union(enum(u16)) {
+    const PopulateAndReturnEntryDiagnostic = union(enum(u16)) {
         None = 0,
         DuplicateNode: i64,
         MultipleEntries: i64,
@@ -124,13 +195,12 @@ const GraphBuilder = struct {
         }
     };
 
-    pub fn populateAndReturnEntry(
+    fn populateFromJsonAndReturnEntry(
         self: *Self,
         json_graph: GraphDoc,
         diagnostic: ?*PopulateAndReturnEntryDiagnostic,
     ) !*const IndexedNode {
-        var entry_id: ?i64 = null;
-        var result: @typeInfo(@TypeOf(populateAndReturnEntry)).Fn.return_type.? = error.GraphHasNoEntry;
+        var result: @typeInfo(@TypeOf(populateFromJsonAndReturnEntry)).Fn.return_type.? = error.GraphHasNoEntry;
 
         var ignored_diagnostic: PopulateAndReturnEntryDiagnostic = undefined;
         const out_diagnostic = diagnostic orelse &ignored_diagnostic;
@@ -138,49 +208,23 @@ const GraphBuilder = struct {
         // FIXME: this belongs in buildFromJson...
         errdefer self.nodes.map.clearAndFree(self.alloc);
 
-        var branch_count: u32 = 0;
-        var node_index: usize = 0;
-
         var json_nodes_iter = json_graph.nodes.map.iterator();
         while (json_nodes_iter.next()) |node_entry| {
             const node_id = node_entry.key_ptr.*;
             // FIXME: accidental copy?
             const json_node = node_entry.value_ptr.*;
 
-            const node = json_node.toEmptyNode(self.env, node_index) catch |e| {
+            var node = json_node.toEmptyNode(self.alloc, self.env, self.next_node_index) catch |e| {
                 out_diagnostic.* = .{ .UnknownNodeType = json_node.type };
                 return e;
             };
 
-            const putResult = try self.nodes.map.getOrPut(self.alloc, node_id);
-
-            putResult.value_ptr.* = node;
-
-            if (putResult.found_existing) {
-                out_diagnostic.* = .{ .DuplicateNode = node_id };
-                return error.DuplicateNode;
-            }
-
-            if (json_node.data.isEntry) {
-                if (entry_id != null) {
-                    out_diagnostic.* = .{ .MultipleEntries = node_id };
-                    return error.MultipleEntries;
-                }
-                entry_id = node_id;
-            }
-
-            // FIXME: a more sophisticated check for if it's a branch, including macro expansion
-            const is_branch = std.mem.eql(u8, json_node.type, "if");
-            if (is_branch)
-                branch_count += 1;
-
-            node_index += 1;
+            try self.addNode(node_id, &node, json_node.data.isEntry, out_diagnostic);
         }
 
-        if (entry_id) |id| {
-            // FIXME: confirm why this is unreachable
+        if (self.entry_id) |id| {
             result = self.nodes.map.getPtr(id) orelse unreachable;
-            try self.branch_joiner_map.ensureTotalCapacity(self.alloc, branch_count);
+            try self.branch_joiner_map.ensureTotalCapacity(self.alloc, self.branch_count);
             try self.is_join_set.resize(self.alloc, self.nodes.map.count(), false);
         }
 

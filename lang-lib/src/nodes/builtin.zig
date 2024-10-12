@@ -99,13 +99,16 @@ pub fn GraphTypes(comptime Extra: type) type {
             link: Link,
         };
 
+        const empty_inputs: []Input = &.{};
+        const empty_outputs: []?Output = &.{};
+
         pub const Node = struct {
             desc: *const NodeDesc,
             extra: Extra,
             comment: ?[]const u8 = null,
             // FIMXE: how do we handle default inputs?
-            inputs: []Input = &.{},
-            outputs: []?Output = &.{},
+            inputs: []Input = empty_inputs,
+            outputs: []?Output = empty_outputs,
 
             // FIXME: replace this, each node belongs to a well defined flow control archetype
             pub const OutExecIterator = struct {
@@ -132,6 +135,29 @@ pub fn GraphTypes(comptime Extra: type) type {
 
             pub fn iter_out_execs(self: @This()) OutExecIterator {
                 return OutExecIterator{ .node = self };
+            }
+
+            pub fn initEmptyPins(
+                a: std.mem.Allocator,
+                args: struct {
+                    desc: *const NodeDesc,
+                    extra: Extra,
+                    comment: ?[]const u8 = null,
+                },
+            ) !@This() {
+                _ = a;
+                return @This(){
+                    .desc = args.desc,
+                    .extra = args.extra,
+                    .comment = args.comment,
+                };
+            }
+
+            pub fn deinit(self: @This(), a: std.mem.Allocator) !void {
+                if (self.inputs.ptr != empty_inputs.ptr)
+                    a.free(self.inputs);
+                if (self.outputs.ptr != empty_outputs.ptr)
+                    a.free(self.outputs);
             }
         };
     };
@@ -659,9 +685,9 @@ pub const Env = struct {
         return env;
     }
 
-    pub fn makeNode(self: @This(), kind: []const u8, extra: anytype) ?GraphTypes(@TypeOf(extra)).Node {
+    pub fn makeNode(self: @This(), a: std.mem.Allocator, kind: []const u8, extra: anytype) !?GraphTypes(@TypeOf(extra)).Node {
         return if (self.nodes.getPtr(kind)) |desc|
-            .{ .desc = desc, .extra = extra }
+            try GraphTypes(@TypeOf(extra)).Node.initEmptyPins(a, .{ .desc = desc, .extra = extra })
         else
             null;
     }

@@ -62,8 +62,8 @@ pub const JsonNode = struct {
     // FIXME: create zig type json type that treats optionals not as possibly null but as possibly missing
     data: struct { isEntry: bool = false, comment: ?[]const u8 = null },
 
-    pub fn toEmptyNode(self: @This(), env: Env, index: usize) !IndexedNode {
-        var node = env.makeNode(self.type, ExtraIndex{ .index = index }) orelse {
+    pub fn toEmptyNode(self: @This(), a: std.mem.Allocator, env: Env, index: usize) !IndexedNode {
+        var node = (try env.makeNode(a, self.type, ExtraIndex{ .index = index })) orelse {
             if (false and builtin.mode == .Debug) {
                 var iter = env.nodes.iterator();
                 std.debug.print("existing nodes:\n", .{});
@@ -73,6 +73,7 @@ pub const JsonNode = struct {
             }
             return error.UnknownNodeType;
         };
+
         // NOTE: should probably add ownership to json parsed strings so we can deallocate some...
         node.comment = self.data.comment;
         return node;
