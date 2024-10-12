@@ -4,7 +4,7 @@ import * as monaco from "monaco-editor/esm/vs/editor/editor.api"
 import styles from "./Ide.module.css"
 import sharedStyles from "./shared.module.css";
 import { persistentData } from "./AppPersistentState";
-import { NoderContext, Variable, Function, Type } from "./NoderContext";
+import { NoderContext, Variable, Function, Type, defaultTypes } from "./NoderContext";
 import debounce from "lodash.debounce";
 
 const apiBaseUrl = "http://localhost:3001"
@@ -81,9 +81,14 @@ const typeName = (t: Type) => typeof t === "string" ? t : t.name;
 function TypeSelect(props: { getset: GetSet<Type> } & React.HTMLProps<HTMLSelectElement>) {
   const progCtx = React.useContext(ProgramContext);
 
+  const types = React.useMemo(() => [
+    ...Object.values(progCtx.types.value),
+    ...Object.values(defaultTypes),
+  ], [progCtx.types.value]);
+
   return (
     <select {...props} value={typeName(props.getset.value)} onChange={e => props.getset.set(progCtx.types[e.currentTarget.value])}>
-      {Object.values(progCtx.types.value).map(t => (
+      {types.map(t => (
         <option value={typeName(t)}>{typeName(t)}</option>
       ))}
     </select>
@@ -119,10 +124,13 @@ function ParamEditor(props: { paramIndex: number, func: GetSet<Function> }) {
   }, [param, setParam]);
 
   return (
-    <span>
-      <input className={sharedStyles.transparentInput} value={param.name} onChange={e => setParam(prev => ({ ...prev, name: e.currentTarget.value }))}/>
+    <div>
+      <NameInput
+        initialValue={param.name}
+        onChange={val => setParam(prev => ({ ...prev, name: val, }))}
+      />
       <TypeSelect getset={getsetParamType} style={{ display: "inline"}} />
-    </span>
+    </div>
   );
 }
 
@@ -130,7 +138,121 @@ interface DeclEditorHandle {
   focus: () => void ;
 }
 
-const DeclEditor = React.forwardRef<DeclEditorHandle, { decl: Variable | Function }>((props, ref) => {
+// TODO: React.memo to ignore changes to initialValue
+const NameInput = React.forwardRef<HTMLInputElement | null, { initialValue: string, onChange: (s: string) => void}>((props, ref) => {
+  const nameInputRef = React.useRef<HTMLInputElement>(null);
+
+  const firstRender = React.useRef(true);
+
+  React.useEffect(() => {
+    if (firstRender.current) {
+      nameInputRef.current?.select();
+      firstRender.current = false;
+    }
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (nameInputRef.current !== null) {
+      nameInputRef.current.value = props.initialValue;
+    }
+  }, []);
+
+  // FIXME: is this right?
+  React.useImperativeHandle(ref, () => nameInputRef.current as any, [nameInputRef.current]);
+
+  return (
+    <input
+      ref={nameInputRef}
+      className={`${sharedStyles.transparentInput} ${styles.nameInput}`}
+      onKeyDown={e => {
+        if (e.key === "Enter") {
+          e.currentTarget.blur();
+          return false;
+        }
+      }}
+      onBlur={e => {
+        const val = e.currentTarget.value;
+        if (val.length > 0)
+          props.onChange(val);
+        else
+          e.currentTarget.focus();
+      }}
+    />
+  );
+});
+
+const VarDeclEditor = ({ getset }: { getset: GetSet<Variable> }) => {
+  return (
+    <>
+      <NameInput
+        initialValue={getset.value.name}
+        onChange={val => getset.set(prev => ({ ...prev, name: val }))}
+      />
+      <TypeSelect
+        getset={{
+          value: getset.value.type,
+          set: (val) => {
+            getset.set(prev => {
+              const newVal = typeof val === "function" ? val(prev.type) : val;
+              return {
+                ...prev,
+                type: newVal,
+              };
+            });
+          }
+        }}
+        style={{ display: "inline"}}
+      />
+    </>
+  );
+};
+
+const FuncDeclEditor = ({ getset }: { getset: GetSet<Function>  }) => {
+  const params = React.useMemo(() => {
+    return (
+      <>
+        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          {getset.value.params.map((_d, i) => (
+            <li key={/*i*/i} style={{display: "inline"}}>
+              <ParamEditor paramIndex={i} func={{
+                value: getset.value,
+                set: getset.set,
+              }} />
+            </li>
+          ))}
+        </ul>
+      </>
+    );
+  }, [getset.value, getset.set]);
+
+  return (
+    <>
+      <NameInput
+        initialValue={getset.value.name}
+        onChange={val => getset.set(prev => ({ ...prev, name: val }))}
+      />
+      <div style={{marginLeft: "15px"}}>
+        {params}
+        <button onClick={() => {
+          getset.set(prev => ({
+            ...prev,
+            params: [
+              ...getset.value.params,
+              {
+                name: "new",
+                type: "i32",
+                initial: 0,
+                comment: undefined,
+              }
+            ],
+          }));
+        }}>+</button>
+      </div>
+    </>
+  );
+};
+
+const DeclEditor = (props: { decl: Variable | Function }) => {
   const { decl } = props;
 
   const progCtx = React.useContext(ProgramContext);
@@ -154,85 +276,13 @@ const DeclEditor = React.forwardRef<DeclEditorHandle, { decl: Variable | Functio
     [getset, decl.name],
   );
 
-  const nameInputRef = React.useRef<HTMLInputElement>(null);
+  if ("params" in decl)
+    // NOTE: memoize this props?
+    return <FuncDeclEditor getset={{ value: decl, set: setDecl as React.Dispatch<React.SetStateAction<Function>> }} />
 
-  const firstRender = React.useRef(true);
-
-  React.useEffect(() => {
-    if (firstRender.current) {
-      nameInputRef.current?.select();
-      firstRender.current = false;
-    }
-  }, []);
-
-  React.useImperativeHandle(ref, () => {
-    return {
-      focus: () => {
-        nameInputRef.current?.focus();
-      },
-    };
-  }, [nameInputRef]);
-
-  const nameInput = React.useMemo(() =>
-    <input
-      ref={nameInputRef}
-      className={sharedStyles.transparentInput}
-      onKeyDown={e => {
-        if (e.key === "Enter") {
-          e.currentTarget.blur();
-          return false;
-        }
-      }}
-      onBlur={e => {
-        const val = e.currentTarget.value;
-        if (val.length > 0)
-          setDecl(prev => ({ ...prev, name: val }));
-        else
-          e.currentTarget.focus();
-      }}
-    />
-  , [setDecl]);
-
-  React.useLayoutEffect(() => {
-    if (nameInputRef.current !== null)
-      nameInputRef.current.value = decl.name;
-  }, []);
-
-  const funcView = React.useMemo(() => {
-    if (!("params" in decl))
-      return undefined;
-
-    return (
-      <>
-        {nameInput}
-        <ul style={{ listStyle: "none", display: "inline", margin: 0 }}>
-          {decl.params.map((_d, i) => (
-            <li key={/*i*/i} style={{display: "inline"}}>
-              <ParamEditor paramIndex={i} func={{
-                value: decl,
-                set: setDecl as React.Dispatch<React.SetStateAction<Function>>,
-              }} />
-            </li>
-          ))}
-        </ul>
-      </>
-    );
-  }, [decl, setDecl, nameInput]);
-
-  const varView = <>
-    {nameInput}
-  </>;
-
-  return (
-    <div>
-      {"params" in decl ? (
-        funcView
-      ) : (
-        varView
-      )}
-    </div>
-  );
-});
+  else
+    return <VarDeclEditor getset={{ value: decl, set: setDecl as React.Dispatch<React.SetStateAction<Variable>> }} />
+};
 
 function ProgramContextEditor() {
   const [variables, setVariables] = React.useState({} as Record<string, Variable>);
@@ -254,9 +304,6 @@ function ProgramContextEditor() {
     },
   }), [variables, functions, setVariables, setFunctions, types, setTypes]);
 
-  const lastVar = React.createRef<DeclEditorHandle>();
-  const lastFunc = React.createRef<DeclEditorHandle>();
-
   const functionList = Object.values(functions);
   const variableList = Object.values(variables);
 
@@ -265,10 +312,10 @@ function ProgramContextEditor() {
       <div>
         <section>
           <strong>Functions</strong>
-          <ul style={{ listStyle: "none", margin: 0}}>
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {functionList.map((v, i) => (
               <li key={i}>
-                <DeclEditor decl={v} ref={i === functionList.length - 1 ? lastFunc : undefined} />
+                <DeclEditor decl={v} />
               </li>
             ))}
           </ul>
@@ -289,10 +336,10 @@ function ProgramContextEditor() {
 
         <section>
           <strong>Variables</strong>
-          <ul style={{ listStyle: "none" }}>
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {variableList.map((v, i) => (
               <li key={i}>
-                <DeclEditor decl={v} ref={i === variableList.length - 1 ? lastVar : undefined} />
+                <DeclEditor decl={v} />
               </li>
             ))}
           </ul>

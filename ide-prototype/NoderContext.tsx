@@ -44,10 +44,10 @@ export const defaultTypes: Record<string, Type> = {
   "u64": "u64",
   // FIXME: fake ue types
   "actor": "ptr-to-opaque",
-  "vector": { struct: { x: "f32", y: "f32", z: "f32" }},
-  "drone-state": { enum: [{ symbol: "move-up" }, { symbol: "move-to-player" }, { symbol: "dead" }] },
-  "trace-channels": { enum: [{ symbol: "visibility" }, { symbol: "collision" }] },
-  "draw-debug-types": { enum: [{ symbol: "none" }, { symbol: "line" }, { symbol: "arrow" }] },
+  "vector": { name: "vector", struct: { x: "f32", y: "f32", z: "f32" }},
+  "drone-state": { name: "drone-state", enum: [{ symbol: "move-up" }, { symbol: "move-to-player" }, { symbol: "dead" }] },
+  "trace-channels": { name: "trace-channels", enum: [{ symbol: "visibility" }, { symbol: "collision" }] },
+  "draw-debug-types": { name: "draw-debug-types", enum: [{ symbol: "none" }, { symbol: "line" }, { symbol: "arrow" }] },
 };
 
 
