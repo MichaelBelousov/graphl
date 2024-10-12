@@ -9,6 +9,8 @@ import native from "../lang-lib/src/main.zig";
 
 import { useStable } from "@bentley/react-hooks";
 
+export { native };
+
 /** caller must free the result */
 async function updateNodeTypesFromSource(source: string): Promise<string> {
   const result = await native.readSrc(source);

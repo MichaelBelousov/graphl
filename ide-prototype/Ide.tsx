@@ -4,39 +4,28 @@ import * as monaco from "monaco-editor/esm/vs/editor/editor.api"
 import styles from "./Ide.module.css"
 import sharedStyles from "./shared.module.css";
 import { persistentData } from "./AppPersistentState";
-import { NoderContext, Variable, Function, Type, defaultTypes } from "./NoderContext";
-import debounce from "lodash.debounce";
+import { NoderContext, Variable, Function, Type, defaultTypes, native } from "./NoderContext";
+import * as zigar from "zigar-runtime";
+//import debounce from "lodash.debounce";
 
-const apiBaseUrl = "http://localhost:3001"
-
-async function onSyncGraph(_graph: any) {
-  const resp = await fetch(`${apiBaseUrl}/graph_to_source`);
-  const _t = await resp.text()
-}
-
-async function onSyncSource(_source: any) {
-  const resp = await fetch(`${apiBaseUrl}/source_to_graph`);
-  const _t = await resp.text()
-}
-
-export function TextEditor(props: TextEditor.Props) {
-  const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
+export const TextEditor = function TextEditor(props: TextEditor.Props) {
   const monacoElem = useRef<HTMLDivElement>(null);
 
-  const [editorProgram, setEditorProgram] = useState(persistentData.editorProgram);
+  const [_editorProgram, setEditorProgram] = useState(persistentData.editorProgram);
 
-  const noder = useContext(NoderContext);
-
+  /*
+  // TODO: sync better instead of this
   const debouncedUpdateNodeTypesFromSource = React.useMemo(() => debounce(noder.updateNodeTypesFromSource, 200), [noder.updateNodeTypesFromSource]);
 
-  // TODO: do this in a worker with cancellation cuz it's slow...
   useEffect(() => {
+    // TODO: do in a worker probably
     debouncedUpdateNodeTypesFromSource(editorProgram);
   }, [editorProgram, debouncedUpdateNodeTypesFromSource]);
+  */
 
   useEffect(() => {
     if (monacoElem.current)
-      setEditor((editor) => {
+      props.editor.set((editor) => {
         const result = editor ?? monaco.editor.create(monacoElem.current!, {
           value: persistentData.editorProgram,
           language: "scheme",
@@ -45,22 +34,25 @@ export function TextEditor(props: TextEditor.Props) {
         result.onDidChangeModelContent(() => {
           setEditorProgram(result.getValue());
           persistentData.editorProgram = result.getValue()
+          props.onSyncSource?.(result.getValue());
         });
         return result;
       })
   }, [monacoElem.current]);
+
   return <div className={styles.textEditor} ref={monacoElem} />
+};
+
+interface GetSet<T> {
+  value: T;
+  set: React.Dispatch<React.SetStateAction<T>>;
 }
 
 namespace TextEditor {
   export interface Props {
     onSyncSource: (source: string) => Promise<void>;
+    editor: GetSet<monaco.editor.IStandaloneCodeEditor | null>;
   }
-}
-
-interface GetSet<T> {
-  value: T;
-  set: React.Dispatch<React.SetStateAction<T>>;
 }
 
 interface ProgramContext {
@@ -72,7 +64,7 @@ interface ProgramContext {
 }
 
 const ProgramContext = React.createContext(new Proxy({} as ProgramContext, {
-  get() { throw new Error("accessed not ready ProgramContext"); }
+  get() { throw new Error("accessed ProgramContext outside of provider"); }
 }))
 
 type DeclType = keyof ProgramContext;
@@ -141,10 +133,6 @@ function ParamEditor(props: { paramIndex: number, func: GetSet<Function> }) {
       <TypeSelect getset={getsetParamType} style={{ display: "inline"}} />
     </div>
   );
-}
-
-interface DeclEditorHandle {
-  focus: () => void ;
 }
 
 // TODO: React.memo to ignore changes to initialValue
@@ -264,7 +252,6 @@ const FuncDeclEditor = ({ getset }: { getset: GetSet<Function>  }) => {
             set: (val) => {
               getset.set(prev => {
                 const newVal = typeof val === "function" ? val(prev.return) : val;
-                console.log("newVal", newVal);
                 return {
                   ...prev,
                   return: newVal,
@@ -311,6 +298,66 @@ const DeclEditor = (props: { decl: Variable | Function }) => {
 };
 
 function ProgramContextEditor() {
+  const progCtx = React.useContext(ProgramContext);
+  const functionList = Object.values(progCtx.functions.value);
+  const variableList = Object.values(progCtx.variables.value);
+
+  return (
+    <div>
+      <section>
+        <strong>Functions</strong>
+        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          {functionList.map((v, i) => (
+            <li key={i}>
+              <DeclEditor decl={v} />
+            </li>
+          ))}
+        </ul>
+        <button
+          onClick={() => {
+            progCtx.functions.set(prev => ({
+              ...prev,
+              new: prev.new || {
+                name: "new",
+                params: [],
+                return: "void",
+                comment: undefined,
+              },
+            }));
+          }}
+        >+</button>
+      </section>
+
+      <section>
+        <strong>Variables</strong>
+        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          {variableList.map((v, i) => (
+            <li key={i}>
+              <DeclEditor decl={v} />
+            </li>
+          ))}
+        </ul>
+        <button
+          onClick={() => progCtx.variables.set(prev => ({
+            ...prev,
+            new: prev.new || {
+              name: "new",
+              type: "i32",
+              value: 0,
+              comment: undefined
+            },
+          }))}
+        >+</button>
+      </section>
+
+    </div>
+  );
+}
+
+export function Ide(_props: Ide.Props) {
+  const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const getsetEditor = React.useMemo(() => ({ value: editor, set: setEditor }), [editor, setEditor]);
+
   const [variables, setVariables] = React.useState({} as Record<string, Variable>);
   const [functions, setFunctions] = React.useState({} as Record<string, Function>);
   const [types, setTypes] = React.useState({} as Record<string, Type>);
@@ -330,75 +377,26 @@ function ProgramContextEditor() {
     },
   }), [variables, functions, setVariables, setFunctions, types, setTypes]);
 
-  const functionList = Object.values(functions);
-  const variableList = Object.values(variables);
-
   return (
     <ProgramContext.Provider value={programContext}>
-      <div>
-        <section>
-          <strong>Functions</strong>
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {functionList.map((v, i) => (
-              <li key={i}>
-                <DeclEditor decl={v} />
-              </li>
-            ))}
-          </ul>
-          <button
-            onClick={() => {
-              setFunctions(prev => ({
-                ...prev,
-                new: prev.new || {
-                  name: "new",
-                  params: [],
-                  return: "void",
-                  comment: undefined,
-                },
-              }));
-            }}
-          >+</button>
-        </section>
-
-        <section>
-          <strong>Variables</strong>
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {variableList.map((v, i) => (
-              <li key={i}>
-                <DeclEditor decl={v} />
-              </li>
-            ))}
-          </ul>
-          <button
-            onClick={() => setVariables(prev => ({
-              ...prev,
-              new: prev.new || {
-                name: "new",
-                type: "i32",
-                value: 0,
-                comment: undefined
-              },
-            }))}
-          >+</button>
-        </section>
-
+      <div className={styles.ide}>
+        <TextEditor onSyncSource={async () => {}} editor={getsetEditor} />
+        <div className={styles.visualEditor}>
+          <span className={styles.graphEditor}>
+            <TestGraphEditor onSyncGraph={async (graph) => {
+              // TODO: give it a real diagnostic type lol?
+              const diagnostic = {};
+              await native.graphToSource(JSON.stringify(graph), diagnostic);
+              console.log(diagnostic);
+            }} />
+          </span>
+          <span className={styles.contextEditor}>
+            <ProgramContextEditor />
+          </span>
+        </div>
       </div>
     </ProgramContext.Provider>
   );
-}
-
-export function Ide(_props: Ide.Props) {
-  return <div className={styles.ide}>
-    <TextEditor onSyncSource={onSyncSource} />
-    <div className={styles.visualEditor}>
-      <span className={styles.graphEditor}>
-        <TestGraphEditor onSyncGraph={onSyncGraph} />
-      </span>
-      <span className={styles.contextEditor}>
-        <ProgramContextEditor />
-      </span>
-    </div>
-  </div>;
 }
 
 namespace Ide {

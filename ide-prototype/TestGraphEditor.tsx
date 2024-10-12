@@ -533,6 +533,7 @@ const save = (edges: Edge[], fileName: string) => {
 
 const ToolsPanel = (props: {
   graph: ReactFlowInstance<{}, {}>,
+  onSyncGraph: TestGraphEditor.Props["onSyncGraph"],
   fileName: string,
   setFileName: (v: string) => void,
 }) => {
@@ -550,7 +551,16 @@ const ToolsPanel = (props: {
       <>
         <button
           onClick={async () => {
-            //props.onSyncGraph({ nodes, edges });
+            props.onSyncGraph({
+              nodes: props.graph.getNodes().reduce((prev, curr) => {
+                const node = { ...curr };
+                node.outputs = curr.data.fullDesc.outputs;
+                node.inputs = curr.data.fullDesc.inputs;
+                prev[node.id] = node;
+                return prev;
+              }, {} as Record<string, Node<{}>>),
+              edges: props.graph.getEdges(),
+            });
           }}
         >
           Sync
@@ -588,7 +598,7 @@ const ToolsPanel = (props: {
   );
 };
 
-const TestGraphEditor = (_props: TestGraphEditor.Props) => {
+const TestGraphEditor = (props: TestGraphEditor.Props) => {
   const graph = useReactFlow<{}, {}>();
   const edges = useEdges<{}>();
   const nodes = useNodes<{}>();
@@ -820,7 +830,7 @@ const TestGraphEditor = (_props: TestGraphEditor.Props) => {
             />
             <Background />
             <Panel position="top-left">
-              <ToolsPanel fileName={fileName} setFileName={setFileName} graph={graph} />
+              <ToolsPanel fileName={fileName} setFileName={setFileName} graph={graph} onSyncGraph={props.onSyncGraph} />
             </Panel>
           </ReactFlow>
         </div>

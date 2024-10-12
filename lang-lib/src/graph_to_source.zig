@@ -566,11 +566,12 @@ const GraphToSourceErr = union(enum(u16)) {
     IoErr: anyerror,
 
     Compile: GraphBuilder.BuildFromJsonDiagnostic,
+    Read: json.Diagnostics,
 
     const Code = error{
         IoErr,
         OutOfMemory,
-    } || GraphBuilder.BuildFromJsonDiagnostic.Code;
+    } || GraphBuilder.BuildFromJsonDiagnostic.Code || json.Error;
 
     pub fn from(err: error{OutOfMemory}) GraphToSourceErr {
         return switch (err) {
@@ -584,6 +585,7 @@ const GraphToSourceErr = union(enum(u16)) {
             .OutOfMemory => Code.OutOfMemory,
             .IoErr => Code.IoErr,
             .Compile => |v| v.code(), // FIXME: need Code to merge with errors from
+            .Read => @panic("not supported yet"),
         };
     }
 
@@ -600,6 +602,9 @@ const GraphToSourceErr = union(enum(u16)) {
             .OutOfMemory => try writer.print("Out of memory", .{}),
             .None => _ = try writer.write("NotAnError"),
             .Compile => |v| try writer.print("Compile error: {}", .{v}),
+            .Read => |v| try writer.print(
+                \\error in JSON {}:{}, (byte={})
+            , .{ v.getLine(), v.getColumn(), v.getByteOffset() }),
         }
     }
 };
@@ -619,9 +624,12 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
     var json_diagnostics = json.Diagnostics{};
     var graph_json_reader = json.Scanner.initCompleteInput(arena_alloc, graph_json);
     graph_json_reader.enableDiagnostics(&json_diagnostics);
-    const graph = try json.parseFromTokenSourceLeaky(GraphDoc, arena_alloc, &graph_json_reader, .{
+    const graph = json.parseFromTokenSourceLeaky(GraphDoc, arena_alloc, &graph_json_reader, .{
         .ignore_unknown_fields = true,
-    });
+    }) catch |e| {
+        if (diagnostic) |d| d.* = GraphToSourceDiagnostic{ .Read = json_diagnostics };
+        return e;
+    };
 
     var page_writer = try PageWriter.init(a);
     defer page_writer.deinit();
