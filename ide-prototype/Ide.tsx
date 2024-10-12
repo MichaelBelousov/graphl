@@ -67,6 +67,7 @@ interface ProgramContext {
   // TODO: consolidate into one mapping to prevent collisions
   variables: GetSet<Record<string, Variable>>;
   functions: GetSet<Record<string, Function>>;
+  // TODO: rename to defined types?
   types: GetSet<Record<string, Type>>;
 }
 
@@ -81,14 +82,22 @@ const typeName = (t: Type) => typeof t === "string" ? t : t.name;
 function TypeSelect(props: { getset: GetSet<Type> } & React.HTMLProps<HTMLSelectElement>) {
   const progCtx = React.useContext(ProgramContext);
 
-  const types = React.useMemo(() => [
-    ...Object.values(progCtx.types.value),
-    ...Object.values(defaultTypes),
-  ], [progCtx.types.value]);
+  const allTypes = React.useMemo(() => ({
+    ...defaultTypes,
+    ...progCtx.types.value,
+  }), [progCtx.types.value]);
+
+  const allTypeList = React.useMemo(() => [
+    ...Object.values(allTypes),
+  ], [allTypes]);
 
   return (
-    <select {...props} value={typeName(props.getset.value)} onChange={e => props.getset.set(progCtx.types[e.currentTarget.value])}>
-      {types.map(t => (
+    <select
+      {...props}
+      value={typeName(props.getset.value)}
+      onChange={e => props.getset.set(allTypes[e.currentTarget.value])}
+    >
+      {allTypeList.map(t => (
         <option value={typeName(t)}>{typeName(t)}</option>
       ))}
     </select>
@@ -232,6 +241,7 @@ const FuncDeclEditor = ({ getset }: { getset: GetSet<Function>  }) => {
         onChange={val => getset.set(prev => ({ ...prev, name: val }))}
       />
       <div style={{marginLeft: "15px"}}>
+        <small><strong>Parameters</strong></small>
         {params}
         <button onClick={() => {
           getset.set(prev => ({
@@ -247,6 +257,22 @@ const FuncDeclEditor = ({ getset }: { getset: GetSet<Function>  }) => {
             ],
           }));
         }}>+</button>
+        <div>
+          <span><small><strong>Result</strong></small></span>
+          <TypeSelect getset={{
+            value: getset.value.return,
+            set: (val) => {
+              getset.set(prev => {
+                const newVal = typeof val === "function" ? val(prev.return) : val;
+                console.log("newVal", newVal);
+                return {
+                  ...prev,
+                  return: newVal,
+                };
+              });
+            },
+          }} />
+        </div>
       </div>
     </>
   );
@@ -326,7 +352,7 @@ function ProgramContextEditor() {
                 new: prev.new || {
                   name: "new",
                   params: [],
-                  return: undefined,
+                  return: "void",
                   comment: undefined,
                 },
               }));

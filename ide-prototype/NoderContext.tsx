@@ -20,6 +20,7 @@ export type Value = number | string | boolean | { symbol: string };
 
 // TODO: make always an object type with some builtin type ids
 export type Type =
+  | "void"
   | "num"
   | "string"
   | "exec"
@@ -32,6 +33,7 @@ export type Type =
 
 // TODO: make a function that returns this from zig
 export const defaultTypes: Record<string, Type> = {
+  "void": "void",
   "num": "num",
   "string": "string",
   "exec": "exec",
@@ -61,7 +63,7 @@ export interface Variable {
 export interface Function {
   name: string;
   params: Variable[],
-  return: Variable | undefined;
+  return: Type;
   comment: string | undefined;
 }
 
