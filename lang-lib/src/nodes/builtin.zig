@@ -137,6 +137,7 @@ pub fn GraphTypes(comptime Extra: type) type {
                 return OutExecIterator{ .node = self };
             }
 
+            // FIXME: remove
             pub fn initEmptyPins(
                 a: std.mem.Allocator,
                 args: struct {
@@ -153,7 +154,7 @@ pub fn GraphTypes(comptime Extra: type) type {
                 };
             }
 
-            pub fn deinit(self: @This(), a: std.mem.Allocator) !void {
+            pub fn deinit(self: @This(), a: std.mem.Allocator) void {
                 if (self.inputs.ptr != empty_inputs.ptr)
                     a.free(self.inputs);
                 if (self.outputs.ptr != empty_outputs.ptr)

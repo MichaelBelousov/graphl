@@ -30,11 +30,17 @@ const Import = @import("./json_format.zig").Import;
 const GraphDoc = @import("./json_format.zig").GraphDoc;
 const debug_print = @import("./debug_print.zig").debug_print;
 
+pub const ImportBinding = struct {
+    binding: []const u8,
+    alias: ?[]const u8,
+};
+
 const GraphBuilder = struct {
     env: Env,
     // FIXME: does this need to be in topological order? Is that advantageous?
     /// map of json node ids to its real node,
     nodes: JsonIntArrayHashMap(i64, IndexedNode, 10) = .{},
+    imports: std.ArrayListUnmanaged(Sexp),
     alloc: std.mem.Allocator,
     err_alloc: std.mem.Allocator = global_alloc, // TODO: this must be freeable by exported API users
     // FIXME: fill the analysis context instead of keeping this in the graph metadata itself
@@ -59,15 +65,16 @@ const GraphBuilder = struct {
             .env = env,
             .alloc = alloc,
             .is_join_set = try std.DynamicBitSetUnmanaged.initEmpty(alloc, 0),
+            .imports = std.ArrayListUnmanaged(Sexp){},
         };
     }
 
-    pub fn deinit(self: @This()) void {
+    pub fn deinit(self: *@This()) void {
         self.is_join_set.deinit(self.alloc);
         {
             var node_iter = self.nodes.map.iterator();
-            while (node_iter.next()) |node| {
-                node.value_ptr.deinit();
+            while (node_iter.next()) |*node| {
+                node.value_ptr.deinit(self.alloc);
             }
         }
         self.nodes.deinit(self.alloc);
@@ -91,9 +98,12 @@ const GraphBuilder = struct {
 
     pub const BuildFromJsonDiagnostic = PopulateAndReturnEntryDiagnostic;
 
+    pub const Diagnostic = BuildFromJsonDiagnostic;
+
     // TODO: return a pointer to the newly placed node?
     // TODO: remove node_id requirement
-    pub fn addNode(self: *@This(), node_id: i64, node: *IndexedNode, is_entry: bool, diag: ?*PopulateAndReturnEntryDiagnostic) !void {
+    pub fn addNode(self: *@This(), node_id: i64, in_node: IndexedNode, is_entry: bool, diag: ?*Diagnostic) !void {
+        var node = in_node;
         // FIXME: why is this assigning to a constant?
         node.extra.index = self.next_node_index;
         self.next_node_index += 1;
@@ -101,7 +111,7 @@ const GraphBuilder = struct {
 
         const putResult = try self.nodes.map.getOrPut(self.alloc, node_id);
 
-        putResult.value_ptr.* = node.*;
+        putResult.value_ptr.* = node;
 
         if (putResult.found_existing) {
             if (diag) |d| d.* = .{ .DuplicateNode = node_id };
@@ -129,7 +139,35 @@ const GraphBuilder = struct {
         };
     }
 
-    pub fn addEdge(self: @This(), start_id: i64, start_index: u32, end_id: i64, end_index: u32) !void {
+    pub fn addImport(self: *@This(), path: []const u8, bindings: []const ImportBinding) !void {
+        const new_import = try self.imports.addOne(self.alloc);
+
+        // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
+        new_import.* = Sexp{
+            .value = .{ .list = std.ArrayList(Sexp).init(self.alloc) },
+        };
+
+        (try new_import.*.value.list.addOne()).* = syms.import;
+        (try new_import.*.value.list.addOne()).* = Sexp{ .value = .{ .symbol = path } };
+
+        const imported_bindings = try new_import.*.value.list.addOne();
+        imported_bindings.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.alloc) } };
+
+        for (bindings) |binding| {
+            const added = try imported_bindings.*.value.list.addOne();
+
+            if (binding.alias) |alias| {
+                (try added.*.value.list.addOne()).* = syms.as;
+                (try added.*.value.list.addOne()).* = Sexp{ .value = .{ .symbol = binding.binding } };
+                (try added.*.value.list.addOne()).* = Sexp{ .value = .{ .symbol = alias } };
+            } else {
+                added.* = Sexp{ .value = .{ .symbol = binding.binding } };
+            }
+        }
+    }
+
+    /// end_subindex should be 0 if you don't know it
+    pub fn addEdge(self: @This(), start_id: i64, start_index: u32, end_id: i64, end_index: u32, end_subindex: u32) !void {
         const start = self.nodes.map.getPtr(start_id) orelse return error.StartNodeNotFound;
         const end = self.nodes.map.getPtr(end_id) orelse return error.EndNodeNotFound;
 
@@ -142,6 +180,7 @@ const GraphBuilder = struct {
         start.inputs[start_index] = .{ .link = .{
             .target = end,
             .pin_index = end_index,
+            .sub_index = end_subindex,
         } };
     }
 
@@ -214,12 +253,12 @@ const GraphBuilder = struct {
             // FIXME: accidental copy?
             const json_node = node_entry.value_ptr.*;
 
-            var node = json_node.toEmptyNode(self.alloc, self.env, self.next_node_index) catch |e| {
+            const node = json_node.toEmptyNode(self.alloc, self.env, self.next_node_index) catch |e| {
                 out_diagnostic.* = .{ .UnknownNodeType = json_node.type };
                 return e;
             };
 
-            try self.addNode(node_id, &node, json_node.data.isEntry, out_diagnostic);
+            try self.addNode(node_id, node, json_node.data.isEntry, out_diagnostic);
         }
 
         if (self.entry_id) |id| {
@@ -599,6 +638,30 @@ const GraphBuilder = struct {
         else
             error.NoEntryOrNotYetSet;
     }
+
+    pub fn writeGrapplText(self: @This(), writer: anytype) !void {
+        for (self.imports.items) |import| {
+            _ = try import.write(writer);
+            _ = try writer.write("\n");
+        }
+
+        const sexp = try self.rootToSexp();
+
+        switch (sexp.value) {
+            .list => |l| {
+                for (l.items) |s| {
+                    _ = try s.write(writer);
+                    _ = try writer.write("\n");
+                }
+            },
+            else => {
+                _ = try sexp.write(writer);
+                _ = try writer.write("\n");
+            },
+        }
+
+        _ = try writer.write("\n");
+    }
 };
 
 // TODO: rework to use errors explicitly
@@ -682,38 +745,30 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
     defer import_exprs.deinit();
     try import_exprs.ensureTotalCapacityPrecise(graph.imports.map.count());
 
+    var builder = try GraphBuilder.init(arena_alloc, env);
+    defer builder.deinit();
+
     // TODO: refactor blocks into functions
     {
         {
+            // TODO: errdefer delete all added imports
             var imports_iter = graph.imports.map.iterator();
             while (imports_iter.next()) |json_import_entry| {
                 const json_import_name = json_import_entry.key_ptr.*;
                 const json_import_bindings = json_import_entry.value_ptr.*;
 
-                const new_import = try import_exprs.addOne();
+                const bindings = try arena_alloc.alloc(ImportBinding, json_import_bindings.len);
+                defer arena_alloc.free(bindings);
 
-                // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
-                new_import.* = Sexp{
-                    .value = .{ .list = std.ArrayList(Sexp).init(arena_alloc) },
-                };
-                (try new_import.*.value.list.addOne()).* = syms.import;
-                (try new_import.*.value.list.addOne()).* = Sexp{ .value = .{ .symbol = json_import_name } };
-
-                const imported_bindings = try new_import.*.value.list.addOne();
-                imported_bindings.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(arena_alloc) } };
-
-                for (json_import_bindings) |json_imported_binding| {
+                for (json_import_bindings, bindings) |json_imported_binding, *binding| {
                     const ref = json_imported_binding.ref;
-                    const added = try imported_bindings.*.value.list.addOne();
-
-                    if (json_imported_binding.alias) |alias| {
-                        (try added.*.value.list.addOne()).* = syms.as;
-                        (try added.*.value.list.addOne()).* = Sexp{ .value = .{ .symbol = ref } };
-                        (try added.*.value.list.addOne()).* = Sexp{ .value = .{ .symbol = alias } };
-                    } else {
-                        added.* = Sexp{ .value = .{ .symbol = ref } };
-                    }
+                    binding.* = .{
+                        .binding = ref,
+                        .alias = json_imported_binding.alias,
+                    };
                 }
+
+                try builder.addImport(json_import_name, bindings);
             }
         }
 
@@ -726,7 +781,6 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
         }
     }
 
-    var builder = try GraphBuilder.init(arena_alloc, env);
     try builder.buildFromJson(graph, if (diagnostic) |d| _: {
         d.* = .{ .Compile = .None };
         break :_ &d.Compile;
@@ -760,11 +814,6 @@ test "big graph_to_source" {
     const graph_json = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/graph.json");
     defer graph_json.free(alloc);
 
-    // NOTE: it is extremely vague how we're going to isomorphically convert
-    // variable definitions... can variables be declared at any point in the node graph?
-    // will scoping be function-level?
-    // Does synchronizing graph changes into the source affect those?
-
     var diagnostic: GraphToSourceDiagnostic = undefined;
     const result = graphToSource(std.testing.allocator, graph_json.buffer, &diagnostic);
     if (result) |compiledSource| {
@@ -773,4 +822,31 @@ test "big graph_to_source" {
         debug_print("\nDIAGNOSTIC ({}):\n{}\n", .{ err, diagnostic });
         return error.FailTest;
     }
+}
+
+test "small local built graph" {
+    var env = try Env.initDefault(testing.allocator);
+    defer env.deinit();
+
+    var diagnostic: GraphBuilder.Diagnostic = .None;
+    var builder = try GraphBuilder.init(testing.allocator, env);
+    defer builder.deinit();
+
+    const plus_index = 0;
+    const _2_index = 1;
+    const _4_index = 2;
+    try builder.addNode(plus_index, try env.makeNode(testing.allocator, "+", ExtraIndex{ .index = 0 }) orelse unreachable, true, &diagnostic);
+    try builder.addNode(_2_index, try env.makeNode(testing.allocator, "#GET#actor-location", ExtraIndex{ .index = 0 }) orelse unreachable, true, &diagnostic);
+    try builder.addNode(_4_index, try env.makeNode(testing.allocator, "#GET#actor-location", ExtraIndex{ .index = 0 }) orelse unreachable, true, &diagnostic);
+    try builder.addEdge(_2_index, 0, plus_index, 0, 0);
+    try builder.addEdge(_4_index, 0, plus_index, 1, 0);
+
+    const sexp = try builder.rootToSexp();
+    var text = std.ArrayList(u8).init(testing.allocator);
+    defer text.deinit();
+    _ = try sexp.write(text.writer());
+
+    try testing.expectEqualStrings(text.items,
+        \\(+ 2 4)
+    );
 }
