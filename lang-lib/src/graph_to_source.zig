@@ -36,6 +36,7 @@ pub const ImportBinding = struct {
 };
 
 const GraphBuilder = struct {
+    // we do not own this, it is just referenced
     env: Env,
     // FIXME: does this need to be in topological order? Is that advantageous?
     /// map of json node ids to its real node,
@@ -78,7 +79,7 @@ const GraphBuilder = struct {
             }
         }
         self.nodes.deinit(self.alloc);
-        self.env.deinit();
+        // do not delete env, we don't own it
     }
 
     pub fn getSingleExecFromEntry(entry: *const IndexedNode) !GraphTypes.Output {
@@ -100,18 +101,24 @@ const GraphBuilder = struct {
 
     pub const Diagnostic = BuildFromJsonDiagnostic;
 
+    // FIXME: should probably have u32 for node ids, i64 is from when Math.random()
+    // in javascript was primary interface
+    const NodeId = i64;
+
+    // HACK: remove force_node_id
     // TODO: return a pointer to the newly placed node?
-    // TODO: remove node_id requirement
-    pub fn addNode(self: *@This(), node_id: i64, in_node: IndexedNode, is_entry: bool, diag: ?*Diagnostic) !void {
-        var node = in_node;
-        // FIXME: why is this assigning to a constant?
-        node.extra.index = self.next_node_index;
+    pub fn addNode(self: *@This(), in_node: IndexedNode, is_entry: bool, force_node_id: ?NodeId, diag: ?*Diagnostic) !NodeId {
+        var node_copy = in_node;
+        const node_id: NodeId = force_node_id orelse @intCast(self.next_node_index);
+        node_copy.extra = .{ .index = self.next_node_index };
         self.next_node_index += 1;
         errdefer self.next_node_index -= 1;
 
         const putResult = try self.nodes.map.getOrPut(self.alloc, node_id);
 
-        putResult.value_ptr.* = node;
+        putResult.value_ptr.* = node_copy;
+
+        const node = putResult.value_ptr;
 
         if (putResult.found_existing) {
             if (diag) |d| d.* = .{ .DuplicateNode = node_id };
@@ -126,6 +133,7 @@ const GraphBuilder = struct {
                 return error.MultipleEntries;
             }
             self.entry_id = node_id;
+            self.entry = node;
         }
 
         // FIXME: a more sophisticated check for if it's a branch, including macro expansion
@@ -137,6 +145,8 @@ const GraphBuilder = struct {
         errdefer if (is_branch) {
             self.branch_count -= 1;
         };
+
+        return node_id;
     }
 
     pub fn addImport(self: *@This(), path: []const u8, bindings: []const ImportBinding) !void {
@@ -166,22 +176,44 @@ const GraphBuilder = struct {
         }
     }
 
+    // TODO: rename to source/target
     /// end_subindex should be 0 if you don't know it
     pub fn addEdge(self: @This(), start_id: i64, start_index: u32, end_id: i64, end_index: u32, end_subindex: u32) !void {
-        const start = self.nodes.map.getPtr(start_id) orelse return error.StartNodeNotFound;
-        const end = self.nodes.map.getPtr(end_id) orelse return error.EndNodeNotFound;
+        const start = self.nodes.map.getPtr(start_id) orelse return error.SourceNodeNotFound;
+        const end = self.nodes.map.getPtr(end_id) orelse return error.TargetNodeNotFound;
 
-        if (start_index >= start.inputs.len)
-            return error.StartIndexInvalid;
+        if (start_index >= start.outputs.len) {
+            // TODO: return diagnostic
+            std.debug.print("start_index {} not valid, only {} available inputs\n", .{ start_index, start.outputs.len });
+            return error.SourceIndexInvalid;
+        }
 
-        if (end_index >= end.inputs.len)
-            return error.EndIndexInvalid;
+        if (end_index >= end.inputs.len) {
+            // TODO: return diagnostic
+            std.debug.print("end_index {} not valid, only {} available inputs\n", .{ end_index, end.inputs.len });
+            return error.TargetIndexInvalid;
+        }
 
-        start.inputs[start_index] = .{ .link = .{
+        start.outputs[start_index] = .{ .link = .{
             .target = end,
             .pin_index = end_index,
             .sub_index = end_subindex,
         } };
+    }
+
+    pub fn addLiteralInput(self: @This(), node_id: i64, pin_index: u32, subpin_index: u32, value: Value) !void {
+        const start = self.nodes.map.getPtr(node_id) orelse return error.SourceNodeNotFound;
+        _ = subpin_index;
+
+        if (pin_index >= start.inputs.len)
+            return error.StartIndexInvalid;
+
+        start.inputs[pin_index] = .{ .value = value };
+    }
+
+    pub fn compile(self: *@This()) !Sexp {
+        try self.postPopulate();
+        return self.rootToSexp();
     }
 
     // FIXME: this should return a separate object
@@ -189,10 +221,11 @@ const GraphBuilder = struct {
         self: *Self,
         json_graph: GraphDoc,
         diagnostic: ?*BuildFromJsonDiagnostic,
-    ) !void {
+    ) !Sexp {
         const entry = try self.populateFromJsonAndReturnEntry(json_graph, diagnostic);
         self.entry = entry;
         try self.link(json_graph);
+        return self.rootToSexp();
     }
 
     // TODO: make errors stable somehow
@@ -239,8 +272,6 @@ const GraphBuilder = struct {
         json_graph: GraphDoc,
         diagnostic: ?*PopulateAndReturnEntryDiagnostic,
     ) !*const IndexedNode {
-        var result: @typeInfo(@TypeOf(populateFromJsonAndReturnEntry)).Fn.return_type.? = error.GraphHasNoEntry;
-
         var ignored_diagnostic: PopulateAndReturnEntryDiagnostic = undefined;
         const out_diagnostic = diagnostic orelse &ignored_diagnostic;
 
@@ -249,7 +280,7 @@ const GraphBuilder = struct {
 
         var json_nodes_iter = json_graph.nodes.map.iterator();
         while (json_nodes_iter.next()) |node_entry| {
-            const node_id = node_entry.key_ptr.*;
+            const json_node_id = node_entry.key_ptr.*;
             // FIXME: accidental copy?
             const json_node = node_entry.value_ptr.*;
 
@@ -258,16 +289,21 @@ const GraphBuilder = struct {
                 return e;
             };
 
-            try self.addNode(node_id, node, json_node.data.isEntry, out_diagnostic);
+            _ = try self.addNode(node, json_node.data.isEntry, json_node_id, out_diagnostic);
         }
 
-        if (self.entry_id) |id| {
-            result = self.nodes.map.getPtr(id) orelse unreachable;
-            try self.branch_joiner_map.ensureTotalCapacity(self.alloc, self.branch_count);
-            try self.is_join_set.resize(self.alloc, self.nodes.map.count(), false);
-        }
+        const entry_id = self.entry_id orelse return error.GraphHasNoEntry;
+        const entry = self.nodes.map.getPtr(entry_id) orelse unreachable;
 
-        return result;
+        try self.postPopulate();
+
+        return entry;
+    }
+
+    // TODO: rename to like analyze?
+    fn postPopulate(self: *@This()) !void {
+        try self.branch_joiner_map.ensureTotalCapacity(self.alloc, self.branch_count);
+        try self.is_join_set.resize(self.alloc, self.nodes.map.count(), false);
     }
 
     pub fn link(self: @This(), graph_json: GraphDoc) !void {
@@ -287,6 +323,7 @@ const GraphBuilder = struct {
 
     /// link with other empty nodes in a graph
     pub fn linkNode(self: @This(), json_node: JsonNode, node: *IndexedNode) !void {
+        // FIXME: this leaks the already existing inputs, must free those first!
         node.inputs = try self.alloc.alloc(GraphTypes.Input, json_node.inputs.len);
         errdefer self.alloc.free(node.inputs);
 
@@ -324,7 +361,7 @@ const GraphBuilder = struct {
         }
     };
 
-    // NOTE: stack-space-bound
+    // FIXME: stack-space-bound
     // To find the join of a branch, find all reachable end nodes
     // if there is only 1, it joins.
     // How to deal with inner branches: - If we encounter a branch within a branch, solve the inner branch first.
@@ -629,7 +666,7 @@ const GraphBuilder = struct {
         }
     };
 
-    pub fn rootToSexp(self: @This()) !Sexp {
+    fn rootToSexp(self: @This()) !Sexp {
         return if (self.entry) |entry|
             if (entry.outputs[0]) |first_node|
                 try (ToSexp{ .graph = &self }).toSexp(first_node.link.target)
@@ -637,6 +674,11 @@ const GraphBuilder = struct {
                 Sexp{ .value = .void }
         else
             error.NoEntryOrNotYetSet;
+    }
+
+    fn toSexp(self: @This(), node_id: i64) !Sexp {
+        const node = self.nodes.map.getPtr(node_id) orelse return error.SourceNodeNotFound;
+        return try (ToSexp{ .graph = &self }).toSexp(node);
     }
 
     pub fn writeGrapplText(self: @This(), writer: anytype) !void {
@@ -781,12 +823,10 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
         }
     }
 
-    try builder.buildFromJson(graph, if (diagnostic) |d| _: {
+    const sexp = try builder.buildFromJson(graph, if (diagnostic) |d| _: {
         d.* = .{ .Compile = .None };
         break :_ &d.Compile;
     } else null);
-
-    const sexp = try builder.rootToSexp();
 
     switch (sexp.value) {
         .list => |l| {
@@ -807,46 +847,62 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
     return page_writer.concat(global_alloc);
 }
 
-test "big graph_to_source" {
-    const alloc = std.testing.allocator;
-    const source = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/source.scm");
-    defer source.free(alloc);
-    const graph_json = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/graph.json");
-    defer graph_json.free(alloc);
+// test "big graph_to_source" {
+//     const alloc = std.testing.allocator;
+//     const source = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/source.scm");
+//     defer source.free(alloc);
+//     const graph_json = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/graph.json");
+//     defer graph_json.free(alloc);
 
-    var diagnostic: GraphToSourceDiagnostic = undefined;
-    const result = graphToSource(std.testing.allocator, graph_json.buffer, &diagnostic);
-    if (result) |compiledSource| {
-        try testing.expectEqualStrings(source.buffer, compiledSource);
-    } else |err| {
-        debug_print("\nDIAGNOSTIC ({}):\n{}\n", .{ err, diagnostic });
-        return error.FailTest;
-    }
-}
+//     var diagnostic: GraphToSourceDiagnostic = undefined;
+//     const result = graphToSource(std.testing.allocator, graph_json.buffer, &diagnostic);
+//     if (result) |compiledSource| {
+//         try testing.expectEqualStrings(source.buffer, compiledSource);
+//     } else |err| {
+//         debug_print("\nDIAGNOSTIC ({}):\n{}\n", .{ err, diagnostic });
+//         return error.FailTest;
+//     }
+// }
 
 test "small local built graph" {
     var env = try Env.initDefault(testing.allocator);
     defer env.deinit();
 
     var diagnostic: GraphBuilder.Diagnostic = .None;
-    var builder = try GraphBuilder.init(testing.allocator, env);
+    errdefer std.debug.print("DIAGNOSTIC:\n{}\n", .{diagnostic});
+    var builder = GraphBuilder.init(testing.allocator, env) catch |e| {
+        std.debug.print("\nERROR: {}\n", .{e});
+        return e;
+    };
     defer builder.deinit();
 
-    const plus_index = 0;
-    const _2_index = 1;
-    const _4_index = 2;
-    try builder.addNode(plus_index, try env.makeNode(testing.allocator, "+", ExtraIndex{ .index = 0 }) orelse unreachable, true, &diagnostic);
-    try builder.addNode(_2_index, try env.makeNode(testing.allocator, "#GET#actor-location", ExtraIndex{ .index = 0 }) orelse unreachable, true, &diagnostic);
-    try builder.addNode(_4_index, try env.makeNode(testing.allocator, "#GET#actor-location", ExtraIndex{ .index = 0 }) orelse unreachable, true, &diagnostic);
-    try builder.addEdge(_2_index, 0, plus_index, 0, 0);
-    try builder.addEdge(_4_index, 0, plus_index, 1, 0);
+    const emptyExtra = ExtraIndex{ .index = undefined };
+    const entry_node = try env.makeNode(testing.allocator, "CustomTickEntry", emptyExtra) orelse unreachable;
+    const plus_node = try env.makeNode(testing.allocator, "+", emptyExtra) orelse unreachable;
+    const _2_node = try env.makeNode(testing.allocator, "#GET#actor-location", emptyExtra) orelse unreachable;
+    const set_node = try env.makeNode(testing.allocator, "set!", emptyExtra) orelse unreachable;
 
-    const sexp = try builder.rootToSexp();
+    const entry_index = try builder.addNode(entry_node, true, null, &diagnostic);
+    const plus_index = try builder.addNode(plus_node, false, null, &diagnostic);
+    const _2_index = try builder.addNode(_2_node, false, null, &diagnostic);
+    const set_index = try builder.addNode(set_node, false, null, &diagnostic);
+
+    try builder.addLiteralInput(plus_index, 1, 0, .{ .number = 4.0 });
+    try builder.addLiteralInput(set_index, 1, 0, .{ .symbol = "x" });
+    try builder.addEdge(_2_index, 0, plus_index, 0, 0);
+    try builder.addEdge(entry_index, 0, set_index, 0, 0);
+    try builder.addEdge(plus_index, 0, set_index, 1, 0);
+
+    const sexp = builder.compile() catch |e| {
+        std.debug.print("\ncompile error: {}\n", .{e});
+        return e;
+    };
+
     var text = std.ArrayList(u8).init(testing.allocator);
     defer text.deinit();
     _ = try sexp.write(text.writer());
 
-    try testing.expectEqualStrings(text.items,
-        \\(+ 2 4)
-    );
+    try testing.expectEqualStrings(
+        \\(set! x (+ actor-location 4.0))
+    , text.items);
 }

@@ -55,6 +55,31 @@ pub const NodeDesc = struct {
     pub fn getInputs(self: @This()) []const Pin {
         return self._getInputs(self);
     }
+
+    pub fn maybeStaticOutputsLen(self: @This()) ?usize {
+        const outputs = self.getOutputs();
+        var is_static = true;
+        for (outputs) |output| {
+            if (output == .variadic) {
+                is_static = false;
+                break;
+            }
+        }
+        return if (is_static) outputs.len else null;
+    }
+
+    pub fn maybeStaticInputsLen(self: @This()) ?usize {
+        const inputs = self.getInputs();
+        var is_static = true;
+        for (inputs) |input| {
+            if (input == .variadic) {
+                is_static = false;
+                break;
+            }
+        }
+        return if (is_static) inputs.len else null;
+    }
+
     pub fn getOutputs(self: @This()) []const Pin {
         return self._getOutputs(self);
     }
@@ -137,7 +162,6 @@ pub fn GraphTypes(comptime Extra: type) type {
                 return OutExecIterator{ .node = self };
             }
 
-            // FIXME: remove
             pub fn initEmptyPins(
                 a: std.mem.Allocator,
                 args: struct {
@@ -146,12 +170,20 @@ pub fn GraphTypes(comptime Extra: type) type {
                     comment: ?[]const u8 = null,
                 },
             ) !@This() {
-                _ = a;
-                return @This(){
+                const result = @This(){
                     .desc = args.desc,
                     .extra = args.extra,
                     .comment = args.comment,
+                    // TODO: default to zero literal
+                    // TODO: handle variadic
+                    .inputs = if (args.desc.maybeStaticInputsLen()) |v| try a.alloc(Input, v) else unreachable,
+                    .outputs = if (args.desc.maybeStaticOutputsLen()) |v| try a.alloc(?Output, v) else unreachable,
                 };
+
+                for (result.inputs) |*i| i.* = .{ .value = .{ .number = 0.0 } };
+                for (result.outputs) |*o| o.* = null;
+
+                return result;
             }
 
             pub fn deinit(self: @This(), a: std.mem.Allocator) void {
