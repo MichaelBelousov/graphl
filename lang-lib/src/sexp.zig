@@ -9,7 +9,7 @@ const json = std.json;
 pub const Sexp = struct {
     comment: ?[]const u8 = null,
     value: union(enum) {
-        module: *Sexp,
+        module: std.ArrayList(Sexp),
         list: std.ArrayList(Sexp),
         void,
         int: i64,
@@ -42,10 +42,11 @@ pub const Sexp = struct {
         depth: usize = 0,
     };
 
-    fn genericWriteForm(form: std.ArrayList(Sexp), writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
+    fn genericWriteForm(form: std.ArrayList(Sexp), writer: anytype, state: WriteState, with_parens: bool) @TypeOf(writer).Error!WriteState {
         var depth: usize = 0;
 
-        depth += try writer.write("(");
+        if (with_parens)
+            depth += try writer.write("(");
 
         if (form.items.len >= 1) {
             depth += (try form.items[0]._write(writer, .{ .depth = state.depth + depth })).depth;
@@ -63,7 +64,8 @@ pub const Sexp = struct {
             }
         }
 
-        _ = try writer.write(")");
+        if (with_parens)
+            _ = try writer.write(")");
 
         return .{ .depth = depth };
     }
@@ -84,15 +86,8 @@ pub const Sexp = struct {
     fn _write(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
         // TODO: calculate stack space requirements?
         return switch (self.value) {
-            .module => |v| {
-                switch (v.value) {
-                    .list => |mod_forms| for (mod_forms.items) |mf| {
-                        _ = try mf.write(writer);
-                    },
-                    else => v._write(writer),
-                }
-            },
-            .list => |v| genericWriteForm(v, writer, state),
+            .module => |v| genericWriteForm(v, writer, state, false),
+            .list => |v| genericWriteForm(v, writer, state, true),
             inline .float, .int => |v| _: {
                 var counting_writer = std.io.countingWriter(writer);
                 try counting_writer.writer().print("{d}", .{v});
@@ -142,18 +137,6 @@ pub const Sexp = struct {
             return false;
 
         switch (self.value) {
-            .module => |v| {
-                return v.recursive_eq(other.module.*);
-            },
-            .list => |v| {
-                if (v.items.len != other.value.list.items.len)
-                    return false;
-                for (v.items, other.value.list.items) |item, other_item| {
-                    if (!item.recursive_eq(other_item))
-                        return false;
-                }
-                return true;
-            },
             .float => |v| return v == other.value.float,
             .bool => |v| return v == other.value.bool,
             .void => return true,
@@ -161,6 +144,16 @@ pub const Sexp = struct {
             .ownedString => |v| return std.mem.eql(u8, v, other.value.ownedString),
             .borrowedString => |v| return std.mem.eql(u8, v, other.value.borrowedString),
             .symbol => |v| return std.mem.eql(u8, v, other.value.symbol),
+            inline .module, .list => |v, sexp_type| {
+                const other_list = @field(other.value, @tagName(sexp_type));
+                if (v.items.len != other_list.items.len)
+                    return false;
+                for (v.items, other_list.items) |item, other_item| {
+                    if (!item.recursive_eq(other_item))
+                        return false;
+                }
+                return true;
+            },
         }
     }
 
@@ -173,6 +166,12 @@ pub const Sexp = struct {
                     (try result.addOne()).* = try item.jsonValue(alloc);
                 }
                 break :_ json.Value{ .array = result };
+            },
+            .module => |v| _: {
+                var result = json.ObjectMap.init(alloc);
+                // TODO: ensureTotalCapacityPrecise
+                try result.put("module", try (Sexp{ .value = .{ .list = v } }).jsonValue(alloc));
+                break :_ json.Value{ .object = result };
             },
             .float => |v| json.Value{ .float = v },
             .int => |v| json.Value{ .integer = v },

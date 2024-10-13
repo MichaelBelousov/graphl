@@ -517,7 +517,7 @@ const GraphBuilder = struct {
             errdefer ctx.deinit(self.graph.alloc);
             try ctx.node_data.resize(self.graph.alloc, self.graph.nodes.map.count());
             try self.onNode(node, &ctx);
-            return Sexp{ .value = .{ .list = ctx.block } };
+            return Sexp{ .value = .{ .module = ctx.block } };
         }
 
         const Error = error{
@@ -835,19 +835,7 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
         break :_ &d.Compile;
     } else null);
 
-    switch (sexp.value) {
-        .list => |l| {
-            for (l.items) |s| {
-                _ = try s.write(page_writer.writer());
-                _ = try page_writer.writer().write("\n");
-            }
-        },
-        else => {
-            _ = try sexp.write(page_writer.writer());
-            _ = try page_writer.writer().write("\n");
-        },
-    }
-
+    _ = try sexp.write(page_writer.writer());
     _ = try page_writer.writer().write("\n");
 
     // FIXME: provide API to free this
@@ -909,9 +897,10 @@ test "small local built graph" {
     defer text.deinit();
     _ = try sexp.write(text.writer());
 
-    // TODO: print floating point explicitly
     try testing.expectEqualStrings(
         \\(set! x
-        \\      (+ actor-location 4))
+        \\      (+ actor-location
+        \\         4))
+        // TODO: print floating point explicitly
     , text.items);
 }
