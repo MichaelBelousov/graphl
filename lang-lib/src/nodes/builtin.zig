@@ -207,7 +207,8 @@ pub const primitive_types = struct {
 
     pub const byte: Type = &TypeInfo{ .name = "byte" };
     pub const bool_: Type = &TypeInfo{ .name = "bool" };
-    pub const rune_: Type = &TypeInfo{ .name = "rune" };
+    pub const rune: Type = &TypeInfo{ .name = "rune" };
+    pub const symbol: Type = &TypeInfo{ .name = "symbol" };
 
     pub const string: Type = &TypeInfo{ .name = "string" };
     pub const vec3: Type = &TypeInfo{
@@ -451,7 +452,11 @@ pub const builtin_nodes = struct {
     pub const @"set!": NodeDesc = basicNode(&.{
         .name = "set!",
         // FIXME: needs to be generic/per variable
-        .inputs = &.{ Pin{ .primitive = .exec }, Pin{ .primitive = .{ .value = primitive_types.f64_ } } },
+        .inputs = &.{
+            Pin{ .primitive = .exec },
+            Pin{ .primitive = .{ .value = primitive_types.symbol } },
+            Pin{ .primitive = .{ .value = primitive_types.f64_ } },
+        },
         .outputs = &.{ Pin{ .primitive = .exec }, Pin{ .primitive = .{ .value = primitive_types.f64_ } } },
     });
 

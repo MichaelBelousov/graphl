@@ -199,6 +199,11 @@ const GraphBuilder = struct {
             .pin_index = end_index,
             .sub_index = end_subindex,
         } };
+
+        end.inputs[end_index] = .{ .link = .{
+            .target = start,
+            .pin_index = start_index,
+        } };
     }
 
     pub fn addLiteralInput(self: @This(), node_id: i64, pin_index: u32, subpin_index: u32, value: Value) !void {
@@ -211,6 +216,8 @@ const GraphBuilder = struct {
         start.inputs[pin_index] = .{ .value = value };
     }
 
+    // FIXME: also emit imports and definitions!
+    /// NOTE: the outer module is a sexp list
     pub fn compile(self: *@This()) !Sexp {
         try self.postPopulate();
         return self.rootToSexp();
@@ -879,19 +886,19 @@ test "small local built graph" {
     const emptyExtra = ExtraIndex{ .index = undefined };
     const entry_node = try env.makeNode(testing.allocator, "CustomTickEntry", emptyExtra) orelse unreachable;
     const plus_node = try env.makeNode(testing.allocator, "+", emptyExtra) orelse unreachable;
-    const _2_node = try env.makeNode(testing.allocator, "#GET#actor-location", emptyExtra) orelse unreachable;
+    const actor_loc_node = try env.makeNode(testing.allocator, "#GET#actor-location", emptyExtra) orelse unreachable;
     const set_node = try env.makeNode(testing.allocator, "set!", emptyExtra) orelse unreachable;
 
     const entry_index = try builder.addNode(entry_node, true, null, &diagnostic);
     const plus_index = try builder.addNode(plus_node, false, null, &diagnostic);
-    const _2_index = try builder.addNode(_2_node, false, null, &diagnostic);
+    const actor_loc_index = try builder.addNode(actor_loc_node, false, null, &diagnostic);
     const set_index = try builder.addNode(set_node, false, null, &diagnostic);
 
+    try builder.addEdge(actor_loc_index, 0, plus_index, 0, 0);
     try builder.addLiteralInput(plus_index, 1, 0, .{ .number = 4.0 });
-    try builder.addLiteralInput(set_index, 1, 0, .{ .symbol = "x" });
-    try builder.addEdge(_2_index, 0, plus_index, 0, 0);
     try builder.addEdge(entry_index, 0, set_index, 0, 0);
-    try builder.addEdge(plus_index, 0, set_index, 1, 0);
+    try builder.addLiteralInput(set_index, 1, 0, .{ .symbol = "x" });
+    try builder.addEdge(plus_index, 0, set_index, 2, 0);
 
     const sexp = builder.compile() catch |e| {
         std.debug.print("\ncompile error: {}\n", .{e});
@@ -902,7 +909,9 @@ test "small local built graph" {
     defer text.deinit();
     _ = try sexp.write(text.writer());
 
+    // TODO: print floating point explicitly
     try testing.expectEqualStrings(
-        \\(set! x (+ actor-location 4.0))
+        \\(set! x
+        \\      (+ actor-location 4))
     , text.items);
 }

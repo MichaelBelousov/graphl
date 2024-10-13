@@ -9,6 +9,7 @@ const json = std.json;
 pub const Sexp = struct {
     comment: ?[]const u8 = null,
     value: union(enum) {
+        module: *Sexp,
         list: std.ArrayList(Sexp),
         void,
         int: i64,
@@ -83,6 +84,14 @@ pub const Sexp = struct {
     fn _write(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
         // TODO: calculate stack space requirements?
         return switch (self.value) {
+            .module => |v| {
+                switch (v.value) {
+                    .list => |mod_forms| for (mod_forms.items) |mf| {
+                        _ = try mf.write(writer);
+                    },
+                    else => v._write(writer),
+                }
+            },
             .list => |v| genericWriteForm(v, writer, state),
             inline .float, .int => |v| _: {
                 var counting_writer = std.io.countingWriter(writer);
@@ -133,11 +142,13 @@ pub const Sexp = struct {
             return false;
 
         switch (self.value) {
+            .module => |v| {
+                return v.recursive_eq(other.module.*);
+            },
             .list => |v| {
                 if (v.items.len != other.value.list.items.len)
                     return false;
-                for (v.items, 0..) |item, i| {
-                    const other_item = other.value.list.items[i];
+                for (v.items, other.value.list.items) |item, other_item| {
                     if (!item.recursive_eq(other_item))
                         return false;
                 }
