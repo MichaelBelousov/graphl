@@ -42,7 +42,8 @@ const GraphBuilder = struct {
     /// map of json node ids to its real node,
     nodes: JsonIntArrayHashMap(i64, IndexedNode, 10) = .{},
     imports: std.ArrayListUnmanaged(Sexp),
-    arena: std.heap.ArenaAllocator,
+    // FIXME: ask someone for help, there must be a better way
+    arena: *std.heap.ArenaAllocator,
     // FIXME: fill the analysis context instead of keeping this in the graph metadata itself
     branch_joiner_map: std.AutoHashMapUnmanaged(*const IndexedNode, *const IndexedNode) = .{},
     is_join_set: std.DynamicBitSetUnmanaged,
@@ -61,8 +62,11 @@ const GraphBuilder = struct {
 
     // FIXME: remove buildFromJson and just do it all in init?
     pub fn init(alloc: std.mem.Allocator, env: Env) !Self {
+        const arena = try alloc.create(std.heap.ArenaAllocator);
+        arena.* = std.heap.ArenaAllocator.init(alloc);
+
         return Self{
-            .arena = std.heap.ArenaAllocator.init(alloc),
+            .arena = arena,
             .env = env,
             .is_join_set = try std.DynamicBitSetUnmanaged.initEmpty(alloc, 0),
             .imports = std.ArrayListUnmanaged(Sexp){},
@@ -79,7 +83,9 @@ const GraphBuilder = struct {
             }
         }
         self.nodes.deinit(alloc);
+        const original_allocator = self.arena.child_allocator;
         self.arena.deinit();
+        original_allocator.destroy(self.arena);
         // do not delete env, we don't own it
     }
 
@@ -337,12 +343,12 @@ const GraphBuilder = struct {
     }
 
     /// link with other empty nodes in a graph
-    pub fn linkNode(self: *@This(), json_node: JsonNode, node: *IndexedNode) !void {
+    pub fn linkNode(self: @This(), json_node: JsonNode, node: *IndexedNode) !void {
         const alloc = self.arena.allocator();
 
         // FIXME: this leaks the already existing inputs, must free those first!
         node.inputs = try alloc.alloc(GraphTypes.Input, json_node.inputs.len);
-        errdefer self.alloc.free(node.inputs);
+        errdefer alloc.free(node.inputs);
 
         for (node.inputs, json_node.inputs) |*input, maybe_json_input| {
             input.* = switch (maybe_json_input orelse JsonNodeInput{ .value = .null }) {
@@ -354,8 +360,8 @@ const GraphBuilder = struct {
             };
         }
 
-        node.outputs = try self.alloc.alloc(?GraphTypes.Output, json_node.outputs.len);
-        errdefer self.alloc.free(node.outputs);
+        node.outputs = try alloc.alloc(?GraphTypes.Output, json_node.outputs.len);
+        errdefer alloc.free(node.outputs);
 
         for (node.outputs, json_node.outputs) |*output, maybe_json_output| {
             output.* = if (maybe_json_output) |json_output| .{ .link = .{
@@ -388,13 +394,15 @@ const GraphBuilder = struct {
     /// each branch will may have 1 (or 0) join node where the control flow for that branch converges
     /// first traverse all nodes getting for each its single end (or null if multiple), and its tree size
     pub fn analyzeNodes(self: @This()) void {
-        errdefer self.branch_joiner_map.clearAndFree(self.alloc);
-        errdefer self.is_join_set.deinit(self.alloc);
+        const alloc = self.arena.allocator();
+
+        errdefer self.branch_joiner_map.clearAndFree(alloc);
+        errdefer self.is_join_set.deinit(alloc);
 
         var analysis_ctx: AnalysisCtx = .{};
-        defer analysis_ctx.deinit(self.alloc);
+        defer analysis_ctx.deinit(alloc);
 
-        try analysis_ctx.node_data.resize(self.alloc, self.nodes.map.count());
+        try analysis_ctx.node_data.resize(alloc, self.nodes.map.count());
 
         // initialize with empty data
         var slices = analysis_ctx.node_data.slice();
@@ -455,6 +463,8 @@ const GraphBuilder = struct {
         branch: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
     ) !?*const IndexedNode {
+        const alloc = self.arena.allocator();
+
         if (analysis_ctx.node_data.items(.visited)[branch.index]) {
             const prev_result = self.branch_joiner_map.get(branch.index);
             return .{ .value = prev_result };
@@ -464,7 +474,7 @@ const GraphBuilder = struct {
 
         var collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const IndexedNode, {});
         try collapsed_node_layer.put(branch);
-        defer collapsed_node_layer.deinit(self.alloc);
+        defer collapsed_node_layer.deinit(alloc);
 
         while (true) {
             var new_collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const IndexedNode, {});
@@ -490,7 +500,7 @@ const GraphBuilder = struct {
             if (new_layer_count == 1)
                 return .{ .value = new_collapsed_node_layer.iterator.next() orelse unreachable };
 
-            collapsed_node_layer.clearAndFree(self.alloc);
+            collapsed_node_layer.clearAndFree(alloc);
             // FIXME: what happens if we error before this swap? need an errdefer...
             collapsed_node_layer = new_collapsed_node_layer; // FIXME: ummm doesn't this introduce a free?
         }
@@ -521,11 +531,12 @@ const GraphBuilder = struct {
         };
 
         pub fn toSexp(self: @This(), node: *const IndexedNode) !Sexp {
+            const alloc = self.graph.arena.allocator();
             var ctx = Context{
-                .block = Block.init(self.graph.arena.allocator()),
+                .block = Block.init(alloc),
             };
-            errdefer ctx.deinit(self.graph.arena.allocator());
-            try ctx.node_data.resize(self.graph.arena.allocator(), self.graph.nodes.map.count());
+            errdefer ctx.deinit(alloc);
+            try ctx.node_data.resize(alloc, self.graph.nodes.map.count());
             try self.onNode(node, &ctx);
             return Sexp{ .value = .{ .module = ctx.block } };
         }
@@ -804,7 +815,8 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
     defer import_exprs.deinit();
     try import_exprs.ensureTotalCapacityPrecise(graph.imports.map.count());
 
-    var builder = try GraphBuilder.init(arena_alloc, env);
+    // we know it internally uses an arena
+    var builder = try GraphBuilder.init(a, env);
     defer builder.deinit();
 
     // TODO: refactor blocks into functions
