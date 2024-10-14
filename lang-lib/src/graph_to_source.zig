@@ -35,7 +35,11 @@ pub const ImportBinding = struct {
     alias: ?[]const u8,
 };
 
-const GraphBuilder = struct {
+// FIXME: should probably have u32 for node ids, i64 is from when Math.random()
+// in javascript was primary interface
+pub const NodeId = i64;
+
+pub const GraphBuilder = struct {
     // we do not own this, it is just referenced
     env: Env,
     // FIXME: does this need to be in topological order? Is that advantageous?
@@ -107,10 +111,6 @@ const GraphBuilder = struct {
     pub const BuildFromJsonDiagnostic = PopulateAndReturnEntryDiagnostic;
 
     pub const Diagnostic = BuildFromJsonDiagnostic;
-
-    // FIXME: should probably have u32 for node ids, i64 is from when Math.random()
-    // in javascript was primary interface
-    const NodeId = i64;
 
     // HACK: remove force_node_id
     // TODO: return a pointer to the newly placed node?
@@ -855,10 +855,13 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
         }
     }
 
-    const sexp = try builder.buildFromJson(graph, if (diagnostic) |d| _: {
-        d.* = .{ .Compile = .None };
-        break :_ &d.Compile;
-    } else null);
+    const sexp = try builder.buildFromJson(
+        graph,
+        if (diagnostic) |d| _: {
+            d.* = .{ .Compile = .None };
+            break :_ &d.Compile;
+        } else null,
+    );
 
     _ = try sexp.write(page_writer.writer());
     _ = try page_writer.writer().write("\n");
@@ -867,22 +870,22 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
     return page_writer.concat(global_alloc);
 }
 
-// test "big graph_to_source" {
-//     const alloc = std.testing.allocator;
-//     const source = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/source.scm");
-//     defer source.free(alloc);
-//     const graph_json = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/graph.json");
-//     defer graph_json.free(alloc);
+test "big graph_to_source" {
+    const alloc = std.testing.allocator;
+    const source = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/source.scm");
+    defer source.free(alloc);
+    const graph_json = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/graph.json");
+    defer graph_json.free(alloc);
 
-//     var diagnostic: GraphToSourceDiagnostic = undefined;
-//     const result = graphToSource(std.testing.allocator, graph_json.buffer, &diagnostic);
-//     if (result) |compiledSource| {
-//         try testing.expectEqualStrings(source.buffer, compiledSource);
-//     } else |err| {
-//         debug_print("\nDIAGNOSTIC ({}):\n{}\n", .{ err, diagnostic });
-//         return error.FailTest;
-//     }
-// }
+    var diagnostic: GraphToSourceDiagnostic = undefined;
+    const result = graphToSource(std.testing.allocator, graph_json.buffer, &diagnostic);
+    if (result) |compiledSource| {
+        try testing.expectEqualStrings(source.buffer, compiledSource);
+    } else |err| {
+        debug_print("\nDIAGNOSTIC ({}):\n{}\n", .{ err, diagnostic });
+        return error.FailTest;
+    }
+}
 
 test "small local built graph" {
     var env = try Env.initDefault(testing.allocator);

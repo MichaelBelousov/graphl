@@ -102,7 +102,7 @@ pub const NodeDesc = struct {
     }
 
     pub fn isFunctionCall(self: @This()) bool {
-        return !self.isBranch();
+        return !self.isSimpleBranch();
     }
 };
 
@@ -136,18 +136,20 @@ pub fn GraphTypes(comptime Extra: type) type {
             outputs: []?Output = empty_outputs,
 
             // FIXME: replace this, each node belongs to a well defined flow control archetype
-            pub const OutExecIterator = struct {
+            const OutExecIterator = struct {
                 index: usize = 0,
                 node: *const Node,
 
-                pub fn next(self: @This()) ?Link {
+                pub fn next(self: *@This()) ??Link {
                     while (self.index < self.node.outputs.len) : (self.index += 1) {
-                        const output = self.node.desc.getOutputs()[self.index];
-                        const is_exec = output == .primitive and output.primitive == .exec;
-                        if (is_exec) {
-                            self.index += 1;
-                            return self.node.outputs[self.index];
-                        }
+                        const output_desc = self.node.desc.getOutputs()[self.index];
+                        const is_exec = output_desc == .primitive and output_desc.primitive == .exec;
+                        if (!is_exec) continue;
+
+                        const output = self.node.outputs[self.index];
+
+                        self.index += 1;
+                        return if (output) |o| o.link else null;
                     }
 
                     return null;
@@ -158,7 +160,7 @@ pub fn GraphTypes(comptime Extra: type) type {
                 }
             };
 
-            pub fn iter_out_execs(self: @This()) OutExecIterator {
+            fn iter_out_execs(self: @This()) OutExecIterator {
                 return OutExecIterator{ .node = self };
             }
 
