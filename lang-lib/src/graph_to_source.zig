@@ -42,7 +42,7 @@ const GraphBuilder = struct {
     /// map of json node ids to its real node,
     nodes: JsonIntArrayHashMap(i64, IndexedNode, 10) = .{},
     imports: std.ArrayListUnmanaged(Sexp),
-    // FIXME: ask someone for help, there must be a better way
+    // FIXME: ask someone for help, there must be a better way... I could (grossly)
     arena: *std.heap.ArenaAllocator,
     // FIXME: fill the analysis context instead of keeping this in the graph metadata itself
     branch_joiner_map: std.AutoHashMapUnmanaged(*const IndexedNode, *const IndexedNode) = .{},
@@ -118,6 +118,9 @@ const GraphBuilder = struct {
         const alloc = self.arena.allocator();
 
         var node_copy = in_node;
+        // FIXME: avoid this dupe in the API somehow...
+        node_copy.inputs = try alloc.dupe(GraphTypes.Input, in_node.inputs);
+        node_copy.outputs = try alloc.dupe(?GraphTypes.Output, in_node.outputs);
         const node_id: NodeId = force_node_id orelse @intCast(self.next_node_index);
         node_copy.extra = .{ .index = self.next_node_index };
         self.next_node_index += 1;
@@ -894,10 +897,15 @@ test "small local built graph" {
     defer builder.deinit();
 
     const emptyExtra = ExtraIndex{ .index = undefined };
+
     const entry_node = try env.makeNode(testing.allocator, "CustomTickEntry", emptyExtra) orelse unreachable;
+    defer entry_node.deinit(testing.allocator);
     const plus_node = try env.makeNode(testing.allocator, "+", emptyExtra) orelse unreachable;
+    defer plus_node.deinit(testing.allocator);
     const actor_loc_node = try env.makeNode(testing.allocator, "#GET#actor-location", emptyExtra) orelse unreachable;
+    defer actor_loc_node.deinit(testing.allocator);
     const set_node = try env.makeNode(testing.allocator, "set!", emptyExtra) orelse unreachable;
+    defer set_node.deinit(testing.allocator);
 
     const entry_index = try builder.addNode(entry_node, true, null, &diagnostic);
     const plus_index = try builder.addNode(plus_node, false, null, &diagnostic);
