@@ -75,7 +75,6 @@ export class GrapplGraph {
   _nodeMap = new Map<NodeId, JsNode>();
   _nodeStateProxy = [] as JsNode[];
   _edgeStateProxy = [] as JsEdge[];
-  _edges = [];
 
   addNode(kind: string, is_entry: boolean = false): NodeId {
     const node = this._nativeGraphBuilder.makeNode(kind);
@@ -124,6 +123,17 @@ export class GrapplGraph {
     // TODO: handle auto replace somewhere
     if (target.data.inputs[target_in_pin] !== null)
       throw Error("target input already connected");
+
+    const sourceHandle = `${source_id}_true_${src_out_pin}`;
+    const targetHandle = `${target_id}_true_${target_in_pin}`;
+
+    this._edgeStateProxy.push({
+      source: String(source_id),
+      sourceHandle,
+      target: String(target_id),
+      targetHandle,
+      id: `ed-${sourceHandle}-${targetHandle}`,
+    })
 
     // FIXME: should we keep track of outputs this way? One node can connect to multiple things potentially
     //source.outputs[src_out_pin] = 

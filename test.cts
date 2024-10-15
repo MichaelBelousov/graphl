@@ -103,7 +103,6 @@ describe("grappl-js", function () {
       },
     } satisfies JsNode);
 
-    console.log(3)
     assert.deepStrictEqual(normalizeNode(g["_nodeStateProxy"][3]), {
       id: `${set_index}`,
       data: {
@@ -126,13 +125,27 @@ describe("grappl-js", function () {
       },
     } satisfies JsNode);
 
-    assert.deepStrictEqual(g._edges, [
+    assert.deepStrictEqual(g["_edgeStateProxy"], [
       {
-        source: "3349452269105633",
-        sourceHandle: "3349452269105633_true_0",
-        target: "1786967944785462",
-        targetHandle: "1786967944785462_false_0",
-        id: "reactflow__edge-33494522691056333349452269105633_true_0-17869679447854621786967944785462_false_0"
+        source: String(actor_loc_index),
+        sourceHandle: `${actor_loc_index}_true_0`,
+        target: String(plus_index),
+        targetHandle: `${plus_index}_true_0`,
+        id: `ed-${actor_loc_index}_true_0-${plus_index}_true_0`
+      },
+      {
+        source: String(entry_index),
+        sourceHandle: `${entry_index}_true_0`,
+        target: String(set_index),
+        targetHandle: `${set_index}_true_0`,
+        id: `ed-${entry_index}_true_0-${set_index}_true_0`
+      },
+      {
+        source: String(plus_index),
+        sourceHandle: `${plus_index}_true_0`,
+        target: String(set_index),
+        targetHandle: `${set_index}_true_2`,
+        id: `ed-${plus_index}_true_0-${set_index}_true_2`
       },
     ]);
   });
