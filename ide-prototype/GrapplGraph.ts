@@ -1,4 +1,5 @@
 import native from "../lang-lib/src/main.zig";
+import { Node as ReactFlowNode } from "reactflow";
 
 export type ZigValue =
 | { number: number }
@@ -25,6 +26,8 @@ export interface Output {
 
 export interface NodeDesc {
   name: string,
+  getInputs(): Input[];
+  getOutputs(): (Output | null)[];
 }
 
 export interface IndexedNode {
@@ -38,17 +41,51 @@ export interface IndexedNode {
 
 export type NodeId = number;
 
+type JsNode = ReactFlowNode<{
+  type: string;
+  comment?: string | null;
+  isEntry?: boolean;
+}>;
+
+/**
+ * */
 export class GrapplGraph {
   _nativeGraphBuilder = native.JsGraphBuilder.init();
-  _nodes = [];
+  _nodeMap = new Map<NodeId, JsNode>();
+  _nodeStateProxy = [] as JsNode[];
   _edges = [];
 
-  makeNode(kind: string): IndexedNode {
-    return this._nativeGraphBuilder.makeNode(kind);
+  addNode(kind: string, is_entry: boolean = false): NodeId {
+    const node = this._nativeGraphBuilder.makeNode(kind);
+    const nodeId = this._nativeGraphBuilder.addNode(node, is_entry);
+    console.log(node)
+    console.log(node.desc)
+    console.log(node.desc['*'])
+    console.log(Object.getOwnPropertyDescriptors(node.desc['*']))
+    console.log(node.desc['*'].getInputs)
+    console.log(node.desc.getInputs)
+    this._addJsNodeProxy(nodeId, node);
+    return nodeId;
   }
 
-  addNode(node: IndexedNode, is_entry: boolean = false): NodeId {
-    return this._nativeGraphBuilder.addNode(node, is_entry);
+  private _addJsNodeProxy(nodeId: NodeId, node: IndexedNode) {
+    const jsNode = {
+      id: "0",
+      data: {
+        type: (node.desc.name as any).string,
+        isEntry: true,
+        comment: null
+      },
+      position: {
+        // FIXME: naive
+        x: 100 * this._nodeStateProxy.length,
+        y: 0
+      },
+      inputs: node.desc.getInputs().map(_ => null),
+      outputs: node.desc.getOutputs().map(_ => null),
+    };
+    this._nodeStateProxy.push(jsNode);
+    this._nodeMap.set(nodeId, jsNode);
   }
 
   addEdge(source_id: NodeId, src_out_pin: number, target_id: NodeId, target_in_pin: number): void {
@@ -74,4 +111,9 @@ export class GrapplGraph {
   compile(): string {
     return this._nativeGraphBuilder.compile().string;
   }
+
+  get reactState() {
+    return this._nodeStateProxy;
+  }
+
 }
