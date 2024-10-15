@@ -15,6 +15,9 @@ importers:
       '@swc-node/register':
         specifier: ^1.10.9
         version: 1.10.9(@swc/core@1.7.35)(@swc/types@0.1.13)(typescript@5.6.3)
+      '@types/node':
+        specifier: ^22.7.5
+        version: 22.7.5
       node-zigar:
         specifier: ^0.13.2
         version: 0.13.2
@@ -182,6 +185,9 @@ packages:
   '@tybys/wasm-util@0.9.0':
     resolution: {integrity: sha512-6+7nlbMVX/PVDCwaIQ8nTOPveOcFLSt8GcXdx8hD0bt39uWxYT88uXzqTd4fTvqta7oeUJqudepapKNt2DYJFw==}
 
+  '@types/node@22.7.5':
+    resolution: {integrity: sha512-jML7s2NAzMWc//QSJ1a3prpk78cOPchGvXJsC3C6R6PSMoooztvRVQEz89gmBTBY1SPMaqo5teB4uNHPdetShQ==}
+
   buffer-from@1.1.2:
     resolution: {integrity: sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==}
 
@@ -231,6 +237,9 @@ packages:
     resolution: {integrity: sha512-hjcS1mhfuyi4WW8IWtjP7brDrG2cuDZukyrYrSauoXGNgx0S7zceP07adYkJycEr56BOUTNPzbInooiN3fn1qw==}
     engines: {node: '>=14.17'}
     hasBin: true
+
+  undici-types@6.19.8:
+    resolution: {integrity: sha512-ve2KP6f/JnbPBFyobGHuerC9g1FYGn/F8n1LWTwNxCEzd6IfqTwUQcNXgEtmmQ6DlRrC1hrSrBnCZPokRrDHjw==}
 
   zigar-compiler@0.13.2:
     resolution: {integrity: sha512-Fd1WouXy7EyWxmVUKR2JmizGP0cfT6Z9bzvcW0eKM5jfH1J4MLtK/Lf4x2hW13mEbHurD4TzAQyNiFL1mwe2nQ==}
@@ -380,6 +389,10 @@ snapshots:
       tslib: 2.7.0
     optional: true
 
+  '@types/node@22.7.5':
+    dependencies:
+      undici-types: 6.19.8
+
   buffer-from@1.1.2: {}
 
   colorette@2.0.20: {}
@@ -427,6 +440,8 @@ snapshots:
   tslib@2.7.0: {}
 
   typescript@5.6.3: {}
+
+  undici-types@6.19.8: {}
 
   zigar-compiler@0.13.2: {}
 

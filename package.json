@@ -1,12 +1,14 @@
 {
 	"scripts": {
-		"test": "node -r @swc-node/register -r node-zigar/cjs ./test.cts"
+		"test": "node --test -r @swc-node/register -r node-zigar/cjs ./test.cts",
+		"test:old": "node -r @swc-node/register -r node-zigar/cjs ./test.cts"
 	},
 	"dependencies": {
 		"zigar-runtime": "^0.13.2"
 	},
 	"devDependencies": {
 		"@swc-node/register": "^1.10.9",
+		"@types/node": "^22.7.5",
 		"node-zigar": "^0.13.2"
 	}
 }
