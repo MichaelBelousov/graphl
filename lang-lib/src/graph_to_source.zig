@@ -39,6 +39,7 @@ pub const ImportBinding = struct {
 // in javascript was primary interface
 pub const NodeId = i64;
 
+/// all APIs taking an allocator must use the same allocator
 pub const GraphBuilder = struct {
     // we do not own this, it is just referenced
     env: Env,
@@ -46,8 +47,6 @@ pub const GraphBuilder = struct {
     /// map of json node ids to its real node,
     nodes: JsonIntArrayHashMap(i64, IndexedNode, 10) = .{},
     imports: std.ArrayListUnmanaged(Sexp),
-    // FIXME: ask someone for help, there must be a better way... I could (grossly)
-    arena: *std.heap.ArenaAllocator,
     // FIXME: fill the analysis context instead of keeping this in the graph metadata itself
     branch_joiner_map: std.AutoHashMapUnmanaged(*const IndexedNode, *const IndexedNode) = .{},
     is_join_set: std.DynamicBitSetUnmanaged,
@@ -66,19 +65,14 @@ pub const GraphBuilder = struct {
 
     // FIXME: remove buildFromJson and just do it all in init?
     pub fn init(alloc: std.mem.Allocator, env: Env) !Self {
-        const arena = try alloc.create(std.heap.ArenaAllocator);
-        arena.* = std.heap.ArenaAllocator.init(alloc);
-
         return Self{
-            .arena = arena,
             .env = env,
             .is_join_set = try std.DynamicBitSetUnmanaged.initEmpty(alloc, 0),
             .imports = std.ArrayListUnmanaged(Sexp){},
         };
     }
 
-    pub fn deinit(self: *@This()) void {
-        const alloc = self.arena.allocator();
+    pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         self.is_join_set.deinit(alloc);
         {
             var node_iter = self.nodes.map.iterator();
@@ -87,9 +81,6 @@ pub const GraphBuilder = struct {
             }
         }
         self.nodes.deinit(alloc);
-        const original_allocator = self.arena.child_allocator;
-        self.arena.deinit();
-        original_allocator.destroy(self.arena);
         // do not delete env, we don't own it
     }
 
@@ -114,9 +105,7 @@ pub const GraphBuilder = struct {
 
     // HACK: remove force_node_id
     // TODO: return a pointer to the newly placed node?
-    pub fn addNode(self: *@This(), in_node: IndexedNode, is_entry: bool, force_node_id: ?NodeId, diag: ?*Diagnostic) !NodeId {
-        const alloc = self.arena.allocator();
-
+    pub fn addNode(self: *@This(), alloc: std.mem.Allocator, in_node: IndexedNode, is_entry: bool, force_node_id: ?NodeId, diag: ?*Diagnostic) !NodeId {
         var node_copy = in_node;
         // FIXME: avoid this dupe in the API somehow...
         node_copy.inputs = try alloc.dupe(GraphTypes.Input, in_node.inputs);
@@ -161,9 +150,7 @@ pub const GraphBuilder = struct {
         return node_id;
     }
 
-    pub fn addImport(self: *@This(), path: []const u8, bindings: []const ImportBinding) !void {
-        const alloc = self.arena.allocator();
-
+    pub fn addImport(self: *@This(), alloc: std.mem.Allocator, path: []const u8, bindings: []const ImportBinding) !void {
         const new_import = try self.imports.addOne(alloc);
 
         // TODO: it is tempting to create a comptime function that constructs sexp from zig tuples
@@ -232,21 +219,22 @@ pub const GraphBuilder = struct {
 
     // FIXME: also emit imports and definitions!
     /// NOTE: the outer module is a sexp list
-    pub fn compile(self: *@This()) !Sexp {
-        try self.postPopulate();
-        return self.rootToSexp();
+    pub fn compile(self: *@This(), alloc: std.mem.Allocator) !Sexp {
+        try self.postPopulate(alloc);
+        return self.rootToSexp(alloc);
     }
 
     // FIXME: this should return a separate object
     pub fn buildFromJson(
         self: *Self,
+        alloc: std.mem.Allocator,
         json_graph: GraphDoc,
         diagnostic: ?*BuildFromJsonDiagnostic,
     ) !Sexp {
-        const entry = try self.populateFromJsonAndReturnEntry(json_graph, diagnostic);
+        const entry = try self.populateFromJsonAndReturnEntry(alloc, json_graph, diagnostic);
         self.entry = entry;
-        try self.link(json_graph);
-        return self.rootToSexp();
+        try self.link(alloc, json_graph);
+        return self.rootToSexp(alloc);
     }
 
     // TODO: make errors stable somehow
@@ -290,11 +278,10 @@ pub const GraphBuilder = struct {
 
     fn populateFromJsonAndReturnEntry(
         self: *Self,
+        alloc: std.mem.Allocator,
         json_graph: GraphDoc,
         diagnostic: ?*PopulateAndReturnEntryDiagnostic,
     ) !*const IndexedNode {
-        const alloc = self.arena.allocator();
-
         var ignored_diagnostic: PopulateAndReturnEntryDiagnostic = undefined;
         const out_diagnostic = diagnostic orelse &ignored_diagnostic;
 
@@ -312,25 +299,24 @@ pub const GraphBuilder = struct {
                 return e;
             };
 
-            _ = try self.addNode(node, json_node.data.isEntry, json_node_id, out_diagnostic);
+            _ = try self.addNode(alloc, node, json_node.data.isEntry, json_node_id, out_diagnostic);
         }
 
         const entry_id = self.entry_id orelse return error.GraphHasNoEntry;
         const entry = self.nodes.map.getPtr(entry_id) orelse unreachable;
 
-        try self.postPopulate();
+        try self.postPopulate(alloc);
 
         return entry;
     }
 
     // TODO: rename to like analyze?
-    fn postPopulate(self: *@This()) !void {
-        const alloc = self.arena.allocator();
+    fn postPopulate(self: *@This(), alloc: std.mem.Allocator) !void {
         try self.branch_joiner_map.ensureTotalCapacity(alloc, self.branch_count);
         try self.is_join_set.resize(alloc, self.nodes.map.count(), false);
     }
 
-    pub fn link(self: @This(), graph_json: GraphDoc) !void {
+    pub fn link(self: @This(), alloc: std.mem.Allocator, graph_json: GraphDoc) !void {
         var nodes_iter = self.nodes.map.iterator();
         var json_nodes_iter = graph_json.nodes.map.iterator();
         std.debug.assert(nodes_iter.len == json_nodes_iter.len);
@@ -341,14 +327,12 @@ pub const GraphBuilder = struct {
             const json_node_entry = json_nodes_iter.next() orelse unreachable;
             const json_node = json_node_entry.value_ptr;
 
-            try self.linkNode(json_node.*, node);
+            try self.linkNode(alloc, json_node.*, node);
         }
     }
 
     /// link with other empty nodes in a graph
-    pub fn linkNode(self: @This(), json_node: JsonNode, node: *IndexedNode) !void {
-        const alloc = self.arena.allocator();
-
+    pub fn linkNode(self: @This(), alloc: std.mem.Allocator, json_node: JsonNode, node: *IndexedNode) !void {
         // FIXME: this leaks the already existing inputs, must free those first!
         node.inputs = try alloc.alloc(GraphTypes.Input, json_node.inputs.len);
         errdefer alloc.free(node.inputs);
@@ -396,9 +380,7 @@ pub const GraphBuilder = struct {
 
     /// each branch will may have 1 (or 0) join node where the control flow for that branch converges
     /// first traverse all nodes getting for each its single end (or null if multiple), and its tree size
-    pub fn analyzeNodes(self: @This()) void {
-        const alloc = self.arena.allocator();
-
+    pub fn analyzeNodes(self: @This(), alloc: std.mem.Allocator) void {
         errdefer self.branch_joiner_map.clearAndFree(alloc);
         errdefer self.is_join_set.deinit(alloc);
 
@@ -463,11 +445,10 @@ pub const GraphBuilder = struct {
     /// @returns the joining node for the branch, or null if it doesn't join
     fn doAnalyzeBranch(
         self: @This(),
+        alloc: std.mem.Allocator,
         branch: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
     ) !?*const IndexedNode {
-        const alloc = self.arena.allocator();
-
         if (analysis_ctx.node_data.items(.visited)[branch.index]) {
             const prev_result = self.branch_joiner_map.get(branch.index);
             return .{ .value = prev_result };
@@ -533,14 +514,13 @@ pub const GraphBuilder = struct {
             }
         };
 
-        pub fn toSexp(self: @This(), node: *const IndexedNode) !Sexp {
-            const alloc = self.graph.arena.allocator();
+        pub fn toSexp(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode) !Sexp {
             var ctx = Context{
                 .block = Block.init(alloc),
             };
             errdefer ctx.deinit(alloc);
             try ctx.node_data.resize(alloc, self.graph.nodes.map.count());
-            try self.onNode(node, &ctx);
+            try self.onNode(alloc, node, &ctx);
             return Sexp{ .value = .{ .module = ctx.block } };
         }
 
@@ -549,7 +529,7 @@ pub const GraphBuilder = struct {
             OutOfMemory,
         };
 
-        pub fn onNode(self: @This(), node: *const IndexedNode, context: *Context) Error!void {
+        pub fn onNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, context: *Context) Error!void {
             // FIXME: not handled
             if (context.node_data.items(.visited)[node.extra.index] == 1)
                 return Error.CyclesNotSupported;
@@ -557,13 +537,13 @@ pub const GraphBuilder = struct {
             context.node_data.items(.visited)[node.extra.index] = 1;
 
             return if (node.desc.isSimpleBranch())
-                @call(debug_tail_call, onBranchNode, .{ self, node, context })
+                @call(debug_tail_call, onBranchNode, .{ self, alloc, node, context })
             else
-                @call(debug_tail_call, onFunctionCallNode, .{ self, node, context });
+                @call(debug_tail_call, onFunctionCallNode, .{ self, alloc, node, context });
         }
 
         // FIXME: refactor to find joins during this?
-        pub fn onBranchNode(self: @This(), node: *const IndexedNode, context: *Context) !void {
+        pub fn onBranchNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, context: *Context) !void {
             std.debug.assert(node.desc.isSimpleBranch());
 
             var consequence_sexp: Sexp = undefined;
@@ -572,36 +552,35 @@ pub const GraphBuilder = struct {
             if (node.outputs[0]) |consequence| {
                 var consequence_ctx = Context{
                     .node_data = context.node_data,
-                    .block = Block.init(self.graph.arena.allocator()),
+                    .block = Block.init(alloc),
                 };
                 // FIXME: only add `begin` if it's multiple expressions
                 (try consequence_ctx.block.addOne()).* = syms.begin;
-                try self.onNode(consequence.link.target, &consequence_ctx);
+                try self.onNode(alloc, consequence.link.target, &consequence_ctx);
                 consequence_sexp = Sexp{ .value = .{ .list = consequence_ctx.block } };
             }
 
             if (node.outputs[1]) |alternative| {
                 var alternative_ctx = Context{
                     .node_data = context.node_data,
-                    .block = Block.init(self.graph.arena.allocator()),
+                    .block = Block.init(alloc),
                 };
                 // FIXME: only add `begin` if it's multiple expressions
                 (try alternative_ctx.block.addOne()).* = syms.begin;
-                try self.onNode(alternative.link.target, &alternative_ctx);
+                try self.onNode(alloc, alternative.link.target, &alternative_ctx);
                 alternative_sexp = Sexp{ .value = .{ .list = alternative_ctx.block } };
             }
 
             var branch_sexp = try context.block.addOne();
+            errdefer branch_sexp.deinit(alloc);
 
-            // FIXME: errdefer, maybe just force an arena and call it a day?
-            branch_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.graph.arena.allocator()) } };
-            errdefer branch_sexp.deinit(self.graph.arena.allocator());
+            branch_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
 
             // (if
             (try branch_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc.name } };
 
             // condition
-            const condition_sexp = try self.nodeInputTreeToSexp(node.inputs[1]);
+            const condition_sexp = try self.nodeInputTreeToSexp(alloc, node.inputs[1]);
             (try branch_sexp.value.list.addOne()).* = condition_sexp;
             // consequence
             (try branch_sexp.value.list.addOne()).* = consequence_sexp;
@@ -609,11 +588,11 @@ pub const GraphBuilder = struct {
             (try branch_sexp.value.list.addOne()).* = alternative_sexp;
 
             if (self.graph.branch_joiner_map.get(node)) |join| {
-                return @call(debug_tail_call, onNode, .{ self, join, context });
+                return @call(debug_tail_call, onNode, .{ self, alloc, join, context });
             }
         }
 
-        pub fn onFunctionCallNode(self: @This(), node: *const IndexedNode, context: *Context) !void {
+        pub fn onFunctionCallNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, context: *Context) !void {
             if (self.graph.isJoin(node))
                 return;
 
@@ -635,23 +614,23 @@ pub const GraphBuilder = struct {
                 if (special_type == .getter)
                 Sexp{ .value = .{ .symbol = name } }
             else
-                Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.graph.arena.allocator()) } };
+                Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
 
             if (special_type != .getter) {
                 (try call_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
 
                 for (node.inputs[1..]) |input| {
-                    const input_tree = try self.nodeInputTreeToSexp(input);
+                    const input_tree = try self.nodeInputTreeToSexp(alloc, input);
                     (try call_sexp.value.list.addOne()).* = input_tree;
                 }
             }
 
             if (node.outputs[0]) |next| {
-                return @call(debug_tail_call, onNode, .{ self, next.link.target, context });
+                return @call(debug_tail_call, onNode, .{ self, alloc, next.link.target, context });
             }
         }
 
-        fn nodeInputTreeToSexp(self: @This(), in_link: GraphTypes.Input) !Sexp {
+        fn nodeInputTreeToSexp(self: @This(), alloc: std.mem.Allocator, in_link: GraphTypes.Input) !Sexp {
             const sexp = switch (in_link) {
                 .link => |v| _: {
                     const node = v.target;
@@ -671,14 +650,14 @@ pub const GraphBuilder = struct {
                     if (special_type == .getter)
                         break :_ Sexp{ .value = .{ .symbol = name } };
 
-                    var result = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.graph.arena.allocator()) } };
+                    var result = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
 
                     try result.value.list.ensureTotalCapacityPrecise(node.inputs.len + 1);
 
                     (try result.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
 
                     for (node.inputs) |input| {
-                        (try result.value.list.addOne()).* = try self.nodeInputTreeToSexp(input);
+                        (try result.value.list.addOne()).* = try self.nodeInputTreeToSexp(alloc, input);
                     }
 
                     break :_ result;
@@ -697,10 +676,10 @@ pub const GraphBuilder = struct {
         }
     };
 
-    fn rootToSexp(self: *@This()) !Sexp {
+    fn rootToSexp(self: *@This(), alloc: std.mem.Allocator) !Sexp {
         return if (self.entry) |entry|
             if (entry.outputs[0]) |first_node|
-                try (ToSexp{ .graph = self }).toSexp(first_node.link.target)
+                try (ToSexp{ .graph = self }).toSexp(alloc, first_node.link.target)
             else
                 Sexp{ .value = .void }
         else
@@ -811,16 +790,15 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
         return e;
     };
 
-    var page_writer = try PageWriter.init(a);
+    var page_writer = try PageWriter.init(arena_alloc);
     defer page_writer.deinit();
 
     var import_exprs = std.ArrayList(Sexp).init(arena_alloc);
     defer import_exprs.deinit();
     try import_exprs.ensureTotalCapacityPrecise(graph.imports.map.count());
 
-    // we know it internally uses an arena
-    var builder = try GraphBuilder.init(a, env);
-    defer builder.deinit();
+    var builder = try GraphBuilder.init(arena_alloc, env);
+    defer builder.deinit(arena_alloc);
 
     // TODO: refactor blocks into functions
     {
@@ -842,7 +820,7 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
                     };
                 }
 
-                try builder.addImport(json_import_name, bindings);
+                try builder.addImport(arena_alloc, json_import_name, bindings);
             }
         }
 
@@ -856,6 +834,7 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
     }
 
     const sexp = try builder.buildFromJson(
+        arena_alloc,
         graph,
         if (diagnostic) |d| _: {
             d.* = .{ .Compile = .None };
@@ -878,9 +857,10 @@ test "big graph_to_source" {
     defer graph_json.free(alloc);
 
     var diagnostic: GraphToSourceDiagnostic = undefined;
-    const result = graphToSource(std.testing.allocator, graph_json.buffer, &diagnostic);
-    if (result) |compiledSource| {
-        try testing.expectEqualStrings(source.buffer, compiledSource);
+    const result = graphToSource(alloc, graph_json.buffer, &diagnostic);
+    if (result) |compiled_source| {
+        try testing.expectEqualStrings(source.buffer, compiled_source);
+        alloc.free(compiled_source);
     } else |err| {
         debug_print("\nDIAGNOSTIC ({}):\n{}\n", .{ err, diagnostic });
         return error.FailTest;
@@ -888,32 +868,34 @@ test "big graph_to_source" {
 }
 
 test "small local built graph" {
-    var env = try Env.initDefault(testing.allocator);
+    const a = testing.allocator;
+
+    var env = try Env.initDefault(a);
     defer env.deinit();
 
     var diagnostic: GraphBuilder.Diagnostic = .None;
     errdefer std.debug.print("DIAGNOSTIC:\n{}\n", .{diagnostic});
-    var builder = GraphBuilder.init(testing.allocator, env) catch |e| {
+    var builder = GraphBuilder.init(a, env) catch |e| {
         std.debug.print("\nERROR: {}\n", .{e});
         return e;
     };
-    defer builder.deinit();
+    defer builder.deinit(a);
 
     const emptyExtra = ExtraIndex{ .index = undefined };
 
-    const entry_node = try env.makeNode(testing.allocator, "CustomTickEntry", emptyExtra) orelse unreachable;
-    defer entry_node.deinit(testing.allocator);
-    const plus_node = try env.makeNode(testing.allocator, "+", emptyExtra) orelse unreachable;
-    defer plus_node.deinit(testing.allocator);
-    const actor_loc_node = try env.makeNode(testing.allocator, "#GET#actor-location", emptyExtra) orelse unreachable;
-    defer actor_loc_node.deinit(testing.allocator);
-    const set_node = try env.makeNode(testing.allocator, "set!", emptyExtra) orelse unreachable;
-    defer set_node.deinit(testing.allocator);
+    const entry_node = try env.makeNode(a, "CustomTickEntry", emptyExtra) orelse unreachable;
+    defer entry_node.deinit(a);
+    const plus_node = try env.makeNode(a, "+", emptyExtra) orelse unreachable;
+    defer plus_node.deinit(a);
+    const actor_loc_node = try env.makeNode(a, "#GET#actor-location", emptyExtra) orelse unreachable;
+    defer actor_loc_node.deinit(a);
+    const set_node = try env.makeNode(a, "set!", emptyExtra) orelse unreachable;
+    defer set_node.deinit(a);
 
-    const entry_index = try builder.addNode(entry_node, true, null, &diagnostic);
-    const plus_index = try builder.addNode(plus_node, false, null, &diagnostic);
-    const actor_loc_index = try builder.addNode(actor_loc_node, false, null, &diagnostic);
-    const set_index = try builder.addNode(set_node, false, null, &diagnostic);
+    const entry_index = try builder.addNode(a, entry_node, true, null, &diagnostic);
+    const plus_index = try builder.addNode(a, plus_node, false, null, &diagnostic);
+    const actor_loc_index = try builder.addNode(a, actor_loc_node, false, null, &diagnostic);
+    const set_index = try builder.addNode(a, set_node, false, null, &diagnostic);
 
     try builder.addEdge(actor_loc_index, 0, plus_index, 0, 0);
     try builder.addLiteralInput(plus_index, 1, 0, .{ .number = 4.0 });
@@ -921,13 +903,13 @@ test "small local built graph" {
     try builder.addLiteralInput(set_index, 1, 0, .{ .symbol = "x" });
     try builder.addEdge(plus_index, 0, set_index, 2, 0);
 
-    const sexp = builder.compile() catch |e| {
+    const sexp = builder.compile(a) catch |e| {
         std.debug.print("\ncompile error: {}\n", .{e});
         return e;
     };
-    defer sexp.deinit(testing.allocator);
+    defer sexp.deinit(a);
 
-    var text = std.ArrayList(u8).init(testing.allocator);
+    var text = std.ArrayList(u8).init(a);
     defer text.deinit();
     _ = try sexp.write(text.writer());
 

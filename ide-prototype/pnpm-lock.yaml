@@ -60,6 +60,9 @@ importers:
       monaco-editor:
         specifier: ^0.39.0
         version: 0.39.0
+      node-zigar:
+        specifier: ^0.13.2
+        version: 0.13.2
       playwright-core:
         specifier: ^1.30.0
         version: 1.35.1
@@ -1205,8 +1208,18 @@ packages:
   nise@5.1.4:
     resolution: {integrity: sha512-8+Ib8rRJ4L0o3kfmyVCL7gzrohyDe0cMFTBa2d364yIrEGMEoetznKJx899YxjybU6bL9SQkYPSBBs1gyYs8Xg==}
 
+  node-api-headers@1.3.0:
+    resolution: {integrity: sha512-8Bviwtw4jNhv0B2qDjj4M5e6GyAuGtxsmZTrFJu3S3Z0+oHwIgSUdIKkKJmZd+EbMo7g3v4PLBbrjxwmZOqMBg==}
+
   node-releases@2.0.12:
     resolution: {integrity: sha512-QzsYKWhXTWx8h1kIvqfnC++o0pEmpRQA/aenALsL2F4pqNVr7YzcdMlDij5WBnwftRbJCNJL/O7zdKaxKPHqgQ==}
+
+  node-zigar-addon@0.13.2:
+    resolution: {integrity: sha512-3/7dLz8q0TqD+rhJXuFsg7EVPncuAc/Vcbm2ujajKYoP/l097E9cff5pgKjZfwdLYQFaFzyZbmy8t4LI5GzHYA==}
+
+  node-zigar@0.13.2:
+    resolution: {integrity: sha512-cARRpRQcoY3hYzWUz5nzrjBHdIca26UAErmYKATqMcVKJ8YmCnnae3dn+JmVn8C5MiUBmkhnqQGZZFQ4K6YqVg==}
+    hasBin: true
 
   normalize-path@3.0.0:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
@@ -2810,7 +2823,18 @@ snapshots:
       just-extend: 4.2.1
       path-to-regexp: 1.8.0
 
+  node-api-headers@1.3.0: {}
+
   node-releases@2.0.12: {}
+
+  node-zigar-addon@0.13.2:
+    dependencies:
+      node-api-headers: 1.3.0
+
+  node-zigar@0.13.2:
+    dependencies:
+      node-zigar-addon: 0.13.2
+      zigar-compiler: 0.13.2
 
   normalize-path@3.0.0: {}
 

@@ -1,4 +1,4 @@
-// TODO: rename to generic_main?
+// TODO: rename to zigar_main
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -15,7 +15,9 @@ pub const readSrc = @import("./ide_json_gen.zig").readSrc;
 const GraphBuilder = @import("./graph_to_source.zig").GraphBuilder;
 const NodeId = @import("./graph_to_source.zig").NodeId;
 const IndexedNode = @import("./common.zig").GraphTypes.Node;
+const ExtraIndex = @import("./common.zig").ExtraIndex;
 const Env = @import("./nodes/builtin.zig").Env;
+const NodeDesc = @import("./nodes/builtin.zig").NodeDesc;
 const Value = @import("./nodes/builtin.zig").Value;
 
 pub const JsGraphBuilder = struct {
@@ -33,8 +35,12 @@ pub const JsGraphBuilder = struct {
         return result;
     }
 
-    pub fn addNode(self: *@This(), node: IndexedNode, is_entry: bool) !NodeId {
-        return self.inner().addNode(node, is_entry, null, null);
+    pub fn makeNode(self: *@This(), a: std.mem.Allocator, kind: []const u8) !IndexedNode {
+        return try self.inner().env.makeNode(a, kind, ExtraIndex{ .index = 0 }) orelse error.UnknownNodeType;
+    }
+
+    pub fn addNode(self: *@This(), a: std.mem.Allocator, node: IndexedNode, is_entry: bool) !NodeId {
+        return self.inner().addNode(a, node, is_entry, null, null);
     }
 
     pub fn addEdge(self: *@This(), source_id: NodeId, src_out_pin: u32, target_id: NodeId, target_in_pin: u32) !void {
@@ -61,7 +67,7 @@ pub const JsGraphBuilder = struct {
         var buffer = std.ArrayList(u8).init(a);
         defer buffer.deinit();
 
-        const sexp = try self.inner().compile();
+        const sexp = try self.inner().compile(a);
         // FIXME: does this even work?
         defer sexp.deinit(a);
 
@@ -71,6 +77,6 @@ pub const JsGraphBuilder = struct {
     }
 };
 
-test {
-    try std.testing.expectEqual(@alignOf(GraphBuilder), @alignOf(JsGraphBuilder));
+comptime {
+    std.debug.assert(@alignOf(GraphBuilder) == @alignOf(JsGraphBuilder));
 }
