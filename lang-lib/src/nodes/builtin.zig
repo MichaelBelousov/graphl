@@ -612,8 +612,14 @@ pub const temp_ue = struct {
             },
         });
 
-        pub const get_actor_location: NodeDesc = basicNode(&.{
+        pub const this_actor_location: NodeDesc = basicNode(&.{
             .name = "#GET#actor-location",
+            .inputs = &.{},
+            .outputs = &.{Pin{ .primitive = .{ .value = primitive_types.vec3 } }},
+        });
+
+        pub const get_location_of_actor: NodeDesc = basicNode(&.{
+            .name = "get-actor-location",
             .inputs = &.{Pin{ .primitive = .{ .value = types.actor } }},
             .outputs = &.{Pin{ .primitive = .{ .value = primitive_types.vec3 } }},
         });
