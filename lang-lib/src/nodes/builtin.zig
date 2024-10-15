@@ -52,8 +52,8 @@ pub const NodeDesc = struct {
     _getInputs: *const fn (NodeDesc) []const Pin,
     _getOutputs: *const fn (NodeDesc) []const Pin,
 
-    pub fn getInputs(self: @This()) []const Pin {
-        return self._getInputs(self);
+    pub fn getInputs(self: *const @This()) []const Pin {
+        return self._getInputs(self.*);
     }
 
     pub fn maybeStaticOutputsLen(self: @This()) ?usize {
@@ -80,8 +80,8 @@ pub const NodeDesc = struct {
         return if (is_static) inputs.len else null;
     }
 
-    pub fn getOutputs(self: @This()) []const Pin {
-        return self._getOutputs(self);
+    pub fn getOutputs(self: *const @This()) []const Pin {
+        return self._getOutputs(self.*);
     }
 
     const FlowType = enum {

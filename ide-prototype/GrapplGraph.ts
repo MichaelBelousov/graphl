@@ -58,12 +58,6 @@ export class GrapplGraph {
   addNode(kind: string, is_entry: boolean = false): NodeId {
     const node = this._nativeGraphBuilder.makeNode(kind);
     const nodeId = this._nativeGraphBuilder.addNode(node, is_entry);
-    console.log(node)
-    console.log(node.desc)
-    console.log(node.desc['*'])
-    console.log(Object.getOwnPropertyDescriptors(node.desc['*']))
-    console.log(node.desc['*'].getInputs)
-    console.log(node.desc.getInputs)
     this._addJsNodeProxy(nodeId, node);
     return nodeId;
   }
@@ -81,8 +75,8 @@ export class GrapplGraph {
         x: 100 * this._nodeStateProxy.length,
         y: 0
       },
-      inputs: node.desc.getInputs().map(_ => null),
-      outputs: node.desc.getOutputs().map(_ => null),
+      inputs: new Array(node.desc.getInputs().length).fill(null),
+      outputs: new Array(node.desc.getOutputs().length).fill(null),
     };
     this._nodeStateProxy.push(jsNode);
     this._nodeMap.set(nodeId, jsNode);
