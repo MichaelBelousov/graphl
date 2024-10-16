@@ -35,6 +35,11 @@ pub const JsGraphBuilder = struct {
         return result;
     }
 
+    pub fn deinit(self: *@This(), a: std.mem.Allocator) void {
+        // FIXME: does this even work with zigar?
+        self.inner().deinit(a);
+    }
+
     pub fn makeNode(self: *@This(), a: std.mem.Allocator, kind: []const u8) !IndexedNode {
         return try self.inner().env.makeNode(a, kind, ExtraIndex{ .index = 0 }) orelse error.UnknownNodeType;
     }

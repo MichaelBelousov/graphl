@@ -178,8 +178,8 @@ pub fn GraphTypes(comptime Extra: type) type {
                     .comment = args.comment,
                     // TODO: default to zero literal
                     // TODO: handle variadic
-                    .inputs = if (args.desc.maybeStaticInputsLen()) |v| try a.alloc(Input, v) else unreachable,
-                    .outputs = if (args.desc.maybeStaticOutputsLen()) |v| try a.alloc(?Output, v) else unreachable,
+                    .inputs = if (args.desc.maybeStaticInputsLen()) |v| try a.alloc(Input, v) else @panic("non static inputs not supported"),
+                    .outputs = if (args.desc.maybeStaticOutputsLen()) |v| try a.alloc(?Output, v) else @panic("non static outputs not supported"),
                 };
 
                 for (result.inputs) |*i| i.* = .{ .value = .{ .number = 0.0 } };

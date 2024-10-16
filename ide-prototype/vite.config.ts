@@ -19,6 +19,8 @@ export default defineConfig(async ({ mode }) => {
       zigar({
         topLevelAwait: false,
         optimize: mode === 'production' ? 'ReleaseSmall' : 'Debug',
+        cacheDir: "../lang-lib/.zig-cache",
+        stripWASM: mode === "production",
       }),
       ...(mode === "development" ? [viteInspect({ build: true })] : []),
     ],
