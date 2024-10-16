@@ -3,21 +3,21 @@ import { describe, it } from "node:test";
 import assert from "node:assert";
 
 describe("grappl-js", function () {
-  it("small", () => {
-    const g = new GrapplGraph();
+  it("small", async () => {
+    const g = await GrapplGraph.create();
 
-    const entry_index = g.addNode("CustomTickEntry", true);
-    const plus_index = g.addNode("+");
-    const actor_loc_index = g.addNode("#GET#actor-location");
-    const set_index = g.addNode("set!");
+    const entry_index = await g.addNode("CustomTickEntry", true);
+    const plus_index = await g.addNode("+");
+    const actor_loc_index = await g.addNode("#GET#actor-location");
+    const set_index = await g.addNode("set!");
 
-    g.addEdge(actor_loc_index, 0, plus_index, 0);
-    g.addLiteral(plus_index, 1, 4.0);
-    g.addEdge(entry_index, 0, set_index, 0);
-    g.addLiteral(set_index, 1, { symbol: "x" });
-    g.addEdge(plus_index, 0, set_index, 2);
+    await g.addEdge(actor_loc_index, 0, plus_index, 0);
+    await g.addLiteral(plus_index, 1, 4.0);
+    await g.addEdge(entry_index, 0, set_index, 0);
+    await g.addLiteral(set_index, 1, { symbol: "x" });
+    await g.addEdge(plus_index, 0, set_index, 2);
 
-    const src = g.compile();
+    const src = await g.compile();
 
     const expected = `\
 (set! x
