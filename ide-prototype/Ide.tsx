@@ -6,6 +6,7 @@ import sharedStyles from "./shared.module.css";
 import { persistentData } from "./AppPersistentState";
 import { NoderContext, Variable, Function, Type, defaultTypes, native } from "./NoderContext";
 import * as zigar from "zigar-runtime";
+import { GrapplProvider } from "./GrapplContext";
 //import debounce from "lodash.debounce";
 
 export const TextEditor = function TextEditor(props: TextEditor.Props) {
@@ -379,22 +380,24 @@ export function Ide(_props: Ide.Props) {
 
   return (
     <ProgramContext.Provider value={programContext}>
-      <div className={styles.ide}>
-        <TextEditor onSyncSource={async () => {}} editor={getsetEditor} />
-        <div className={styles.visualEditor}>
-          <span className={styles.graphEditor}>
-            <TestGraphEditor onSyncGraph={async (graph) => {
-              // TODO: give it a real diagnostic type lol?
-              const diagnostic = {};
-              await native.graphToSource(JSON.stringify(graph), diagnostic);
-              console.log(diagnostic);
-            }} />
-          </span>
-          <span className={styles.contextEditor}>
-            <ProgramContextEditor />
-          </span>
+      <GrapplProvider>
+        <div className={styles.ide}>
+          <TextEditor onSyncSource={async () => {}} editor={getsetEditor} />
+          <div className={styles.visualEditor}>
+            <span className={styles.graphEditor}>
+              <TestGraphEditor onSyncGraph={async (graph) => {
+                // TODO: give it a real diagnostic type lol?
+                const diagnostic = {};
+                await native.graphToSource(JSON.stringify(graph), diagnostic);
+                console.log(diagnostic);
+              }} />
+            </span>
+            <span className={styles.contextEditor}>
+              <ProgramContextEditor />
+            </span>
+          </div>
         </div>
-      </div>
+      </GrapplProvider>
     </ProgramContext.Provider>
   );
 }

@@ -67,19 +67,28 @@ export type JsNode = ReactFlowNode<{
 
 export type JsEdge = ReactFlowEdge<{}>;
 
-
 /**
- * */
+ * A graph which simultaneously provides a recloned immutable node/edges state pair
+ * for e.g. react, and a native grappl graph between operations
+ */
 export class GrapplGraph {
-  _nativeGraphBuilder = native.JsGraphBuilder.init();
+  _nativeGraphBuilder: native.JsGraphBuilder = undefined;
   _nodeMap = new Map<NodeId, JsNode>();
   _nodeStateProxy = [] as JsNode[];
   _edgeStateProxy = [] as JsEdge[];
 
-  addNode(kind: string, is_entry: boolean = false): NodeId {
-    const node = this._nativeGraphBuilder.makeNode(kind);
+  private constructor() {}
+
+  static async create(): Promise<GrapplGraph> {
+    const result = new GrapplGraph();
+    result._nativeGraphBuilder = await native.JsGraphBuilder.init();
+    return result;
+  }
+
+  async addNode(kind: string, is_entry: boolean = false): Promise<NodeId> {
+    const node = await this._nativeGraphBuilder.makeNode(kind);
     // FIXME: use u32 because this is a bigint!
-    const nodeId = Number(this._nativeGraphBuilder.addNode(node, is_entry));
+    const nodeId = Number(await this._nativeGraphBuilder.addNode(node, is_entry));
     this._updateJsProxyAddNode(nodeId, node, is_entry);
     return nodeId;
   }
@@ -101,11 +110,11 @@ export class GrapplGraph {
         y: 0
       },
     };
-    this._nodeStateProxy.push(jsNode);
+    this._nodeStateProxy = [...this._nodeStateProxy, jsNode];
     this._nodeMap.set(nodeId, jsNode);
   }
 
-  addEdge(source_id: NodeId, src_out_pin: number, target_id: NodeId, target_in_pin: number): void {
+  async addEdge(source_id: NodeId, src_out_pin: number, target_id: NodeId, target_in_pin: number): Promise<void> {
     const edge = this._nativeGraphBuilder.addEdge(source_id, src_out_pin, target_id, target_in_pin);
     this._updateJsProxyAddEdge(source_id, src_out_pin, target_id, target_in_pin);
     return edge;
@@ -127,14 +136,6 @@ export class GrapplGraph {
     const sourceHandle = `${source_id}_true_${src_out_pin}`;
     const targetHandle = `${target_id}_true_${target_in_pin}`;
 
-    this._edgeStateProxy.push({
-      source: String(source_id),
-      sourceHandle,
-      target: String(target_id),
-      targetHandle,
-      id: `ed-${sourceHandle}-${targetHandle}`,
-    })
-
     // FIXME: should we keep track of outputs this way? One node can connect to multiple things potentially
     //source.outputs[src_out_pin] = 
     target.data.inputs[target_in_pin] = {
@@ -145,6 +146,18 @@ export class GrapplGraph {
         sub_index: 0
       }
     };
+
+    this._edgeStateProxy = [
+      ...this._edgeStateProxy,
+      {
+        source: String(source_id),
+        sourceHandle,
+        target: String(target_id),
+        targetHandle,
+        id: `ed-${sourceHandle}-${targetHandle}`,
+      }
+    ];
+
   }
 
   private _updateJsProxyLiteral(source_id: NodeId, src_in_pin: number, value: ZigValue): void {
@@ -156,10 +169,14 @@ export class GrapplGraph {
     if (source.data.inputs[src_in_pin] !== null)
       throw Error("source input already connected");
 
-    source.data.inputs[src_in_pin] = { value: value };
+    const cloned = structuredClone(source);
+    cloned.data.inputs[src_in_pin] = { value: value };
+
+    this._nodeMap.set(source_id, cloned);
+    this._nodeStateProxy = this._nodeStateProxy.map(n => n.id === `${source_id}` ? cloned : n);
   }
 
-  addLiteral(source_id: NodeId, src_in_pin: number, value: ZigValue): void {
+  async addLiteral(source_id: NodeId, src_in_pin: number, value: ZigValue): Promise<void> {
     const implOrThrow = () => {
       switch (typeof value) {
         case "boolean":
@@ -182,12 +199,12 @@ export class GrapplGraph {
       throw Error(`unsupported value ${value}`)
     };
 
-    implOrThrow();
+    await implOrThrow();
     this._updateJsProxyLiteral(source_id, src_in_pin, value);
   }
 
-  compile(): string {
-    return this._nativeGraphBuilder.compile().string;
+  async compile(): Promise<string> {
+    return (await this._nativeGraphBuilder.compile()).string;
   }
 
   get reactState() {

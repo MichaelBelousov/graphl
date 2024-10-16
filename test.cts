@@ -150,5 +150,3 @@ describe("grappl-js", function () {
     ]);
   });
 });
-
-

@@ -448,6 +448,8 @@ const UnknownNode = (props: NodeProps<NodeState>) => {
 
 import { nodes as builtinNodeTypes } from "../libs/std/builtin.json"
 import { ContextMenu } from './ContextMenu'
+import { GrapplGraph, JsEdge, JsNode } from './GrapplGraph'
+import { GrapplContext } from './GrapplContext'
 
 const CustomEdge = (props: EdgeProps) => {
   // TODO: draw path from boundary of handle box
@@ -548,25 +550,6 @@ const ToolsPanel = (props: {
         </button>
       </>
 
-      <>
-        <button
-          onClick={async () => {
-            props.onSyncGraph({
-              nodes: props.graph.getNodes().reduce((prev, curr) => {
-                const node = { ...curr };
-                node.outputs = curr.data.fullDesc.outputs;
-                node.inputs = curr.data.fullDesc.inputs;
-                prev[node.id] = node;
-                return prev;
-              }, {} as Record<string, Node<{}>>),
-              edges: props.graph.getEdges(),
-            });
-          }}
-        >
-          Sync
-        </button>
-      </>
-
       <button
         onClick={async () => {
           const file = await uploadFile({ type: 'text' })
@@ -599,9 +582,8 @@ const ToolsPanel = (props: {
 };
 
 const TestGraphEditor = (props: TestGraphEditor.Props) => {
-  const graph = useReactFlow<{}, {}>();
-  const edges = useEdges<{}>();
-  const nodes = useNodes<{}>();
+  const reactflow = useReactFlow<{}, {}>();
+  const { nodes, edges, graph } = React.useContext(GrapplContext);
 
   React.useEffect(() => {
     persistentData.initialNodes = nodes;
@@ -721,38 +703,9 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
     return sortedKeys(result);
   }, [noder.lastNodeTypes]);
 
-  const addNode = React.useCallback(
-    (nodeType: string, position: {x: number, y:number}) => {
-      const newId = `${Math.round(Math.random() * Number.MAX_SAFE_INTEGER)}`
-      graph.addNodes({
-          id: newId,
-          type: nodeType,
-          data: {
-            onChange: (newVal: Partial<NodeState>) =>
-              graph.setNodes(prev => {
-                const copy = prev.slice()
-                const index = copy.findIndex(elem => elem.id === newId)
-                const elem = copy[index]
-                copy[index] = {
-                  ...elem,
-                  data: {
-                    ...elem.data,
-                    ...newVal,
-                  },
-                }
-                return copy
-              }),
-            literalInputs: {},
-            typeIfDefaulted: nodeType,
-            fullDesc: nodeDescs[nodeType],
-            isEntry: nodeType === "CustomTickEntry",
-          },
-          position: position,
-        }
-      )
-    },
-    [nodeDescs]
-  )
+  const addNode = React.useCallback((nodeType: string, _position: {x: number, y:number}) => {
+    graph.addNode(nodeType, nodeType === "CustomTickEntry");
+  }, [graph.addNode])
 
   const connectingNodeId = React.useRef<string>();
   const graphContainerElem = React.useRef<HTMLDivElement>(null);
@@ -779,7 +732,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
             .map((nodeType) =>
               <em className={styles.addNodeMenuOption} key={nodeType} onClick={(e) => {
                 const { top, left } = graphContainerElem.current!.getBoundingClientRect();
-                addNode(nodeType, graph.project({
+                addNode(nodeType, reactflow.project({
                   x: e.clientX - left - 150/2,
                   y: e.clientY - top,
                 }))}
@@ -803,14 +756,16 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
             nodeTypes={nodeTypes}
             //edgeTypes={edgeTypes}
             onEdgeClick={(_evt, edge) => {
-              graph.deleteElements({edges: [edge]})
+              // FIXME:
+              reactflow.deleteElements({edges: [edge]})
             }}
             onConnectStart={(_, { nodeId }) => connectingNodeId.current = nodeId ?? undefined}
             // TODO: context menu on edge drop
             onConnectEnd={() => connectingNodeId.current = undefined}
             onEdgesDelete={(edges) => {
+              // FIXME:
               for (const edge of edges) {
-                graph.setNodes(nodes => nodes.map(n => {
+                reactflow.setNodes(nodes => nodes.map(n => {
                   if (n === edge.sourceNode)
                     n.data = {...n.data}; // force update
                   return n;
@@ -830,7 +785,7 @@ const TestGraphEditor = (props: TestGraphEditor.Props) => {
             />
             <Background />
             <Panel position="top-left">
-              <ToolsPanel fileName={fileName} setFileName={setFileName} graph={graph} onSyncGraph={props.onSyncGraph} />
+              <ToolsPanel fileName={fileName} setFileName={setFileName} graph={reactflow} onSyncGraph={props.onSyncGraph} />
             </Panel>
           </ReactFlow>
         </div>
