@@ -1,9 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const ExtraIndex = struct { index: usize };
-
-pub const GraphTypes = @import("./nodes/builtin.zig").GraphTypes(ExtraIndex);
+// TODO: deprecate this export
+pub const GraphTypes = @import("./nodes/builtin.zig").GraphTypes;
 
 // FIXME: use tail!
 // NOTE: .always_tail is not fully implemented (won't throw an error)

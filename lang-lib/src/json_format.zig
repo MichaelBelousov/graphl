@@ -4,7 +4,6 @@ const json = std.json;
 const Value = @import("./nodes/builtin.zig").Value;
 const Env = @import("./nodes/builtin.zig").Env;
 
-const ExtraIndex = @import("./common.zig").ExtraIndex;
 const IndexedNode = @import("./common.zig").GraphTypes.Node;
 const IndexedLink = @import("./common.zig").GraphTypes.Link;
 
@@ -13,7 +12,7 @@ const innerParse = json.innerParse;
 const JsonIntArrayHashMap = @import("./json_int_map.zig").IntArrayHashMap;
 
 pub const JsonNodeHandle = struct {
-    nodeId: i64,
+    nodeId: u32,
     handleIndex: u32,
 };
 
@@ -26,7 +25,7 @@ pub const JsonNodeInput = union(enum) {
             .object_begin => {
                 const object = try innerParse(struct {
                     symbol: ?[]const u8 = null,
-                    nodeId: ?i64 = null,
+                    nodeId: ?u32 = null,
                     handleIndex: ?u32 = null,
                 }, allocator, source, options);
 
@@ -63,7 +62,7 @@ pub const JsonNode = struct {
     data: struct { isEntry: bool = false, comment: ?[]const u8 = null },
 
     pub fn toEmptyNode(self: @This(), a: std.mem.Allocator, env: Env, index: usize) !IndexedNode {
-        var node = (try env.makeNode(a, self.type, ExtraIndex{ .index = index })) orelse {
+        var node = (try env.makeNode(a, index, self.type)) orelse {
             if (false and builtin.mode == .Debug) {
                 var iter = env.nodes.iterator();
                 std.debug.print("existing nodes:\n", .{});
@@ -88,6 +87,6 @@ pub const Import = struct {
 const empty_imports = json.ArrayHashMap([]const Import){};
 
 pub const GraphDoc = struct {
-    nodes: JsonIntArrayHashMap(i64, JsonNode, 10),
+    nodes: JsonIntArrayHashMap(u32, JsonNode, 10),
     imports: json.ArrayHashMap([]const Import) = empty_imports,
 };

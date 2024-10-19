@@ -82,10 +82,8 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
     };
 
     {
-        const plus_node = grappl_graph.env.makeNode(gpa, "+", grappl.ExtraIndex{ .index = 0 }) catch unreachable orelse unreachable;
-        const plus_index = grappl_graph.addNode(gpa, plus_node, false, null, null) catch unreachable;
-        const set_node = grappl_graph.env.makeNode(gpa, "set!", grappl.ExtraIndex{ .index = 0 }) catch unreachable orelse unreachable;
-        const set_index = grappl_graph.addNode(gpa, set_node, false, null, null) catch unreachable;
+        const plus_index = grappl_graph.addNode(gpa, "+", false, null, null) catch unreachable;
+        const set_index = grappl_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
         _ = grappl_graph.addEdge(plus_index, 0, set_index, 2, 0) catch unreachable;
     }
 
@@ -365,9 +363,8 @@ fn dvui_frame() !void {
             var i: u32 = 0;
             while (iter.next()) |node_name| {
                 if ((try dvui.menuItemLabel(@src(), node_name.*, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
-                    const node = grappl_graph.env.makeNode(gpa, node_name.*, grappl.ExtraIndex{ .index = 0 }) catch unreachable orelse unreachable;
                     // TODO: use diagnostic
-                    const node_id = try grappl_graph.addNode(gpa, node, false, null, null);
+                    const node_id = try grappl_graph.addNode(gpa, node_name.*, false, null, null);
                     _ = node_id;
                     fw2.close();
                 }

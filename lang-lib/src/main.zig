@@ -15,8 +15,6 @@ pub const NodeId = @import("./graph_to_source.zig").NodeId;
 const IndexedNode = @import("./common.zig").GraphTypes.Node;
 pub const Node = @import("./common.zig").GraphTypes.Node;
 pub const Link = @import("./common.zig").GraphTypes.Link;
-// TODO: super annoying
-pub const ExtraIndex = @import("./common.zig").ExtraIndex;
 pub const Env = @import("./nodes/builtin.zig").Env;
 pub const primitive_types = @import("./nodes/builtin.zig").primitive_types;
 const NodeDesc = @import("./nodes/builtin.zig").NodeDesc;
@@ -42,10 +40,6 @@ pub const JsGraphBuilder = struct {
 
     pub fn deinit(self: *@This()) void {
         self.inner().deinit(alloc);
-    }
-
-    pub fn makeNode(self: *@This(), kind: []const u8) !IndexedNode {
-        return try self.inner().env.makeNode(alloc, kind, ExtraIndex{ .index = 0 }) orelse error.UnknownNodeType;
     }
 
     pub fn addNode(self: *@This(), node: IndexedNode, is_entry: bool) !NodeId {

@@ -16,8 +16,8 @@ const Value = @import("./nodes/builtin.zig").Value;
 const debug_tail_call = @import("./common.zig").debug_tail_call;
 const global_alloc = @import("./common.zig").global_alloc;
 const GraphTypes = @import("./common.zig").GraphTypes;
-const ExtraIndex = @import("./common.zig").ExtraIndex;
 
+// TODO: rename
 const IndexedNode = GraphTypes.Node;
 const IndexedLink = GraphTypes.Link;
 
@@ -46,13 +46,13 @@ pub const GraphBuilder = struct {
     env: Env,
     // FIXME: does this need to be in topological order? Is that advantageous?
     /// map of json node ids to its real node,
-    nodes: JsonIntArrayHashMap(i64, IndexedNode, 10) = .{},
+    nodes: JsonIntArrayHashMap(NodeId, IndexedNode, 10) = .{},
     imports: std.ArrayListUnmanaged(Sexp),
     // FIXME: fill the analysis context instead of keeping this in the graph metadata itself
     branch_joiner_map: std.AutoHashMapUnmanaged(*const IndexedNode, *const IndexedNode) = .{},
     is_join_set: std.DynamicBitSetUnmanaged,
     entry: ?*const IndexedNode = null,
-    entry_id: ?i64 = null,
+    entry_id: ?NodeId = null,
     branch_count: u32 = 0,
     next_node_index: usize = 0,
 
@@ -61,7 +61,7 @@ pub const GraphBuilder = struct {
 
     // FIXME: replace pointers with indices into an allocator? Could be faster
     pub fn isJoin(self: @This(), node: *const IndexedNode) bool {
-        return self.is_join_set.isSet(node.extra.index);
+        return self.is_join_set.isSet(node.id);
     }
 
     // FIXME: remove buildFromJson and just do it all in init?
@@ -106,21 +106,14 @@ pub const GraphBuilder = struct {
 
     // HACK: remove force_node_id
     // TODO: return a pointer to the newly placed node?
-    pub fn addNode(self: *@This(), alloc: std.mem.Allocator, in_node: IndexedNode, is_entry: bool, force_node_id: ?NodeId, diag: ?*Diagnostic) !NodeId {
-        var node_copy = in_node;
-        // FIXME: avoid this dupe in the API somehow...
-        node_copy.inputs = try alloc.dupe(GraphTypes.Input, in_node.inputs);
-        node_copy.outputs = try alloc.dupe(?GraphTypes.Output, in_node.outputs);
+    pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?NodeId, diag: ?*Diagnostic) !NodeId {
         const node_id: NodeId = force_node_id orelse @intCast(self.next_node_index);
-        node_copy.extra = .{ .index = self.next_node_index };
+        const putResult = try self.nodes.map.getOrPut(alloc, node_id);
+        putResult.value_ptr.* = try self.env.makeNode(alloc, node_id, kind) orelse unreachable;
+        const node = putResult.value_ptr;
+
         self.next_node_index += 1;
         errdefer self.next_node_index -= 1;
-
-        const putResult = try self.nodes.map.getOrPut(alloc, node_id);
-
-        putResult.value_ptr.* = node_copy;
-
-        const node = putResult.value_ptr;
 
         if (putResult.found_existing) {
             if (diag) |d| d.* = .{ .DuplicateNode = node_id };
@@ -180,7 +173,7 @@ pub const GraphBuilder = struct {
 
     // TODO: rename to source/target
     /// end_subindex should be 0 if you don't know it
-    pub fn addEdge(self: @This(), start_id: i64, start_index: u32, end_id: i64, end_index: u32, end_subindex: u32) !void {
+    pub fn addEdge(self: @This(), start_id: NodeId, start_index: u32, end_id: NodeId, end_index: u32, end_subindex: u32) !void {
         const start = self.nodes.map.getPtr(start_id) orelse return error.SourceNodeNotFound;
         const end = self.nodes.map.getPtr(end_id) orelse return error.TargetNodeNotFound;
 
@@ -208,7 +201,7 @@ pub const GraphBuilder = struct {
         } };
     }
 
-    pub fn addLiteralInput(self: @This(), node_id: i64, pin_index: u32, subpin_index: u32, value: Value) !void {
+    pub fn addLiteralInput(self: @This(), node_id: NodeId, pin_index: u32, subpin_index: u32, value: Value) !void {
         const start = self.nodes.map.getPtr(node_id) orelse return error.SourceNodeNotFound;
         _ = subpin_index;
 
@@ -295,12 +288,7 @@ pub const GraphBuilder = struct {
             // FIXME: accidental copy?
             const json_node = node_entry.value_ptr.*;
 
-            const node = json_node.toEmptyNode(alloc, self.env, self.next_node_index) catch |e| {
-                out_diagnostic.* = .{ .UnknownNodeType = json_node.type };
-                return e;
-            };
-
-            _ = try self.addNode(alloc, node, json_node.data.isEntry, json_node_id, out_diagnostic);
+            _ = try self.addNode(alloc, json_node.type, json_node.data.isEntry, json_node_id, out_diagnostic);
         }
 
         const entry_id = self.entry_id orelse return error.GraphHasNoEntry;
@@ -397,7 +385,7 @@ pub const GraphBuilder = struct {
         const node_iter = self.nodes.map.iterator();
         while (node_iter.next()) |node| {
             // inlined analyzeNode precondition because not sure with recursion compiler can figure it out
-            if (analysis_ctx.node_data.items(.visited)[node.extra.index])
+            if (analysis_ctx.node_data.items(.visited)[node.id])
                 continue;
 
             try self.analyzeNode(node, analysis_ctx);
@@ -409,10 +397,10 @@ pub const GraphBuilder = struct {
         node: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
     ) void {
-        if (analysis_ctx.node_data.items(.visited)[node.extra.index])
+        if (analysis_ctx.node_data.items(.visited)[node.id])
             return;
 
-        analysis_ctx.node_data.items(.visited)[node.extra.index] = 1;
+        analysis_ctx.node_data.items(.visited)[node.id] = 1;
 
         const is_branch = std.mem.eql(u8, node.desc.name, "if");
 
@@ -435,7 +423,7 @@ pub const GraphBuilder = struct {
         const result = try self.doAnalyzeBranch(branch, analysis_ctx);
 
         try self.branch_joiner_map.put(result);
-        self.is_join_set.set(result.extra.index, true);
+        self.is_join_set.set(result.id, true);
 
         return result;
     }
@@ -532,10 +520,10 @@ pub const GraphBuilder = struct {
 
         pub fn onNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, context: *Context) Error!void {
             // FIXME: not handled
-            if (context.node_data.items(.visited)[node.extra.index] == 1)
+            if (context.node_data.items(.visited)[node.id] == 1)
                 return Error.CyclesNotSupported;
 
-            context.node_data.items(.visited)[node.extra.index] = 1;
+            context.node_data.items(.visited)[node.id] = 1;
 
             return if (node.desc.isSimpleBranch())
                 @call(debug_tail_call, onBranchNode, .{ self, alloc, node, context })
@@ -882,21 +870,10 @@ test "small local built graph" {
     };
     defer builder.deinit(a);
 
-    const emptyExtra = ExtraIndex{ .index = undefined };
-
-    const entry_node = try env.makeNode(a, "CustomTickEntry", emptyExtra) orelse unreachable;
-    defer entry_node.deinit(a);
-    const plus_node = try env.makeNode(a, "+", emptyExtra) orelse unreachable;
-    defer plus_node.deinit(a);
-    const actor_loc_node = try env.makeNode(a, "#GET#actor-location", emptyExtra) orelse unreachable;
-    defer actor_loc_node.deinit(a);
-    const set_node = try env.makeNode(a, "set!", emptyExtra) orelse unreachable;
-    defer set_node.deinit(a);
-
-    const entry_index = try builder.addNode(a, entry_node, true, null, &diagnostic);
-    const plus_index = try builder.addNode(a, plus_node, false, null, &diagnostic);
-    const actor_loc_index = try builder.addNode(a, actor_loc_node, false, null, &diagnostic);
-    const set_index = try builder.addNode(a, set_node, false, null, &diagnostic);
+    const entry_index = try builder.addNode(a, "CustomTickEntry", true, null, &diagnostic);
+    const plus_index = try builder.addNode(a, "+", false, null, &diagnostic);
+    const actor_loc_index = try builder.addNode(a, "#GET#actor-location", false, null, &diagnostic);
+    const set_index = try builder.addNode(a, "set!", false, null, &diagnostic);
 
     try builder.addEdge(actor_loc_index, 0, plus_index, 0, 0);
     try builder.addLiteralInput(plus_index, 1, 0, .{ .number = 4.0 });

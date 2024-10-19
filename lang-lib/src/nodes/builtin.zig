@@ -38,7 +38,7 @@ pub const Pin = struct {
     },
 
     pub fn isExec(self: @This()) bool {
-        return self.kind == .primitive and self.primitive == .exec;
+        return self.kind == .primitive and self.kind.primitive == .exec;
     }
 };
 
@@ -109,100 +109,103 @@ pub const NodeDesc = struct {
     }
 };
 
-pub fn GraphTypes(comptime Extra: type) type {
-    return struct {
-        pub const NodeId = u32;
+pub const Point = struct {
+    x: usize = 0,
+    y: usize = 0,
+};
 
-        pub const Link = struct {
-            target: *const Node,
-            pin_index: u32,
-            /// optional subindex (e.g. for variadic pins)
-            sub_index: u32 = 0,
-        };
+pub const GraphTypes = struct {
+    pub const NodeId = u32;
 
-        pub const Input = union(enum) {
-            link: Link,
-            value: Value,
-        };
+    pub const Link = struct {
+        target: *const Node,
+        pin_index: u32,
+        /// optional subindex (e.g. for variadic pins)
+        sub_index: u32 = 0,
+    };
 
-        pub const Output = struct {
-            link: Link,
-        };
+    pub const Input = union(enum) {
+        link: Link,
+        value: Value,
+    };
 
-        const empty_inputs: []Input = &.{};
-        const empty_outputs: []?Output = &.{};
+    pub const Output = struct {
+        link: Link,
+    };
 
-        pub const Node = struct {
-            id: NodeId,
-            desc: *const NodeDesc,
-            extra: Extra,
-            comment: ?[]const u8 = null,
-            // FIMXE: how do we handle default inputs?
-            inputs: []Input = empty_inputs,
-            outputs: []?Output = empty_outputs,
+    const empty_inputs: []Input = &.{};
+    const empty_outputs: []?Output = &.{};
 
-            // FIXME: replace this, each node belongs to a well defined flow control archetype
-            const OutExecIterator = struct {
-                index: usize = 0,
-                node: *const Node,
+    pub const Node = struct {
+        id: NodeId,
+        desc: *const NodeDesc,
+        position: Point = .{},
+        comment: ?[]const u8 = null,
+        // FIMXE: how do we handle default inputs?
+        inputs: []Input = empty_inputs,
+        outputs: []?Output = empty_outputs,
 
-                pub fn next(self: *@This()) ??Link {
-                    while (self.index < self.node.outputs.len) : (self.index += 1) {
-                        const output_desc = self.node.desc.getOutputs()[self.index];
-                        const is_exec = output_desc == .primitive and output_desc.primitive == .exec;
-                        if (!is_exec) continue;
+        // FIXME: replace this, each node belongs to a well defined flow control archetype
+        const OutExecIterator = struct {
+            index: usize = 0,
+            node: *const Node,
 
-                        const output = self.node.outputs[self.index];
+            pub fn next(self: *@This()) ??Link {
+                while (self.index < self.node.outputs.len) : (self.index += 1) {
+                    const output_desc = self.node.desc.getOutputs()[self.index];
+                    const is_exec = output_desc == .primitive and output_desc.primitive == .exec;
+                    if (!is_exec) continue;
 
-                        self.index += 1;
-                        return if (output) |o| o.link else null;
-                    }
+                    const output = self.node.outputs[self.index];
 
-                    return null;
+                    self.index += 1;
+                    return if (output) |o| o.link else null;
                 }
 
-                pub fn hasNext(self: @This()) bool {
-                    return self.index < self.node.outputs.len;
-                }
+                return null;
+            }
+
+            pub fn hasNext(self: @This()) bool {
+                return self.index < self.node.outputs.len;
+            }
+        };
+
+        fn iter_out_execs(self: @This()) OutExecIterator {
+            return OutExecIterator{ .node = self };
+        }
+
+        pub fn initEmptyPins(
+            a: std.mem.Allocator,
+            args: struct {
+                id: NodeId,
+                desc: *const NodeDesc,
+                comment: ?[]const u8 = null,
+            },
+        ) !@This() {
+            const result = @This(){
+                .id = args.id,
+                .desc = args.desc,
+                .comment = args.comment,
+                // TODO: default to zero literal
+                // TODO: handle variadic
+                .inputs = if (args.desc.maybeStaticInputsLen()) |v| try a.alloc(Input, v) else @panic("non static inputs not supported"),
+                .outputs = if (args.desc.maybeStaticOutputsLen()) |v| try a.alloc(?Output, v) else @panic("non static outputs not supported"),
             };
 
-            fn iter_out_execs(self: @This()) OutExecIterator {
-                return OutExecIterator{ .node = self };
-            }
+            for (result.inputs) |*i| i.* = .{ .value = .{ .number = 0.0 } };
+            for (result.outputs) |*o| o.* = null;
 
-            pub fn initEmptyPins(
-                a: std.mem.Allocator,
-                args: struct {
-                    desc: *const NodeDesc,
-                    extra: Extra,
-                    comment: ?[]const u8 = null,
-                },
-            ) !@This() {
-                const result = @This(){
-                    .desc = args.desc,
-                    .extra = args.extra,
-                    .comment = args.comment,
-                    // TODO: default to zero literal
-                    // TODO: handle variadic
-                    .inputs = if (args.desc.maybeStaticInputsLen()) |v| try a.alloc(Input, v) else @panic("non static inputs not supported"),
-                    .outputs = if (args.desc.maybeStaticOutputsLen()) |v| try a.alloc(?Output, v) else @panic("non static outputs not supported"),
-                };
+            return result;
+        }
 
-                for (result.inputs) |*i| i.* = .{ .value = .{ .number = 0.0 } };
-                for (result.outputs) |*o| o.* = null;
-
-                return result;
-            }
-
-            pub fn deinit(self: @This(), a: std.mem.Allocator) void {
-                if (self.inputs.ptr != empty_inputs.ptr)
-                    a.free(self.inputs);
-                if (self.outputs.ptr != empty_outputs.ptr)
-                    a.free(self.outputs);
-            }
-        };
+        pub fn deinit(self: @This(), a: std.mem.Allocator) void {
+            if (self.inputs.ptr != empty_inputs.ptr)
+                a.free(self.inputs);
+            if (self.outputs.ptr != empty_outputs.ptr)
+                a.free(self.outputs);
+        }
     };
-}
+};
 
 pub const primitive_types = struct {
     // nums
@@ -834,9 +837,9 @@ pub const Env = struct {
         return env;
     }
 
-    pub fn makeNode(self: *const @This(), a: std.mem.Allocator, kind: []const u8, extra: anytype) !?GraphTypes(@TypeOf(extra)).Node {
+    pub fn makeNode(self: *const @This(), a: std.mem.Allocator, id: GraphTypes.NodeId, kind: []const u8) !?GraphTypes.Node {
         return if (self.nodes.getPtr(kind)) |desc|
-            try GraphTypes(@TypeOf(extra)).Node.initEmptyPins(a, .{ .desc = desc, .extra = extra })
+            try GraphTypes.Node.initEmptyPins(a, .{ .id = id, .desc = desc })
         else
             null;
     }
