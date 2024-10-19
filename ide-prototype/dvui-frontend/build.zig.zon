@@ -27,6 +27,9 @@
             .url = "https://github.com/david-vanderson/dvui/archive/e58ee1df5a9ff1eb595ad1a6abf23aea0fa9aa77.zip",
             .hash = "12201359a1efa9a02fac7e43ad44bfc899107bf5aee3bf63c23f8b4c63b89a374e95",
         },
+        .grappl_core = .{
+            .path = "../../lang-lib",
+        },
     },
     .paths = .{
         "build.zig",

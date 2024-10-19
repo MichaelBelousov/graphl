@@ -16,6 +16,14 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(lib);
 
+    const grappl_core_mod = b.addModule("grappl_core", .{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .pic = true,
+    });
+    _ = grappl_core_mod;
+
     const main_tests = b.addTest(.{
         .name = "main-tests",
         .root_source_file = b.path("./src/main.zig"),

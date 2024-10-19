@@ -12,11 +12,12 @@ pub const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 pub const graphToSource = @import("./graph_to_source.zig").graphToSource;
 pub const readSrc = @import("./ide_json_gen.zig").readSrc;
 
-const GraphBuilder = @import("./graph_to_source.zig").GraphBuilder;
-const NodeId = @import("./graph_to_source.zig").NodeId;
+pub const GraphBuilder = @import("./graph_to_source.zig").GraphBuilder;
+pub const NodeId = @import("./graph_to_source.zig").NodeId;
 const IndexedNode = @import("./common.zig").GraphTypes.Node;
-const ExtraIndex = @import("./common.zig").ExtraIndex;
-const Env = @import("./nodes/builtin.zig").Env;
+// TODO: super annoying
+pub const ExtraIndex = @import("./common.zig").ExtraIndex;
+pub const Env = @import("./nodes/builtin.zig").Env;
 const NodeDesc = @import("./nodes/builtin.zig").NodeDesc;
 const Value = @import("./nodes/builtin.zig").Value;
 

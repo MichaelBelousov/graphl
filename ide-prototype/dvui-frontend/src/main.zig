@@ -1,7 +1,10 @@
 const std = @import("std");
-const dvui = @import("dvui");
 const WebBackend = @import("WebBackend");
+const grappl = @import("grappl_core");
 usingnamespace WebBackend.wasm;
+
+const dvui = @import("dvui");
+const Rect = dvui.Rect;
 
 const WriteError = error{};
 const LogWriter = std.io.Writer(void, WriteError, writeLog);
@@ -35,6 +38,7 @@ pub const std_options: std.Options = .{
     .logFn = logFn,
 };
 
+// TODO: use c_allocator cuz faster?
 var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
 const gpa = gpa_instance.allocator();
 
@@ -45,16 +49,36 @@ var orig_content_scale: f32 = 1.0;
 
 const zig_favicon = @embedFile("src/zig-favicon.png");
 
+var grappl_graph: grappl.GraphBuilder = undefined;
+
+const AppInitErrorCodes = enum(i32) {
+    BackendInitFailed = 0,
+    WindowInitFailed = 1,
+    GrapplInitFailed = 2,
+};
+
 export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
     const platform = platform_ptr[0..platform_len];
     dvui.log.debug("platform: {s}", .{platform});
     const mac = if (std.mem.indexOf(u8, platform, "Mac") != null) true else false;
 
     backend = WebBackend.init() catch {
-        return 1;
+        std.log.err("WebBackend failed to init", .{});
+        return @intFromEnum(AppInitErrorCodes.BackendInitFailed);
     };
     win = dvui.Window.init(@src(), gpa, backend.backend(), .{ .keybinds = if (mac) .mac else .windows }) catch {
-        return 2;
+        std.log.err("Window failed to init", .{});
+        return @intFromEnum(AppInitErrorCodes.WindowInitFailed);
+    };
+
+    const env = grappl.Env.initDefault(gpa) catch {
+        std.log.err("Grappl Env failed to init", .{});
+        return @intFromEnum(AppInitErrorCodes.GrapplInitFailed);
+    };
+
+    grappl_graph = grappl.GraphBuilder.init(gpa, env) catch {
+        std.log.err("Grappl Graph failed to init", .{});
+        return @intFromEnum(AppInitErrorCodes.GrapplInitFailed);
     };
 
     // small fonts look bad on the web, so bump the default theme up
@@ -74,6 +98,7 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
 export fn app_deinit() void {
     win.deinit();
     backend.deinit();
+    grappl_graph.deinit(gpa);
 }
 
 // return number of micros to wait (interrupted by events) for next frame
@@ -97,16 +122,15 @@ fn update() !i32 {
     //try backend.addAllEvents(&win);
 
     try dvui_frame();
-    //try dvui.label(@src(), "test", .{}, .{ .color_text = .{ .color = dvui.Color.white } });
 
-    //var indices: []const u32 = &[_]u32{ 0, 1, 2, 0, 2, 3 };
-    //var vtx: []const dvui.Vertex = &[_]dvui.Vertex{
-    //    .{ .pos = .{ .x = 100, .y = 150 }, .uv = .{ 0.0, 0.0 }, .col = .{} },
-    //    .{ .pos = .{ .x = 200, .y = 150 }, .uv = .{ 1.0, 0.0 }, .col = .{ .g = 0, .b = 0, .a = 200 } },
-    //    .{ .pos = .{ .x = 200, .y = 250 }, .uv = .{ 1.0, 1.0 }, .col = .{ .r = 0, .b = 0, .a = 100 } },
-    //    .{ .pos = .{ .x = 100, .y = 250 }, .uv = .{ 0.0, 1.0 }, .col = .{ .r = 0, .g = 0 } },
-    //};
-    //backend.drawClippedTriangles(null, vtx, indices);
+    // const indices: []const u16 = &[_]u16{ 0, 1, 2, 0, 2, 3 };
+    // const vtx: []const dvui.Vertex = &[_]dvui.Vertex{
+    //     .{ .pos = .{ .x = 100, .y = 150 }, .uv = .{ 0.0, 0.0 }, .col = .{} },
+    //     .{ .pos = .{ .x = 200, .y = 150 }, .uv = .{ 1.0, 0.0 }, .col = .{ .g = 0, .b = 0, .a = 200 } },
+    //     .{ .pos = .{ .x = 200, .y = 250 }, .uv = .{ 1.0, 1.0 }, .col = .{ .r = 0, .b = 0, .a = 100 } },
+    //     .{ .pos = .{ .x = 100, .y = 250 }, .uv = .{ 0.0, 1.0 }, .col = .{ .r = 0, .g = 0 } },
+    // };
+    // backend.drawClippedTriangles(null, vtx, indices, null);
 
     const end_micros = try win.end(.{});
 
@@ -156,6 +180,7 @@ fn dvui_frame() !void {
         }
     }
 
+    // file menu
     {
         var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .expand = .horizontal });
         defer m.deinit();
@@ -178,36 +203,50 @@ fn dvui_frame() !void {
         }
     }
 
+    const ctext = try dvui.context(@src(), .{ .expand = .horizontal });
+    defer ctext.deinit();
+
+    if (ctext.activePoint()) |cp| {
+        var fw2 = try dvui.floatingMenu(@src(), Rect.fromPoint(cp), .{});
+        defer fw2.deinit();
+
+        {
+            var iter = grappl_graph.env.nodes.keyIterator();
+            var i: u32 = 0;
+            while (iter.next()) |node_name| {
+                if ((try dvui.menuItemLabel(@src(), node_name.*, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
+                    const node = grappl_graph.env.makeNode(gpa, node_name.*, grappl.ExtraIndex{ .index = 0 }) catch unreachable orelse unreachable;
+                    // TODO: use diagnostic
+                    const node_id = try grappl_graph.addNode(gpa, node, false, null, null);
+                    _ = node_id;
+                    fw2.close();
+                }
+                i += 1;
+            }
+        }
+
+        if ((try dvui.menuItemLabel(@src(), "Close Menu", .{}, .{ .expand = .horizontal })) != null) {
+            fw2.close();
+        }
+    }
+
     var scroll = try dvui.scrollArea(@src(), .{}, .{ .expand = .both, .color_fill = .{ .name = .fill_window } });
     defer scroll.deinit();
 
     var tl = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
-    const lorem = "This example shows how to use dvui in a web canvas.";
+    const lorem = "Grappl Test Editor";
     try tl.addText(lorem, .{});
     tl.deinit();
 
     var tl2 = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal });
     try tl2.format(
-        \\DVUI
-        \\- paints the entire window
-        \\- can show floating windows and dialogs
-        \\- example menu at the top of the window
-        \\- rest of the window is a scroll area
+        \\Graph below
+        \\Hello graph!
+        \\Man how will I use Monaco with this?
         \\
         \\backend: {s}
+        \\
     , .{backend.about()}, .{});
-    try tl2.addText("\n\n", .{});
-    try tl2.addText("Framerate is variable and adjusts as needed for input events and animations.", .{});
-    try tl2.addText("\n\n", .{});
-    try tl2.addText("Cursor is always being set by dvui.", .{});
-    try tl2.addText("\n\n", .{});
-    if (dvui.useFreeType) {
-        try tl2.addText("Fonts are being rendered by FreeType 2.", .{});
-    } else {
-        try tl2.addText("Fonts are being rendered by stb_truetype.", .{});
-    }
-    try tl2.addText("\n\n", .{});
-    try tl2.format("Scale: {d:0.2} (try pinch-zoom)", .{dvui.windowNaturalScale()}, .{});
     tl2.deinit();
 
     if (try dvui.button(@src(), "Reset Scale", .{}, .{})) {
@@ -221,6 +260,15 @@ fn dvui_frame() !void {
 
     // look at demo() for examples of dvui widgets, shows in a floating window
     try dvui.Examples.demo();
+
+    {
+        var node_iter = grappl_graph.nodes.map.iterator();
+        while (node_iter.next()) |entry| {
+            const node_id = entry.key_ptr.*;
+            const node = entry.value_ptr.*;
+            try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .color_text = .{ .color = dvui.Color.white }, .id_extra = @intCast(node_id) });
+        }
+    }
 
     if (new_content_scale) |ns| {
         win.content_scale = ns;

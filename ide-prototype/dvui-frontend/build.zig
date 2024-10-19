@@ -13,6 +13,7 @@ pub fn build(b: *std.Build) void {
     };
 
     const dvui_dep = b.dependency("dvui", .{});
+    const grappl_core_dep = b.dependency("grappl_core", .{});
 
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
@@ -35,6 +36,7 @@ pub fn build(b: *std.Build) void {
 
     exe.root_module.addImport("dvui", dvui_dep.module("dvui_web"));
     exe.root_module.addImport("WebBackend", dvui_dep.module("WebBackend"));
+    exe.root_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
