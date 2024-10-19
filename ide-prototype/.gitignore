@@ -7,3 +7,8 @@ lib
 # vite
 dist
 .vite-inspect
+
+
+# build generated
+WebBackend.js
+index.html

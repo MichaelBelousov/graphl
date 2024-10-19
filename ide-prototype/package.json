@@ -1,24 +1,15 @@
 {
-  "name": "graph-lang-ide-prototype",
+  "name": "graph-lang-ide-prototype-dvui",
   "scripts": {
-    "build": "vite build --mode production",
-    "preview": "vite preview",
-    "dev": "pnpm run dev:frontend & pnpm run dev:backend &",
-    "dev:frontend": "vite --port 3002",
-    "dev:backend": "echo backend not setup",
+    "build": "zig build && cd ./zig-out/bin && vite build --mode production",
+    "preview": "cd ./zig-out/bin && vite preview",
+    "dev": "cd ./zig-out/bin && vite --port 3001",
+    "dev:zig": "git ls-files | entr -rc zig build",
     "test": "mocha --config ./.mocharc.js tests/unit/**/*.test.ts",
     "test:e2e": "playwright test tests/e2e"
   },
   "devDependencies": {
-    "@bentley/react-hooks": "^1.2.0",
     "@playwright/test": "^1.30.0",
-    "@types/chai": "^4.3.4",
-    "@types/jsdom-global": "^3.0.4",
-    "@types/mocha": "^10.0.1",
-    "@types/node": "^18.11.18",
-    "@types/react": "^18.2.14",
-    "@types/react-dom": "^18.2.6",
-    "@types/sinon": "^10.0.13",
     "@vitejs/plugin-react": "^3.0.1",
     "chai": "^4.3.7",
     "jsdom": "^21.1.0",
@@ -26,19 +17,12 @@
     "mocha": "^10.2.0",
     "monaco-editor": "^0.39.0",
     "playwright-core": "^1.30.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "reactflow": "^11.7.4",
     "rollup-plugin-visualizer": "^5.9.0",
-    "rollup-plugin-zigar": "^0.13.2",
-    "sinon": "^15.0.1",
     "ts-node": "^10.9.1",
     "typescript": "5.0.0-beta",
     "vite": "^4.0.4",
     "vite-plugin-inspect": "^0.7.15"
   },
   "dependencies": {
-    "@types/lodash.debounce": "^4.0.9",
-    "lodash.debounce": "^4.0.8"
   }
 }

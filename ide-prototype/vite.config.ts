@@ -6,9 +6,6 @@ import { defineConfig, loadEnv } from "vite";
 export default defineConfig(async ({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ""));
 
-  // TODO: use node version that supports require?
-  const zigar = (await import("rollup-plugin-zigar")).default;
-
   return {
     server: {
       port: 3000,
@@ -16,12 +13,6 @@ export default defineConfig(async ({ mode }) => {
     },
     plugins: [
       react(),
-      zigar({
-        topLevelAwait: false,
-        optimize: mode === 'production' ? 'ReleaseSmall' : 'Debug',
-        cacheDir: "../lang-lib/.zig-cache",
-        stripWASM: mode === "production",
-      }),
       ...(mode === "development" ? [viteInspect({ build: true })] : []),
     ],
     css: {
@@ -42,9 +33,6 @@ export default defineConfig(async ({ mode }) => {
         },
       },
     },
-    define: {
-      "process.env": process.env,
-    },
     build: {
       minify: mode === "production" && "esbuild",
       sourcemap: mode === "development",
@@ -54,6 +42,6 @@ export default defineConfig(async ({ mode }) => {
         plugins: [...(mode === "development" ? [rollupVisualizer()] : [])],
       },
     },
-    envPrefix: "MDXEDIT_",
+    envPrefix: "GRAPPL_",
   };
 });
