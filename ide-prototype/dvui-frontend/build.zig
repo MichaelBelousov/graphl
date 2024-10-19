@@ -14,22 +14,6 @@ pub fn build(b: *std.Build) void {
 
     const dvui_dep = b.dependency("dvui", .{});
 
-    // const dvui_mod_web = b.addModule("dvui_web", .{
-    //     .root_source_file = b.path("src/dvui.zig"),
-    //     .target = b.resolveTargetQuery(web_target),
-    //     .optimize = optimize,
-    // });
-    //
-    // dvui_mod_web.addCSourceFiles(.{
-    //     .files = &.{
-    //         "src/stb/stb_image_impl.c",
-    //         "src/stb/stb_truetype_impl.c",
-    //     },
-    //     .flags = &.{"-DINCLUDE_CUSTOM_LIBC_FUNCS=1"},
-    // });
-    //
-    // dvui_mod_web.addIncludePath(b.path("src/stb"));
-
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
@@ -38,7 +22,7 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "dvui-frontend",
         .root_source_file = b.path("src/main.zig"),
-        .target = web_target,
+        .target = b.resolveTargetQuery(web_target),
         .optimize = optimize,
         .link_libc = true,
         .strip = switch (optimize) {
@@ -72,7 +56,7 @@ pub fn build(b: *std.Build) void {
 
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(output, .prefix, "bin/index.html").step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(dvui_dep.path("src/backends/WebBackend.js"), .prefix, "bin/WebBackend.js").step);
-    b.getInstallStep().dependOn(install_exe);
+    b.getInstallStep().dependOn(&install_exe.step);
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish
