@@ -49,8 +49,6 @@ var backend: WebBackend = undefined;
 var touchPoints: [2]?dvui.Point = [_]?dvui.Point{null} ** 2;
 var orig_content_scale: f32 = 1.0;
 
-const zig_favicon = @embedFile("src/zig-favicon.png");
-
 var grappl_graph: grappl.GraphBuilder = undefined;
 
 const AppInitErrorCodes = enum(i32) {
@@ -132,15 +130,6 @@ fn update() !i32 {
 
     try dvui_frame();
 
-    // const indices: []const u16 = &[_]u16{ 0, 1, 2, 0, 2, 3 };
-    // const vtx: []const dvui.Vertex = &[_]dvui.Vertex{
-    //     .{ .pos = .{ .x = 100, .y = 150 }, .uv = .{ 0.0, 0.0 }, .col = .{} },
-    //     .{ .pos = .{ .x = 200, .y = 150 }, .uv = .{ 1.0, 0.0 }, .col = .{ .g = 0, .b = 0, .a = 200 } },
-    //     .{ .pos = .{ .x = 200, .y = 250 }, .uv = .{ 1.0, 1.0 }, .col = .{ .r = 0, .b = 0, .a = 100 } },
-    //     .{ .pos = .{ .x = 100, .y = 250 }, .uv = .{ 0.0, 1.0 }, .col = .{ .r = 0, .g = 0 } },
-    // };
-    // backend.drawClippedTriangles(null, vtx, indices, null);
-
     const end_micros = try win.end(.{});
 
     backend.setCursor(win.cursorRequested());
@@ -150,41 +139,120 @@ fn update() !i32 {
     return @intCast(@divTrunc(wait_event_micros, 1000));
 }
 
+fn renderGraph() !void {
+    // place nodes
+    {
+        var node_iter = grappl_graph.nodes.map.iterator();
+        while (node_iter.next()) |entry| {
+            const node_id = entry.key_ptr.*;
+            const node = entry.value_ptr.*;
+            try renderNode(node_id, node);
+        }
+    }
+
+    // place edges
+    {
+        var node_iter = grappl_graph.nodes.map.iterator();
+        while (node_iter.next()) |entry| {
+            const node = entry.value_ptr.*;
+            for (node.inputs) |input| {
+                switch (input) {
+                    .link => |link| {
+                        //link.target.node.position
+                        _ = link;
+                    },
+                    else => {},
+                }
+            }
+            // const indices: []const u16 = &[_]u16{ 0, 1, 2, 0, 2, 3 };
+            // const vtx: []const dvui.Vertex = &[_]dvui.Vertex{
+            //     .{ .pos = .{ .x = 100, .y = 150 }, .uv = .{ 0.0, 0.0 }, .col = .{} },
+            //     .{ .pos = .{ .x = 200, .y = 150 }, .uv = .{ 1.0, 0.0 }, .col = .{ .g = 0, .b = 0, .a = 200 } },
+            //     .{ .pos = .{ .x = 200, .y = 250 }, .uv = .{ 1.0, 1.0 }, .col = .{ .r = 0, .b = 0, .a = 100 } },
+            //     .{ .pos = .{ .x = 100, .y = 250 }, .uv = .{ 0.0, 1.0 }, .col = .{ .r = 0, .g = 0 } },
+            // };
+            // backend.drawClippedTriangles(null, vtx, indices, null);
+
+        }
+    }
+}
+
 // TODO: remove need for id, it should be inside the node itself
-fn render_node(node_id: grappl.NodeId, node: grappl.Node) !void {
-    const box = try dvui.boxEqual(@src(), .vertical, .{ .rect = Rect{ .x = @floatFromInt(200 + node_id * 100), .y = 50, .w = 100, .h = 50 }, .id_extra = @intCast(node_id) });
+fn renderNode(node_id: grappl.NodeId, node: grappl.Node) !void {
+    const box = try dvui.boxEqual(
+        @src(),
+        .vertical,
+        .{
+            // TODO: rect is
+            //.rect = Rect{ .x = @floatFromInt(200 + node_id * 120), .y = 0, .w = 100, .h = 50 },
+            .id_extra = @intCast(node_id),
+            //.color_fill = .{ .color = try dvui.Color.fromHex(@as(*const [7]u8, @ptrCast(&"#ff0000"[0])).*) },
+            .color_fill = .{ .color = .{ .r = 0xff, .g = 0, .b = 0, .a = 0xff } },
+            .debug = true,
+            .margin = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
+            .padding = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
+            .border = .{ .h = 1, .w = 1, .x = 1, .y = 1 },
+            .corner_radius = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
+            .color_border = .{ .color = dvui.Color.black },
+        },
+    );
     defer box.deinit();
 
-    try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .color_text = .{ .color = dvui.Color.black } });
+    try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .color_text = .{ .color = dvui.Color.black }, .font_style = .title_2 });
 
-    const icon_opts = dvui.Options{ .gravity_y = 0.5, .min_size_content = .{ .h = 12 } };
-
-    for (node.desc.getInputs(), 0..) |i, j| {
+    for (node.desc.getInputs(), node.inputs, 0..) |input_desc, input, j| {
         // FIXME: inputs should have their own name!
 
-        _ = try dvui.label(@src(), "{s}", .{i.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
-        if (i.kind.primitive == .exec) {
-            try dvui.icon(@src(), "cycle", entypo.cycle, icon_opts);
+        const icon_opts = dvui.Options{
+            .min_size_content = .{ .h = 20, .w = 20 },
+            .gravity_y = 0.5,
+            .id_extra = j,
+        };
+
+        _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
+        if (input_desc.kind.primitive == .exec) {
+            try dvui.icon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, icon_opts);
             // FIXME: report compiler bug
             // } else switch (i.kind.primitive.value) {
             //     grappl.primitive_types.i32_ => {
-        } else if (i.kind.primitive.value == grappl.primitive_types.i32_) {
+        } else if (input_desc.kind.primitive.value == grappl.primitive_types.i32_) {
             const result = try dvui.textEntryNumber(@src(), i32, .{}, .{ .id_extra = j });
             // TODO:
             _ = result;
             //node.inputs[j] = .{.literal}
+            //
+            // TODO: inline for (.{"f64_", "i32_"}) |name| {
+            //  @field(grappl.primitive_types, name)
+            // }
+        } else if (input_desc.kind.primitive.value == grappl.primitive_types.f64_) {
+            const result = try dvui.textEntryNumber(@src(), f64, .{}, .{ .id_extra = j });
+            // TODO:
+            _ = result;
+            //node.inputs[j] = .{.literal}
+        } else if (input_desc.kind.primitive.value == grappl.primitive_types.bool_ and input == .value) {
+            var val = false;
+            const result = try dvui.checkbox(@src(), &val, null, .{ .id_extra = j });
+            // TODO:
+            _ = result;
+            //node.inputs[j] = .{.literal}
         } else {
-            try dvui.label(@src(), "Unknown type: {s}", .{i.kind.primitive.value.name}, .{ .color_text = .{ .color = dvui.Color.black } });
+            try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
         }
     }
 
-    for (node.desc.getOutputs()) |o| {
-        // FIXME: outputs should have names!
-        _ = try dvui.label(@src(), "{s}", .{o.kind.primitive.value.name}, .{ .color_text = .{ .color = dvui.Color.black } });
-        if (o.kind.primitive == .exec) {
-            try dvui.icon(@src(), "cycle", entypo.cycle, icon_opts);
+    for (node.desc.getOutputs(), node.outputs, 0..) |output_desc, output, j| {
+        const icon_opts = dvui.Options{
+            .min_size_content = .{ .h = 20, .w = 20 },
+            .gravity_y = 0.5,
+            .id_extra = j,
+        };
+
+        _ = output;
+        _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
+        if (output_desc.kind.primitive == .exec) {
+            try dvui.icon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, icon_opts);
         } else {
-            try dvui.icon(@src(), "cycle", entypo.cycle, icon_opts);
+            try dvui.icon(@src(), "circle", entypo.circle, icon_opts);
         }
     }
 }
@@ -308,14 +376,7 @@ fn dvui_frame() !void {
     // look at demo() for examples of dvui widgets, shows in a floating window
     try dvui.Examples.demo();
 
-    {
-        var node_iter = grappl_graph.nodes.map.iterator();
-        while (node_iter.next()) |entry| {
-            const node_id = entry.key_ptr.*;
-            const node = entry.value_ptr.*;
-            try render_node(node_id, node);
-        }
-    }
+    try renderGraph();
 
     if (new_content_scale) |ns| {
         win.content_scale = ns;
