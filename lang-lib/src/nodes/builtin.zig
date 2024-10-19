@@ -111,6 +111,8 @@ pub const NodeDesc = struct {
 
 pub fn GraphTypes(comptime Extra: type) type {
     return struct {
+        pub const NodeId = u32;
+
         pub const Link = struct {
             target: *const Node,
             pin_index: u32,
@@ -131,6 +133,7 @@ pub fn GraphTypes(comptime Extra: type) type {
         const empty_outputs: []?Output = &.{};
 
         pub const Node = struct {
+            id: NodeId,
             desc: *const NodeDesc,
             extra: Extra,
             comment: ?[]const u8 = null,

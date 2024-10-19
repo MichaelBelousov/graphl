@@ -148,7 +148,7 @@ const Socket = struct {
 
 fn renderGraph() !void {
     // TODO: use link struct?
-    var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Rect){};
+    var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Point){};
     defer socket_positions.deinit(gpa);
 
     // place nodes
@@ -165,25 +165,35 @@ fn renderGraph() !void {
     {
         var node_iter = grappl_graph.nodes.map.iterator();
         while (node_iter.next()) |entry| {
+            const node_id = entry.key_ptr.*;
             const node = entry.value_ptr.*;
-            for (node.inputs) |input| {
-                switch (input) {
-                    .link => |link| {
-                        //link.target.node.position
-                        _ = link;
-                    },
-                    else => {},
-                }
-            }
 
-            const indices: []const u16 = &[_]u16{ 0, 1, 2, 0, 2, 3 };
-            const vtx: []const dvui.Vertex = &[_]dvui.Vertex{
-                .{ .pos = .{ .x = 100, .y = 150 }, .uv = .{ 0.0, 0.0 }, .col = .{} },
-                .{ .pos = .{ .x = 200, .y = 150 }, .uv = .{ 1.0, 0.0 }, .col = .{ .g = 0, .b = 0, .a = 200 } },
-                .{ .pos = .{ .x = 200, .y = 250 }, .uv = .{ 1.0, 1.0 }, .col = .{ .r = 0, .b = 0, .a = 100 } },
-                .{ .pos = .{ .x = 100, .y = 250 }, .uv = .{ 0.0, 1.0 }, .col = .{ .r = 0, .g = 0 } },
-            };
-            backend.drawClippedTriangles(null, vtx, indices, null);
+            for (node.inputs, 0..) |input, input_index| {
+                if (input != .link)
+                    continue;
+
+                const source = Socket{
+                    .node_id = node_id,
+                    .kind = .output,
+                    .index = input_index,
+                };
+
+                const input_pos = socket_positions.get(source) orelse unreachable;
+
+                const target = Socket{
+                    .node_id = input.link.target.id,
+                    .kind = .input,
+                    .index = input.link.pin_index,
+                };
+
+                const output_pos = socket_positions.get(target) orelse unreachable;
+
+                const scale = win.wd.contentRectScale();
+                try dvui.pathAddPoint(scale.pointToScreen(input_pos));
+                try dvui.pathAddPoint(scale.pointToScreen(output_pos));
+                const stroke_color = dvui.Color{ .r = 0, .g = 0, .b = 255, .a = 150 };
+                try dvui.pathStroke(false, scale.s * 1.0, .square, stroke_color);
+            }
         }
     }
 }
@@ -192,7 +202,7 @@ fn renderGraph() !void {
 fn renderNode(
     node_id: grappl.NodeId,
     node: grappl.Node,
-    socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Rect),
+    socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Point),
 ) !void {
     //dvui.parentGet().rectFor();
     const box = try dvui.boxEqual(
@@ -232,7 +242,7 @@ fn renderNode(
         _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
         if (input_desc.kind.primitive == .exec) {
             const icon = try dvui.icon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, icon_opts);
-            try socket_positions.put(gpa, .{ .node_id = node_id, .kind = .input, .index = j }, icon.wd.contentRect());
+            try socket_positions.put(gpa, .{ .node_id = node_id, .kind = .input, .index = j }, icon.wd.contentRect().topLeft());
             // FIXME: report compiler bug
             // } else switch (i.kind.primitive.value) {
             //     grappl.primitive_types.i32_ => {

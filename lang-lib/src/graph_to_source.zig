@@ -37,7 +37,8 @@ pub const ImportBinding = struct {
 
 // FIXME: should probably have u32 for node ids, i64 is from when Math.random()
 // in javascript was primary interface
-pub const NodeId = i64;
+// FIXME: deprecate, access this directly
+pub const NodeId = GraphTypes.NodeId;
 
 /// all APIs taking an allocator must use the same allocator
 pub const GraphBuilder = struct {
