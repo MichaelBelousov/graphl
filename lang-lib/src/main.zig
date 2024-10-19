@@ -15,6 +15,8 @@ pub const readSrc = @import("./ide_json_gen.zig").readSrc;
 pub const GraphBuilder = @import("./graph_to_source.zig").GraphBuilder;
 pub const NodeId = @import("./graph_to_source.zig").NodeId;
 const IndexedNode = @import("./common.zig").GraphTypes.Node;
+pub const Node = @import("./common.zig").GraphTypes.Node;
+pub const Link = @import("./common.zig").GraphTypes.Link;
 // TODO: super annoying
 pub const ExtraIndex = @import("./common.zig").ExtraIndex;
 pub const Env = @import("./nodes/builtin.zig").Env;

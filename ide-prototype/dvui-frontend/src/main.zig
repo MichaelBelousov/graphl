@@ -1,10 +1,11 @@
 const std = @import("std");
 const WebBackend = @import("WebBackend");
-const grappl = @import("grappl_core");
 usingnamespace WebBackend.wasm;
 
 const dvui = @import("dvui");
 const Rect = dvui.Rect;
+
+const grappl = @import("grappl_core");
 
 const WriteError = error{};
 const LogWriter = std.io.Writer(void, WriteError, writeLog);
@@ -81,6 +82,13 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
         return @intFromEnum(AppInitErrorCodes.GrapplInitFailed);
     };
 
+    {
+        const plus_node = grappl_graph.env.makeNode(gpa, "+", grappl.ExtraIndex{ .index = 0 }) catch unreachable orelse unreachable;
+        _ = grappl_graph.addNode(gpa, plus_node, false, null, null) catch unreachable;
+        const set_node = grappl_graph.env.makeNode(gpa, "set!", grappl.ExtraIndex{ .index = 0 }) catch unreachable orelse unreachable;
+        _ = grappl_graph.addNode(gpa, set_node, false, null, null) catch unreachable;
+    }
+
     // small fonts look bad on the web, so bump the default theme up
     var theme = win.themes.get("Adwaita Light").?;
     win.themes.put("Adwaita Light", theme.fontSizeAdd(2)) catch {};
@@ -139,6 +147,37 @@ fn update() !i32 {
 
     const wait_event_micros = win.waitTime(end_micros, null);
     return @intCast(@divTrunc(wait_event_micros, 1000));
+}
+
+// TODO: remove need for id, it should be inside the node itself
+fn render_node(node_id: grappl.NodeId, node: grappl.Node) !void {
+    const box = try dvui.boxEqual(@src(), .vertical, .{ .rect = Rect{ .x = @floatFromInt(200 + node_id * 100), .y = 50, .w = 100, .h = 50 }, .id_extra = @intCast(node_id) });
+    defer box.deinit();
+
+    try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .color_text = .{ .color = dvui.Color.black } });
+
+    for (node.desc.getInputs()) |i| {
+        _ = try dvui.label(@src(), "{s}", .{i.name}, .{ .color_text = .{ .color = dvui.Color.black } });
+        if (i.primitive == .exec) {
+            try dvui.icon("");
+        } else switch (i.primitive.value) {}
+        //try dvui.label(@src(), "{s}", .{i.primitive.value}, .{ .color_text = .{ .color = dvui.Color.black } });
+
+    }
+
+    for (node.desc.getOutputs()) |o| {
+        _ = try dvui.label(@src(), "{s}", .{o.name}, .{ .color_text = .{ .color = dvui.Color.black } });
+        if (o.primitive == .exec) {
+            try dvui.icon("");
+        } else if (o.primitive.value == grappl_graph.env.types.getPtr("i32")) {
+            try dvui.textEntryNumber(@src(), u32, .{});
+            //
+        } else if (o.primitive.value == grappl_graph.env.types.getPtr("i32")) {
+            //
+        } else {
+            return error.BadOutput;
+        }
+    }
 }
 
 fn dvui_frame() !void {
@@ -266,7 +305,7 @@ fn dvui_frame() !void {
         while (node_iter.next()) |entry| {
             const node_id = entry.key_ptr.*;
             const node = entry.value_ptr.*;
-            try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .color_text = .{ .color = dvui.Color.white }, .id_extra = @intCast(node_id) });
+            try render_node(node_id, node);
         }
     }
 
