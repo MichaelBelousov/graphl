@@ -1,5 +1,3 @@
-// TODO: rename to zigar_main
-
 const std = @import("std");
 const builtin = @import("builtin");
 
@@ -20,6 +18,7 @@ pub const Link = @import("./common.zig").GraphTypes.Link;
 // TODO: super annoying
 pub const ExtraIndex = @import("./common.zig").ExtraIndex;
 pub const Env = @import("./nodes/builtin.zig").Env;
+pub const primitive_types = @import("./nodes/builtin.zig").primitive_types;
 const NodeDesc = @import("./nodes/builtin.zig").NodeDesc;
 const Value = @import("./nodes/builtin.zig").Value;
 

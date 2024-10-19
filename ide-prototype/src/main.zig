@@ -3,6 +3,7 @@ const WebBackend = @import("WebBackend");
 usingnamespace WebBackend.wasm;
 
 const dvui = @import("dvui");
+const entypo = @import("dvui").entypo;
 const Rect = dvui.Rect;
 
 const grappl = @import("grappl_core");
@@ -156,26 +157,34 @@ fn render_node(node_id: grappl.NodeId, node: grappl.Node) !void {
 
     try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .color_text = .{ .color = dvui.Color.black } });
 
-    for (node.desc.getInputs()) |i| {
-        _ = try dvui.label(@src(), "{s}", .{i.name}, .{ .color_text = .{ .color = dvui.Color.black } });
-        if (i.primitive == .exec) {
-            try dvui.icon("");
-        } else switch (i.primitive.value) {}
-        //try dvui.label(@src(), "{s}", .{i.primitive.value}, .{ .color_text = .{ .color = dvui.Color.black } });
+    const icon_opts = dvui.Options{ .gravity_y = 0.5, .min_size_content = .{ .h = 12 } };
 
+    for (node.desc.getInputs(), 0..) |i, j| {
+        // FIXME: inputs should have their own name!
+
+        _ = try dvui.label(@src(), "{s}", .{i.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
+        if (i.kind.primitive == .exec) {
+            try dvui.icon(@src(), "cycle", entypo.cycle, icon_opts);
+            // FIXME: report compiler bug
+            // } else switch (i.kind.primitive.value) {
+            //     grappl.primitive_types.i32_ => {
+        } else if (i.kind.primitive.value == grappl.primitive_types.i32_) {
+            const result = try dvui.textEntryNumber(@src(), i32, .{}, .{ .id_extra = j });
+            // TODO:
+            _ = result;
+            //node.inputs[j] = .{.literal}
+        } else {
+            try dvui.label(@src(), "Unknown type: {s}", .{i.kind.primitive.value.name}, .{ .color_text = .{ .color = dvui.Color.black } });
+        }
     }
 
     for (node.desc.getOutputs()) |o| {
-        _ = try dvui.label(@src(), "{s}", .{o.name}, .{ .color_text = .{ .color = dvui.Color.black } });
-        if (o.primitive == .exec) {
-            try dvui.icon("");
-        } else if (o.primitive.value == grappl_graph.env.types.getPtr("i32")) {
-            try dvui.textEntryNumber(@src(), u32, .{});
-            //
-        } else if (o.primitive.value == grappl_graph.env.types.getPtr("i32")) {
-            //
+        // FIXME: outputs should have names!
+        _ = try dvui.label(@src(), "{s}", .{o.kind.primitive.value.name}, .{ .color_text = .{ .color = dvui.Color.black } });
+        if (o.kind.primitive == .exec) {
+            try dvui.icon(@src(), "cycle", entypo.cycle, icon_opts);
         } else {
-            return error.BadOutput;
+            try dvui.icon(@src(), "cycle", entypo.cycle, icon_opts);
         }
     }
 }
@@ -273,8 +282,7 @@ fn dvui_frame() !void {
     defer scroll.deinit();
 
     var tl = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
-    const lorem = "Grappl Test Editor";
-    try tl.addText(lorem, .{});
+    try tl.addText("Grappl Test Editor", .{});
     tl.deinit();
 
     var tl2 = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal });
