@@ -20,7 +20,10 @@ const Env = @import("./nodes/builtin.zig").Env;
 const NodeDesc = @import("./nodes/builtin.zig").NodeDesc;
 const Value = @import("./nodes/builtin.zig").Value;
 
+pub const alloc = std.heap.wasm_allocator;
+
 pub const JsGraphBuilder = struct {
+    // FIXME: this breaks zigar!
     // erase type so zigar doesn't complain
     _inner: [@sizeOf(GraphBuilder)]u8 align(@alignOf(GraphBuilder)),
 
@@ -28,24 +31,23 @@ pub const JsGraphBuilder = struct {
         return @ptrCast(&self._inner[0]);
     }
 
-    pub fn init(a: std.mem.Allocator) !@This() {
-        const env = try Env.initDefault(a);
+    pub fn init() !@This() {
+        const env = try Env.initDefault(alloc);
         var result = @This(){ ._inner = undefined };
-        result.inner().* = try GraphBuilder.init(a, env);
+        result.inner().* = try GraphBuilder.init(alloc, env);
         return result;
     }
 
-    pub fn deinit(self: *@This(), a: std.mem.Allocator) void {
-        // FIXME: does this even work with zigar?
-        self.inner().deinit(a);
+    pub fn deinit(self: *@This()) void {
+        self.inner().deinit(alloc);
     }
 
-    pub fn makeNode(self: *@This(), a: std.mem.Allocator, kind: []const u8) !IndexedNode {
-        return try self.inner().env.makeNode(a, kind, ExtraIndex{ .index = 0 }) orelse error.UnknownNodeType;
+    pub fn makeNode(self: *@This(), kind: []const u8) !IndexedNode {
+        return try self.inner().env.makeNode(alloc, kind, ExtraIndex{ .index = 0 }) orelse error.UnknownNodeType;
     }
 
-    pub fn addNode(self: *@This(), a: std.mem.Allocator, node: IndexedNode, is_entry: bool) !NodeId {
-        return self.inner().addNode(a, node, is_entry, null, null);
+    pub fn addNode(self: *@This(), node: IndexedNode, is_entry: bool) !NodeId {
+        return self.inner().addNode(alloc, node, is_entry, null, null);
     }
 
     pub fn addEdge(self: *@This(), source_id: NodeId, src_out_pin: u32, target_id: NodeId, target_in_pin: u32) !void {
@@ -68,13 +70,13 @@ pub const JsGraphBuilder = struct {
         return try self.inner().addLiteralInput(source_id, src_in_pin, 0, Value{ .symbol = value });
     }
 
-    pub fn compile(self: *@This(), a: std.mem.Allocator) ![]const u8 {
-        var buffer = std.ArrayList(u8).init(a);
+    pub fn compile(self: *@This()) ![]const u8 {
+        var buffer = std.ArrayList(u8).init(alloc);
         defer buffer.deinit();
 
-        const sexp = try self.inner().compile(a);
+        const sexp = try self.inner().compile(alloc);
         // FIXME: does this even work?
-        defer sexp.deinit(a);
+        defer sexp.deinit(alloc);
 
         _ = try sexp.write(buffer.writer());
 

@@ -692,11 +692,10 @@ test "node types" {
 pub const Env = struct {
     types: std.StringHashMapUnmanaged(TypeInfo),
     nodes: std.StringHashMapUnmanaged(NodeDesc),
-    alloc: std.mem.Allocator,
 
-    pub fn deinit(self: *@This()) void {
-        self.types.clearAndFree(self.alloc);
-        self.nodes.clearAndFree(self.alloc);
+    pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+        self.types.clearAndFree(alloc);
+        self.nodes.clearAndFree(alloc);
     }
 
     pub fn initDefault(alloc: std.mem.Allocator) !@This() {
@@ -704,7 +703,6 @@ pub const Env = struct {
             .types = std.StringHashMapUnmanaged(TypeInfo){},
             // could be macro, function, operator
             .nodes = std.StringHashMapUnmanaged(NodeDesc){},
-            .alloc = alloc,
         };
 
         inline for (&.{ primitive_types, temp_ue.types }) |types| {
@@ -731,7 +729,7 @@ pub const Env = struct {
         return env;
     }
 
-    pub fn makeNode(self: @This(), a: std.mem.Allocator, kind: []const u8, extra: anytype) !?GraphTypes(@TypeOf(extra)).Node {
+    pub fn makeNode(self: *const @This(), a: std.mem.Allocator, kind: []const u8, extra: anytype) !?GraphTypes(@TypeOf(extra)).Node {
         return if (self.nodes.getPtr(kind)) |desc|
             try GraphTypes(@TypeOf(extra)).Node.initEmptyPins(a, .{ .desc = desc, .extra = extra })
         else
@@ -741,6 +739,6 @@ pub const Env = struct {
 
 test "env" {
     var env = try Env.initDefault(std.testing.allocator);
-    defer env.deinit();
+    defer env.deinit(std.testing.allocator);
     try std.testing.expect(env.types.contains("u32"));
 }
