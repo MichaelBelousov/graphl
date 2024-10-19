@@ -185,13 +185,13 @@ pub const GraphBuilder = struct {
 
         if (start_index >= start.outputs.len) {
             // TODO: return diagnostic
-            std.debug.print("start_index {} not valid, only {} available inputs\n", .{ start_index, start.outputs.len });
+            std.log.err("start_index {} not valid, only {} available inputs\n", .{ start_index, start.outputs.len });
             return error.SourceIndexInvalid;
         }
 
         if (end_index >= end.inputs.len) {
             // TODO: return diagnostic
-            std.debug.print("end_index {} not valid, only {} available inputs\n", .{ end_index, end.inputs.len });
+            std.log.err("end_index {} not valid, only {} available inputs\n", .{ end_index, end.inputs.len });
             return error.TargetIndexInvalid;
         }
 

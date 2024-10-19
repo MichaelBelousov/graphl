@@ -467,18 +467,18 @@ pub const builtin_nodes = struct {
     pub const max: NodeDesc = basicNode(&.{
         .name = "max",
         .inputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
     pub const min: NodeDesc = basicNode(&.{
-        .name = "max",
+        .name = "min",
         .inputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -487,8 +487,8 @@ pub const builtin_nodes = struct {
     pub const @"*": NodeDesc = basicNode(&.{
         .name = "*",
         .inputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -497,8 +497,8 @@ pub const builtin_nodes = struct {
     pub const @"/": NodeDesc = basicNode(&.{
         .name = "/",
         .inputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -507,12 +507,12 @@ pub const builtin_nodes = struct {
     pub const @"if": NodeDesc = basicNode(&.{
         .name = "if",
         .inputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .exec } },
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+            Pin{ .name = "run", .kind = .{ .primitive = .exec } },
+            Pin{ .name = "condition", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
         .outputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .exec } },
-            Pin{ .name = "", .kind = .{ .primitive = .exec } },
+            Pin{ .name = "then", .kind = .{ .primitive = .exec } },
+            Pin{ .name = "otherwise", .kind = .{ .primitive = .exec } },
         },
     });
     // TODO: function...
@@ -522,7 +522,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .exec } },
         },
         .outputs = &.{
-            Pin{ .name = "", .kind = .{ .variadic = .exec } },
+            Pin{ .name = "then", .kind = .{ .variadic = .exec } },
         },
     });
 
@@ -530,13 +530,13 @@ pub const builtin_nodes = struct {
         .name = "set!",
         // FIXME: needs to be generic/per variable
         .inputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .exec } },
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.symbol } } },
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "run", .kind = .{ .primitive = .exec } },
+            Pin{ .name = "variable", .kind = .{ .primitive = .{ .value = primitive_types.symbol } } },
+            Pin{ .name = "new value", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
         .outputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .exec } },
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "next", .kind = .{ .primitive = .exec } },
+            Pin{ .name = "value", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
 

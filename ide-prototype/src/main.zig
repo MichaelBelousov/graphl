@@ -83,9 +83,10 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
 
     {
         const plus_node = grappl_graph.env.makeNode(gpa, "+", grappl.ExtraIndex{ .index = 0 }) catch unreachable orelse unreachable;
-        _ = grappl_graph.addNode(gpa, plus_node, false, null, null) catch unreachable;
+        const plus_index = grappl_graph.addNode(gpa, plus_node, false, null, null) catch unreachable;
         const set_node = grappl_graph.env.makeNode(gpa, "set!", grappl.ExtraIndex{ .index = 0 }) catch unreachable orelse unreachable;
-        _ = grappl_graph.addNode(gpa, set_node, false, null, null) catch unreachable;
+        const set_index = grappl_graph.addNode(gpa, set_node, false, null, null) catch unreachable;
+        _ = grappl_graph.addEdge(plus_index, 0, set_index, 2, 0) catch unreachable;
     }
 
     // small fonts look bad on the web, so bump the default theme up
@@ -139,14 +140,24 @@ fn update() !i32 {
     return @intCast(@divTrunc(wait_event_micros, 1000));
 }
 
+const Socket = struct {
+    node_id: grappl.NodeId,
+    kind: enum(u1) { input, output },
+    index: u32,
+};
+
 fn renderGraph() !void {
+    // TODO: use link struct?
+    var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Rect){};
+    defer socket_positions.deinit(gpa);
+
     // place nodes
     {
         var node_iter = grappl_graph.nodes.map.iterator();
         while (node_iter.next()) |entry| {
             const node_id = entry.key_ptr.*;
             const node = entry.value_ptr.*;
-            try renderNode(node_id, node);
+            try renderNode(node_id, node, &socket_positions);
         }
     }
 
@@ -164,30 +175,34 @@ fn renderGraph() !void {
                     else => {},
                 }
             }
-            // const indices: []const u16 = &[_]u16{ 0, 1, 2, 0, 2, 3 };
-            // const vtx: []const dvui.Vertex = &[_]dvui.Vertex{
-            //     .{ .pos = .{ .x = 100, .y = 150 }, .uv = .{ 0.0, 0.0 }, .col = .{} },
-            //     .{ .pos = .{ .x = 200, .y = 150 }, .uv = .{ 1.0, 0.0 }, .col = .{ .g = 0, .b = 0, .a = 200 } },
-            //     .{ .pos = .{ .x = 200, .y = 250 }, .uv = .{ 1.0, 1.0 }, .col = .{ .r = 0, .b = 0, .a = 100 } },
-            //     .{ .pos = .{ .x = 100, .y = 250 }, .uv = .{ 0.0, 1.0 }, .col = .{ .r = 0, .g = 0 } },
-            // };
-            // backend.drawClippedTriangles(null, vtx, indices, null);
 
+            const indices: []const u16 = &[_]u16{ 0, 1, 2, 0, 2, 3 };
+            const vtx: []const dvui.Vertex = &[_]dvui.Vertex{
+                .{ .pos = .{ .x = 100, .y = 150 }, .uv = .{ 0.0, 0.0 }, .col = .{} },
+                .{ .pos = .{ .x = 200, .y = 150 }, .uv = .{ 1.0, 0.0 }, .col = .{ .g = 0, .b = 0, .a = 200 } },
+                .{ .pos = .{ .x = 200, .y = 250 }, .uv = .{ 1.0, 1.0 }, .col = .{ .r = 0, .b = 0, .a = 100 } },
+                .{ .pos = .{ .x = 100, .y = 250 }, .uv = .{ 0.0, 1.0 }, .col = .{ .r = 0, .g = 0 } },
+            };
+            backend.drawClippedTriangles(null, vtx, indices, null);
         }
     }
 }
 
 // TODO: remove need for id, it should be inside the node itself
-fn renderNode(node_id: grappl.NodeId, node: grappl.Node) !void {
+fn renderNode(
+    node_id: grappl.NodeId,
+    node: grappl.Node,
+    socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Rect),
+) !void {
+    //dvui.parentGet().rectFor();
     const box = try dvui.boxEqual(
         @src(),
         .vertical,
         .{
-            // TODO: rect is
-            //.rect = Rect{ .x = @floatFromInt(200 + node_id * 120), .y = 0, .w = 100, .h = 50 },
+            //.min_size_content =
+            .rect = Rect{ .x = @floatFromInt(200 + node_id * 320), .y = 0 },
             .id_extra = @intCast(node_id),
             //.color_fill = .{ .color = try dvui.Color.fromHex(@as(*const [7]u8, @ptrCast(&"#ff0000"[0])).*) },
-            .color_fill = .{ .color = .{ .r = 0xff, .g = 0, .b = 0, .a = 0xff } },
             .debug = true,
             .margin = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
             .padding = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
@@ -198,8 +213,12 @@ fn renderNode(node_id: grappl.NodeId, node: grappl.Node) !void {
     );
     defer box.deinit();
 
-    try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .color_text = .{ .color = dvui.Color.black }, .font_style = .title_2 });
+    try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .color_text = .{ .color = dvui.Color.black }, .font_style = .heading });
 
+    var hbox = try dvui.box(@src(), .horizontal, .{});
+    defer hbox.deinit();
+
+    var input_vbox = try dvui.box(@src(), .vertical, .{});
     for (node.desc.getInputs(), node.inputs, 0..) |input_desc, input, j| {
         // FIXME: inputs should have their own name!
 
@@ -207,11 +226,13 @@ fn renderNode(node_id: grappl.NodeId, node: grappl.Node) !void {
             .min_size_content = .{ .h = 20, .w = 20 },
             .gravity_y = 0.5,
             .id_extra = j,
+            .color_fill_hover = .{ .color = .{ .r = 0x99, .g = 0x99, .b = 0xff, .a = 0xff } },
         };
 
         _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
         if (input_desc.kind.primitive == .exec) {
-            try dvui.icon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, icon_opts);
+            const icon = try dvui.icon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, icon_opts);
+            try socket_positions.put(gpa, .{ .node_id = node_id, .kind = .input, .index = j }, icon.wd.contentRect());
             // FIXME: report compiler bug
             // } else switch (i.kind.primitive.value) {
             //     grappl.primitive_types.i32_ => {
@@ -239,7 +260,9 @@ fn renderNode(node_id: grappl.NodeId, node: grappl.Node) !void {
             try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
         }
     }
+    input_vbox.deinit();
 
+    var output_vbox = try dvui.box(@src(), .vertical, .{});
     for (node.desc.getOutputs(), node.outputs, 0..) |output_desc, output, j| {
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
@@ -250,11 +273,12 @@ fn renderNode(node_id: grappl.NodeId, node: grappl.Node) !void {
         _ = output;
         _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
         if (output_desc.kind.primitive == .exec) {
-            try dvui.icon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, icon_opts);
+            _ = try dvui.icon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, icon_opts);
         } else {
-            try dvui.icon(@src(), "circle", entypo.circle, icon_opts);
+            _ = try dvui.icon(@src(), "circle", entypo.circle, icon_opts);
         }
     }
+    output_vbox.deinit();
 }
 
 fn dvui_frame() !void {
@@ -319,7 +343,7 @@ fn dvui_frame() !void {
         }
     }
 
-    const ctext = try dvui.context(@src(), .{ .expand = .horizontal });
+    const ctext = try dvui.context(@src(), .{ .expand = .both });
     defer ctext.deinit();
 
     if (ctext.activePoint()) |cp| {
