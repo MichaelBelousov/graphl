@@ -37,7 +37,8 @@ pub const Pin = struct {
         variadic: PrimitivePin,
     },
 
-    pub fn asPrimitivePin(self: @This()) bool {
+    // TODO: rename to erase varidicness? idk
+    pub fn asPrimitivePin(self: @This()) PrimitivePin {
         return switch (self.kind) {
             .primitive, .variadic => |v| v,
         };

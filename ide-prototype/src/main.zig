@@ -52,8 +52,14 @@ var orig_content_scale: f32 = 1.0;
 var grappl_graph: grappl.GraphBuilder = undefined;
 
 // the start of an attempt to drag an edge out of a socket
-var edge_drag_start: ?dvui.Point = null;
+var edge_drag_start: ?struct {
+    pt: dvui.Point,
+    socket: Socket,
+} = null;
+
 var prev_drag_state: ?dvui.Point = null;
+
+var edge_drag_end: ?Socket = null;
 
 const AppInitErrorCodes = enum(i32) {
     BackendInitFailed = 0,
@@ -148,7 +154,6 @@ const Socket = struct {
     index: u32,
 };
 
-
 fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
     var fw2 = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
     defer fw2.deinit();
@@ -156,7 +161,7 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
     const maybe_create_from_type: ?grappl.PrimitivePin = if (maybe_create_from) |create_from| _: {
         const node = grappl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
         const output = node.desc.getOutputs()[create_from.index];
-        break :_ output.kind.asPrimitivePin();
+        break :_ output.asPrimitivePin();
     } else null;
 
     {
@@ -185,9 +190,9 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
                 const node_id = try grappl_graph.addNode(gpa, node_name.*, false, null, null);
 
                 if (maybe_create_from) |create_from| {
-                    std.debug.assert(maybe_create_from.kind == .output);
+                    std.debug.assert(create_from.kind == .output);
                     // TODO: add it to the first type-compatible socket!
-                    grappl_graph.addEdge(create_from.node_id, create_from.index, node_id, 0, 0);
+                    try grappl_graph.addEdge(create_from.node_id, create_from.index, node_id, 0, 0);
                 }
 
                 fw2.close();
@@ -261,7 +266,7 @@ fn renderGraph() !void {
         const maybe_drag_offset = dvui.dragging(mouse_pt);
 
         if (maybe_drag_offset != null and edge_drag_start != null) {
-            const drag_start = edge_drag_start.?;
+            const drag_start = edge_drag_start.?.pt;
             const drag_end = mouse_pt;
             // FIXME: dedup with above edge drawing
             try dvui.pathAddPoint(drag_start);
@@ -275,12 +280,22 @@ fn renderGraph() !void {
         const stopped_dragging = drag_state_changed and maybe_drag_offset == null;
 
         if (stopped_dragging) {
-            edge_drag_start = null;
-            if (edge_drag_end) {
-
+            if (edge_drag_end) |target| {
+                // TODO: maybe cast to unreachable?
+                // FIXME: why am I assumign edge_drag_start exists?
+                try grappl_graph.addEdge(
+                    edge_drag_start.?.socket.node_id,
+                    edge_drag_start.?.socket.index,
+                    target.node_id,
+                    target.index,
+                    0,
+                );
             } else {
-                renderAddNodeMenu(mouse_pt);
+                try renderAddNodeMenu(mouse_pt, if (edge_drag_start) |s| s.socket else null);
             }
+
+            edge_drag_start = null;
+            edge_drag_end = null;
         }
 
         prev_drag_state = maybe_drag_offset;
@@ -300,7 +315,7 @@ fn rectContainsMouse(r: Rect) bool {
     return r.contains(mouse_pt);
 }
 
-fn considerSocketForHover(icon_res: *const dvui.ButtonIconResult) dvui.Point {
+fn considerSocketForHover(icon_res: *const dvui.ButtonIconResult, socket: Socket) dvui.Point {
     const r = icon_res.icon.wd.rectScale().r;
     const socket_center = rectCenter(r);
 
@@ -309,7 +324,10 @@ fn considerSocketForHover(icon_res: *const dvui.ButtonIconResult) dvui.Point {
         const is_dragging = dvui.dragging(dvui.Point{ .x = 0, .y = 0 }) != null;
         if (!is_dragging) {
             dvui.dragPreStart(socket_center, .crosshair, dvui.Point{});
-            edge_drag_start = socket_center;
+            edge_drag_start = .{
+                .pt = socket_center,
+                .socket = socket,
+            };
         }
     }
     return socket_center;
@@ -350,6 +368,8 @@ fn renderNode(
         var input_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
         defer input_box.deinit();
 
+        const socket = Socket{ .node_id = node.id, .kind = .input, .index = j };
+
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
             .gravity_y = 0.5,
@@ -364,14 +384,14 @@ fn renderNode(
 
         const socket_point: dvui.Point = if (input_desc.kind.primitive == .exec) _: {
             const icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
-            const socket_center = considerSocketForHover(&icon_res);
+            const socket_center = considerSocketForHover(&icon_res, socket);
 
             break :_ socket_center;
         } else _: {
             // FIXME: make non interactable/hoverable
 
             const icon_res = try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
-            const socket_center = considerSocketForHover(&icon_res);
+            const socket_center = considerSocketForHover(&icon_res, socket);
 
             // TODO: handle all possible types using switch or something
             var handled = false;
@@ -403,7 +423,6 @@ fn renderNode(
             break :_ socket_center;
         };
 
-        const socket = Socket{ .node_id = node.id, .kind = .input, .index = j };
         try socket_positions.put(gpa, socket, socket_point);
 
         _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .font_style = .heading, .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
@@ -416,6 +435,8 @@ fn renderNode(
     for (node.desc.getOutputs(), node.outputs, 0..) |output_desc, output, j| {
         var output_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
         defer output_box.deinit();
+
+        const socket = Socket{ .node_id = node.id, .kind = .output, .index = j };
 
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
@@ -436,8 +457,7 @@ fn renderNode(
         else
             try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
 
-        const socket_center = considerSocketForHover(&icon_res);
-        const socket = Socket{ .node_id = node.id, .kind = .output, .index = j };
+        const socket_center = considerSocketForHover(&icon_res, socket);
         try socket_positions.put(gpa, socket, socket_center);
     }
 
@@ -510,7 +530,7 @@ fn dvui_frame() !void {
     defer ctext.deinit();
 
     if (ctext.activePoint()) |cp| {
-        renderAddNodeMenu(cp);
+        try renderAddNodeMenu(cp, null);
     }
 
     var scroll = try dvui.scrollArea(@src(), .{}, .{ .expand = .both, .color_fill = .{ .name = .fill_window } });
