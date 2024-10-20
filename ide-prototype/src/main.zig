@@ -84,7 +84,7 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
     {
         const plus_index = grappl_graph.addNode(gpa, "+", false, null, null) catch unreachable;
         const set_index = grappl_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
-        _ = grappl_graph.addEdge(plus_index, 0, set_index, 2, 0) catch unreachable;
+        grappl_graph.addEdge(plus_index, 0, set_index, 2, 0) catch unreachable;
     }
 
     // small fonts look bad on the web, so bump the default theme up
@@ -153,9 +153,10 @@ fn renderGraph() !void {
     {
         var node_iter = grappl_graph.nodes.map.iterator();
         while (node_iter.next()) |entry| {
-            const node_id = entry.key_ptr.*;
-            const node = entry.value_ptr.*;
-            try renderNode(node_id, node, &socket_positions);
+            // TODO: don't iterate over unneeded keys
+            //const node_id = entry.key_ptr.*;
+            const node = entry.value_ptr;
+            try renderNode(node, &socket_positions);
         }
     }
 
@@ -164,42 +165,55 @@ fn renderGraph() !void {
         var node_iter = grappl_graph.nodes.map.iterator();
         while (node_iter.next()) |entry| {
             const node_id = entry.key_ptr.*;
-            const node = entry.value_ptr.*;
+            const node = entry.value_ptr;
 
             for (node.inputs, 0..) |input, input_index| {
                 if (input != .link)
                     continue;
 
-                const source = Socket{
+                const target = Socket{
                     .node_id = node_id,
-                    .kind = .output,
+                    .kind = .input,
                     .index = input_index,
                 };
 
-                const input_pos = socket_positions.get(source) orelse unreachable;
+                const source_pos = socket_positions.get(target) orelse {
+                    std.log.err("bad output_pos {any}", .{target});
+                    continue;
+                };
 
-                const target = Socket{
+                const source = Socket{
                     .node_id = input.link.target.id,
-                    .kind = .input,
+                    .kind = .output,
                     .index = input.link.pin_index,
                 };
 
-                const output_pos = socket_positions.get(target) orelse unreachable;
+                const target_pos = socket_positions.get(source) orelse {
+                    std.log.err("bad input_pos {any}", .{source});
+                    continue;
+                };
 
-                const scale = win.wd.contentRectScale();
-                try dvui.pathAddPoint(scale.pointToScreen(input_pos));
-                try dvui.pathAddPoint(scale.pointToScreen(output_pos));
-                const stroke_color = dvui.Color{ .r = 0, .g = 0, .b = 255, .a = 150 };
-                try dvui.pathStroke(false, scale.s * 1.0, .square, stroke_color);
+                //const scale = win.wd.contentRectScale();
+                try dvui.pathAddPoint(source_pos);
+                try dvui.pathAddPoint(target_pos);
+                const stroke_color = dvui.Color{ .r = 0x22, .g = 0x22, .b = 0x22, .a = 0xff };
+                try dvui.pathStroke(false, 3.0, .none, stroke_color);
             }
         }
     }
 }
 
+// TODO: contribute this to dvui?
+fn rectCenter(r: Rect) dvui.Point {
+    return dvui.Point{
+        .x = r.x + r.w / 2,
+        .y = r.y + r.h / 2,
+    };
+}
+
 // TODO: remove need for id, it should be inside the node itself
 fn renderNode(
-    node_id: grappl.NodeId,
-    node: grappl.Node,
+    node: *const grappl.Node,
     socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Point),
 ) !void {
     //dvui.parentGet().rectFor();
@@ -208,12 +222,13 @@ fn renderNode(
         .vertical,
         .{
             //.min_size_content =
-            .rect = Rect{ .x = @floatFromInt(200 + node_id * 320), .y = 0 },
-            .id_extra = @intCast(node_id),
+            .rect = Rect{ .x = @floatFromInt(200 + node.id * 320), .y = 0 },
+            .id_extra = @intCast(node.id),
             //.color_fill = .{ .color = try dvui.Color.fromHex(@as(*const [7]u8, @ptrCast(&"#ff0000"[0])).*) },
             .debug = true,
             .margin = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
             .padding = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
+            .background = true,
             .border = .{ .h = 1, .w = 1, .x = 1, .y = 1 },
             .corner_radius = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
             .color_border = .{ .color = dvui.Color.black },
@@ -221,72 +236,108 @@ fn renderNode(
     );
     defer box.deinit();
 
-    try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .color_text = .{ .color = dvui.Color.black }, .font_style = .heading });
+    try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .color_text = .{ .color = dvui.Color.black }, .font_style = .title_3 });
 
     var hbox = try dvui.box(@src(), .horizontal, .{});
     defer hbox.deinit();
 
-    var input_vbox = try dvui.box(@src(), .vertical, .{});
+    var inputs_vbox = try dvui.box(@src(), .vertical, .{});
+
+    std.log.info("node: {}", .{node.id});
+
     for (node.desc.getInputs(), node.inputs, 0..) |input_desc, input, j| {
-        // FIXME: inputs should have their own name!
+        var input_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
+        defer input_box.deinit();
 
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
             .gravity_y = 0.5,
             .id_extra = j,
             .color_fill_hover = .{ .color = .{ .r = 0x99, .g = 0x99, .b = 0xff, .a = 0xff } },
+            //
+            .debug = true,
+            .border = .{ .x = 1, .y = 1, .w = 1, .h = 1 },
+            .color_border = .{ .color = .{ .b = 0xff, .a = 0xff } },
+            .background = true,
         };
 
-        _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
-        if (input_desc.kind.primitive == .exec) {
+        const socket_point: dvui.Point = if (input_desc.kind.primitive == .exec) _: {
             const icon = try dvui.icon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, icon_opts);
-            try socket_positions.put(gpa, .{ .node_id = node_id, .kind = .input, .index = j }, icon.wd.contentRect().topLeft());
+
+            break :_ rectCenter(icon.wd.rectScale().r);
+        } else _: {
+            const icon = try dvui.icon(@src(), "circle", entypo.circle, icon_opts);
+
+            // TODO: handle all possible types using switch or something
+            var handled = false;
+
             // FIXME: report compiler bug
             // } else switch (i.kind.primitive.value) {
             //     grappl.primitive_types.i32_ => {
-        } else if (input_desc.kind.primitive.value == grappl.primitive_types.i32_) {
-            const result = try dvui.textEntryNumber(@src(), i32, .{}, .{ .id_extra = j });
-            // TODO:
-            _ = result;
-            //node.inputs[j] = .{.literal}
-            //
-            // TODO: inline for (.{"f64_", "i32_"}) |name| {
-            //  @field(grappl.primitive_types, name)
-            // }
-        } else if (input_desc.kind.primitive.value == grappl.primitive_types.f64_) {
-            const result = try dvui.textEntryNumber(@src(), f64, .{}, .{ .id_extra = j });
-            // TODO:
-            _ = result;
-            //node.inputs[j] = .{.literal}
-        } else if (input_desc.kind.primitive.value == grappl.primitive_types.bool_ and input == .value) {
-            var val = false;
-            const result = try dvui.checkbox(@src(), &val, null, .{ .id_extra = j });
-            // TODO:
-            _ = result;
-            //node.inputs[j] = .{.literal}
-        } else {
-            try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
-        }
-    }
-    input_vbox.deinit();
+            inline for (.{ i32, i64, u32, u64, f32, f64 }) |T| {
+                const primitive_type = @field(grappl.primitive_types, @typeName(T) ++ "_");
+                if (input_desc.kind.primitive.value == primitive_type) {
+                    _ = try dvui.textEntryNumber(@src(), T, .{}, .{ .id_extra = j });
+                    handled = true;
+                }
+            }
 
-    var output_vbox = try dvui.box(@src(), .vertical, .{});
+            if (input_desc.kind.primitive.value == grappl.primitive_types.bool_ and input == .value) {
+                //node.inputs[j] = .{.literal}
+                var val = false;
+                _ = try dvui.checkbox(@src(), &val, null, .{ .id_extra = j });
+                handled = true;
+                //
+            }
+
+            if (!handled)
+                try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
+
+            break :_ rectCenter(icon.wd.rectScale().r);
+        };
+
+        const socket = Socket{ .node_id = node.id, .kind = .input, .index = j };
+        try socket_positions.put(gpa, socket, socket_point);
+        std.log.info("placed: in:{}.{} {any}", .{ node.id, j, socket_point });
+
+        _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .font_style = .heading, .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
+    }
+
+    inputs_vbox.deinit();
+
+    var outputs_vbox = try dvui.box(@src(), .vertical, .{});
+
     for (node.desc.getOutputs(), node.outputs, 0..) |output_desc, output, j| {
+        var output_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
+        defer output_box.deinit();
+
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
             .gravity_y = 0.5,
             .id_extra = j,
+            //
+            .debug = true,
+            .border = .{ .x = 1, .y = 1, .w = 1, .h = 1 },
+            .color_border = .{ .color = .{ .g = 0xff, .a = 0xff } },
+            .background = true,
         };
 
         _ = output;
-        _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
-        if (output_desc.kind.primitive == .exec) {
-            _ = try dvui.icon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, icon_opts);
-        } else {
-            _ = try dvui.icon(@src(), "circle", entypo.circle, icon_opts);
-        }
+        _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
+
+        const icon = if (output_desc.kind.primitive == .exec)
+            try dvui.icon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, icon_opts)
+        else
+            try dvui.icon(@src(), "circle", entypo.circle, icon_opts);
+
+        const socket = Socket{ .node_id = node.id, .kind = .output, .index = j };
+
+        const socket_point = rectCenter(icon.wd.rectScale().r);
+        try socket_positions.put(gpa, socket, socket_point);
+        std.log.info("placed: out:{}.{} {any}", .{ node.id, j, socket_point });
     }
-    output_vbox.deinit();
+
+    outputs_vbox.deinit();
 }
 
 fn dvui_frame() !void {
@@ -408,6 +459,8 @@ fn dvui_frame() !void {
     try dvui.Examples.demo();
 
     try renderGraph();
+
+    std.log.info("window: {any}", .{dvui.windowRect()});
 
     if (new_content_scale) |ns| {
         win.content_scale = ns;
