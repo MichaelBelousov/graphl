@@ -148,6 +148,55 @@ const Socket = struct {
     index: u32,
 };
 
+
+fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
+    var fw2 = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
+    defer fw2.deinit();
+
+    const maybe_create_from_type: ?grappl.PrimitivePin = if (maybe_create_from) |create_from| _: {
+        const node = grappl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
+        const output = node.desc.getOutputs()[create_from.index];
+        break :_ output.kind.asPrimitivePin();
+    } else null;
+
+    {
+        var iter = grappl_graph.env.nodes.iterator();
+        var i: u32 = 0;
+        while (iter.next()) |node_entry| {
+            const node_name = node_entry.key_ptr;
+            const node_desc = node_entry.value_ptr;
+
+            if (maybe_create_from_type) |create_from_type| {
+                var has_valid_input = false;
+
+                for (node_desc.getInputs()) |input_desc| {
+                    if (std.meta.eql(input_desc.asPrimitivePin(), create_from_type)) {
+                        has_valid_input = true;
+                        break;
+                    }
+                }
+
+                if (!has_valid_input)
+                    continue;
+            }
+
+            if ((try dvui.menuItemLabel(@src(), node_name.*, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
+                // TODO: use diagnostic
+                const node_id = try grappl_graph.addNode(gpa, node_name.*, false, null, null);
+
+                if (maybe_create_from) |create_from| {
+                    std.debug.assert(maybe_create_from.kind == .output);
+                    // TODO: add it to the first type-compatible socket!
+                    grappl_graph.addEdge(create_from.node_id, create_from.index, node_id, 0, 0);
+                }
+
+                fw2.close();
+            }
+            i += 1;
+        }
+    }
+}
+
 fn renderGraph() !void {
     // TODO: use link struct?
     var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Point){};
@@ -223,8 +272,15 @@ fn renderGraph() !void {
 
         const drag_state_changed = (prev_drag_state == null) != (maybe_drag_offset == null);
 
-        if (drag_state_changed and maybe_drag_offset == null) {
+        const stopped_dragging = drag_state_changed and maybe_drag_offset == null;
+
+        if (stopped_dragging) {
             edge_drag_start = null;
+            if (edge_drag_end) {
+
+            } else {
+                renderAddNodeMenu(mouse_pt);
+            }
         }
 
         prev_drag_state = maybe_drag_offset;
@@ -454,26 +510,7 @@ fn dvui_frame() !void {
     defer ctext.deinit();
 
     if (ctext.activePoint()) |cp| {
-        var fw2 = try dvui.floatingMenu(@src(), Rect.fromPoint(cp), .{});
-        defer fw2.deinit();
-
-        {
-            var iter = grappl_graph.env.nodes.keyIterator();
-            var i: u32 = 0;
-            while (iter.next()) |node_name| {
-                if ((try dvui.menuItemLabel(@src(), node_name.*, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
-                    // TODO: use diagnostic
-                    const node_id = try grappl_graph.addNode(gpa, node_name.*, false, null, null);
-                    _ = node_id;
-                    fw2.close();
-                }
-                i += 1;
-            }
-        }
-
-        if ((try dvui.menuItemLabel(@src(), "Close Menu", .{}, .{ .expand = .horizontal })) != null) {
-            fw2.close();
-        }
+        renderAddNodeMenu(cp);
     }
 
     var scroll = try dvui.scrollArea(@src(), .{}, .{ .expand = .both, .color_fill = .{ .name = .fill_window } });

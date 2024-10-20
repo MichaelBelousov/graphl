@@ -37,6 +37,12 @@ pub const Pin = struct {
         variadic: PrimitivePin,
     },
 
+    pub fn asPrimitivePin(self: @This()) bool {
+        return switch (self.kind) {
+            .primitive, .variadic => |v| v,
+        };
+    }
+
     pub fn isExec(self: @This()) bool {
         return self.kind == .primitive and self.kind.primitive == .exec;
     }
