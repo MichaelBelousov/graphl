@@ -24,8 +24,8 @@
     // internet connectivity.
     .dependencies = .{
         .dvui = .{
-            .url = "https://github.com/MichaelBelousov/dvui/archive/235e391d8d9127adf5d5cb23e3d85e7f9510c120.zip",
-            .hash = "1220cde7d0963dad7e3f41e0cff6ecd9439824ce53d093e48ac0d8e93f45e2e84392",
+            .url = "https://github.com/MichaelBelousov/dvui/archive/f6272ce6023a8628a5f04ea52e0d485eff7a4016.zip",
+            .hash = "12205b54efd1fdf5fa3358b30ed013335c15c785cb70f9452b67e013ff64c694e469",
         },
         .grappl_core = .{
             .path = "../lang-lib",

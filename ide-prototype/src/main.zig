@@ -262,11 +262,11 @@ fn renderNode(
         };
 
         const socket_point: dvui.Point = if (input_desc.kind.primitive == .exec) _: {
-            const icon = try dvui.icon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, icon_opts);
+            const icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
 
-            break :_ rectCenter(icon.wd.rectScale().r);
+            break :_ rectCenter(icon_res.icon.wd.rectScale().r);
         } else _: {
-            const icon = try dvui.icon(@src(), "circle", entypo.circle, icon_opts);
+            const icon_res = try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
 
             // TODO: handle all possible types using switch or something
             var handled = false;
@@ -293,7 +293,7 @@ fn renderNode(
             if (!handled)
                 try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
 
-            break :_ rectCenter(icon.wd.rectScale().r);
+            break :_ rectCenter(icon_res.icon.wd.rectScale().r);
         };
 
         const socket = Socket{ .node_id = node.id, .kind = .input, .index = j };
@@ -325,14 +325,14 @@ fn renderNode(
         _ = output;
         _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
 
-        const icon = if (output_desc.kind.primitive == .exec)
-            try dvui.icon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, icon_opts)
+        const icon_res = if (output_desc.kind.primitive == .exec)
+            try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts)
         else
-            try dvui.icon(@src(), "circle", entypo.circle, icon_opts);
+            try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
 
         const socket = Socket{ .node_id = node.id, .kind = .output, .index = j };
 
-        const socket_point = rectCenter(icon.wd.rectScale().r);
+        const socket_point = rectCenter(icon_res.icon.wd.rectScale().r);
         try socket_positions.put(gpa, socket, socket_point);
         std.log.info("placed: out:{}.{} {any}", .{ node.id, j, socket_point });
     }
