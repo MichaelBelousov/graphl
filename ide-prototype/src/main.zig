@@ -49,6 +49,11 @@ var backend: WebBackend = undefined;
 var touchPoints: [2]?dvui.Point = [_]?dvui.Point{null} ** 2;
 var orig_content_scale: f32 = 1.0;
 
+var drag_start: union(enum) {
+    none,
+    socket: dvui.Point,
+} = .none;
+
 var grappl_graph: grappl.GraphBuilder = undefined;
 
 const AppInitErrorCodes = enum(i32) {
@@ -193,13 +198,22 @@ fn renderGraph() !void {
                     continue;
                 };
 
-                //const scale = win.wd.contentRectScale();
+                // FIXME: dedup with below edge drawing
                 try dvui.pathAddPoint(source_pos);
                 try dvui.pathAddPoint(target_pos);
                 const stroke_color = dvui.Color{ .r = 0x22, .g = 0x22, .b = 0x22, .a = 0xff };
                 try dvui.pathStroke(false, 3.0, .none, stroke_color);
             }
         }
+    }
+
+    // dragged edge
+    if (dvui.dragging()) |drag_offset| {
+        // FIXME: dedup with above edge drawing
+        try dvui.pathAddPoint(drag_start);
+        try dvui.pathAddPoint(drag_start.plus(drag_offset));
+        const stroke_color = dvui.Color{ .r = 0x22, .g = 0x22, .b = 0x22, .a = 0xff };
+        try dvui.pathStroke(false, 3.0, .none, stroke_color);
     }
 }
 
@@ -263,10 +277,22 @@ fn renderNode(
 
         const socket_point: dvui.Point = if (input_desc.kind.primitive == .exec) _: {
             const icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
+            const socket_center = rectCenter(icon_res.icon.wd.rectScale().r);
+            if (icon_res.clicked) {
+                dvui.dragStart(socket_center, .crosshair, dvui.Point{});
+                drag_start = .{ .socket = socket_center };
+            }
+            // FIXME: implement cursor type on icon hover
+            //dvui.cursorSet(.hand);
 
-            break :_ rectCenter(icon_res.icon.wd.rectScale().r);
+            break :_ socket_center;
         } else _: {
             const icon_res = try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
+            const socket_center = rectCenter(icon_res.icon.wd.rectScale().r);
+            if (icon_res.clicked) {
+                dvui.dragStart(socket_center, .crosshair, dvui.Point{});
+                drag_start = .{ .socket = socket_center };
+            }
 
             // TODO: handle all possible types using switch or something
             var handled = false;
@@ -293,12 +319,11 @@ fn renderNode(
             if (!handled)
                 try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
 
-            break :_ rectCenter(icon_res.icon.wd.rectScale().r);
+            break :_ socket_center;
         };
 
         const socket = Socket{ .node_id = node.id, .kind = .input, .index = j };
         try socket_positions.put(gpa, socket, socket_point);
-        std.log.info("placed: in:{}.{} {any}", .{ node.id, j, socket_point });
 
         _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .font_style = .heading, .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
     }
@@ -330,11 +355,15 @@ fn renderNode(
         else
             try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
 
+        const socket_center = rectCenter(icon_res.icon.wd.rectScale().r);
+        if (icon_res.clicked) {
+            dvui.dragStart(socket_center, .crosshair, dvui.Point{});
+            drag_start = .{ .socket = socket_center };
+        }
+
         const socket = Socket{ .node_id = node.id, .kind = .output, .index = j };
 
-        const socket_point = rectCenter(icon_res.icon.wd.rectScale().r);
-        try socket_positions.put(gpa, socket, socket_point);
-        std.log.info("placed: out:{}.{} {any}", .{ node.id, j, socket_point });
+        try socket_positions.put(gpa, socket, socket_center);
     }
 
     outputs_vbox.deinit();
