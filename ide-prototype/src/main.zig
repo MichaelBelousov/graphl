@@ -223,13 +223,8 @@ fn renderGraph() !void {
 
         const drag_state_changed = (prev_drag_state == null) != (maybe_drag_offset == null);
 
-        if (drag_state_changed) {
-            if (maybe_drag_offset != null) {
-                // TODO: use socket middle
-                edge_drag_start = mouse_pt;
-            } else {
-                edge_drag_start = null;
-            }
+        if (drag_state_changed and maybe_drag_offset == null) {
+            edge_drag_start = null;
         }
 
         prev_drag_state = maybe_drag_offset;
@@ -244,13 +239,32 @@ fn rectCenter(r: Rect) dvui.Point {
     };
 }
 
+fn rectContainsMouse(r: Rect) bool {
+    const mouse_pt = dvui.currentWindow().mouse_pt;
+    return r.contains(mouse_pt);
+}
+
+fn considerSocketForHover(icon_res: *const dvui.ButtonIconResult) dvui.Point {
+    const r = icon_res.icon.wd.rectScale().r;
+    const socket_center = rectCenter(r);
+
+    if (rectContainsMouse(r)) {
+        dvui.cursorSet(.crosshair);
+        const is_dragging = dvui.dragging(dvui.Point{ .x = 0, .y = 0 }) != null;
+        if (!is_dragging) {
+            dvui.dragPreStart(socket_center, .crosshair, dvui.Point{});
+            edge_drag_start = socket_center;
+        }
+    }
+    return socket_center;
+}
+
 // TODO: remove need for id, it should be inside the node itself
 fn renderNode(
     node: *const grappl.Node,
     socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Point),
 ) !void {
-    //dvui.parentGet().rectFor();
-    const box = try dvui.boxEqual(
+    const box = try dvui.box(
         @src(),
         .vertical,
         .{
@@ -294,25 +308,14 @@ fn renderNode(
 
         const socket_point: dvui.Point = if (input_desc.kind.primitive == .exec) _: {
             const icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
-            const socket_center = rectCenter(icon_res.icon.wd.rectScale().r);
-            // if (icon_res.clicked) {
-            //     std.log.info("clicked!", .{});
-            //     dvui.dragStart(socket_center, .crosshair, dvui.Point{});
-            //     edge_drag_start = socket_center;
-            // }
-            // FIXME: implement cursor type on icon hover
-            //dvui.cursorSet(.hand);
+            const socket_center = considerSocketForHover(&icon_res);
 
             break :_ socket_center;
         } else _: {
             // FIXME: make non interactable/hoverable
+
             const icon_res = try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
-            const socket_center = rectCenter(icon_res.icon.wd.rectScale().r);
-            // if (icon_res.clicked) {
-            //     std.log.info("clicked2!", .{});
-            //     dvui.dragStart(socket_center, .crosshair, dvui.Point{});
-            //     edge_drag_start = socket_center;
-            // }
+            const socket_center = considerSocketForHover(&icon_res);
 
             // TODO: handle all possible types using switch or something
             var handled = false;
@@ -377,15 +380,8 @@ fn renderNode(
         else
             try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
 
-        const socket_center = rectCenter(icon_res.icon.wd.rectScale().r);
-        // if (icon_res.clicked) {
-        //     std.log.info("clicked3!", .{});
-        //     dvui.dragStart(socket_center, .crosshair, dvui.Point{});
-        //     edge_drag_start = socket_center;
-        // }
-
+        const socket_center = considerSocketForHover(&icon_res);
         const socket = Socket{ .node_id = node.id, .kind = .output, .index = j };
-
         try socket_positions.put(gpa, socket, socket_center);
     }
 
