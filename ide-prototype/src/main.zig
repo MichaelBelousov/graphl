@@ -49,11 +49,6 @@ var backend: WebBackend = undefined;
 var touchPoints: [2]?dvui.Point = [_]?dvui.Point{null} ** 2;
 var orig_content_scale: f32 = 1.0;
 
-var drag_start: union(enum) {
-    none,
-    socket: dvui.Point,
-} = .none;
-
 var grappl_graph: grappl.GraphBuilder = undefined;
 
 const AppInitErrorCodes = enum(i32) {
@@ -207,12 +202,16 @@ fn renderGraph() !void {
         }
     }
 
-    const maybe_drag_offset = dvui.dragging();
-    if (maybe_drag_offset != null and drag_start == .socket) {
+    const mouse_pt = dvui.currentWindow().mouse_pt;
+    const maybe_drag_offset = dvui.dragging(mouse_pt);
+
+    if (maybe_drag_offset != null) {
         const drag_offset = maybe_drag_offset.?;
+        const drag_end = dvui.currentWindow().mouse_pt;
+        const drag_start = drag_end.plus(.{ .x = -drag_offset.x, .y = -drag_offset.y });
         // FIXME: dedup with above edge drawing
-        try dvui.pathAddPoint(drag_start.socket);
-        try dvui.pathAddPoint(drag_start.socket.plus(drag_offset));
+        try dvui.pathAddPoint(drag_start);
+        try dvui.pathAddPoint(drag_end);
         const stroke_color = dvui.Color{ .r = 0x22, .g = 0x22, .b = 0x22, .a = 0xff };
         try dvui.pathStroke(false, 3.0, .none, stroke_color);
     }
@@ -281,7 +280,7 @@ fn renderNode(
             const socket_center = rectCenter(icon_res.icon.wd.rectScale().r);
             if (icon_res.clicked) {
                 dvui.dragStart(socket_center, .crosshair, dvui.Point{});
-                drag_start = .{ .socket = socket_center };
+                std.log.info("clicked!", .{});
             }
             // FIXME: implement cursor type on icon hover
             //dvui.cursorSet(.hand);
@@ -292,7 +291,7 @@ fn renderNode(
             const socket_center = rectCenter(icon_res.icon.wd.rectScale().r);
             if (icon_res.clicked) {
                 dvui.dragStart(socket_center, .crosshair, dvui.Point{});
-                drag_start = .{ .socket = socket_center };
+                std.log.info("clicked!", .{});
             }
 
             // TODO: handle all possible types using switch or something
@@ -359,7 +358,7 @@ fn renderNode(
         const socket_center = rectCenter(icon_res.icon.wd.rectScale().r);
         if (icon_res.clicked) {
             dvui.dragStart(socket_center, .crosshair, dvui.Point{});
-            drag_start = .{ .socket = socket_center };
+            std.log.info("clicked!", .{});
         }
 
         const socket = Socket{ .node_id = node.id, .kind = .output, .index = j };
