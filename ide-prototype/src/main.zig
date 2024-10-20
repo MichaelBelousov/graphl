@@ -51,7 +51,8 @@ var orig_content_scale: f32 = 1.0;
 
 var grappl_graph: grappl.GraphBuilder = undefined;
 
-var drop_node_menu: ?dvui.Point = null;
+var context_menu_widget_id: ?u32 = null;
+var node_menu_filter: ?Socket = null;
 
 // the start of an attempt to drag an edge out of a socket
 var edge_drag_start: ?struct {
@@ -202,7 +203,6 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
                 }
 
                 fw2.close();
-                drop_node_menu = null;
             }
             i += 1;
         }
@@ -219,6 +219,8 @@ fn renderGraph() !void {
 
     // place nodes
     {
+        const hbox = try dvui.box(@src(), .horizontal, .{});
+        defer hbox.deinit();
         var node_iter = grappl_graph.nodes.map.iterator();
         while (node_iter.next()) |entry| {
             // TODO: don't iterate over unneeded keys
@@ -271,9 +273,11 @@ fn renderGraph() !void {
         }
     }
 
+    const mouse_pt = dvui.currentWindow().mouse_pt;
+    var drop_node_menu = false;
+
     // maybe currently dragged edge
     {
-        const mouse_pt = dvui.currentWindow().mouse_pt;
         const maybe_drag_offset = dvui.dragging(mouse_pt);
 
         if (maybe_drag_offset != null and edge_drag_start != null) {
@@ -313,7 +317,8 @@ fn renderGraph() !void {
                     );
                 }
             } else {
-                drop_node_menu = mouse_pt;
+                drop_node_menu = true;
+                node_menu_filter = if (edge_drag_start != null and edge_drag_start.?.socket.kind == .output) edge_drag_start.?.socket else null;
             }
 
             edge_drag_start = null;
@@ -322,11 +327,9 @@ fn renderGraph() !void {
         prev_drag_state = maybe_drag_offset;
     }
 
-    if (drop_node_menu) |pt| {
-        try renderAddNodeMenu(
-            pt,
-            if (edge_drag_start != null and edge_drag_start.?.socket.kind == .output) edge_drag_start.?.socket else null,
-        );
+    if (drop_node_menu) {
+        dvui.dataSet(null, context_menu_widget_id orelse unreachable, "_activePt", mouse_pt);
+        dvui.focusWidget(context_menu_widget_id orelse unreachable, null, null);
     }
 }
 
@@ -375,7 +378,7 @@ fn renderNode(
         .vertical,
         .{
             //.min_size_content =
-            .rect = Rect{ .x = @floatFromInt(200 + node.id * 320), .y = 0 },
+            //.rect = Rect{ .x = @floatFromInt(200 + node.id * 320), .y = 0 },
             .id_extra = @intCast(node.id),
             //.color_fill = .{ .color = try dvui.Color.fromHex(@as(*const [7]u8, @ptrCast(&"#ff0000"[0])).*) },
             .debug = true,
@@ -561,8 +564,12 @@ fn dvui_frame() !void {
     const ctext = try dvui.context(@src(), .{ .expand = .both });
     defer ctext.deinit();
 
+    context_menu_widget_id = ctext.wd.id;
+
     if (ctext.activePoint()) |cp| {
-        try renderAddNodeMenu(cp, null);
+        try renderAddNodeMenu(cp, node_menu_filter);
+    } else {
+        node_menu_filter = null;
     }
 
     var scroll = try dvui.scrollArea(@src(), .{}, .{ .expand = .both, .color_fill = .{ .name = .fill_window } });
