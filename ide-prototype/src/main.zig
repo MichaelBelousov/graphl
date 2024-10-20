@@ -51,6 +51,10 @@ var orig_content_scale: f32 = 1.0;
 
 var grappl_graph: grappl.GraphBuilder = undefined;
 
+// the start of an attempt to drag an edge out of a socket
+var edge_drag_start: ?dvui.Point = null;
+var prev_drag_state: ?dvui.Point = null;
+
 const AppInitErrorCodes = enum(i32) {
     BackendInitFailed = 0,
     WindowInitFailed = 1,
@@ -202,18 +206,33 @@ fn renderGraph() !void {
         }
     }
 
-    const mouse_pt = dvui.currentWindow().mouse_pt;
-    const maybe_drag_offset = dvui.dragging(mouse_pt);
+    // maybe currently dragged edge
+    {
+        const mouse_pt = dvui.currentWindow().mouse_pt;
+        const maybe_drag_offset = dvui.dragging(mouse_pt);
 
-    if (maybe_drag_offset != null) {
-        const drag_offset = maybe_drag_offset.?;
-        const drag_end = dvui.currentWindow().mouse_pt;
-        const drag_start = drag_end.plus(.{ .x = -drag_offset.x, .y = -drag_offset.y });
-        // FIXME: dedup with above edge drawing
-        try dvui.pathAddPoint(drag_start);
-        try dvui.pathAddPoint(drag_end);
-        const stroke_color = dvui.Color{ .r = 0x22, .g = 0x22, .b = 0x22, .a = 0xff };
-        try dvui.pathStroke(false, 3.0, .none, stroke_color);
+        if (maybe_drag_offset != null and edge_drag_start != null) {
+            const drag_start = edge_drag_start.?;
+            const drag_end = mouse_pt;
+            // FIXME: dedup with above edge drawing
+            try dvui.pathAddPoint(drag_start);
+            try dvui.pathAddPoint(drag_end);
+            const stroke_color = dvui.Color{ .r = 0x22, .g = 0x22, .b = 0x22, .a = 0xff };
+            try dvui.pathStroke(false, 3.0, .none, stroke_color);
+        }
+
+        const drag_state_changed = (prev_drag_state == null) != (maybe_drag_offset == null);
+
+        if (drag_state_changed) {
+            if (maybe_drag_offset != null) {
+                // TODO: use socket middle
+                edge_drag_start = mouse_pt;
+            } else {
+                edge_drag_start = null;
+            }
+        }
+
+        prev_drag_state = maybe_drag_offset;
     }
 }
 
@@ -257,8 +276,6 @@ fn renderNode(
 
     var inputs_vbox = try dvui.box(@src(), .vertical, .{});
 
-    std.log.info("node: {}", .{node.id});
-
     for (node.desc.getInputs(), node.inputs, 0..) |input_desc, input, j| {
         var input_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
         defer input_box.deinit();
@@ -278,21 +295,24 @@ fn renderNode(
         const socket_point: dvui.Point = if (input_desc.kind.primitive == .exec) _: {
             const icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
             const socket_center = rectCenter(icon_res.icon.wd.rectScale().r);
-            if (icon_res.clicked) {
-                dvui.dragStart(socket_center, .crosshair, dvui.Point{});
-                std.log.info("clicked!", .{});
-            }
+            // if (icon_res.clicked) {
+            //     std.log.info("clicked!", .{});
+            //     dvui.dragStart(socket_center, .crosshair, dvui.Point{});
+            //     edge_drag_start = socket_center;
+            // }
             // FIXME: implement cursor type on icon hover
             //dvui.cursorSet(.hand);
 
             break :_ socket_center;
         } else _: {
+            // FIXME: make non interactable/hoverable
             const icon_res = try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
             const socket_center = rectCenter(icon_res.icon.wd.rectScale().r);
-            if (icon_res.clicked) {
-                dvui.dragStart(socket_center, .crosshair, dvui.Point{});
-                std.log.info("clicked!", .{});
-            }
+            // if (icon_res.clicked) {
+            //     std.log.info("clicked2!", .{});
+            //     dvui.dragStart(socket_center, .crosshair, dvui.Point{});
+            //     edge_drag_start = socket_center;
+            // }
 
             // TODO: handle all possible types using switch or something
             var handled = false;
@@ -300,20 +320,22 @@ fn renderNode(
             // FIXME: report compiler bug
             // } else switch (i.kind.primitive.value) {
             //     grappl.primitive_types.i32_ => {
-            inline for (.{ i32, i64, u32, u64, f32, f64 }) |T| {
-                const primitive_type = @field(grappl.primitive_types, @typeName(T) ++ "_");
-                if (input_desc.kind.primitive.value == primitive_type) {
-                    _ = try dvui.textEntryNumber(@src(), T, .{}, .{ .id_extra = j });
-                    handled = true;
+            if (input != .link) {
+                inline for (.{ i32, i64, u32, u64, f32, f64 }) |T| {
+                    const primitive_type = @field(grappl.primitive_types, @typeName(T) ++ "_");
+                    if (input_desc.kind.primitive.value == primitive_type) {
+                        _ = try dvui.textEntryNumber(@src(), T, .{}, .{ .id_extra = j });
+                        handled = true;
+                    }
                 }
-            }
 
-            if (input_desc.kind.primitive.value == grappl.primitive_types.bool_ and input == .value) {
-                //node.inputs[j] = .{.literal}
-                var val = false;
-                _ = try dvui.checkbox(@src(), &val, null, .{ .id_extra = j });
-                handled = true;
-                //
+                if (input_desc.kind.primitive.value == grappl.primitive_types.bool_ and input == .value) {
+                    //node.inputs[j] = .{.literal}
+                    var val = false;
+                    _ = try dvui.checkbox(@src(), &val, null, .{ .id_extra = j });
+                    handled = true;
+                    //
+                }
             }
 
             if (!handled)
@@ -356,10 +378,11 @@ fn renderNode(
             try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
 
         const socket_center = rectCenter(icon_res.icon.wd.rectScale().r);
-        if (icon_res.clicked) {
-            dvui.dragStart(socket_center, .crosshair, dvui.Point{});
-            std.log.info("clicked!", .{});
-        }
+        // if (icon_res.clicked) {
+        //     std.log.info("clicked3!", .{});
+        //     dvui.dragStart(socket_center, .crosshair, dvui.Point{});
+        //     edge_drag_start = socket_center;
+        // }
 
         const socket = Socket{ .node_id = node.id, .kind = .output, .index = j };
 
@@ -488,8 +511,6 @@ fn dvui_frame() !void {
     try dvui.Examples.demo();
 
     try renderGraph();
-
-    std.log.info("window: {any}", .{dvui.windowRect()});
 
     if (new_content_scale) |ns| {
         win.content_scale = ns;
