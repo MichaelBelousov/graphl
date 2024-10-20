@@ -51,6 +51,8 @@ var orig_content_scale: f32 = 1.0;
 
 var grappl_graph: grappl.GraphBuilder = undefined;
 
+var drop_node_menu: ?dvui.Point = null;
+
 // the start of an attempt to drag an edge out of a socket
 var edge_drag_start: ?struct {
     pt: dvui.Point,
@@ -148,15 +150,19 @@ fn update() !i32 {
     return @intCast(@divTrunc(wait_event_micros, 1000));
 }
 
+const SocketType = enum(u1) { input, output };
+
 const Socket = struct {
     node_id: grappl.NodeId,
-    kind: enum(u1) { input, output },
+    kind: SocketType,
     index: u32,
 };
 
 fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
     var fw2 = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
     defer fw2.deinit();
+
+    // TODO: handle defocus event
 
     const maybe_create_from_type: ?grappl.PrimitivePin = if (maybe_create_from) |create_from| _: {
         const node = grappl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
@@ -196,6 +202,7 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
                 }
 
                 fw2.close();
+                drop_node_menu = null;
             }
             i += 1;
         }
@@ -206,6 +213,9 @@ fn renderGraph() !void {
     // TODO: use link struct?
     var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Point){};
     defer socket_positions.deinit(gpa);
+
+    // set drag end to false, rendering will determine if it should still be set
+    edge_drag_end = null;
 
     // place nodes
     {
@@ -255,6 +265,7 @@ fn renderGraph() !void {
                 try dvui.pathAddPoint(source_pos);
                 try dvui.pathAddPoint(target_pos);
                 const stroke_color = dvui.Color{ .r = 0x22, .g = 0x22, .b = 0x22, .a = 0xff };
+                // TODO: need to handle deletion...
                 try dvui.pathStroke(false, 3.0, .none, stroke_color);
             }
         }
@@ -280,25 +291,42 @@ fn renderGraph() !void {
         const stopped_dragging = drag_state_changed and maybe_drag_offset == null;
 
         if (stopped_dragging) {
-            if (edge_drag_end) |target| {
-                // TODO: maybe cast to unreachable?
-                // FIXME: why am I assumign edge_drag_start exists?
-                try grappl_graph.addEdge(
-                    edge_drag_start.?.socket.node_id,
-                    edge_drag_start.?.socket.index,
-                    target.node_id,
-                    target.index,
-                    0,
-                );
+            if (edge_drag_end) |end| {
+                const edge = if (end.kind == .input) .{
+                    .source = edge_drag_start.?.socket,
+                    .target = end,
+                } else .{
+                    .source = end,
+                    .target = edge_drag_start.?.socket,
+                };
+
+                const valid_edge = edge.source.kind != edge.target.kind and edge.source.node_id != edge.target.node_id;
+                if (valid_edge) {
+                    // FIXME: why am I assumign edge_drag_start exists?
+                    // TODO: maybe use unreachable instead of try?
+                    try grappl_graph.addEdge(
+                        edge.source.node_id,
+                        edge.source.index,
+                        edge.target.node_id,
+                        edge.target.index,
+                        0,
+                    );
+                }
             } else {
-                try renderAddNodeMenu(mouse_pt, if (edge_drag_start) |s| s.socket else null);
+                drop_node_menu = mouse_pt;
             }
 
             edge_drag_start = null;
-            edge_drag_end = null;
         }
 
         prev_drag_state = maybe_drag_offset;
+    }
+
+    if (drop_node_menu) |pt| {
+        try renderAddNodeMenu(
+            pt,
+            if (edge_drag_start != null and edge_drag_start.?.socket.kind == .output) edge_drag_start.?.socket else null,
+        );
     }
 }
 
@@ -322,8 +350,12 @@ fn considerSocketForHover(icon_res: *const dvui.ButtonIconResult, socket: Socket
     if (rectContainsMouse(r)) {
         dvui.cursorSet(.crosshair);
         const is_dragging = dvui.dragging(dvui.Point{ .x = 0, .y = 0 }) != null;
+
+        if (edge_drag_start != null and is_dragging and socket.kind != edge_drag_start.?.socket.kind) {
+            edge_drag_end = socket;
+        }
+
         if (!is_dragging) {
-            dvui.dragPreStart(socket_center, .crosshair, dvui.Point{});
             edge_drag_start = .{
                 .pt = socket_center,
                 .socket = socket,

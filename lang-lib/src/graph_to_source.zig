@@ -177,6 +177,13 @@ pub const GraphBuilder = struct {
         const start = self.nodes.map.getPtr(start_id) orelse return error.SourceNodeNotFound;
         const end = self.nodes.map.getPtr(end_id) orelse return error.TargetNodeNotFound;
 
+        // TODO: some macros this might be allowable
+        if (start_id == end_id) {
+            // TODO: return diagnostic
+            std.log.err("edges must be between nodes", .{});
+            return error.SourceIndexInvalid;
+        }
+
         if (start_index >= start.outputs.len) {
             // TODO: return diagnostic
             std.log.err("start_index {} not valid, only {} available inputs\n", .{ start_index, start.outputs.len });
