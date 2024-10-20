@@ -207,11 +207,12 @@ fn renderGraph() !void {
         }
     }
 
-    // dragged edge
-    if (dvui.dragging()) |drag_offset| {
+    const maybe_drag_offset = dvui.dragging();
+    if (maybe_drag_offset != null and drag_start == .socket) {
+        const drag_offset = maybe_drag_offset.?;
         // FIXME: dedup with above edge drawing
-        try dvui.pathAddPoint(drag_start);
-        try dvui.pathAddPoint(drag_start.plus(drag_offset));
+        try dvui.pathAddPoint(drag_start.socket);
+        try dvui.pathAddPoint(drag_start.socket.plus(drag_offset));
         const stroke_color = dvui.Color{ .r = 0x22, .g = 0x22, .b = 0x22, .a = 0xff };
         try dvui.pathStroke(false, 3.0, .none, stroke_color);
     }
