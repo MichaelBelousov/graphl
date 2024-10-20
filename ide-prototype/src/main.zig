@@ -8,6 +8,8 @@ const Rect = dvui.Rect;
 
 const grappl = @import("grappl_core");
 
+const GraphAreaWidget = @import("./GraphAreaWidget.zig");
+
 const WriteError = error{};
 const LogWriter = std.io.Writer(void, WriteError, writeLog);
 
@@ -219,8 +221,6 @@ fn renderGraph() !void {
 
     // place nodes
     {
-        const hbox = try dvui.box(@src(), .horizontal, .{});
-        defer hbox.deinit();
         var node_iter = grappl_graph.nodes.map.iterator();
         while (node_iter.next()) |entry| {
             // TODO: don't iterate over unneeded keys
@@ -373,14 +373,20 @@ fn renderNode(
     node: *const grappl.Node,
     socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Point),
 ) !void {
+    const root_src = @src();
+    const root_widget_id = dvui.parentGet().extendId(root_src, 0);
+
+    // set data for widget before we render it, so parent's rectFor can use it
+    dvui.dataSet(null, root_widget_id, "_grapplNode", node);
+    const node_rect = Rect{ .x = @floatFromInt(200 + node.id * 320), .y = 0 };
+    dvui.dataSet(null, root_widget_id, "_grapplNodeRect", node_rect);
+
     const box = try dvui.box(
-        @src(),
+        root_src,
         .vertical,
         .{
-            //.min_size_content =
-            //.rect = Rect{ .x = @floatFromInt(200 + node.id * 320), .y = 0 },
             .id_extra = @intCast(node.id),
-            //.color_fill = .{ .color = try dvui.Color.fromHex(@as(*const [7]u8, @ptrCast(&"#ff0000"[0])).*) },
+            .rect = node_rect,
             .debug = true,
             .margin = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
             .padding = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
@@ -561,6 +567,19 @@ fn dvui_frame() !void {
         }
     }
 
+    var box1 = try dvui.box(@src(), .vertical, .{ .expand = .horizontal, .background = true });
+    var t2 = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
+    try t2.addText("Grappl Test Editor", .{});
+    try t2.addText("Another\n", .{});
+    try t2.addText("Another\n", .{});
+    try t2.addText("Another\n", .{});
+    try t2.addText("Another\n", .{});
+    try t2.addText("Another\n", .{});
+    try t2.addText("Another\n", .{});
+    try t2.addText("Another\n", .{});
+    t2.deinit();
+    box1.deinit();
+
     const ctext = try dvui.context(@src(), .{ .expand = .both });
     defer ctext.deinit();
 
@@ -572,37 +591,42 @@ fn dvui_frame() !void {
         node_menu_filter = null;
     }
 
-    var scroll = try dvui.scrollArea(@src(), .{}, .{ .expand = .both, .color_fill = .{ .name = .fill_window } });
+    var scroll = try dvui.scrollArea(@src(), .{ .horizontal = .auto }, .{ .expand = .both, .color_fill = .{ .name = .fill_window } });
     defer scroll.deinit();
 
     var tl = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
     try tl.addText("Grappl Test Editor", .{});
     tl.deinit();
-
-    var tl2 = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal });
-    try tl2.format(
-        \\Graph below
-        \\Hello graph!
-        \\Man how will I use Monaco with this?
-        \\
-        \\backend: {s}
-        \\
-    , .{backend.about()}, .{});
-    tl2.deinit();
-
-    if (try dvui.button(@src(), "Reset Scale", .{}, .{})) {
-        new_content_scale = orig_content_scale;
+    if (try dvui.button(@src(), "Debug", .{}, .{})) {
+        win.debug_window_show = true;
     }
 
-    const label = if (dvui.Examples.show_demo_window) "Hide Demo Window" else "Show Demo Window";
-    if (try dvui.button(@src(), label, .{}, .{})) {
-        dvui.Examples.show_demo_window = !dvui.Examples.show_demo_window;
-    }
+    var graph_area = try GraphAreaWidget.render(@src(), .{ .expand = .both });
+    try renderGraph();
+    graph_area.deinit();
+
+    //var tl2 = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal });
+    // try tl2.format(
+    //     \\Graph below
+    //     \\Hello graph!
+    //     \\Man how will I use Monaco with this?
+    //     \\
+    //     \\backend: {s}
+    //     \\
+    // , .{backend.about()}, .{});
+    // tl2.deinit();
+
+    // if (try dvui.button(@src(), "Reset Scale", .{}, .{})) {
+    //     new_content_scale = orig_content_scale;
+    // }
+
+    // const label = if (dvui.Examples.show_demo_window) "Hide Demo Window" else "Show Demo Window";
+    // if (try dvui.button(@src(), label, .{}, .{})) {
+    //     dvui.Examples.show_demo_window = !dvui.Examples.show_demo_window;
+    // }
 
     // look at demo() for examples of dvui widgets, shows in a floating window
-    try dvui.Examples.demo();
-
-    try renderGraph();
+    //try dvui.Examples.demo();
 
     if (new_content_scale) |ns| {
         win.content_scale = ns;
