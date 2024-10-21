@@ -98,9 +98,9 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
     };
 
     {
-        const plus_index = grappl_graph.addNode(gpa, "+", false, null, null) catch unreachable;
-        const set_index = grappl_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
-        grappl_graph.addEdge(plus_index, 0, set_index, 2, 0) catch unreachable;
+        const plus_index = visual_graph.addNode(gpa, "+", false, null, null) catch unreachable;
+        const set_index = visual_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
+        visual_graph.addEdge(plus_index, 0, set_index, 2, 0) catch unreachable;
     }
 
     // small fonts look bad on the web, so bump the default theme up
@@ -197,12 +197,19 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
 
             if ((try dvui.menuItemLabel(@src(), node_name.*, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
                 // TODO: use diagnostic
-                const node_id = try grappl_graph.addNode(gpa, node_name.*, false, null, null);
+                const node_id = try visual_graph.addNode(gpa, node_name.*, false, null, null);
+                const node = visual_graph.graph.nodes.map.getPtr(node_id) orelse unreachable;
+                // HACK
+                const mouse_pt = dvui.currentWindow().mouse_pt;
+                node.position = .{
+                    .x = @intFromFloat(mouse_pt.x),
+                    .y = @intFromFloat(mouse_pt.y),
+                };
 
                 if (maybe_create_from) |create_from| {
                     std.debug.assert(create_from.kind == .output);
                     // TODO: add it to the first type-compatible socket!
-                    try grappl_graph.addEdge(create_from.node_id, create_from.index, node_id, 0, 0);
+                    try visual_graph.addEdge(create_from.node_id, create_from.index, node_id, 0, 0);
                 }
 
                 fw2.close();
@@ -219,8 +226,6 @@ fn renderGraph() !void {
 
     // set drag end to false, rendering will determine if it should still be set
     edge_drag_end = null;
-
-    try visual_graph.formatGraphNaive(gpa);
 
     // place nodes
     {
@@ -311,7 +316,7 @@ fn renderGraph() !void {
                 if (valid_edge) {
                     // FIXME: why am I assumign edge_drag_start exists?
                     // TODO: maybe use unreachable instead of try?
-                    try grappl_graph.addEdge(
+                    try visual_graph.addEdge(
                         edge.source.node_id,
                         edge.source.index,
                         edge.target.node_id,
@@ -378,13 +383,16 @@ fn renderNode(
 ) !void {
     const root_id_extra: usize = @intCast(node.id);
 
-    const viz_data = visual_graph.node_data.getPtr(node.id) orelse unreachable;
+    const position = if (visual_graph.node_data.get(node.id)) |viz_data| viz_data.position else dvui.Point{
+        .x = @floatFromInt(node.position.x),
+        .y = @floatFromInt(node.position.y),
+    };
 
     const box = try dvui.box(
         @src(),
         .vertical,
         .{
-            .rect = dvui.Rect{ .x = viz_data.position.x, .y = viz_data.position.y },
+            .rect = dvui.Rect{ .x = position.x, .y = position.y },
             .id_extra = root_id_extra,
             .debug = true,
             .margin = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
@@ -528,6 +536,27 @@ pub const VisualGraph = struct {
         self.node_data.deinit(alloc);
     }
 
+    pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?grappl.NodeId, diag: ?*grappl.GraphBuilder.Diagnostic) !grappl.NodeId {
+        const result = try self.graph.addNode(alloc, kind, is_entry, force_node_id, diag);
+        // FIXME:
+        // errdefer self.graph.removeNode(result);
+        try self.formatGraphNaive(gpa); // FIXME: do this iteratively! don't reformat the whole thing...
+        return result;
+    }
+
+    pub fn addEdge(self: *@This(), start_id: grappl.NodeId, start_index: u32, end_id: grappl.NodeId, end_index: u32, end_subindex: u32) !void {
+        const result = try self.graph.addEdge(start_id, start_index, end_id, end_index, end_subindex);
+        // FIXME: (note that if edge did any "replacing", that also needs to be restored!)
+        // errdefer self.graph.removeEdge(result);
+        // TODO:
+        try self.formatGraphNaive(gpa); // FIXME: do this iteratively! don't reformat the whole thing...
+        return result;
+    }
+
+    pub fn addLiteralInput(self: @This(), node_id: grappl.NodeId, pin_index: u32, subpin_index: u32, value: grappl.Value) !void {
+        return self.graph.addLiteralInput(node_id, pin_index, subpin_index, value);
+    }
+
     /// simple graph formatting that assumes a grid of nodes, and greedily assigns every newly
     /// discovered node to the next available lower vertical slot, in the column to the right
     /// if it's output-discovered or to the left if it's input-discovered
@@ -631,6 +660,8 @@ pub const VisualGraph = struct {
                         };
 
                         next_col.data.append(new_cell);
+
+                        try impl(alloc, grid, visited, next_col, new_cell);
                     }
                 }
             }
@@ -666,15 +697,13 @@ pub const VisualGraph = struct {
                 }) {
                     try in_self.node_data.put(parent_alloc, cell.data.node.id, .{
                         .position = .{
-                            .x = @floatFromInt(200 * i),
-                            .y = @floatFromInt(200 * j),
+                            .x = @floatFromInt(300 * i),
+                            .y = @floatFromInt(300 * j),
                         },
                     });
                 }
             }
         }
-
-        return;
     }
 };
 
