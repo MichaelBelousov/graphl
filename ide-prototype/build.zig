@@ -56,9 +56,9 @@ pub fn build(b: *std.Build) void {
     cb_run.addFileArg(exe.getEmittedBin());
     const output = cb_run.captureStdOut();
 
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(output, .prefix, "bin/index.html").step);
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(dvui_dep.path("src/backends/WebBackend.js"), .prefix, "bin/WebBackend.js").step);
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path("./vite.config.ts"), .prefix, "bin/vite.config.ts").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(output, .{ .custom = ".." }, "index.html").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(dvui_dep.path("src/backends/WebBackend.js"), .{ .custom = ".." }, "WebBackend.js").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path("./vite.config.ts"), .{ .custom = ".." }, "vite.config.ts").step);
     b.getInstallStep().dependOn(&install_exe.step);
 
     // This *creates* a Run step in the build graph, to be executed when another

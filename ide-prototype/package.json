@@ -1,9 +1,9 @@
 {
   "name": "graph-lang-ide-prototype-dvui",
   "scripts": {
-    "build": "zig build && cd ./zig-out/bin && vite build --mode production",
-    "preview": "cd ./zig-out/bin && vite preview",
-    "dev": "cd ./zig-out/bin && vite --port 3001",
+    "build": "zig build && vite build --mode production",
+    "preview": "vite preview",
+    "dev": "vite --port 3001",
     "dev:zig": "git ls-files | entr -rc zig build",
     "test": "mocha --config ./.mocharc.js tests/unit/**/*.test.ts",
     "test:e2e": "playwright test tests/e2e"
