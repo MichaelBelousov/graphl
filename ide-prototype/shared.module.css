@@ -1,0 +1,12 @@
+
+
+.transparentInput {
+  border: 0;
+  background-color: transparent;
+  min-width: 1em;
+  max-width: fit-content;
+}
+
+.transparentInput:hover:not(:focus) {
+  background-color: rgba(255, 200, 0, 0.3);
+}

@@ -839,19 +839,6 @@ fn dvui_frame() !void {
         }
     }
 
-    var box1 = try dvui.box(@src(), .vertical, .{ .expand = .horizontal, .background = true });
-    var t2 = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
-    try t2.addText("Grappl Test Editor", .{});
-    try t2.addText("Another\n", .{});
-    try t2.addText("Another\n", .{});
-    try t2.addText("Another\n", .{});
-    try t2.addText("Another\n", .{});
-    try t2.addText("Another\n", .{});
-    try t2.addText("Another\n", .{});
-    try t2.addText("Another\n", .{});
-    t2.deinit();
-    box1.deinit();
-
     const ctext = try dvui.context(@src(), .{ .expand = .both });
     defer ctext.deinit();
 
