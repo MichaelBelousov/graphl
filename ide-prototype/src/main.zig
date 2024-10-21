@@ -170,8 +170,11 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
 
     const maybe_create_from_type: ?grappl.PrimitivePin = if (maybe_create_from) |create_from| _: {
         const node = grappl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
-        const output = node.desc.getOutputs()[create_from.index];
-        break :_ output.asPrimitivePin();
+        const pins = switch (create_from.kind) {
+            .output => node.desc.getOutputs(),
+            .input => node.desc.getInputs(),
+        };
+        break :_ pins[create_from.index].asPrimitivePin();
     } else null;
 
     {
@@ -181,17 +184,22 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
             const node_name = node_entry.key_ptr;
             const node_desc = node_entry.value_ptr;
 
-            if (maybe_create_from_type) |create_from_type| {
-                var has_valid_input = false;
+            var valid_socket_index: ?u32 = null;
 
-                for (node_desc.getInputs()) |input_desc| {
-                    if (std.meta.eql(input_desc.asPrimitivePin(), create_from_type)) {
-                        has_valid_input = true;
+            if (maybe_create_from_type) |create_from_type| {
+                const pins = switch (maybe_create_from.?.kind) {
+                    .input => node_desc.getOutputs(),
+                    .output => node_desc.getInputs(),
+                };
+
+                for (pins, 0..) |pin_desc, j| {
+                    if (std.meta.eql(pin_desc.asPrimitivePin(), create_from_type)) {
+                        valid_socket_index = j;
                         break;
                     }
                 }
 
-                if (!has_valid_input)
+                if (valid_socket_index == null)
                     continue;
             }
 
@@ -207,9 +215,28 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
                 };
 
                 if (maybe_create_from) |create_from| {
-                    std.debug.assert(create_from.kind == .output);
-                    // TODO: add it to the first type-compatible socket!
-                    try visual_graph.addEdge(create_from.node_id, create_from.index, node_id, 0, 0);
+                    switch (create_from.kind) {
+                        .input => {
+                            // TODO: add it to the first type-compatible socket!
+                            try visual_graph.addEdge(
+                                node_id,
+                                valid_socket_index orelse unreachable,
+                                create_from.node_id,
+                                create_from.index,
+                                0,
+                            );
+                        },
+                        .output => {
+                            // TODO: add it to the first type-compatible socket!
+                            try visual_graph.addEdge(
+                                create_from.node_id,
+                                create_from.index,
+                                node_id,
+                                valid_socket_index orelse unreachable,
+                                0,
+                            );
+                        },
+                    }
                 }
 
                 fw2.close();
@@ -326,7 +353,7 @@ fn renderGraph() !void {
                 }
             } else {
                 drop_node_menu = true;
-                node_menu_filter = if (edge_drag_start != null and edge_drag_start.?.socket.kind == .output) edge_drag_start.?.socket else null;
+                node_menu_filter = if (edge_drag_start != null) edge_drag_start.?.socket else null;
             }
 
             edge_drag_start = null;
@@ -359,14 +386,19 @@ fn considerSocketForHover(icon_res: *const dvui.ButtonIconResult, socket: Socket
     const socket_center = rectCenter(r);
 
     if (rectContainsMouse(r)) {
-        dvui.cursorSet(.crosshair);
         const is_dragging = dvui.dragging(dvui.Point{ .x = 0, .y = 0 }) != null;
 
-        if (edge_drag_start != null and is_dragging and socket.kind != edge_drag_start.?.socket.kind) {
+        if (is_dragging and edge_drag_start != null
+        //
+        and socket.kind != edge_drag_start.?.socket.kind
+        // FIXME: for now not allowing trivial cyclic connections
+        and socket.node_id != edge_drag_start.?.socket.node_id) {
+            dvui.cursorSet(.crosshair);
             edge_drag_end = socket;
         }
 
         if (!is_dragging) {
+            dvui.cursorSet(.crosshair);
             edge_drag_start = .{
                 .pt = socket_center,
                 .socket = socket,
@@ -413,7 +445,7 @@ fn renderNode(
 
     var inputs_vbox = try dvui.box(@src(), .vertical, .{});
 
-    for (node.desc.getInputs(), node.inputs, 0..) |input_desc, input, j| {
+    for (node.desc.getInputs(), node.inputs, 0..) |input_desc, *input, j| {
         var input_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
         defer input_box.deinit();
 
@@ -445,24 +477,31 @@ fn renderNode(
             // FIXME: report compiler bug
             // } else switch (i.kind.primitive.value) {
             //     grappl.primitive_types.i32_ => {
-            if (input != .link) {
+            if (input.* != .link) {
                 // TODO: handle all possible types using switch or something
                 var handled = false;
 
                 inline for (.{ i32, i64, u32, u64, f32, f64 }) |T| {
                     const primitive_type = @field(grappl.primitive_types, @typeName(T) ++ "_");
                     if (input_desc.kind.primitive.value == primitive_type) {
-                        _ = try dvui.textEntryNumber(@src(), T, .{}, .{ .id_extra = j });
+                        const entry = try dvui.textEntryNumber(@src(), T, .{}, .{ .id_extra = j });
+                        if (entry.enter_pressed and entry.value == .Valid)
+                            input.* = .{ .value = .{
+                                .number = if (@typeInfo(T) == .Int) @floatFromInt(entry.value.Valid) else @floatCast(entry.value.Valid),
+                            } };
                         handled = true;
                     }
                 }
 
-                if (input_desc.kind.primitive.value == grappl.primitive_types.bool_ and input == .value) {
+                if (input_desc.kind.primitive.value == grappl.primitive_types.bool_ and input.* == .value) {
                     //node.inputs[j] = .{.literal}
-                    var val = false;
-                    _ = try dvui.checkbox(@src(), &val, null, .{ .id_extra = j });
+                    if (input.* != .value or input.value != .bool) {
+                        input.* = .{ .value = .{ .bool = false } };
+                    }
+
+                    std.debug.assert(input.*.value == .bool);
+                    _ = try dvui.checkbox(@src(), &input.value.bool, null, .{ .id_extra = j });
                     handled = true;
-                    //
                 }
 
                 if (!handled)
@@ -682,6 +721,7 @@ pub const VisualGraph = struct {
 
         try Local.impl(arena_alloc, &root_grid, &root_visited, &first_col, &first_cell);
 
+        // FIXME: precalc node max sizes
         {
             var col_cursor = root_grid.first;
             var i: u32 = 0;
@@ -697,8 +737,9 @@ pub const VisualGraph = struct {
                 }) {
                     try in_self.node_data.put(parent_alloc, cell.data.node.id, .{
                         .position = .{
-                            .x = @floatFromInt(300 * i),
-                            .y = @floatFromInt(300 * j),
+                            // FIXME:
+                            .x = @floatFromInt(350 * i),
+                            .y = @floatFromInt(150 * j),
                         },
                     });
                 }
