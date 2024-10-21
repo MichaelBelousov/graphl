@@ -51,7 +51,7 @@ pub fn build(b: *std.Build) void {
         .target = b.host,
     });
     const cb_run = b.addRunArtifact(cb);
-    cb_run.addFileArg(b.path("index.html"));
+    cb_run.addFileArg(b.path("index.template.html"));
     cb_run.addFileArg(dvui_dep.path("src/backends/WebBackend.js"));
     cb_run.addFileArg(exe.getEmittedBin());
     const output = cb_run.captureStdOut();

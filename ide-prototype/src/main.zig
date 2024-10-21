@@ -865,6 +865,7 @@ fn dvui_frame() !void {
     scroll_info.virtual_size = visual_graph.graph_bb.size();
     //}
 
+    // FIXME: move the viewport to any newly created nodes
     //scroll_info.viewport = visual_graph.graph_bb;
 
     var graph_area = try dvui.scrollArea(
