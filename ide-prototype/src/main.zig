@@ -589,7 +589,9 @@ pub const VisualGraph = struct {
                         };
 
                         const was_visited = visited.isSet(@intCast(link.target.id));
+
                         if (was_visited) continue;
+
                         visited.set(@intCast(link.target.id));
 
                         const maybe_next_col = switch (socket_type) {
@@ -599,6 +601,7 @@ pub const VisualGraph = struct {
 
                         if (maybe_next_col == null) {
                             const new_next_col = try alloc.create(Grid.Node);
+                            new_next_col.* = Grid.Node{ .data = Col{} };
                             switch (socket_type) {
                                 .input => grid.prepend(new_next_col),
                                 .output => grid.append(new_next_col),
