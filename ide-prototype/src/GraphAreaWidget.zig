@@ -214,17 +214,90 @@ pub fn render(src: std.builtin.SourceLocation, opts: Options) !*GraphAreaWidget 
 }
 
 pub fn rectFor(self: *ScrollContainerWidget, id: u32, min_size: Size, e: Options.Expand, g: Options.Gravity) Rect {
-    _ = min_size;
-    _ = g;
-
     // todo: do horizontal properly
     std.debug.assert(e == .none);
 
     const node_rect = dvui.dataGet(null, id, "_grapplNodeRect", dvui.Rect) orelse unreachable;
+    //_ = node_rect;
 
     const y = self.nextVirtualSize.h;
 
-    const ret = node_rect;
+    const h = switch (self.si.vertical) {
+        // no scrolling, you only get the visible space
+        .none => self.si.viewport.h - y,
+
+        // you get the space you need or more if there is extra visible space
+        // and you are expanded
+        .auto => @max(self.si.viewport.h - y, min_size.h),
+
+        // you get the given space
+        .given => self.si.virtual_size.h - y,
+    };
+
+    // todo: do horizontal properly
+    const maxw = @max(self.si.virtual_size.w, self.si.viewport.w);
+
+    const rect = Rect{ .x = node_rect.x, .y = node_rect.y, .w = maxw, .h = h };
+    const ret = dvui.placeIn(rect, min_size, e, g);
+    //const ret = node_rect;
+
+    if (self.lock_visible and self.first_visible_id == id) {
+        self.frame_viewport.x = 0; // todo
+        self.frame_viewport.y = y + self.first_visible_offset.y;
+        self.si.viewport.x = self.frame_viewport.x;
+        self.si.viewport.y = self.frame_viewport.y;
+    }
+
+    if (ret.y <= self.frame_viewport.y and self.frame_viewport.y < (ret.y + ret.h)) {
+        self.first_visible_id = id;
+        self.first_visible_offset = Point.diff(self.frame_viewport, ret.topLeft());
+    }
+
+    return ret;
+}
+
+// TODO: remove
+pub fn oldRectFor(self: *ScrollContainerWidget, id: u32, min_size: Size, e: Options.Expand, g: Options.Gravity) Rect {
+    // todo: do horizontal properly
+    if (self.seen_expanded_child) {
+        // Having one expanded child makes sense - could be taking the rest of
+        // the given space or filling the visible space (if bigger than the min
+        // virtual size).  But that should be the last (usually only) child
+        // that asks for space.
+        //
+        // We saw an expanded child and gave it the rest of the space, and now
+        // another child has asked for space, which shouldn't happen.  Visually
+        // the new child might not appear at all or appear on top of the
+        // expanded child.
+        //
+        // If you are reading this, make sure that children of scrollArea() are
+        // not expanded in the scrollArea's layout direction, or that only the
+        // last child is.
+        dvui.currentWindow().debug_widget_id = id;
+        dvui.log.debug("{s}:{d} ScrollContainerWidget.rectFor() got child {x} after expanded child", .{ @src().file, @src().line, id });
+    } else if (e.isVertical()) {
+        self.seen_expanded_child = true;
+    }
+
+    const y = self.nextVirtualSize.h;
+
+    const h = switch (self.si.vertical) {
+        // no scrolling, you only get the visible space
+        .none => self.si.viewport.h - y,
+
+        // you get the space you need or more if there is extra visible space
+        // and you are expanded
+        .auto => @max(self.si.viewport.h - y, min_size.h),
+
+        // you get the given space
+        .given => self.si.virtual_size.h - y,
+    };
+
+    // todo: do horizontal properly
+    const maxw = @max(self.si.virtual_size.w, self.si.viewport.w);
+
+    const rect = Rect{ .x = 0, .y = y, .w = maxw, .h = h };
+    const ret = dvui.placeIn(rect, min_size, e, g);
 
     if (self.lock_visible and self.first_visible_id == id) {
         self.frame_viewport.x = 0; // todo
@@ -250,6 +323,11 @@ pub fn screenRectScale(self: *ScrollContainerWidget, rect: Rect) RectScale {
 }
 
 pub fn minSizeForChild(self: *ScrollContainerWidget, s: Size) void {
+    self.nextVirtualSize.h += @max(self.nextVirtualSize.h, s.h);
+    self.nextVirtualSize.w = @max(self.nextVirtualSize.w, s.w);
+}
+
+pub fn oldMinSizeForChild(self: *ScrollContainerWidget, s: Size) void {
     self.nextVirtualSize.h += s.h;
     self.nextVirtualSize.w = @max(self.nextVirtualSize.w, s.w);
 }

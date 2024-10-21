@@ -434,13 +434,13 @@ fn renderNode(
             const icon_res = try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
             const socket_center = considerSocketForHover(&icon_res, socket);
 
-            // TODO: handle all possible types using switch or something
-            var handled = false;
-
             // FIXME: report compiler bug
             // } else switch (i.kind.primitive.value) {
             //     grappl.primitive_types.i32_ => {
             if (input != .link) {
+                // TODO: handle all possible types using switch or something
+                var handled = false;
+
                 inline for (.{ i32, i64, u32, u64, f32, f64 }) |T| {
                     const primitive_type = @field(grappl.primitive_types, @typeName(T) ++ "_");
                     if (input_desc.kind.primitive.value == primitive_type) {
@@ -456,10 +456,10 @@ fn renderNode(
                     handled = true;
                     //
                 }
-            }
 
-            if (!handled)
-                try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
+                if (!handled)
+                    try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
+            }
 
             break :_ socket_center;
         };
@@ -505,6 +505,43 @@ fn renderNode(
     outputs_vbox.deinit();
 }
 
+var scroll_info = dvui.ScrollInfo{
+    .horizontal = .auto,
+    .vertical = .auto,
+    //.velocity = dvui.Point{ .x = 1, .y = 1 },
+    .viewport = dvui.Rect{ .w = 1000, .h = 1000 },
+    // NOTE: updated by the graph
+    .virtual_size = dvui.Size{ .w = 5_000, .h = 5_000 },
+};
+
+const VisualGraph = struct {
+    const NodeData = struct {
+        // TODO: remove grappl.Node.position
+        position: dvui.Point,
+    };
+
+    graph: *grappl.GraphBuilder,
+    node_data: std.AutoHashMapUnmanaged(grappl.NodeId, NodeData),
+
+    /// simple graph formatting that assumes a grid of nodes, and assigns every newly discovered node
+    /// to the next available lower vertical slot, in the column to the right if it's output-discovered
+    /// or to the left if it's input-discovered
+    fn formatGraphNaive(self: *@This()) void {
+        // TODO: consider creating a separate class to handle graph traversals?
+        var maybe_cursor: ?*grappl.Node = self.graph.entry orelse self.graph.nodes.map.getPtr(0) orelse return;
+
+        //var grid = std.
+        
+        while (maybe_cursor) |cursor| {
+
+        }
+    }
+};
+
+fn updateScrollInfo() void {
+    //grappl_graph.getSize();
+}
+
 fn dvui_frame() !void {
     var new_content_scale: ?f32 = null;
     var old_dist: ?f32 = null;
@@ -543,6 +580,8 @@ fn dvui_frame() !void {
             }
         }
     }
+
+    updateScrollInfo();
 
     // file menu
     {
@@ -591,8 +630,8 @@ fn dvui_frame() !void {
         node_menu_filter = null;
     }
 
-    var scroll = try dvui.scrollArea(@src(), .{ .horizontal = .auto }, .{ .expand = .both, .color_fill = .{ .name = .fill_window } });
-    defer scroll.deinit();
+    //var scroll = try dvui.scrollArea(@src(), .{ .horizontal = .auto }, .{ .expand = .both, .color_fill = .{ .name = .fill_window } });
+    //defer scroll.deinit();
 
     var tl = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
     try tl.addText("Grappl Test Editor", .{});
@@ -601,9 +640,17 @@ fn dvui_frame() !void {
         win.debug_window_show = true;
     }
 
-    var graph_area = try GraphAreaWidget.render(@src(), .{ .expand = .both });
+    var graph_area = try dvui.scrollArea(
+        @src(),
+        .{
+            .scroll_info = &scroll_info,
+            // FIXME: probably can remove?
+            .horizontal = .auto,
+        },
+        .{ .expand = .both, .color_fill = .{ .name = .fill_window } },
+    );
+    defer graph_area.deinit();
     try renderGraph();
-    graph_area.deinit();
 
     //var tl2 = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal });
     // try tl2.format(
