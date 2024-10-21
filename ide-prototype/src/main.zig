@@ -52,6 +52,7 @@ var touchPoints: [2]?dvui.Point = [_]?dvui.Point{null} ** 2;
 var orig_content_scale: f32 = 1.0;
 
 var grappl_graph: grappl.GraphBuilder = undefined;
+var visual_graph = VisualGraph{ .graph = &grappl_graph };
 
 var context_menu_widget_id: ?u32 = null;
 var node_menu_filter: ?Socket = null;
@@ -219,6 +220,8 @@ fn renderGraph() !void {
     // set drag end to false, rendering will determine if it should still be set
     edge_drag_end = null;
 
+    try visual_graph.formatGraphNaive(gpa);
+
     // place nodes
     {
         var node_iter = grappl_graph.nodes.map.iterator();
@@ -373,20 +376,16 @@ fn renderNode(
     node: *const grappl.Node,
     socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Point),
 ) !void {
-    const root_src = @src();
-    const root_widget_id = dvui.parentGet().extendId(root_src, 0);
+    const root_id_extra: usize = @intCast(node.id);
 
-    // set data for widget before we render it, so parent's rectFor can use it
-    dvui.dataSet(null, root_widget_id, "_grapplNode", node);
-    const node_rect = Rect{ .x = @floatFromInt(200 + node.id * 320), .y = 0 };
-    dvui.dataSet(null, root_widget_id, "_grapplNodeRect", node_rect);
+    const viz_data = visual_graph.node_data.getPtr(node.id) orelse unreachable;
 
     const box = try dvui.box(
-        root_src,
+        @src(),
         .vertical,
         .{
-            .id_extra = @intCast(node.id),
-            .rect = node_rect,
+            .rect = dvui.Rect{ .x = viz_data.position.x, .y = viz_data.position.y },
+            .id_extra = root_id_extra,
             .debug = true,
             .margin = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
             .padding = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
@@ -394,6 +393,7 @@ fn renderNode(
             .border = .{ .h = 1, .w = 1, .x = 1, .y = 1 },
             .corner_radius = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
             .color_border = .{ .color = dvui.Color.black },
+            //.max_size_content = dvui.Size{ .w = 300, .h = 600 },
         },
     );
     defer box.deinit();
@@ -514,27 +514,164 @@ var scroll_info = dvui.ScrollInfo{
     .virtual_size = dvui.Size{ .w = 5_000, .h = 5_000 },
 };
 
-const VisualGraph = struct {
-    const NodeData = struct {
+pub const VisualGraph = struct {
+    pub const NodeData = struct {
         // TODO: remove grappl.Node.position
         position: dvui.Point,
     };
 
     graph: *grappl.GraphBuilder,
-    node_data: std.AutoHashMapUnmanaged(grappl.NodeId, NodeData),
+    // NOTE: should I use an array list?
+    node_data: std.AutoHashMapUnmanaged(grappl.NodeId, NodeData) = .{},
 
-    /// simple graph formatting that assumes a grid of nodes, and assigns every newly discovered node
-    /// to the next available lower vertical slot, in the column to the right if it's output-discovered
-    /// or to the left if it's input-discovered
-    fn formatGraphNaive(self: *@This()) void {
+    pub fn deinit(self: *VisualGraph, alloc: std.mem.Allocator) void {
+        self.node_data.deinit(alloc);
+    }
+
+    /// simple graph formatting that assumes a grid of nodes, and greedily assigns every newly
+    /// discovered node to the next available lower vertical slot, in the column to the right
+    /// if it's output-discovered or to the left if it's input-discovered
+    /// NOTE: the parent_alloc must be preserved
+    pub fn formatGraphNaive(in_self: *VisualGraph, parent_alloc: std.mem.Allocator) !void {
+        var arena = std.heap.ArenaAllocator.init(parent_alloc);
+        defer arena.deinit();
+        const arena_alloc = arena.allocator();
+
+        const Cell = struct {
+            node: *const grappl.Node,
+            pos: struct {
+                x: i32,
+                y: i32,
+            },
+        };
+
+        // grid is a list of columns, each their own list
+        //var grid = std.SegmentedList(std.SegmentedList(*grappl.Node, 8), 256){};
+        const Col = std.DoublyLinkedList(Cell);
+        const Grid = std.DoublyLinkedList(Col);
+
+        var root_grid = Grid{};
+
+        // // Grid nodes are all in an arena, just don't free it!
+        // defer {
+        //     var col_cursor = root_grid.first;
+        //     while (col_cursor) |col| {
+        //         var cell_cursor = col.data.first;
+        //         while (cell_cursor) |cell| {
+        //             arena_alloc.free(cell.data);
+        //             cell_cursor = cell.next;
+        //         }
+        //         col_cursor = col.next;
+        //     }
+        // }
+
+        var root_visited = try std.DynamicBitSet.initEmpty(arena_alloc, in_self.graph.nodes.map.count());
+        defer root_visited.deinit();
+
+        // given a node that's already been placed, place all its connections
+        const Local = struct {
+            fn impl(
+                alloc: std.mem.Allocator,
+                grid: *Grid,
+                visited: *std.DynamicBitSet,
+                column: *Grid.Node,
+                cursor: *Col.Node,
+            ) !void {
+                inline for (.{ SocketType.input, SocketType.output }) |socket_type| {
+                    const sockets = @field(cursor.data.node, @tagName(socket_type) ++ "s");
+                    for (sockets, 0..) |maybe_socket, i| {
+                        const link = switch (socket_type) {
+                            .input => switch (maybe_socket) {
+                                .link => |v| v,
+                                else => continue,
+                            },
+                            .output => (maybe_socket orelse continue).link,
+                        };
+
+                        const was_visited = visited.isSet(@intCast(link.target.id));
+                        if (was_visited) continue;
+                        visited.set(@intCast(link.target.id));
+
+                        const maybe_next_col = switch (socket_type) {
+                            .input => column.prev,
+                            .output => column.next,
+                        };
+
+                        if (maybe_next_col == null) {
+                            const new_next_col = try alloc.create(Grid.Node);
+                            switch (socket_type) {
+                                .input => grid.prepend(new_next_col),
+                                .output => grid.append(new_next_col),
+                            }
+                        }
+
+                        const next_col = switch (socket_type) {
+                            .input => column.prev.?,
+                            .output => column.next.?,
+                        };
+
+                        const new_cell = try alloc.create(Col.Node);
+
+                        new_cell.* = Col.Node{
+                            .data = .{
+                                .node = link.target,
+                                .pos = .{
+                                    // FIXME: this is wrong, and not even used
+                                    // each column should have an "offset" value
+                                    .x = cursor.data.pos.x + switch (socket_type) {
+                                        .input => -1,
+                                        .output => 1,
+                                    },
+                                    .y = @intCast(i),
+                                },
+                            },
+                        };
+
+                        next_col.data.append(new_cell);
+                    }
+                }
+            }
+        };
+
         // TODO: consider creating a separate class to handle graph traversals?
-        var maybe_cursor: ?*grappl.Node = self.graph.entry orelse self.graph.nodes.map.getPtr(0) orelse return;
+        const first_node = in_self.graph.entry orelse in_self.graph.nodes.map.getPtr(0) orelse return;
 
-        //var grid = std.
-        
-        while (maybe_cursor) |cursor| {
+        var first_cell = Col.Node{
+            .data = Cell{
+                .node = first_node,
+                .pos = .{ .x = 0, .y = 0 },
+            },
+        };
+        var first_col = Grid.Node{ .data = Col{} };
+        first_col.data.append(&first_cell);
+        root_grid.append(&first_col);
 
+        try Local.impl(arena_alloc, &root_grid, &root_visited, &first_col, &first_cell);
+
+        {
+            var col_cursor = root_grid.first;
+            var i: u32 = 0;
+            while (col_cursor) |col| : ({
+                col_cursor = col.next;
+                i += 1;
+            }) {
+                var cell_cursor = col.data.first;
+                var j: u32 = 0;
+                while (cell_cursor) |cell| : ({
+                    cell_cursor = cell.next;
+                    j += 1;
+                }) {
+                    try in_self.node_data.put(parent_alloc, cell.data.node.id, .{
+                        .position = .{
+                            .x = @floatFromInt(200 * i),
+                            .y = @floatFromInt(200 * j),
+                        },
+                    });
+                }
+            }
         }
+
+        return;
     }
 };
 
