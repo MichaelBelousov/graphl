@@ -35,8 +35,6 @@ pub const ImportBinding = struct {
     alias: ?[]const u8,
 };
 
-// FIXME: should probably have u32 for node ids, i64 is from when Math.random()
-// in javascript was primary interface
 // FIXME: deprecate, access this directly
 pub const NodeId = GraphTypes.NodeId;
 
@@ -173,7 +171,7 @@ pub const GraphBuilder = struct {
 
     // TODO: rename to source/target
     /// end_subindex should be 0 if you don't know it
-    pub fn addEdge(self: @This(), start_id: NodeId, start_index: u32, end_id: NodeId, end_index: u32, end_subindex: u32) !void {
+    pub fn addEdge(self: @This(), start_id: NodeId, start_index: u16, end_id: NodeId, end_index: u16, end_subindex: u16) !void {
         const start = self.nodes.map.getPtr(start_id) orelse return error.SourceNodeNotFound;
         const end = self.nodes.map.getPtr(end_id) orelse return error.TargetNodeNotFound;
 
@@ -197,19 +195,19 @@ pub const GraphBuilder = struct {
         }
 
         start.outputs[start_index] = .{ .link = .{
-            .target = end,
+            .target = end_id,
             .pin_index = end_index,
             .sub_index = end_subindex,
         } };
 
         end.inputs[end_index] = .{ .link = .{
-            .target = start,
+            .target = start_id,
             .pin_index = start_index,
         } };
     }
 
     // NOTE: consider renaming to "setLiteralInput"
-    pub fn addLiteralInput(self: @This(), node_id: NodeId, pin_index: u32, subpin_index: u32, value: Value) !void {
+    pub fn addLiteralInput(self: @This(), node_id: NodeId, pin_index: u16, subpin_index: u16, value: Value) !void {
         const start = self.nodes.map.getPtr(node_id) orelse return error.SourceNodeNotFound;
         _ = subpin_index;
 

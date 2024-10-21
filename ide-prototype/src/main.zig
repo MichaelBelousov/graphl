@@ -159,7 +159,7 @@ const SocketType = enum(u1) { input, output };
 const Socket = struct {
     node_id: grappl.NodeId,
     kind: SocketType,
-    index: u32,
+    index: u16,
 };
 
 fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
@@ -184,7 +184,7 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
             const node_name = node_entry.key_ptr;
             const node_desc = node_entry.value_ptr;
 
-            var valid_socket_index: ?u32 = null;
+            var valid_socket_index: ?u16 = null;
 
             if (maybe_create_from_type) |create_from_type| {
                 const pins = switch (maybe_create_from.?.kind) {
@@ -192,9 +192,11 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
                     .output => node_desc.getInputs(),
                 };
 
+                if (pins.len > std.math.maxInt(u16))
+                    return error.TooManyPins;
                 for (pins, 0..) |pin_desc, j| {
                     if (std.meta.eql(pin_desc.asPrimitivePin(), create_from_type)) {
-                        valid_socket_index = j;
+                        valid_socket_index = @intCast(j);
                         break;
                     }
                 }
@@ -279,7 +281,7 @@ fn renderGraph() !void {
                 const target = Socket{
                     .node_id = node_id,
                     .kind = .input,
-                    .index = input_index,
+                    .index = @intCast(input_index),
                 };
 
                 const source_pos = socket_positions.get(target) orelse {
@@ -288,7 +290,7 @@ fn renderGraph() !void {
                 };
 
                 const source = Socket{
-                    .node_id = input.link.target.id,
+                    .node_id = input.link.target,
                     .kind = .output,
                     .index = input.link.pin_index,
                 };
@@ -449,7 +451,7 @@ fn renderNode(
         var input_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
         defer input_box.deinit();
 
-        const socket = Socket{ .node_id = node.id, .kind = .input, .index = j };
+        const socket = Socket{ .node_id = node.id, .kind = .input, .index = @intCast(j) };
 
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
@@ -524,7 +526,7 @@ fn renderNode(
         var output_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
         defer output_box.deinit();
 
-        const socket = Socket{ .node_id = node.id, .kind = .output, .index = j };
+        const socket = Socket{ .node_id = node.id, .kind = .output, .index = @intCast(j) };
 
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
@@ -587,7 +589,7 @@ pub const VisualGraph = struct {
         return result;
     }
 
-    pub fn addEdge(self: *@This(), start_id: grappl.NodeId, start_index: u32, end_id: grappl.NodeId, end_index: u32, end_subindex: u32) !void {
+    pub fn addEdge(self: *@This(), start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
         const result = try self.graph.addEdge(start_id, start_index, end_id, end_index, end_subindex);
         // FIXME: (note that if edge did any "replacing", that also needs to be restored!)
         // errdefer self.graph.removeEdge(result);
@@ -596,7 +598,7 @@ pub const VisualGraph = struct {
         return result;
     }
 
-    pub fn addLiteralInput(self: @This(), node_id: grappl.NodeId, pin_index: u32, subpin_index: u32, value: grappl.Value) !void {
+    pub fn addLiteralInput(self: @This(), node_id: grappl.NodeId, pin_index: u16, subpin_index: u16, value: grappl.Value) !void {
         return self.graph.addLiteralInput(node_id, pin_index, subpin_index, value);
     }
 
@@ -643,6 +645,7 @@ pub const VisualGraph = struct {
         // given a node that's already been placed, place all its connections
         const Local = struct {
             fn impl(
+                self: *const VisualGraph,
                 alloc: std.mem.Allocator,
                 grid: *Grid,
                 visited: *std.DynamicBitSet,
@@ -660,11 +663,11 @@ pub const VisualGraph = struct {
                             .output => (maybe_socket orelse continue).link,
                         };
 
-                        const was_visited = visited.isSet(@intCast(link.target.id));
+                        const was_visited = visited.isSet(@intCast(link.target));
 
                         if (was_visited) continue;
 
-                        visited.set(@intCast(link.target.id));
+                        visited.set(@intCast(link.target));
 
                         const maybe_next_col = switch (socket_type) {
                             .input => column.prev,
@@ -687,9 +690,11 @@ pub const VisualGraph = struct {
 
                         const new_cell = try alloc.create(Col.Node);
 
+                        const node = self.graph.nodes.map.getPtr(link.target) orelse unreachable;
+
                         new_cell.* = Col.Node{
                             .data = .{
-                                .node = link.target,
+                                .node = node,
                                 .pos = .{
                                     // FIXME: this is wrong, and not even used
                                     // each column should have an "offset" value
@@ -704,7 +709,7 @@ pub const VisualGraph = struct {
 
                         next_col.data.append(new_cell);
 
-                        try impl(alloc, grid, visited, next_col, new_cell);
+                        try impl(self, alloc, grid, visited, next_col, new_cell);
                     }
                 }
             }
@@ -723,7 +728,7 @@ pub const VisualGraph = struct {
         first_col.data.append(&first_cell);
         root_grid.append(&first_col);
 
-        try Local.impl(arena_alloc, &root_grid, &root_visited, &first_col, &first_cell);
+        try Local.impl(in_self, arena_alloc, &root_grid, &root_visited, &first_col, &first_cell);
 
         // FIXME: precalc node max sizes
         {

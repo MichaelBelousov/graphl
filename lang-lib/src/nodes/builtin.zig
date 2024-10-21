@@ -125,10 +125,9 @@ pub const GraphTypes = struct {
     pub const NodeId = u32;
 
     pub const Link = struct {
-        target: *const Node,
-        pin_index: u32,
-        /// optional subindex (e.g. for variadic pins)
-        sub_index: u32 = 0,
+        target: NodeId,
+        pin_index: u16,
+        sub_index: u16 = 0,
     };
 
     pub const Input = union(enum) {
