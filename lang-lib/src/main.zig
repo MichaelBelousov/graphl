@@ -16,6 +16,7 @@ const IndexedNode = @import("./common.zig").GraphTypes.Node;
 pub const Node = @import("./common.zig").GraphTypes.Node;
 pub const Link = @import("./common.zig").GraphTypes.Link;
 pub const Env = @import("./nodes/builtin.zig").Env;
+pub const Point = @import("./nodes/builtin.zig").Point;
 pub const PrimitivePin = @import("./nodes/builtin.zig").PrimitivePin;
 pub const primitive_types = @import("./nodes/builtin.zig").primitive_types;
 const NodeDesc = @import("./nodes/builtin.zig").NodeDesc;

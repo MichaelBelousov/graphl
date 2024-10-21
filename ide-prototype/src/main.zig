@@ -556,9 +556,9 @@ var scroll_info = dvui.ScrollInfo{
     .horizontal = .auto,
     .vertical = .auto,
     //.velocity = dvui.Point{ .x = 1, .y = 1 },
-    .viewport = dvui.Rect{ .w = 1000, .h = 1000 },
+    .viewport = dvui.Rect{ .w = 5000, .h = 5000 },
     // NOTE: updated by the graph
-    .virtual_size = dvui.Size{ .w = 5_000, .h = 5_000 },
+    .virtual_size = dvui.Size{ .w = 1000, .h = 1000 },
 };
 
 pub const VisualGraph = struct {
@@ -570,6 +570,10 @@ pub const VisualGraph = struct {
     graph: *grappl.GraphBuilder,
     // NOTE: should I use an array list?
     node_data: std.AutoHashMapUnmanaged(grappl.NodeId, NodeData) = .{},
+    /// graph bounding box
+    graph_bb: dvui.Rect = min_graph_bb,
+
+    const min_graph_bb = Rect{ .x = 0, .y = 0, .h = 5, .w = 5 };
 
     pub fn deinit(self: *VisualGraph, alloc: std.mem.Allocator) void {
         self.node_data.deinit(alloc);
@@ -723,6 +727,8 @@ pub const VisualGraph = struct {
 
         // FIXME: precalc node max sizes
         {
+            in_self.graph_bb = min_graph_bb;
+
             var col_cursor = root_grid.first;
             var i: u32 = 0;
             while (col_cursor) |col| : ({
@@ -735,11 +741,23 @@ pub const VisualGraph = struct {
                     cell_cursor = cell.next;
                     j += 1;
                 }) {
+                    // TODO: get more accurate node sizes
+                    const node_size = dvui.Size{ .w = 350, .h = 150 };
+                    const padding = 20;
+                    const node_rect = Rect{
+                        .x = @as(f32, @floatFromInt(i)) * node_size.w,
+                        .y = @as(f32, @floatFromInt(j)) * node_size.h,
+                        .w = node_size.w + padding,
+                        .h = node_size.h + padding,
+                    };
+
+                    in_self.graph_bb = in_self.graph_bb.unionWith(node_rect);
+
                     try in_self.node_data.put(parent_alloc, cell.data.node.id, .{
                         .position = .{
                             // FIXME:
-                            .x = @floatFromInt(350 * i),
-                            .y = @floatFromInt(150 * j),
+                            .x = node_rect.x,
+                            .y = node_rect.y,
                         },
                     });
                 }
@@ -850,6 +868,13 @@ fn dvui_frame() !void {
         win.debug_window_show = true;
     }
 
+    //if (!(std.math.approxEqAbs(f32, scroll_info.virtual_size.h, visual_graph.graph_bb.size().h, 0.1) and std.math.approxEqAbs(f32, scroll_info.virtual_size.w, visual_graph.graph_bb.size().w, 0.1))) {
+    // this causes a refresh for some reason, nextVirtualSize is always 0 for some reason
+    scroll_info.virtual_size = visual_graph.graph_bb.size();
+    //}
+
+    //scroll_info.viewport = visual_graph.graph_bb;
+
     var graph_area = try dvui.scrollArea(
         @src(),
         .{
@@ -861,21 +886,6 @@ fn dvui_frame() !void {
     );
     defer graph_area.deinit();
     try renderGraph();
-
-    //var tl2 = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal });
-    // try tl2.format(
-    //     \\Graph below
-    //     \\Hello graph!
-    //     \\Man how will I use Monaco with this?
-    //     \\
-    //     \\backend: {s}
-    //     \\
-    // , .{backend.about()}, .{});
-    // tl2.deinit();
-
-    // if (try dvui.button(@src(), "Reset Scale", .{}, .{})) {
-    //     new_content_scale = orig_content_scale;
-    // }
 
     // const label = if (dvui.Examples.show_demo_window) "Hide Demo Window" else "Show Demo Window";
     // if (try dvui.button(@src(), label, .{}, .{})) {
