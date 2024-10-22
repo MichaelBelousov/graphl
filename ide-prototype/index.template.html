@@ -17,13 +17,18 @@
   <body style="height: 100%; margin: 0; padding: 0;" >
     <style>
         body {
+          overflow-x: hidden;
           display: grid;
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: 100vw 50vw;
           margin: 0;
-          padding: 0
+          padding: 0;
         }
-        #dvui-canvas {}
-        #react-app {}
+        #dvui-canvas {
+          height: 100vh;
+        }
+        #react-app {
+          height: 100vh;
+        }
     </style>
     <!-- need tabIndex for the canvas to receive keydown/keyup/beforeinput events -->
     <canvas id="dvui-canvas" tabIndex="1" style="display: block; width: 100%; height: 100%; outline: none; caret-color: transparent;"></canvas>
@@ -36,6 +41,19 @@
           "zig-out/bin/dvui-frontend.wasm?cache-buster=645b01301f0c87234741b81bbfddfe4db7d66bbe7c88069015cd2038a6ea51c2",
         );
       };
+
+      const showText = "50vw 50vw";
+      const noShowText = "100vw 50vw";
+
+      document.addEventListener("keydown", (e) => {
+        const isCtrlShiftE = e.ctrlKey && e.shiftKey && e.key === "E";
+        if (!isCtrlShiftE) return;
+        e.preventDefault();
+        document.body.style["grid-template-columns"]
+          = document.body.style["grid-template-columns"] === showText
+          ? noShowText
+          : showText;
+      });
     </script>
   </body>
 </html>

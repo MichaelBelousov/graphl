@@ -42,17 +42,105 @@ pub const std_options: std.Options = .{
     .logFn = logFn,
 };
 
-// TODO: use c_allocator cuz faster?
-var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
-const gpa = gpa_instance.allocator();
+//var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
+//const gpa = gpa_instance.allocator();
+const gpa = std.heap.wasm_allocator;
 
 var win: dvui.Window = undefined;
 var backend: WebBackend = undefined;
 var touchPoints: [2]?dvui.Point = [_]?dvui.Point{null} ** 2;
 var orig_content_scale: f32 = 1.0;
 
-var grappl_graph: grappl.GraphBuilder = undefined;
-var visual_graph = VisualGraph{ .graph = &grappl_graph };
+const Graph = struct {
+    index: u16,
+    name: []const u8,
+    grappl_graph: grappl.GraphBuilder,
+    // FIXME: merge with visual graph
+    visual_graph: VisualGraph,
+
+    pub fn env(self: @This()) *const grappl.Env {
+        return &self.grappl_graph.env;
+    }
+
+    pub fn init(index: u16, name: []const u8) !@This() {
+        var result: @This() = undefined;
+        try result.initInPlace(index, name);
+        return result;
+    }
+
+    pub fn initInPlace(self: *@This(), index: u16, name: []const u8) !void {
+        const grappl_env = try grappl.Env.initDefault(gpa);
+
+        const grappl_graph = try grappl.GraphBuilder.init(gpa, grappl_env);
+
+        // NOTE: does this only work because of return value optimization?
+        self.* = @This(){
+            .index = index,
+            .name = try gpa.dupe(u8, name),
+            .grappl_graph = grappl_graph,
+            .visual_graph = undefined,
+        };
+
+        self.visual_graph = VisualGraph{ .graph = &self.grappl_graph };
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.visual_graph.deinit(gpa);
+        self.grappl_graph.deinit(gpa);
+        gpa.free(self.name);
+    }
+
+    pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?grappl.NodeId, diag: ?*grappl.GraphBuilder.Diagnostic) !grappl.NodeId {
+        return self.visual_graph.addNode(alloc, kind, is_entry, force_node_id, diag);
+    }
+
+    pub fn addEdge(self: *@This(), start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
+        return self.visual_graph.addEdge(start_id, start_index, end_id, end_index, end_subindex);
+    }
+
+    pub fn addLiteralInput(self: @This(), node_id: grappl.NodeId, pin_index: u16, subpin_index: u16, value: grappl.Value) !void {
+        return self.visual_graph.addLiteralInput(node_id, pin_index, subpin_index, value);
+    }
+};
+
+// NOTE: must be singly linked list because Graph contains an internal pointer and cannot be moved!
+const graphs = std.SinglyLinkedList(Graph){};
+var current_graph: *Graph = undefined;
+var next_graph_index: u16 = 0;
+
+fn setCurrentGraphByIndex(index: u16) !void {
+    if (index == current_graph.index)
+        return;
+
+    var maybe_cursor = graphs.first;
+    var i = index;
+    while (maybe_cursor) |cursor| : ({
+        maybe_cursor = cursor.next;
+        i -= 1;
+    }) {
+        if (i == 0) {
+            current_graph = &cursor.data;
+            return;
+        }
+    }
+    return error.RangeError;
+}
+
+fn addGraph(name: []const u8, set_as_current: bool) !*Graph {
+    const graph_index = next_graph_index;
+    next_graph_index += 1;
+    errdefer next_graph_index -= 1;
+
+    const new_graph = try gpa.create(std.SinglyLinkedList(Graph).Node);
+
+    new_graph.* = .{ .data = undefined };
+    try new_graph.data.initInPlace(graph_index, name);
+
+    if (set_as_current)
+        current_graph = &new_graph.data;
+
+    return &new_graph.data;
+}
 
 var context_menu_widget_id: ?u32 = null;
 var node_menu_filter: ?Socket = null;
@@ -87,20 +175,15 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
         return @intFromEnum(AppInitErrorCodes.WindowInitFailed);
     };
 
-    const env = grappl.Env.initDefault(gpa) catch {
-        std.log.err("Grappl Env failed to init", .{});
-        return @intFromEnum(AppInitErrorCodes.GrapplInitFailed);
-    };
-
-    grappl_graph = grappl.GraphBuilder.init(gpa, env) catch {
-        std.log.err("Grappl Graph failed to init", .{});
-        return @intFromEnum(AppInitErrorCodes.GrapplInitFailed);
-    };
-
     {
-        const plus_index = visual_graph.addNode(gpa, "+", false, null, null) catch unreachable;
-        const set_index = visual_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
-        visual_graph.addEdge(plus_index, 0, set_index, 2, 0) catch unreachable;
+        const first_graph = addGraph("main", true) catch {
+            std.log.err("Grappl Graph failed to init", .{});
+            return @intFromEnum(AppInitErrorCodes.GrapplInitFailed);
+        };
+
+        const plus_index = first_graph.addNode(gpa, "+", false, null, null) catch unreachable;
+        const set_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
+        first_graph.addEdge(plus_index, 0, set_index, 2, 0) catch unreachable;
     }
 
     // small fonts look bad on the web, so bump the default theme up
@@ -108,7 +191,7 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
     win.themes.put("Adwaita Light", theme.fontSizeAdd(2)) catch {};
     theme = win.themes.get("Adwaita Dark").?;
     win.themes.put("Adwaita Dark", theme.fontSizeAdd(2)) catch {};
-    win.theme = win.themes.get("Adwaita Light").?;
+    win.theme = win.themes.get("Adwaita Dark").?;
 
     WebBackend.win = &win;
 
@@ -120,7 +203,7 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
 export fn app_deinit() void {
     win.deinit();
     backend.deinit();
-    grappl_graph.deinit(gpa);
+    current_graph.deinit();
 }
 
 // return number of micros to wait (interrupted by events) for next frame
@@ -169,7 +252,7 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
     // TODO: handle defocus event
 
     const maybe_create_from_type: ?grappl.PrimitivePin = if (maybe_create_from) |create_from| _: {
-        const node = grappl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
+        const node = current_graph.grappl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
         const pins = switch (create_from.kind) {
             .output => node.desc.getOutputs(),
             .input => node.desc.getInputs(),
@@ -178,7 +261,7 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
     } else null;
 
     {
-        var iter = grappl_graph.env.nodes.iterator();
+        var iter = current_graph.env().nodes.iterator();
         var i: u32 = 0;
         while (iter.next()) |node_entry| {
             const node_name = node_entry.key_ptr;
@@ -207,8 +290,8 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
 
             if ((try dvui.menuItemLabel(@src(), node_name.*, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
                 // TODO: use diagnostic
-                const node_id = try visual_graph.addNode(gpa, node_name.*, false, null, null);
-                const node = visual_graph.graph.nodes.map.getPtr(node_id) orelse unreachable;
+                const node_id = try current_graph.addNode(gpa, node_name.*, false, null, null);
+                const node = current_graph.grappl_graph.nodes.map.getPtr(node_id) orelse unreachable;
                 // HACK
                 const mouse_pt = dvui.currentWindow().mouse_pt;
                 node.position = .{
@@ -220,7 +303,7 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
                     switch (create_from.kind) {
                         .input => {
                             // TODO: add it to the first type-compatible socket!
-                            try visual_graph.addEdge(
+                            try current_graph.addEdge(
                                 node_id,
                                 valid_socket_index orelse unreachable,
                                 create_from.node_id,
@@ -230,7 +313,7 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
                         },
                         .output => {
                             // TODO: add it to the first type-compatible socket!
-                            try visual_graph.addEdge(
+                            try current_graph.addEdge(
                                 create_from.node_id,
                                 create_from.index,
                                 node_id,
@@ -258,7 +341,7 @@ fn renderGraph() !void {
 
     // place nodes
     {
-        var node_iter = grappl_graph.nodes.map.iterator();
+        var node_iter = current_graph.grappl_graph.nodes.map.iterator();
         while (node_iter.next()) |entry| {
             // TODO: don't iterate over unneeded keys
             //const node_id = entry.key_ptr.*;
@@ -269,7 +352,7 @@ fn renderGraph() !void {
 
     // place edges
     {
-        var node_iter = grappl_graph.nodes.map.iterator();
+        var node_iter = current_graph.grappl_graph.nodes.map.iterator();
         while (node_iter.next()) |entry| {
             const node_id = entry.key_ptr.*;
             const node = entry.value_ptr;
@@ -345,7 +428,7 @@ fn renderGraph() !void {
                 if (valid_edge) {
                     // FIXME: why am I assumign edge_drag_start exists?
                     // TODO: maybe use unreachable instead of try?
-                    try visual_graph.addEdge(
+                    try current_graph.addEdge(
                         edge.source.node_id,
                         edge.source.index,
                         edge.target.node_id,
@@ -417,7 +500,7 @@ fn renderNode(
 ) !void {
     const root_id_extra: usize = @intCast(node.id);
 
-    const position = if (visual_graph.node_data.get(node.id)) |viz_data| viz_data.position else dvui.Point{
+    const position = if (current_graph.visual_graph.node_data.get(node.id)) |viz_data| viz_data.position else dvui.Point{
         .x = @floatFromInt(node.position.x),
         .y = @floatFromInt(node.position.y),
     };
@@ -440,7 +523,7 @@ fn renderNode(
     );
     defer box.deinit();
 
-    try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .color_text = .{ .color = dvui.Color.black }, .font_style = .title_3 });
+    try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .font_style = .title_3 });
 
     var hbox = try dvui.box(@src(), .horizontal, .{});
     defer hbox.deinit();
@@ -507,7 +590,7 @@ fn renderNode(
                 }
 
                 if (!handled)
-                    try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
+                    try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .id_extra = j });
             }
 
             break :_ socket_center;
@@ -515,7 +598,7 @@ fn renderNode(
 
         try socket_positions.put(gpa, socket, socket_point);
 
-        _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .font_style = .heading, .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
+        _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .font_style = .heading, .id_extra = j });
     }
 
     inputs_vbox.deinit();
@@ -540,7 +623,7 @@ fn renderNode(
         };
 
         _ = output;
-        _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .color_text = .{ .color = dvui.Color.black }, .id_extra = j });
+        _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .id_extra = j });
 
         const icon_res = if (output_desc.kind.primitive == .exec)
             try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts)
@@ -853,20 +936,41 @@ fn dvui_frame() !void {
     //var scroll = try dvui.scrollArea(@src(), .{ .horizontal = .auto }, .{ .expand = .both, .color_fill = .{ .name = .fill_window } });
     //defer scroll.deinit();
 
-    var tl = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
-    try tl.addText("Grappl Test Editor", .{});
-    tl.deinit();
-    if (try dvui.button(@src(), "Debug", .{}, .{})) {
-        win.debug_window_show = true;
-    }
-
     //if (!(std.math.approxEqAbs(f32, scroll_info.virtual_size.h, visual_graph.graph_bb.size().h, 0.1) and std.math.approxEqAbs(f32, scroll_info.virtual_size.w, visual_graph.graph_bb.size().w, 0.1))) {
     // this causes a refresh for some reason, nextVirtualSize is always 0 for some reason
-    scroll_info.virtual_size = visual_graph.graph_bb.size();
+    scroll_info.virtual_size = current_graph.visual_graph.graph_bb.size();
     //}
 
     // FIXME: move the viewport to any newly created nodes
-    //scroll_info.viewport = visual_graph.graph_bb;
+    //scroll_info.viewport = current_graph.visual_graph.graph_bb;
+
+    var hbox = try dvui.box(@src(), .horizontal, .{ .expand = .both });
+    defer hbox.deinit();
+
+    {
+        var defines_box = try dvui.box(@src(), .vertical, .{ .expand = .vertical });
+        defer defines_box.deinit();
+
+        var tl = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
+        try tl.addText("Grappl Test Editor", .{});
+        tl.deinit();
+        if (try dvui.button(@src(), "Debug", .{}, .{})) {
+            win.debug_window_show = true;
+        }
+
+        _ = try dvui.label(@src(), "Functions", .{}, .{ .font_style = .heading });
+
+        {
+            var maybe_cursor = graphs.first;
+            var i: usize = 0;
+            while (maybe_cursor) |cursor| : ({
+                maybe_cursor = cursor.next;
+                i += 1;
+            }) {
+                _ = try dvui.label(@src(), "Functions", .{}, .{ .font_style = .heading, .id_extra = i });
+            }
+        }
+    }
 
     var graph_area = try dvui.scrollArea(
         @src(),
