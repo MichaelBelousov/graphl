@@ -22,7 +22,7 @@ export const TextEditor = function TextEditor(props: TextEditor.Props) {
   */
 
   useEffect(() => {
-    if (monacoElem.current)
+    if (monacoElem.current) {
       props.editor.set((editor) => {
         const result = editor ?? monaco.editor.create(monacoElem.current!, {
           value: persistentData.editorProgram,
@@ -34,8 +34,12 @@ export const TextEditor = function TextEditor(props: TextEditor.Props) {
           persistentData.editorProgram = result.getValue()
           props.onSyncSource?.(result.getValue());
         });
+        globalThis._monacoSyncHook = (msg: string) => {
+          result.getModel()?.setValue(msg);
+        };
         return result;
-      })
+      });
+    }
   }, [monacoElem.current]);
 
   return <div className={styles.textEditor} ref={monacoElem} />

@@ -509,13 +509,13 @@ pub const GraphBuilder = struct {
             }
         };
 
-        pub fn toSexp(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode) !Sexp {
+        pub fn toSexp(self: @This(), alloc: std.mem.Allocator, node_id: NodeId) !Sexp {
             var ctx = Context{
                 .block = Block.init(alloc),
             };
             errdefer ctx.deinit(alloc);
             try ctx.node_data.resize(alloc, self.graph.nodes.map.count());
-            try self.onNode(alloc, node, &ctx);
+            try self.onNode(alloc, node_id, &ctx);
             return Sexp{ .value = .{ .module = ctx.block } };
         }
 
@@ -524,12 +524,14 @@ pub const GraphBuilder = struct {
             OutOfMemory,
         };
 
-        pub fn onNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, context: *Context) Error!void {
+        pub fn onNode(self: @This(), alloc: std.mem.Allocator, node_id: NodeId, context: *Context) Error!void {
             // FIXME: not handled
-            if (context.node_data.items(.visited)[node.id] == 1)
+            if (context.node_data.items(.visited)[node_id] == 1)
                 return Error.CyclesNotSupported;
 
-            context.node_data.items(.visited)[node.id] = 1;
+            const node = self.graph.nodes.map.getPtr(node_id) orelse std.debug.panic("onNode: couldn't find node by id={}", .{node_id});
+
+            context.node_data.items(.visited)[node_id] = 1;
 
             return if (node.desc.isSimpleBranch())
                 @call(debug_tail_call, onBranchNode, .{ self, alloc, node, context })
@@ -582,8 +584,9 @@ pub const GraphBuilder = struct {
             // alternative
             (try branch_sexp.value.list.addOne()).* = alternative_sexp;
 
+            // FIXME: remove this double hash map fetch
             if (self.graph.branch_joiner_map.get(node)) |join| {
-                return @call(debug_tail_call, onNode, .{ self, alloc, join, context });
+                return @call(debug_tail_call, onNode, .{ self, alloc, join.id, context });
             }
         }
 
@@ -628,7 +631,7 @@ pub const GraphBuilder = struct {
         fn nodeInputTreeToSexp(self: @This(), alloc: std.mem.Allocator, in_link: GraphTypes.Input) !Sexp {
             const sexp = switch (in_link) {
                 .link => |v| _: {
-                    const node = v.target;
+                    const node = self.graph.nodes.map.getPtr(v.target) orelse std.debug.panic("couldn't find link target id={}", .{v.target});
 
                     // TODO: should have a comptime sexp parsing utility, or otherwise terser syntax...
                     const special_type: enum { none, getter, setter } = if (std.mem.startsWith(u8, node.desc.name, "#"))
@@ -682,8 +685,7 @@ pub const GraphBuilder = struct {
     }
 
     fn toSexp(self: @This(), node_id: i64) !Sexp {
-        const node = self.nodes.map.getPtr(node_id) orelse return error.SourceNodeNotFound;
-        return try (ToSexp{ .graph = &self }).toSexp(node);
+        return try (ToSexp{ .graph = &self }).toSexp(node_id);
     }
 
     pub fn writeGrapplText(self: @This(), writer: anytype) !void {

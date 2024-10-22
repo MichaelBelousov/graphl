@@ -108,6 +108,24 @@ var graphs = std.SinglyLinkedList(Graph){};
 var current_graph: *Graph = undefined;
 var next_graph_index: u16 = 0;
 
+const CompileResult = extern struct {
+    len: usize = 0,
+    ptr: ?[*]u8 = null,
+};
+
+extern fn recvCurrentCompile(ptr: ?[*]u8, len: usize) void;
+
+fn postCurrentCompilation() !void {
+    const sexp = try current_graph.grappl_graph.compile(gpa);
+    defer sexp.deinit(gpa);
+
+    var bytes = std.ArrayList(u8).init(gpa);
+    defer bytes.deinit();
+    _ = try sexp.write(bytes.writer());
+
+    recvCurrentCompile(bytes.items.ptr, bytes.items.len);
+}
+
 fn setCurrentGraphByIndex(index: u16) !void {
     if (index == current_graph.index)
         return;
@@ -192,8 +210,10 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
             return @intFromEnum(AppInitErrorCodes.GrapplInitFailed);
         };
 
+        const entry_index = first_graph.addNode(gpa, "CustomTickEntry", true, null, null) catch unreachable;
         const plus_index = first_graph.addNode(gpa, "+", false, null, null) catch unreachable;
         const set_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
+        first_graph.addEdge(entry_index, 0, set_index, 0, 0) catch unreachable;
         first_graph.addEdge(plus_index, 0, set_index, 2, 0) catch unreachable;
     }
 
@@ -971,8 +991,13 @@ fn dvui_frame() !void {
         var tl = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
         try tl.addText("Grappl Test Editor", .{});
         tl.deinit();
+
         if (try dvui.button(@src(), "Debug", .{}, .{})) {
             win.debug_window_show = true;
+        }
+
+        if (try dvui.button(@src(), "Compile", .{}, .{})) {
+            try postCurrentCompilation();
         }
 
         {
@@ -983,7 +1008,6 @@ fn dvui_frame() !void {
 
             const add_clicked = (try dvui.buttonIcon(@src(), "add-graph", entypo.plus, .{}, .{})).clicked;
             if (add_clicked) {
-                std.log.err("add clicked?", .{});
                 _ = try addGraph("new graph", false);
             }
         }

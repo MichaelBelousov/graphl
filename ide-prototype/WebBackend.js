@@ -342,6 +342,14 @@ function dvui(canvasId, wasmFile) {
                 oskCheck();
             }
         },
+
+        recvCurrentCompile: (ptr, len) => {
+            if (len === 0) return;
+            const msg = utf8decoder.decode(new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len));
+            console.log("compiled:")
+            console.log(msg)
+            globalThis._monacoSyncHook?.(msg);
+        },
       },
     };
 
