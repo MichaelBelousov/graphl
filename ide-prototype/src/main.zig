@@ -553,7 +553,7 @@ fn renderNode(
             .padding = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
             .background = true,
             .border = .{ .h = 1, .w = 1, .x = 1, .y = 1 },
-            .corner_radius = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
+            .corner_radius = Rect.all(8),
             .color_border = .{ .color = dvui.Color.black },
             //.max_size_content = dvui.Size{ .w = 300, .h = 600 },
         },
@@ -1036,7 +1036,7 @@ fn dvui_frame() !void {
             // FIXME: probably can remove?
             .horizontal = .auto,
         },
-        .{ .expand = .both, .color_fill = .{ .name = .fill_window } },
+        .{ .expand = .both, .color_fill = .{ .name = .fill_window }, .corner_radius = Rect.all(0) },
     );
     defer graph_area.deinit();
     try renderGraph();
