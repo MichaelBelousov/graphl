@@ -383,9 +383,29 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
 }
 
 fn renderGraph() !void {
+    var graph_area = try dvui.scrollArea(
+        @src(),
+        .{
+            .scroll_info = &scroll_info,
+            // FIXME: probably can remove?
+            .horizontal = .auto,
+        },
+        .{
+            .expand = .both,
+            .color_fill = .{ .name = .fill_window },
+            .corner_radius = Rect.all(0),
+            .min_size_content = dvui.Size{ .w = 300, .h = 300 },
+        },
+    );
+
     // TODO: use link struct?
     var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Point){};
     defer socket_positions.deinit(gpa);
+
+    var mouse_pt = graph_area.scroll.data().contentRectScale().pointFromScreen(dvui.currentWindow().mouse_pt);
+    mouse_pt = mouse_pt.plus(origin).plus(scroll_info.viewport.topLeft());
+
+    var mbbox: ?Rect = null;
 
     // set drag end to false, rendering will determine if it should still be set
     edge_drag_end = null;
@@ -397,7 +417,13 @@ fn renderGraph() !void {
             // TODO: don't iterate over unneeded keys
             //const node_id = entry.key_ptr.*;
             const node = entry.value_ptr;
-            try renderNode(node, &socket_positions);
+            const node_rect = try renderNode(node, &socket_positions);
+
+            if (mbbox != null) {
+                mbbox = mbbox.?.unionWith(node_rect);
+            } else {
+                mbbox = node_rect;
+            }
         }
     }
 
@@ -444,7 +470,6 @@ fn renderGraph() !void {
         }
     }
 
-    const mouse_pt = dvui.currentWindow().mouse_pt;
     var drop_node_menu = false;
 
     // maybe currently dragged edge
@@ -502,6 +527,82 @@ fn renderGraph() !void {
         dvui.dataSet(null, context_menu_widget_id orelse unreachable, "_activePt", mouse_pt);
         dvui.focusWidget(context_menu_widget_id orelse unreachable, null, null);
     }
+
+    // process scroll area events after nodes so the nodes get first pick (so the button works)
+    const scroll_evts = dvui.events();
+    for (scroll_evts) |*e| {
+        if (!graph_area.scroll.matchEvent(e))
+            continue;
+
+        switch (e.evt) {
+            .mouse => |me| {
+                if (me.action == .press and me.button.pointer()) {
+                    e.handled = true;
+                    dvui.captureMouse(graph_area.scroll.data().id);
+                    dvui.dragPreStart(me.p, null, dvui.Point{});
+                } else if (me.action == .release and me.button.pointer()) {
+                    if (dvui.captured(graph_area.scroll.data().id)) {
+                        e.handled = true;
+                        dvui.captureMouse(null);
+                    }
+                } else if (me.action == .motion) {
+                    if (dvui.captured(graph_area.scroll.data().id)) {
+                        if (dvui.dragging(me.p)) |dps| {
+                            const rs = graph_area.scroll.data().rectScale();
+                            scroll_info.viewport.x -= dps.x / rs.s;
+                            scroll_info.viewport.y -= dps.y / rs.s;
+                            dvui.refresh(null, @src(), graph_area.scroll.data().id);
+                        }
+                    }
+                }
+            },
+            else => {},
+        }
+    }
+
+    // deinit graph area to process events
+    graph_area.deinit();
+
+    if (!scroll_info.viewport.empty()) {
+        // add current viewport plus padding
+        const pad = 10;
+        var bbox = scroll_info.viewport.outsetAll(pad);
+        if (mbbox != null) {
+            bbox = bbox.unionWith(mbbox.?);
+        }
+
+        //std.debug.print("bbox {}\n", .{bbox});
+
+        // adjust top if needed
+        if (bbox.y != 0) {
+            const adj = -bbox.y;
+            scroll_info.virtual_size.h += adj;
+            scroll_info.viewport.y += adj;
+            origin.y += adj;
+            dvui.refresh(null, @src(), graph_area.scroll.data().id);
+        }
+
+        // adjust left if needed
+        if (bbox.x != 0) {
+            const adj = -bbox.x;
+            scroll_info.virtual_size.w += adj;
+            scroll_info.viewport.x += adj;
+            origin.x += adj;
+            dvui.refresh(null, @src(), graph_area.scroll.data().id);
+        }
+
+        // adjust bottom if needed
+        if (bbox.h != scroll_info.virtual_size.h) {
+            scroll_info.virtual_size.h = bbox.h;
+            dvui.refresh(null, @src(), graph_area.scroll.data().id);
+        }
+
+        // adjust right if needed
+        if (bbox.w != scroll_info.virtual_size.w) {
+            scroll_info.virtual_size.w = bbox.w;
+            dvui.refresh(null, @src(), graph_area.scroll.data().id);
+        }
+    }
 }
 
 // TODO: contribute this to dvui?
@@ -548,7 +649,7 @@ fn considerSocketForHover(icon_res: *const dvui.ButtonIconResult, socket: Socket
 fn renderNode(
     node: *const grappl.Node,
     socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Point),
-) !void {
+) !Rect {
     const root_id_extra: usize = @intCast(node.id);
 
     const position = if (current_graph.visual_graph.node_data.get(node.id)) |viz_data| viz_data.position else dvui.Point{
@@ -573,6 +674,8 @@ fn renderNode(
         },
     );
     defer box.deinit();
+
+    const result = box.data().rect; // already has origin added (already in scroll coords)
 
     try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .font_style = .title_3 });
 
@@ -686,8 +789,11 @@ fn renderNode(
     }
 
     outputs_vbox.deinit();
+
+    return result;
 }
 
+var origin: dvui.Point = .{};
 var scroll_info = dvui.ScrollInfo{
     .horizontal = .given,
     .vertical = .given,
@@ -1059,16 +1165,6 @@ fn dvui_frame() !void {
         }
     }
 
-    var graph_area = try dvui.scrollArea(
-        @src(),
-        .{
-            .scroll_info = &scroll_info,
-            // FIXME: probably can remove?
-            .horizontal = .auto,
-        },
-        .{ .expand = .both, .color_fill = .{ .name = .fill_window }, .corner_radius = Rect.all(0) },
-    );
-    defer graph_area.deinit();
     try renderGraph();
 
     // const label = if (dvui.Examples.show_demo_window) "Hide Demo Window" else "Show Demo Window";
