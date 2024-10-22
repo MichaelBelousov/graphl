@@ -52,12 +52,11 @@ pub fn build(b: *std.Build) void {
     });
     const cb_run = b.addRunArtifact(cb);
     cb_run.addFileArg(b.path("index.template.html"));
-    cb_run.addFileArg(dvui_dep.path("src/backends/WebBackend.js"));
+    cb_run.addFileArg(b.path("WebBackend.js"));
     cb_run.addFileArg(exe.getEmittedBin());
     const output = cb_run.captureStdOut();
 
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(output, .{ .custom = ".." }, "index.html").step);
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(dvui_dep.path("src/backends/WebBackend.js"), .{ .custom = ".." }, "WebBackend.js").step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path("./vite.config.ts"), .{ .custom = ".." }, "vite.config.ts").step);
     b.getInstallStep().dependOn(&install_exe.step);
 
