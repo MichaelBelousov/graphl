@@ -104,7 +104,7 @@ const Graph = struct {
 };
 
 // NOTE: must be singly linked list because Graph contains an internal pointer and cannot be moved!
-const graphs = std.SinglyLinkedList(Graph){};
+var graphs = std.SinglyLinkedList(Graph){};
 var current_graph: *Graph = undefined;
 var next_graph_index: u16 = 0;
 
@@ -131,13 +131,24 @@ fn addGraph(name: []const u8, set_as_current: bool) !*Graph {
     next_graph_index += 1;
     errdefer next_graph_index -= 1;
 
-    const new_graph = try gpa.create(std.SinglyLinkedList(Graph).Node);
+    var new_graph = try gpa.create(std.SinglyLinkedList(Graph).Node);
 
     new_graph.* = .{ .data = undefined };
     try new_graph.data.initInPlace(graph_index, name);
 
     if (set_as_current)
         current_graph = &new_graph.data;
+
+    if (graphs.first == null) {
+        graphs.prepend(new_graph);
+    } else {
+        // FIXME: use reverse list?
+        var maybe_cursor = graphs.first;
+        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
+            if (cursor.next == null)
+                cursor.insertAfter(new_graph);
+        }
+    }
 
     return &new_graph.data;
 }
@@ -191,7 +202,7 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
     win.themes.put("Adwaita Light", theme.fontSizeAdd(2)) catch {};
     theme = win.themes.get("Adwaita Dark").?;
     win.themes.put("Adwaita Dark", theme.fontSizeAdd(2)) catch {};
-    win.theme = win.themes.get("Adwaita Dark").?;
+    win.theme = win.themes.get("Adwaita Light").?;
 
     WebBackend.win = &win;
 
@@ -203,7 +214,13 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
 export fn app_deinit() void {
     win.deinit();
     backend.deinit();
-    current_graph.deinit();
+    {
+        var maybe_cursor = graphs.first;
+        while (maybe_cursor) |cursor| {
+            maybe_cursor = cursor.next;
+            gpa.destroy(&cursor.data);
+        }
+    }
 }
 
 // return number of micros to wait (interrupted by events) for next frame
@@ -261,7 +278,7 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
     } else null;
 
     {
-        var iter = current_graph.env().nodes.iterator();
+        var iter = current_graph.grappl_graph.env.nodes.iterator();
         var i: u32 = 0;
         while (iter.next()) |node_entry| {
             const node_name = node_entry.key_ptr;
@@ -638,8 +655,8 @@ fn renderNode(
 }
 
 var scroll_info = dvui.ScrollInfo{
-    .horizontal = .auto,
-    .vertical = .auto,
+    .horizontal = .given,
+    .vertical = .given,
     //.velocity = dvui.Point{ .x = 1, .y = 1 },
     .viewport = dvui.Rect{ .w = 5000, .h = 5000 },
     // NOTE: updated by the graph
@@ -948,7 +965,7 @@ fn dvui_frame() !void {
     defer hbox.deinit();
 
     {
-        var defines_box = try dvui.box(@src(), .vertical, .{ .expand = .vertical });
+        var defines_box = try dvui.box(@src(), .vertical, .{ .expand = .vertical, .background = true });
         defer defines_box.deinit();
 
         var tl = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
@@ -958,7 +975,18 @@ fn dvui_frame() !void {
             win.debug_window_show = true;
         }
 
-        _ = try dvui.label(@src(), "Functions", .{}, .{ .font_style = .heading });
+        {
+            var func_box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal });
+            defer func_box.deinit();
+
+            _ = try dvui.label(@src(), "Functions", .{}, .{ .font_style = .heading });
+
+            const add_clicked = (try dvui.buttonIcon(@src(), "add-graph", entypo.plus, .{}, .{})).clicked;
+            if (add_clicked) {
+                std.log.err("add clicked?", .{});
+                _ = try addGraph("new graph", false);
+            }
+        }
 
         {
             var maybe_cursor = graphs.first;
@@ -967,7 +995,12 @@ fn dvui_frame() !void {
                 maybe_cursor = cursor.next;
                 i += 1;
             }) {
-                _ = try dvui.label(@src(), "Functions", .{}, .{ .font_style = .heading, .id_extra = i });
+                var func_box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal });
+                defer func_box.deinit();
+                _ = try dvui.label(@src(), "{s}()", .{cursor.data.name}, .{ .font_style = .body, .id_extra = i });
+                const graph_clicked = try dvui.buttonIcon(@src(), "open-graph", entypo.chevron_right, .{}, .{ .id_extra = i });
+                if (graph_clicked.clicked)
+                    current_graph = &cursor.data;
             }
         }
     }
