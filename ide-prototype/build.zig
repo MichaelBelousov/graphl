@@ -14,6 +14,7 @@ pub fn build(b: *std.Build) void {
 
     const dvui_dep = b.dependency("dvui", .{});
     const grappl_core_dep = b.dependency("grappl_core", .{});
+    const binaryen_dep = b.dependency("binaryen-zig", .{});
 
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
@@ -34,6 +35,7 @@ pub fn build(b: *std.Build) void {
 
     exe.entry = .disabled;
 
+    exe.root_module.addImport("binaryen", binaryen_dep.module("binaryen"));
     exe.root_module.addImport("dvui", dvui_dep.module("dvui_web"));
     exe.root_module.addImport("WebBackend", dvui_dep.module("WebBackend"));
     exe.root_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
@@ -58,8 +60,6 @@ pub fn build(b: *std.Build) void {
 
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(output, .{ .custom = ".." }, "index.html").step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path("./vite.config.ts"), .{ .custom = ".." }, "vite.config.ts").step);
-    // FIXME: temp generate this by invoking the binaryen cmake, or full on add a zig build for binaryen
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path("../binaryen/bin/wasm-opt.wasm"), .prefix, "bin/wasm-opt.wasm").step);
     b.getInstallStep().dependOn(&install_exe.step);
 
     // This *creates* a Run step in the build graph, to be executed when another
