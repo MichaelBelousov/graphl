@@ -86,16 +86,23 @@ pub const GraphBuilder = struct {
         // do not delete env, we don't own it
     }
 
-    pub fn getSingleExecFromEntry(in_entry: *const IndexedNode) !GraphTypes.Output {
-        var entry_exec = error.EntryNodeNoExecPins;
+    const GetSingleExecFromEntryError = error{
+        EntryNodeNoConnectedExecPins,
+        ExecNodeMultiExecPin,
+    };
+
+    // FIXME: need to codify how this works, this gets the *first*, doesn't verify that it's singular
+    pub fn getSingleExecFromEntry(in_entry: *const IndexedNode) GetSingleExecFromEntryError!GraphTypes.Output {
+        var entry_exec: GetSingleExecFromEntryError!GraphTypes.Output = error.EntryNodeNoConnectedExecPins;
         for (in_entry.outputs, 0..) |output, i| {
+            if (output == null)
+                continue;
             const out_type = in_entry.desc.getOutputs()[i];
-            if (out_type == .primitive and out_type.primitive == .exec) {
-                if (entry_exec != error.EntryNodeNoExecPins) {
-                    entry_exec = error.ExecNodeMultiExecPin;
-                    return entry_exec;
+            if (out_type.kind == .primitive and out_type.kind.primitive == .exec) {
+                if (entry_exec != error.EntryNodeNoConnectedExecPins) {
+                    return error.ExecNodeMultiExecPin;
                 }
-                entry_exec = output;
+                entry_exec = output.?;
             }
         }
         return entry_exec;
@@ -378,7 +385,7 @@ pub const GraphBuilder = struct {
 
     /// each branch will may have 1 (or 0) join node where the control flow for that branch converges
     /// first traverse all nodes getting for each its single end (or null if multiple), and its tree size
-    pub fn analyzeNodes(self: @This(), alloc: std.mem.Allocator) void {
+    pub fn analyzeNodes(self: *@This(), alloc: std.mem.Allocator) !void {
         errdefer self.branch_joiner_map.clearAndFree(alloc);
         errdefer self.is_join_set.deinit(alloc);
 
@@ -391,22 +398,22 @@ pub const GraphBuilder = struct {
         var slices = analysis_ctx.node_data.slice();
         @memset(slices.items(.visited)[0..analysis_ctx.node_data.len], 0);
 
-        const node_iter = self.nodes.map.iterator();
+        var node_iter = self.nodes.map.iterator();
         while (node_iter.next()) |node| {
             // inlined analyzeNode precondition because not sure with recursion compiler can figure it out
-            if (analysis_ctx.node_data.items(.visited)[node.id])
+            if (analysis_ctx.node_data.items(.visited)[node.key_ptr.*] == 1)
                 continue;
 
-            try self.analyzeNode(node, analysis_ctx);
+            try self.analyzeNode(node.value_ptr, &analysis_ctx);
         }
     }
 
     fn analyzeNode(
-        self: @This(),
+        self: *const @This(),
         node: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
-    ) void {
-        if (analysis_ctx.node_data.items(.visited)[node.id])
+    ) !void {
+        if (analysis_ctx.node_data.items(.visited)[node.id] == 1)
             return;
 
         analysis_ctx.node_data.items(.visited)[node.id] = 1;
@@ -414,7 +421,7 @@ pub const GraphBuilder = struct {
         const is_branch = std.mem.eql(u8, node.desc.name, "if");
 
         if (is_branch)
-            _ = self.analyzeBranch(node, analysis_ctx);
+            _ = try self.analyzeBranch(node, analysis_ctx);
     }
 
     fn analyzeBranch(
@@ -422,12 +429,12 @@ pub const GraphBuilder = struct {
         branch: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
     ) !?*const IndexedNode {
-        if (analysis_ctx.node_data.items(.visited)[branch.index]) {
-            const prev_result = self.branch_joiner_map.get(branch.index);
+        if (analysis_ctx.node_data.items(.visited)[branch.id] == 1) {
+            const prev_result = self.branch_joiner_map.get(branch);
             return .{ .value = prev_result };
         }
 
-        analysis_ctx.node_data.items(.visited)[branch.index] = 1;
+        analysis_ctx.node_data.items(.visited)[branch.id] = 1;
 
         const result = try self.doAnalyzeBranch(branch, analysis_ctx);
 
@@ -871,7 +878,7 @@ test "small local built graph" {
     const a = testing.allocator;
 
     var env = try Env.initDefault(a);
-    defer env.deinit();
+    defer env.deinit(a);
 
     var diagnostic: GraphBuilder.Diagnostic = .None;
     errdefer std.debug.print("DIAGNOSTIC:\n{}\n", .{diagnostic});

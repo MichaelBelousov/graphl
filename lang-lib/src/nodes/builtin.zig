@@ -796,11 +796,11 @@ fn expectEqualTypes(actual: Type, expected: Type) !void {
 
 test "node types" {
     try std.testing.expectEqual(
-        builtin_nodes.@"+".getOutputs()[0].primitive.value,
+        builtin_nodes.@"+".getOutputs()[0].kind.primitive.value,
         primitive_types.f64_,
     );
-    try std.testing.expect(temp_ue.nodes.custom_tick_entry.getOutputs()[0].primitive == .exec);
-    try expectEqualTypes(temp_ue.nodes.break_hit_result.getOutputs()[2].primitive.value, primitive_types.vec3);
+    try std.testing.expect(temp_ue.nodes.custom_tick_entry.getOutputs()[0].kind.primitive == .exec);
+    try expectEqualTypes(temp_ue.nodes.break_hit_result.getOutputs()[2].kind.primitive.value, primitive_types.vec3);
 }
 
 pub const Env = struct {
