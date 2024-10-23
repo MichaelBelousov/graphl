@@ -1008,8 +1008,8 @@ fn dvui_frame() !void {
             var bytes = std.ArrayList(u8).init(gpa);
             defer bytes.deinit();
             var diagnostic = compiler.Diagnostic.init();
-            if (compiler.compile(gpa, &sexp, bytes.writer(), &diagnostic)) |success| {
-                std.log.info("compile_result={any}", .{success});
+            if (compiler.compile(gpa, &sexp, bytes.writer(), &diagnostic)) |_| {
+                std.log.info("compile_result:\n{s}", .{bytes.items});
             } else |err| {
                 std.log.err("compile_error={any}", .{err});
             }

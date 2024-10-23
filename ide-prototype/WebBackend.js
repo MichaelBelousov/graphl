@@ -99,6 +99,7 @@ function dvui(canvasId, wasmFile) {
 
     const sharedWasmMem = new WebAssembly.Memory({
         initial: 50, // measured in pages of 64KiB
+        maximum: 200,
         shared: true,
     });
     let wasmOpt;
