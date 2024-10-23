@@ -215,8 +215,20 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
         const entry_index = first_graph.addNode(gpa, "CustomTickEntry", true, null, null) catch unreachable;
         const plus_index = first_graph.addNode(gpa, "+", false, null, null) catch unreachable;
         const set_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
+        // const set2_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
+        // const set3_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
+        // const set4_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
+        // const set5_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
+        // const set6_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
+        // const set7_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
         first_graph.addEdge(entry_index, 0, set_index, 0, 0) catch unreachable;
         first_graph.addEdge(plus_index, 0, set_index, 2, 0) catch unreachable;
+        // first_graph.addEdge(set_index, 0, set2_index, 0, 0) catch unreachable;
+        // first_graph.addEdge(set2_index, 0, set3_index, 0, 0) catch unreachable;
+        // first_graph.addEdge(set3_index, 0, set4_index, 0, 0) catch unreachable;
+        // first_graph.addEdge(set4_index, 0, set5_index, 0, 0) catch unreachable;
+        // first_graph.addEdge(set5_index, 0, set6_index, 0, 0) catch unreachable;
+        // first_graph.addEdge(set6_index, 0, set7_index, 0, 0) catch unreachable;
     }
 
     // small fonts look bad on the web, so bump the default theme up
@@ -776,6 +788,11 @@ pub const VisualGraph = struct {
             ) !void {
                 inline for (.{ SocketType.input, SocketType.output }) |socket_type| {
                     const sockets = @field(cursor.data.node, @tagName(socket_type) ++ "s");
+                    if (cursor.data.node.id == 2863311530) {
+                        std.log.info("node-{}", .{cursor.data.node.id});
+                    }
+                    std.log.info("node-{}, type='{s}'", .{ cursor.data.node.id, cursor.data.node.desc.name });
+                    std.log.info("sockets.ptr={*},len={}", .{ sockets.ptr, sockets.len });
                     for (sockets, 0..) |maybe_socket, i| {
                         const link = switch (socket_type) {
                             .input => switch (maybe_socket) {
@@ -838,7 +855,10 @@ pub const VisualGraph = struct {
         };
 
         // TODO: consider creating a separate class to handle graph traversals?
-        const first_node = in_self.graph.entry orelse in_self.graph.nodes.map.getPtr(0) orelse return;
+        const first_node = in_self.graph.entry() orelse if (in_self.graph.nodes.map.count() > 0)
+            (in_self.graph.nodes.map.getPtr(0) orelse return error.NoZeroNodeInNonEmptyGraph)
+        else
+            return;
 
         var first_cell = Col.Node{
             .data = Cell{
