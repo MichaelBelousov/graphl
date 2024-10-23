@@ -7,6 +7,7 @@ const entypo = @import("dvui").entypo;
 const Rect = dvui.Rect;
 
 const grappl = @import("grappl_core");
+const compiler = grappl.compiler;
 
 const GraphAreaWidget = @import("./GraphAreaWidget.zig");
 
@@ -113,9 +114,10 @@ const CompileResult = extern struct {
     ptr: ?[*]u8 = null,
 };
 
-extern fn recvCurrentCompile(ptr: ?[*]u8, len: usize) void;
+extern fn recvCurrentSource(ptr: ?[*]u8, len: usize) void;
+extern fn recvCurrentWat(ptr: ?[*]u8, len: usize) void;
 
-fn postCurrentCompilation() !void {
+fn postCurrentSexp() !void {
     const sexp = try current_graph.grappl_graph.compile(gpa);
     defer sexp.deinit(gpa);
 
@@ -123,7 +125,7 @@ fn postCurrentCompilation() !void {
     defer bytes.deinit();
     _ = try sexp.write(bytes.writer());
 
-    recvCurrentCompile(bytes.items.ptr, bytes.items.len);
+    recvCurrentSource(bytes.items.ptr, bytes.items.len);
 }
 
 fn setCurrentGraphByIndex(index: u16) !void {
@@ -996,8 +998,21 @@ fn dvui_frame() !void {
             win.debug_window_show = true;
         }
 
+        if (try dvui.button(@src(), "Sync", .{}, .{})) {
+            try postCurrentSexp();
+        }
+
         if (try dvui.button(@src(), "Compile", .{}, .{})) {
-            try postCurrentCompilation();
+            const sexp = try current_graph.grappl_graph.compile(gpa);
+            defer sexp.deinit(gpa);
+            var bytes = std.ArrayList(u8).init(gpa);
+            defer bytes.deinit();
+            var diagnostic = compiler.Diagnostic.init();
+            if (compiler.compile(gpa, &sexp, bytes.writer(), &diagnostic)) |success| {
+                std.log.info("compile_result={any}", .{success});
+            } else |err| {
+                std.log.err("compile_error={any}", .{err});
+            }
         }
 
         {

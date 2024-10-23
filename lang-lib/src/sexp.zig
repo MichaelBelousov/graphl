@@ -215,6 +215,7 @@ test "write sexp" {
     , buff[0..bytes_written]);
 }
 
+// TODO: move into the environment as known syms
 pub const syms = struct {
     pub const import = Sexp{ .value = .{ .symbol = "import" } };
     pub const define = Sexp{ .value = .{ .symbol = "define" } };

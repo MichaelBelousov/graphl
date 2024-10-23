@@ -21,3 +21,4 @@ pub const PrimitivePin = @import("./nodes/builtin.zig").PrimitivePin;
 pub const primitive_types = @import("./nodes/builtin.zig").primitive_types;
 const NodeDesc = @import("./nodes/builtin.zig").NodeDesc;
 const Value = @import("./nodes/builtin.zig").Value;
+pub const compiler = @import("./compiler.zig");

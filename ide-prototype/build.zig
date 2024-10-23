@@ -58,6 +58,8 @@ pub fn build(b: *std.Build) void {
 
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(output, .{ .custom = ".." }, "index.html").step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path("./vite.config.ts"), .{ .custom = ".." }, "vite.config.ts").step);
+    // FIXME: temp generate this by invoking the binaryen cmake, or full on add a zig build for binaryen
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path("../binaryen/bin/wasm-opt.wasm"), .prefix, "bin/wasm-opt.wasm").step);
     b.getInstallStep().dependOn(&install_exe.step);
 
     // This *creates* a Run step in the build graph, to be executed when another
