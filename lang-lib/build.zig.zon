@@ -1,0 +1,16 @@
+.{
+    .name = "grappl_core",
+    .version = "0.0.0",
+    .dependencies = .{
+        .@"binaryen-zig" = .{
+            .url = "https://github.com/MichaelBelousov/binaryen-zig/archive/e45439568f1288ed829ceb9e64c6c88e5eb57433.zip",
+            .hash = "122045044f48eab9c93477f9fec402d8e3c2eb7d59b49d3bd11ccc9dc6bd60db12d7",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "tests",
+    },
+}
