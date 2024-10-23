@@ -49,13 +49,16 @@ pub const GraphBuilder = struct {
     // FIXME: fill the analysis context instead of keeping this in the graph metadata itself
     branch_joiner_map: std.AutoHashMapUnmanaged(*const IndexedNode, *const IndexedNode) = .{},
     is_join_set: std.DynamicBitSetUnmanaged,
-    entry: ?*const IndexedNode = null,
     entry_id: ?NodeId = null,
     branch_count: u32 = 0,
     next_node_index: usize = 0,
 
     const Self = @This();
     const Types = GraphTypes;
+
+    pub fn entry(self: *const @This()) ?*IndexedNode {
+        return if (self.entry_id) |entry_id| self.nodes.map.getPtr(entry_id) orelse unreachable else null;
+    }
 
     // FIXME: replace pointers with indices into an allocator? Could be faster
     pub fn isJoin(self: @This(), node: *const IndexedNode) bool {
@@ -83,10 +86,10 @@ pub const GraphBuilder = struct {
         // do not delete env, we don't own it
     }
 
-    pub fn getSingleExecFromEntry(entry: *const IndexedNode) !GraphTypes.Output {
+    pub fn getSingleExecFromEntry(in_entry: *const IndexedNode) !GraphTypes.Output {
         var entry_exec = error.EntryNodeNoExecPins;
-        for (entry.outputs, 0..) |output, i| {
-            const out_type = entry.desc.getOutputs()[i];
+        for (in_entry.outputs, 0..) |output, i| {
+            const out_type = in_entry.desc.getOutputs()[i];
             if (out_type == .primitive and out_type.primitive == .exec) {
                 if (entry_exec != error.EntryNodeNoExecPins) {
                     entry_exec = error.ExecNodeMultiExecPin;
@@ -126,7 +129,6 @@ pub const GraphBuilder = struct {
                 return error.MultipleEntries;
             }
             self.entry_id = node_id;
-            self.entry = node;
         }
 
         // FIXME: a more sophisticated check for if it's a branch, including macro expansion
@@ -231,8 +233,8 @@ pub const GraphBuilder = struct {
         json_graph: GraphDoc,
         diagnostic: ?*BuildFromJsonDiagnostic,
     ) !Sexp {
-        const entry = try self.populateFromJsonAndReturnEntry(alloc, json_graph, diagnostic);
-        self.entry = entry;
+        const entry_node = try self.populateFromJsonAndReturnEntry(alloc, json_graph, diagnostic);
+        self.entry_id = entry_node.id;
         try self.link(alloc, json_graph);
         return self.rootToSexp(alloc);
     }
@@ -298,11 +300,11 @@ pub const GraphBuilder = struct {
         }
 
         const entry_id = self.entry_id orelse return error.GraphHasNoEntry;
-        const entry = self.nodes.map.getPtr(entry_id) orelse unreachable;
+        const entry_node = self.nodes.map.getPtr(entry_id) orelse unreachable;
 
         try self.postPopulate(alloc);
 
-        return entry;
+        return entry_node;
     }
 
     // TODO: rename to like analyze?
@@ -328,6 +330,7 @@ pub const GraphBuilder = struct {
 
     /// link with other empty nodes in a graph
     pub fn linkNode(self: @This(), alloc: std.mem.Allocator, json_node: JsonNode, node: *IndexedNode) !void {
+        _ = self;
         // FIXME: this leaks the already existing inputs, must free those first!
         node.inputs = try alloc.alloc(GraphTypes.Input, json_node.inputs.len);
         errdefer alloc.free(node.inputs);
@@ -335,7 +338,7 @@ pub const GraphBuilder = struct {
         for (node.inputs, json_node.inputs) |*input, maybe_json_input| {
             input.* = switch (maybe_json_input orelse JsonNodeInput{ .value = .null }) {
                 .handle => |h| .{ .link = .{
-                    .target = self.nodes.map.getPtr(h.nodeId) orelse return error.LinkToUnknownNode,
+                    .target = h.nodeId,
                     .pin_index = h.handleIndex,
                 } },
                 .value => |v| .{ .value = v },
@@ -347,7 +350,7 @@ pub const GraphBuilder = struct {
 
         for (node.outputs, json_node.outputs) |*output, maybe_json_output| {
             output.* = if (maybe_json_output) |json_output| .{ .link = .{
-                .target = self.nodes.map.getPtr(json_output.nodeId) orelse return error.LinkToUnknownNode,
+                .target = json_output.nodeId,
                 .pin_index = json_output.handleIndex,
             } } else null;
         }
@@ -675,8 +678,8 @@ pub const GraphBuilder = struct {
     };
 
     fn rootToSexp(self: *@This(), alloc: std.mem.Allocator) !Sexp {
-        return if (self.entry) |entry|
-            if (entry.outputs[0]) |first_node|
+        return if (self.entry()) |entry_node|
+            if (entry_node.outputs[0]) |first_node|
                 try (ToSexp{ .graph = self }).toSexp(alloc, first_node.link.target)
             else
                 Sexp{ .value = .void }

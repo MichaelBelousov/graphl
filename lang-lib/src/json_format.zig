@@ -13,7 +13,7 @@ const JsonIntArrayHashMap = @import("./json_int_map.zig").IntArrayHashMap;
 
 pub const JsonNodeHandle = struct {
     nodeId: u32,
-    handleIndex: u32,
+    handleIndex: u16,
 };
 
 pub const JsonNodeInput = union(enum) {
@@ -26,7 +26,7 @@ pub const JsonNodeInput = union(enum) {
                 const object = try innerParse(struct {
                     symbol: ?[]const u8 = null,
                     nodeId: ?u32 = null,
-                    handleIndex: ?u32 = null,
+                    handleIndex: ?u16 = null,
                 }, allocator, source, options);
 
                 if (object.symbol) |symbol| {
