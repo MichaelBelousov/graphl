@@ -788,11 +788,6 @@ pub const VisualGraph = struct {
             ) !void {
                 inline for (.{ SocketType.input, SocketType.output }) |socket_type| {
                     const sockets = @field(cursor.data.node, @tagName(socket_type) ++ "s");
-                    if (cursor.data.node.id == 2863311530) {
-                        std.log.info("node-{}", .{cursor.data.node.id});
-                    }
-                    std.log.info("node-{}, type='{s}'", .{ cursor.data.node.id, cursor.data.node.desc.name });
-                    std.log.info("sockets.ptr={*},len={}", .{ sockets.ptr, sockets.len });
                     for (sockets, 0..) |maybe_socket, i| {
                         const link = switch (socket_type) {
                             .input => switch (maybe_socket) {
@@ -889,7 +884,7 @@ pub const VisualGraph = struct {
                     j += 1;
                 }) {
                     // TODO: get more accurate node sizes
-                    const node_size = dvui.Size{ .w = 350, .h = 150 };
+                    const node_size = dvui.Size{ .w = 400, .h = 150 };
                     const padding = 20;
                     const node_rect = Rect{
                         .x = @as(f32, @floatFromInt(i)) * node_size.w,

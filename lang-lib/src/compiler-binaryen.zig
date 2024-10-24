@@ -27,14 +27,14 @@ pub const Diagnostic = struct {
 const Compilation = struct {
     // TODO: use interning and env!
     typeof_map: std.StringHashMapUnmanaged(builtin.Type),
-    wasm_module: binaryen.Module,
+    wasm_module: *binaryen.Module,
     diag: *Diagnostic,
 
     pub fn init(in_diag: *Diagnostic) !@This() {
         return .{
             .typeof_map = .{},
             .diag = in_diag,
-            .wasm_module = binaryen.Module.create(),
+            .wasm_module = binaryen.Module.init(),
         };
     }
 
@@ -87,7 +87,7 @@ const Compilation = struct {
     }
 
     /// returns the wasm binary blob result
-    pub fn compileModule(self: *@This(), sexp: *const Sexp) !binaryen.Module {
+    pub fn compileModule(self: *@This(), sexp: *const Sexp) !*binaryen.Module {
         std.debug.assert(sexp.value == .module);
 
         for (sexp.value.module.items) |decl| {
@@ -111,7 +111,7 @@ const Compilation = struct {
     }
 };
 
-pub fn compile(a: std.mem.Allocator, sexp: *const Sexp, _in_diagnostic: ?*Diagnostic) !binaryen.Module {
+pub fn compile(a: std.mem.Allocator, sexp: *const Sexp, _in_diagnostic: ?*Diagnostic) !*binaryen.Module {
     var ignored_diagnostic: Diagnostic = undefined; // FIXME: why don't we init?
     const diag = if (_in_diagnostic) |d| d else &ignored_diagnostic;
     diag.module = sexp;
@@ -119,7 +119,7 @@ pub fn compile(a: std.mem.Allocator, sexp: *const Sexp, _in_diagnostic: ?*Diagno
     var unit = try Compilation.init(diag);
     defer unit.deinit(a);
 
-    return unit.compileModule(sexp, diag);
+    return unit.compileModule(sexp);
 }
 
 const t = std.testing;
@@ -134,10 +134,10 @@ test "parse" {
         \\(typeof (++ i32) i32)
         \\(define (++ x) (+ x 1))
     , null);
-    defer parsed.deinit();
+    defer parsed.deinit(t.allocator);
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, parsed, &diagnostic)) |result| {
+    if (compile(t.allocator, &parsed, &diagnostic)) |result| {
         std.debug.print("wat:\n{s}\n", .{result.emitText()});
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });

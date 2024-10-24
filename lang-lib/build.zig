@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
-    const binaryen_dep = b.dependency("binaryen-zig", .{});
+    //const binaryen_dep = b.dependency("binaryen-zig", .{});
 
     // TODO: reuse this in lib
     const grappl_core_mod = b.addModule("grappl_core", .{
@@ -16,6 +16,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .pic = true,
     });
+    _ = grappl_core_mod;
 
     const lib = b.addStaticLibrary(.{
         .name = "graph-lang",
@@ -24,6 +25,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .pic = true,
     });
+    // lib.linkLibC(); // for binaryen
     b.installArtifact(lib);
 
     const main_tests = b.addTest(.{
@@ -32,10 +34,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    // main_tests.linkLibC(); // for binaryen
 
-    inline for (.{ &lib.root_module, &main_tests.root_module, grappl_core_mod }) |m| {
-        m.addImport("binaryen", binaryen_dep.module("binaryen"));
-    }
+    // inline for (.{ &lib.root_module, &main_tests.root_module, grappl_core_mod }) |m| {
+    //     m.addImport("binaryen", binaryen_dep.module("binaryen"));
+    // }
 
     const main_tests_run = b.addRunArtifact(main_tests);
 
