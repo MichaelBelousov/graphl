@@ -302,24 +302,23 @@ pub const Parser = struct {
 
         const top = peek(&algo_state.stack) orelse unreachable;
 
-        // FIXME: what if the top level isn't a sexp?
-        return Sexp{ .value = .{ .list = top.value.list } };
+        return Sexp{ .value = .{ .module = top.value.list } };
     }
 };
 
 const t = std.testing;
 
 test "parse 1" {
-    var expected = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
-    (try expected.value.list.addOne()).* = Sexp{ .value = .{ .int = 2 } };
-    (try expected.value.list.addOne()).* = Sexp{ .value = .{ .borrowedString = "hel\\\"lo\nworld" } };
-    (try expected.value.list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
-    (try expected.value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "+" } };
-    (try expected.value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 3 } };
-    (try expected.value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
-    (try expected.value.list.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "-" } };
-    (try expected.value.list.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 210 } };
-    (try expected.value.list.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 5 } };
+    var expected = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(t.allocator) } };
+    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .int = 2 } };
+    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .borrowedString = "hel\\\"lo\nworld" } };
+    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
+    (try expected.value.module.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "+" } };
+    (try expected.value.module.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 3 } };
+    (try expected.value.module.items[2].value.list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
+    (try expected.value.module.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "-" } };
+    (try expected.value.module.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 210 } };
+    (try expected.value.module.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 5 } };
     defer expected.deinit(t.allocator);
 
     var actual = try Parser.parse(t.allocator,
@@ -332,7 +331,7 @@ test "parse 1" {
 
     // std.debug.print("\n{any}\n", .{actual});
     // std.debug.print("=========================\n", .{});
-    // for (actual.ok.items) |expr| {
+    // for (actual.value.module.items) |expr| {
     //     _ = try expr.write(std.io.getStdErr().writer());
     //     std.debug.print("\n", .{});
     // }
