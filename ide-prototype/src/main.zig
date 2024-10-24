@@ -884,7 +884,7 @@ pub const VisualGraph = struct {
                     j += 1;
                 }) {
                     // TODO: get more accurate node sizes
-                    const node_size = dvui.Size{ .w = 400, .h = 150 };
+                    const node_size = dvui.Size{ .w = 400, .h = 200 };
                     const padding = 20;
                     const node_rect = Rect{
                         .x = @as(f32, @floatFromInt(i)) * node_size.w,

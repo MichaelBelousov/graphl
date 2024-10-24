@@ -39,9 +39,9 @@ const Compilation = struct {
         self.typeof_map.deinit(self.alloc);
     }
 
-    pub fn compileFunc(self: *@This(), sexp: *const Sexp, writer: anytype, diag: *Diagnostic) !void {
+    // TODO: put writer in self
+    fn compileFunc(self: *@This(), sexp: *const Sexp, writer: anytype) !void {
         _ = self;
-        _ = diag;
 
         if (sexp.value != .list) return error.FuncDeclNotList;
         if (sexp.value.list.items.len == 0) return error.FuncDeclListEmpty;
@@ -84,7 +84,7 @@ const Compilation = struct {
         try writer.print("(result ${s})", .{result_type});
     }
 
-    pub fn compileTypeOf(self: *@This(), writer: anytype, sexp: *const Sexp) void {
+    fn compileTypeOf(self: *@This(), sexp: *const Sexp, writer: anytype) !void {
         if (sexp.value != .list) return error.TypeDeclNotList;
         if (sexp.value.list.items.len == 0) return error.TypeDeclListEmpty;
         if (sexp.value.list.items[0].value != .symbol) return error.NonSymbolHead;
@@ -93,12 +93,12 @@ const Compilation = struct {
         if (!std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.typeof.value.symbol)) return error.NotATypeDecl;
 
         // TODO: support non function types
-        self.compileTypeOfFunc(writer, sexp.value.list) catch |e| switch (e) {
+        self.compileTypeOfFunc(sexp, writer) catch |e| switch (e) {
             error.NotAFuncTypeDecl => {},
             else => return e,
         };
-        self.compileTypeOfVar(writer, sexp.value.list) catch |e| switch (e) {
-            error.NotAFuncVarDecl => {},
+        self.compileTypeOfVar(sexp, writer) catch |e| switch (e) {
+            error.NotAVarTypeDecl => {},
             else => return e,
         };
 
@@ -112,7 +112,7 @@ const Compilation = struct {
     }
 
     /// receives (typeof (f i32) i32)
-    pub fn compileTypeOfFunc(self: *@This(), writer: anytype, sexp: *const Sexp) void {
+    fn compileTypeOfFunc(self: *@This(), sexp: *const Sexp, writer: anytype) !void {
         _ = self;
         _ = writer;
         std.debug.assert(sexp.value == .list);
@@ -121,14 +121,24 @@ const Compilation = struct {
         //std.debug.assert(sexp.value.list.items[0].value.symbol.ptr == syms.typeof.value.symbol.ptr);
         std.debug.assert(std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.typeof.value.symbol));
 
+        if (sexp.value.list.items[1].value != .list) return error.NotAFuncTypeDecl;
         if (sexp.value.list.items[1].value.list.items.len == 0) return error.FuncTypeDeclListEmpty;
         for (sexp.value.list.items[1].value.list.items) |*def_item| {
             // function argument names must be symbols
             if (def_item.value != .symbol) return error.FuncBindingsListEmpty;
         }
+
+        const func_name = sexp.value.list.items[1].value.list.items[0].value.symbol;
+        _ = func_name;
+        //const result_type_name = sexp.value.list.items[2].value.list.items[0];
+        //_ = result_type_name;
+
+        // TODO: use env
+        //self.typeof_map.put(self.alloc, type_name, type_);
     }
 
-    pub fn compileTypeOfVar(self: *@This(), writer: anytype, sexp: *const Sexp) void {
+    fn compileTypeOfVar(self: *@This(), sexp: *const Sexp, writer: anytype) !void {
+        _ = self;
         _ = writer;
         std.debug.assert(sexp.value == .list);
         std.debug.assert(sexp.value.list.items[0].value == .symbol);
@@ -136,18 +146,21 @@ const Compilation = struct {
         //std.debug.assert(sexp.value.list.items[0].value.symbol.ptr == syms.typeof.value.symbol.ptr);
         std.debug.assert(std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.typeof.value.symbol));
 
-        if (sexp.value.list.items[1].value != .symbol) return error.VarTypeBindingNotSymbol;
+        if (sexp.value.list.items[1].value != .symbol) return error.NotAVarTypeDecl;
         // shit, I need to evaluate macros in the compiler, don't I
         if (sexp.value.list.items[2].value != .symbol) return error.VarTypeNotSymbol;
 
-        const type_name = sexp.value.list.items[1].value.symbol;
-        const type_ = sexp.value.list.items[2].value.symbol;
+        const var_name = sexp.value.list.items[1].value.symbol;
+        _ = var_name;
+        const type_name = sexp.value.list.items[2].value.symbol;
+        _ = type_name;
 
-        self.typeof_map.put(self.alloc, type_name, type_);
+        // TODO: use env
+        //self.typeof_map.put(self.alloc, type_name, type_);
     }
 
     pub fn compileModule(self: *@This(), sexp: *const Sexp, writer: anytype, diag: *Diagnostic) !void {
-        var arena = std.heap.ArenaAllocator(self.alloc);
+        var arena = std.heap.ArenaAllocator.init(self.alloc);
         defer arena.deinit();
         defer self.alloc = arena.child_allocator;
         self.alloc = arena.allocator();
@@ -163,19 +176,19 @@ const Compilation = struct {
             switch (decl.value) {
                 .list => |forms| {
                     for (forms.items) |*form| {
-                        self.compileFunc(form, writer, diag) catch |e| switch (e) {
+                        self.compileFunc(form, writer) catch |e| switch (e) {
                             error.NotAFuncDecl => {},
                             // TODO: aggregate errors
                             else => return e,
                         };
-                        self.compileTypeOf(form, writer, diag) catch |e| switch (e) {
+                        self.compileTypeOf(form, writer) catch |e| switch (e) {
                             error.NotATypeDecl => {},
                             else => return e,
                         };
-                        self.compileVar(form, writer, diag) catch |e| switch (e) {
-                            error.NotAVarDecl => {},
-                            else => return e,
-                        };
+                        // self.compileVar(form, writer) catch |e| switch (e) {
+                        //     error.NotAVarDecl => {},
+                        //     else => return e,
+                        // };
                     }
                 },
                 else => {

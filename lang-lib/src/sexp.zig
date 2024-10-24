@@ -219,6 +219,7 @@ test "write sexp" {
 pub const syms = struct {
     pub const import = Sexp{ .value = .{ .symbol = "import" } };
     pub const define = Sexp{ .value = .{ .symbol = "define" } };
+    pub const typeof = Sexp{ .value = .{ .symbol = "typeof" } };
     pub const as = Sexp{ .value = .{ .symbol = "as" } };
     pub const begin = Sexp{ .value = .{ .symbol = "begin" } };
     // FIXME: is this really a symbol?
