@@ -1,5 +1,8 @@
 const std = @import("std");
 const Sexp = @import("./sexp.zig").Sexp;
+const Env = @import("./nodes//builtin.zig").Env;
+const TypeInfo = @import("./nodes//builtin.zig").TypeInfo;
+const Type = @import("./nodes//builtin.zig").Type;
 const syms = @import("./sexp.zig").syms;
 const builtin = @import("./nodes/builtin.zig");
 const binaryen = @import("binaryen");
@@ -25,44 +28,58 @@ pub const Diagnostic = struct {
 };
 
 const Compilation = struct {
-    // TODO: use interning and env!
-    typeof_map: std.StringHashMapUnmanaged(builtin.Type),
+    env: Env,
+    // TODO: have a first pass just figure out types?
+    /// a list of forms that are incompletely compiled
+    deferred: struct {
+        /// functions that need param types
+        func_decls: std.StringHashMapUnmanaged(TypeInfo) = .{},
+        /// types of functions that need function param names
+        func_types: std.StringHashMapUnmanaged(TypeInfo) = .{},
+    } = .{},
     wasm_module: *binaryen.Module,
     is_wasm_module_moved: bool = false,
     arena: std.heap.ArenaAllocator,
     diag: *Diagnostic,
 
     pub fn init(alloc: std.mem.Allocator, in_diag: *Diagnostic) !@This() {
-        return .{
+        var result = @This(){
+            .env = undefined,
             .arena = std.heap.ArenaAllocator.init(alloc),
-            .typeof_map = .{},
             .diag = in_diag,
             .wasm_module = binaryen.Module.init(),
         };
+        result.env = try Env.initDefault(result.arena.allocator());
+        return result;
     }
 
     pub fn deinit(self: *@This()) void {
         const alloc = self.arena.allocator();
-        // NOTE: this is a no-op because of the arena
-        self.typeof_map.deinit(alloc);
+
+        {
+            // NOTE: this is a no-op because of the arena
+            self.deferred.func_decls.deinit(alloc);
+            self.deferred.func_types.deinit(alloc);
+            self.env.deinit(alloc);
+        }
+
         self.arena.deinit();
         if (!self.is_wasm_module_moved)
             self.wasm_module.deinit();
     }
 
-    /// must be passed a list
-    fn compileFunc(self: *@This(), sexp: *const Sexp) !void {
+    fn compileFunc(self: *@This(), sexp: *const Sexp) !bool {
         _ = self;
 
-        if (sexp.value != .list) return error.NotAFuncDecl;
-        if (sexp.value.list.items.len == 0) return error.NotAFuncDecl;
+        if (sexp.value != .list) return false;
+        if (sexp.value.list.items.len == 0) return false;
         if (sexp.value.list.items[0].value != .symbol) return error.NonSymbolHead;
 
         // FIXME: parser should be aware of the define form!
-        //if (sexp.value.list.items[0].value.symbol.ptr != syms.define.value.symbol.ptr) return error.NotAFuncDecl;
-        if (!std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.define.value.symbol)) return error.NotAFuncDecl;
+        //if (sexp.value.list.items[0].value.symbol.ptr != syms.define.value.symbol.ptr) return false;
+        if (!std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.define.value.symbol)) return false;
 
-        if (sexp.value.list.items[1].value != .list) return error.NotAFuncDecl;
+        if (sexp.value.list.items[1].value != .list) return false;
         if (sexp.value.list.items[1].value.list.items.len < 1) return error.FuncBindingsListEmpty;
         for (sexp.value.list.items[1].value.list.items) |*def_item| {
             if (def_item.value != .symbol) return error.FuncParamBindingNotSymbol;
@@ -94,9 +111,34 @@ const Compilation = struct {
         // }
         // const result_type = "i32"; // FIXME
         // try writer.print("(result ${s})", .{result_type});
+
+        return true;
     }
 
-    fn compileTypeOf(self: *@This(), sexp: *const Sexp) !void {
+    fn compileVar(self: *@This(), sexp: *const Sexp) !bool {
+        _ = self;
+
+        if (sexp.value != .list) return false;
+        if (sexp.value.list.items.len == 0) return false;
+        if (sexp.value.list.items[0].value != .symbol) return error.NonSymbolHead;
+
+        // FIXME: parser should be aware of the define form!
+        //if (sexp.value.list.items[0].value.symbol.ptr != syms.define.value.symbol.ptr) return false;
+        if (!std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.define.value.symbol)) return false;
+
+        if (sexp.value.list.items[1].value != .symbol) return error.NonSymbolBinding;
+
+        const var_name = sexp.value.list.items[1].value.symbol;
+        //const params = sexp.value.list.items[1].value.list.items[1..];
+        const var_name_mangled = var_name;
+        _ = var_name_mangled;
+
+        //binaryen.Expression;
+
+        return true;
+    }
+
+    fn compileTypeOf(self: *@This(), sexp: *const Sexp) !bool {
         if (sexp.value != .list) return error.TypeDeclNotList;
         if (sexp.value.list.items.len == 0) return error.TypeDeclListEmpty;
         if (sexp.value.list.items[0].value != .symbol) return error.NonSymbolHead;
@@ -104,51 +146,65 @@ const Compilation = struct {
         //std.debug.assert(sexp.value.list.items[0].value.symbol.ptr == syms.typeof.value.symbol.ptr);
         if (!std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.typeof.value.symbol)) return error.NotATypeDecl;
 
-        // TODO: support non function types
-        self.compileTypeOfFunc(sexp) catch |e| switch (e) {
-            error.NotAFuncTypeDecl => {},
-            else => return e,
-        };
-        self.compileTypeOfVar(sexp) catch |e| switch (e) {
-            error.NotAVarTypeDecl => {},
-            else => return e,
-        };
-
-        //const func_name = sexp.value.list.items[1].value.list.items[0].value.symbol;
-        //const args = sexp.value.list.items[1].value.list.items[1..];
-
-        // FIXME: wrong
-        // _ = try writer.write(
-        //     \\(type (;0;) (func (param i32 i32)))
-        // );
+        return try self.compileTypeOfFunc(sexp) or try self.compileTypeOfVar(sexp);
     }
 
-    /// receives (typeof (f i32) i32)
-    fn compileTypeOfFunc(self: *@This(), sexp: *const Sexp) !void {
-        _ = self;
+    /// e.g. (typeof (f i32) i32)
+    fn compileTypeOfFunc(self: *@This(), sexp: *const Sexp) !bool {
+        const alloc = self.arena.allocator();
+
         std.debug.assert(sexp.value == .list);
         std.debug.assert(sexp.value.list.items[0].value == .symbol);
         // FIXME: parser should be aware of the define form!
         //std.debug.assert(sexp.value.list.items[0].value.symbol.ptr == syms.typeof.value.symbol.ptr);
         std.debug.assert(std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.typeof.value.symbol));
 
-        if (sexp.value.list.items[1].value != .list) return error.NotAFuncTypeDecl;
+        if (sexp.value.list.items[1].value != .list) return false;
         if (sexp.value.list.items[1].value.list.items.len == 0) return error.FuncTypeDeclListEmpty;
         for (sexp.value.list.items[1].value.list.items) |*def_item| {
-            // function argument names must be symbols
+            // FIXME: function types names must be simple symbols (for now)
             if (def_item.value != .symbol) return error.FuncBindingsListEmpty;
         }
 
         const func_name = sexp.value.list.items[1].value.list.items[0].value.symbol;
-        _ = func_name;
-        //const result_type_name = sexp.value.list.items[2].value.list.items[0];
-        //_ = result_type_name;
+        const param_type_exprs = sexp.value.list.items[1].value.list.items[1..];
 
-        // TODO: use env
-        //self.typeof_map.put(self.alloc, type_name, type_);
+        // FIXME: types must be symbols (for now)
+        if (sexp.value.list.items[2].value != .symbol) return error.FuncTypeDeclResultNotASymbol;
+
+        const result_type_name = sexp.value.list.items[2].value.symbol;
+        _ = result_type_name;
+
+        const param_types = try alloc.alloc(Type, param_type_exprs.len);
+        const param_names = try alloc.alloc([]const u8, param_type_exprs.len);
+        for (param_type_exprs, param_types, param_names) |type_expr, *type_, *name| {
+            // FIXME: defer finding the type
+            name.* = type_expr.value.symbol;
+            type_.* = self.env.types.getPtr(name.*) orelse return error.UnknownType;
+        }
+
+        // const func_type = try self.env.addType(alloc, TypeInfo{
+        //     .name = func_name,
+        //     .field_names = param_names,
+        //     .field_types = param_types,
+        // });
+        const func_type_desc = TypeInfo{
+            .name = func_name,
+            .field_names = param_names,
+            .field_types = param_types,
+        };
+
+        try self.deferred.func_types.put(alloc, func_name, func_type_desc);
+
+        return true;
     }
 
-    fn compileTypeOfVar(self: *@This(), sexp: *const Sexp) !void {
+    fn finishCompileTypedFunc(self: *@This(), name: []const u8) !bool {
+        _ = self;
+        _ = name;
+    }
+
+    fn compileTypeOfVar(self: *@This(), sexp: *const Sexp) !bool {
         _ = self;
         std.debug.assert(sexp.value == .list);
         std.debug.assert(sexp.value.list.items[0].value == .symbol);
@@ -156,7 +212,7 @@ const Compilation = struct {
         //std.debug.assert(sexp.value.list.items[0].value.symbol.ptr == syms.typeof.value.symbol.ptr);
         std.debug.assert(std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.typeof.value.symbol));
 
-        if (sexp.value.list.items[1].value != .symbol) return error.NotAVarTypeDecl;
+        if (sexp.value.list.items[1].value != .symbol) return false;
         // shit, I need to evaluate macros in the compiler, don't I
         if (sexp.value.list.items[2].value != .symbol) return error.VarTypeNotSymbol;
 
@@ -165,8 +221,7 @@ const Compilation = struct {
         const type_name = sexp.value.list.items[2].value.symbol;
         _ = type_name;
 
-        // TODO: use env
-        //self.typeof_map.put(self.alloc, type_name, type_);
+        return true;
     }
 
     pub fn compileModule(self: *@This(), sexp: *const Sexp) !*binaryen.Module {
@@ -175,28 +230,17 @@ const Compilation = struct {
         for (sexp.value.module.items) |decl| {
             switch (decl.value) {
                 .list => {
-                    self.compileFunc(&decl) catch |e| switch (e) {
-                        error.NotAFuncDecl => {},
-                        // TODO: aggregate errors
-                        else => {
-                            std.debug.print("failed: {}\n", .{decl});
-                            return e;
-                        },
-                    };
-                    self.compileTypeOf(&decl) catch |e| switch (e) {
-                        error.NotATypeDecl => {},
-                        else => {
-                            std.debug.print("failed: {}\n", .{decl});
-                            return e;
-                        },
-                    };
-                    // self.compileVar(form, writer) catch |e| switch (e) {
-                    //     error.NotAVarDecl => {},
-                    //     else => return e,
-                    // };
+                    const did_compile = (try self.compileFunc(&decl) or
+                        try self.compileVar(&decl) or
+                        try self.compileTypeOf(&decl));
+                    if (!did_compile) {
+                        self.diag.err = Diagnostic.Error{ .BadTopLevelForm = &decl };
+                        return error.badTopLevelForm;
+                    }
                 },
                 else => {
                     self.diag.err = Diagnostic.Error{ .BadTopLevelForm = &decl };
+                    return error.badTopLevelForm;
                 },
             }
         }

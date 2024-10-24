@@ -849,6 +849,15 @@ pub const Env = struct {
         else
             null;
     }
+
+    pub fn addType(self: *@This(), a: std.mem.Allocator, type_info: TypeInfo) !Type {
+        // TODO: dupe the key, we need to own the key memory lifetime
+        const result = try self.types.getOrPut(a, type_info.name);
+        // FIXME: allow types to be overriden within scopes?
+        if (result.found_existing) return error.EnvAlreadyExists;
+        result.value_ptr.* = type_info;
+        return result.value_ptr;
+    }
 };
 
 test "env" {
