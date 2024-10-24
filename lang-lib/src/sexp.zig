@@ -29,7 +29,7 @@ pub const Sexp = struct {
     pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
         switch (self.value) {
             .ownedString => |v| alloc.free(v),
-            .list => |v| {
+            .list, .module => |v| {
                 for (v.items) |item| item.deinit(alloc);
                 v.deinit();
             },
@@ -99,8 +99,8 @@ pub const Sexp = struct {
                 break :_ .{ .depth = syms.true.value.symbol.len };
             },
             .void => _: {
-                _ = try writer.write(syms.true.value.symbol);
-                break :_ .{ .depth = syms.true.value.symbol.len };
+                _ = try writer.write(syms.void.value.symbol);
+                break :_ .{ .depth = syms.void.value.symbol.len };
             },
             .ownedString, .borrowedString => |v| _: {
                 // FIXME: this obviously doesn't handle characters that need escaping

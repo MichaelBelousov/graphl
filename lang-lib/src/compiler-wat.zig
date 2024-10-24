@@ -160,12 +160,12 @@ const Compilation = struct {
     }
 
     pub fn compileModule(self: *@This(), sexp: *const Sexp, writer: anytype, diag: *Diagnostic) !void {
+        std.debug.assert(sexp.value == .module);
+
         var arena = std.heap.ArenaAllocator.init(self.alloc);
         defer arena.deinit();
         defer self.alloc = arena.child_allocator;
         self.alloc = arena.allocator();
-
-        std.debug.assert(sexp.value == .module);
 
         _ = try writer.write(
             \\(module

@@ -28,3 +28,6 @@ node_modules
 # wasm
 *.wasm
 *.wasm.o
+
+# gdb
+.gdb_history
