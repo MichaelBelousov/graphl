@@ -2,9 +2,13 @@
     .name = "grappl_core",
     .version = "0.0.0",
     .dependencies = .{
+        // .@"binaryen-zig" = .{
+        //     .url = "https://github.com/MichaelBelousov/binaryen-zig/archive/8cb0f0cb743f60fda08452280a81f71b67abed1b.zip",
+        //     .hash = "12201b5754f4107929868b46665e79727e22737aceb9f0a530508d00ec3f4ad4d620",
+        // },
         .@"binaryen-zig" = .{
-            .url = "https://github.com/MichaelBelousov/binaryen-zig/archive/9b25e284c35360dde0bdda1865a1b53ea94a3ad7.zip",
-            .hash = "1220623b47cf15e9a599798ea724d16cd0fc6d0f1b491a81cbed9f6f1894c349fe3a",
+            .url = "https://github.com/MichaelBelousov/binaryen-zig/archive/5edac79c9aa031c019662a7faf338f0c2a79bb5a.zip",
+            .hash = "1220b10d1986641e4e2d0262010794babe981852e958afe7494e958350df68e6695a",
         },
     },
     .paths = .{

@@ -40,7 +40,7 @@ const Compilation = struct {
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         self.typeof_map.deinit(alloc);
-        self.wasm_module.destroy();
+        self.wasm_module.deinit();
     }
 
     pub fn compileFunc(self: *@This(), sexp: *const Sexp) !void {
