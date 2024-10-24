@@ -32,9 +32,9 @@ const Compilation = struct {
     // TODO: have a first pass just figure out types?
     /// a list of forms that are incompletely compiled
     deferred: struct {
-        /// functions that need param types
-        func_decls: std.StringHashMapUnmanaged(TypeInfo) = .{},
-        /// types of functions that need function param names
+        /// function with parameter names that need the function's type
+        func_decls: std.StringHashMapUnmanaged([]const []const u8) = .{},
+        /// typeof's of functions that need function param names
         func_types: std.StringHashMapUnmanaged(TypeInfo) = .{},
     } = .{},
     wasm_module: *binaryen.Module,
@@ -173,35 +173,63 @@ const Compilation = struct {
         if (sexp.value.list.items[2].value != .symbol) return error.FuncTypeDeclResultNotASymbol;
 
         const result_type_name = sexp.value.list.items[2].value.symbol;
-        _ = result_type_name;
 
         const param_types = try alloc.alloc(Type, param_type_exprs.len);
-        const param_names = try alloc.alloc([]const u8, param_type_exprs.len);
-        for (param_type_exprs, param_types, param_names) |type_expr, *type_, *name| {
-            // FIXME: defer finding the type
-            name.* = type_expr.value.symbol;
-            type_.* = self.env.types.getPtr(name.*) orelse return error.UnknownType;
+        for (param_type_exprs, param_types) |type_expr, *type_| {
+            const param_type = type_expr.value.symbol;
+            type_.* = self.env.types.getPtr(param_type) orelse return error.UnknownType;
         }
 
-        // const func_type = try self.env.addType(alloc, TypeInfo{
-        //     .name = func_name,
-        //     .field_names = param_names,
-        //     .field_types = param_types,
-        // });
+        const return_type = self.env.types.getPtr(result_type_name) orelse return error.UnknownType;
+
         const func_type_desc = TypeInfo{
             .name = func_name,
-            .field_names = param_names,
-            .field_types = param_types,
+            .func_type = .{
+                // FIXME: use types to prevent this invalid object!
+                // param_names will be filled when the function is not deferred
+                .param_types = param_types,
+                .return_type = return_type,
+            },
         };
 
-        try self.deferred.func_types.put(alloc, func_name, func_type_desc);
+        if (self.deferred.func_decls.getPtr(func_name)) |func_decl| {
+            try self.finishCompileTypedFunc(func_decl.*, func_type_desc);
+        } else {
+            try self.deferred.func_types.put(alloc, func_name, func_type_desc);
+        }
 
         return true;
     }
 
-    fn finishCompileTypedFunc(self: *@This(), name: []const u8) !bool {
-        _ = self;
-        _ = name;
+    fn finishCompileTypedFunc(
+        self: *@This(),
+        func_decl_param_names: []const []const u8,
+        incomplete_func_type_desc: TypeInfo,
+    ) !void {
+        const alloc = self.arena.allocator();
+
+        const complete_func_type_desc = TypeInfo{
+            .name = incomplete_func_type_desc.name,
+            .func_type = .{
+                .param_names = func_decl_param_names,
+                .param_types = incomplete_func_type_desc.func_type.?.param_types,
+                .return_type = incomplete_func_type_desc.func_type.?.return_type,
+            },
+        };
+
+        const func_type = try self.env.addType(alloc, complete_func_type_desc);
+
+        _ = func_type;
+
+        // const byn_param_type = binaryen.Type.create();
+
+        // const func = self.wasm_module.addFunction(
+        //     complete_func_type_desc.name,
+        //     params,
+        //     results,
+        //     var_types,
+        //     body
+        // );
     }
 
     fn compileTypeOfVar(self: *@This(), sexp: *const Sexp) !bool {
@@ -281,7 +309,12 @@ test "parse" {
 
     var diagnostic = Diagnostic.init();
     if (compile(t.allocator, &parsed, &diagnostic)) |result| {
-        std.debug.print("wat:\n{s}\n", .{result.emitText()});
+        const wat = result.emitText();
+        try t.expectEqualStrings(
+            \\(module
+            \\)
+            \\
+        , wat);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
     }

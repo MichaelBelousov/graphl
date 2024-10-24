@@ -4,11 +4,19 @@ const std = @import("std");
 
 const failing_allocator = std.testing.failing_allocator;
 
+pub const FuncType = struct {
+    param_names: []const []const u8 = &.{},
+    param_types: []const Type = &.{},
+    return_type: Type = primitive_types.void,
+};
+
 pub const TypeInfo = struct {
     name: []const u8,
     field_names: []const []const u8 = &.{},
     // should structs allow constrained generic fields?
     field_types: []const Type = &.{},
+    // FIXME: use a union
+    func_type: ?FuncType = null,
 };
 
 pub const Type = *const TypeInfo;
@@ -226,6 +234,7 @@ pub const primitive_types = struct {
     pub const bool_: Type = &TypeInfo{ .name = "bool" };
     pub const rune: Type = &TypeInfo{ .name = "rune" };
     pub const symbol: Type = &TypeInfo{ .name = "symbol" };
+    pub const @"void": Type = &TypeInfo{ .name = "void" };
 
     pub const string: Type = &TypeInfo{ .name = "string" };
     pub const vec3: Type = &TypeInfo{
