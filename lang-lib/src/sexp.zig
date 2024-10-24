@@ -33,7 +33,7 @@ pub const Sexp = struct {
                 for (v.items) |item| item.deinit(alloc);
                 v.deinit();
             },
-            else => {},
+            .void, .int, .float, .bool, .borrowedString, .symbol => {},
         }
     }
 
@@ -42,11 +42,20 @@ pub const Sexp = struct {
         depth: usize = 0,
     };
 
-    fn genericWriteForm(form: std.ArrayList(Sexp), writer: anytype, state: WriteState, with_parens: bool) @TypeOf(writer).Error!WriteState {
+    fn writeModule(form: std.ArrayList(Sexp), writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
+        for (form.items, 0..) |item, i| {
+            if (i != 0) _ = try writer.write("\n");
+            try writer.writeByteNTimes(' ', state.depth);
+            _ = try item._write(writer, .{ .depth = state.depth });
+        }
+
+        return .{ .depth = 0 };
+    }
+
+    fn writeList(form: std.ArrayList(Sexp), writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
         var depth: usize = 0;
 
-        if (with_parens)
-            depth += try writer.write("(");
+        depth += try writer.write("(");
 
         if (form.items.len >= 1) {
             depth += (try form.items[0]._write(writer, .{ .depth = state.depth + depth })).depth;
@@ -64,8 +73,7 @@ pub const Sexp = struct {
             }
         }
 
-        if (with_parens)
-            _ = try writer.write(")");
+        _ = try writer.write(")");
 
         return .{ .depth = depth };
     }
@@ -86,8 +94,8 @@ pub const Sexp = struct {
     fn _write(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
         // TODO: calculate stack space requirements?
         return switch (self.value) {
-            .module => |v| genericWriteForm(v, writer, state, false),
-            .list => |v| genericWriteForm(v, writer, state, true),
+            .module => |v| writeModule(v, writer, state),
+            .list => |v| writeList(v, writer, state),
             inline .float, .int => |v| _: {
                 var counting_writer = std.io.countingWriter(writer);
                 try counting_writer.writer().print("{d}", .{v});
