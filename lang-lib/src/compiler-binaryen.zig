@@ -7,10 +7,45 @@ const syms = @import("./sexp.zig").syms;
 const builtin = @import("./nodes/builtin.zig");
 const binaryen = @import("binaryen");
 
+const Context = struct {
+    byn_types: std.AutoHashMap(Type, binaryen.Type),
+
+    pub fn init(a: std.mem.Allocator, env: Env) !@This() {
+        var result = @This(){
+            .byn_types = std.AutoHashMap(Type, binaryen.Type).init(a),
+        };
+
+        try result.byn_types.ensureUnusedCapacity(env.types.size);
+
+        result.byn_types.putAssumeCapacity(builtin.primitive_types.i32_, binaryen.Type.int32());
+        result.byn_types.putAssumeCapacity(builtin.primitive_types.i64_, binaryen.Type.int64());
+        result.byn_types.putAssumeCapacity(builtin.primitive_types.void, binaryen.Type.none());
+        result.byn_types.putAssumeCapacity(builtin.primitive_types.f32_, binaryen.Type.float32());
+        result.byn_types.putAssumeCapacity(builtin.primitive_types.f64_, binaryen.Type.float64());
+
+        // var env_types_iter = env.types.keyIterator();
+        // while (env_types_iter.next()) |env_type| {
+        //     result.byn_types.putAssumeCapacity(env_type.*, );
+        // }
+
+        return result;
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.byn_types.deinit();
+    }
+};
+
+// initialized by compilation
+var shared_context: Context = undefined;
+
+pub fn deinit() void {
+    shared_context.deinit();
+}
+
 pub const Diagnostic = struct {
     err: Error = .None,
 
-    // context
     module: *const Sexp = undefined,
 
     const Error = union(enum(u16)) {
@@ -50,6 +85,10 @@ const Compilation = struct {
             .wasm_module = binaryen.Module.init(),
         };
         result.env = try Env.initDefault(result.arena.allocator());
+
+        // TODO: use std.once on init?
+        shared_context = try Context.init(alloc, result.env);
+
         return result;
     }
 
@@ -60,6 +99,7 @@ const Compilation = struct {
             // NOTE: this is a no-op because of the arena
             self.deferred.func_decls.deinit(alloc);
             self.deferred.func_types.deinit(alloc);
+            // FIXME: any remaining func_types/func_decls values must be freed!
             self.env.deinit(alloc);
         }
 
@@ -69,7 +109,7 @@ const Compilation = struct {
     }
 
     fn compileFunc(self: *@This(), sexp: *const Sexp) !bool {
-        _ = self;
+        const alloc = self.arena.allocator();
 
         if (sexp.value != .list) return false;
         if (sexp.value.list.items.len == 0) return false;
@@ -89,6 +129,19 @@ const Compilation = struct {
         //const params = sexp.value.list.items[1].value.list.items[1..];
         const func_name_mangled = func_name;
         _ = func_name_mangled;
+
+        const func_bindings = sexp.value.list.items[1].value.list.items[1..];
+
+        const func_param_names = try alloc.alloc([]const u8, func_bindings.len);
+        for (func_bindings, func_param_names) |func_binding, *param_name| {
+            param_name.* = func_binding.value.symbol;
+        }
+
+        if (self.deferred.func_types.get(func_name)) |func_type_desc| {
+            try self.finishCompileTypedFunc(func_param_names, func_type_desc);
+        } else {
+            try self.deferred.func_decls.put(alloc, func_name, func_param_names);
+        }
 
         // TODO: search for types first
         // const type_info = self.typeof_map.getPtr(func_name) orelse error.NoSuchType;
@@ -221,15 +274,23 @@ const Compilation = struct {
 
         _ = func_type;
 
-        // const byn_param_type = binaryen.Type.create();
+        const byn_param_types = try alloc.alloc(binaryen.Type, complete_func_type_desc.func_type.?.param_types.len);
+        // FIXME
+        for (byn_param_types) |*param| param.* = binaryen.Type.int32();
+        const byn_param_type = binaryen.Type.create(byn_param_types);
 
-        // const func = self.wasm_module.addFunction(
-        //     complete_func_type_desc.name,
-        //     params,
-        //     results,
-        //     var_types,
-        //     body
-        // );
+        const byn_result_type = binaryen.Type.int32();
+
+        const byn_locals_types = try alloc.alloc(binaryen.Type, complete_func_type_desc.func_type.?.param_types.len);
+        for (byn_locals_types) |*local| local.* = binaryen.Type.int32();
+
+        const x = binaryen.Expression.localGet(self.wasm_module, 0, binaryen.Type.int32());
+        const y = binaryen.Expression.localGet(self.wasm_module, 1, binaryen.Type.int32());
+        const body = binaryen.Expression.binaryOp(self.wasm_module, binaryen.Expression.Op.addInt32(), x, y);
+
+        // FIXME: leak
+        const namez = try alloc.dupeZ(u8, complete_func_type_desc.name);
+        _ = self.wasm_module.addFunction(namez, byn_param_type, byn_result_type, byn_locals_types, body);
     }
 
     fn compileTypeOfVar(self: *@This(), sexp: *const Sexp) !bool {
@@ -296,6 +357,8 @@ const t = std.testing;
 const SexpParser = @import("./sexp_parser.zig").Parser;
 
 test "parse" {
+    defer deinit();
+
     var parsed = try SexpParser.parse(t.allocator,
         \\;;; comment
         \\(typeof x i32)
@@ -312,6 +375,14 @@ test "parse" {
         const wat = result.emitText();
         try t.expectEqualStrings(
             \\(module
+            \\ (type $i32_=>_i32 (func (param i32) (result i32)))
+            \\ (func $++ (param $0 i32) (result i32)
+            \\  (local $1 i32)
+            \\  (i32.add
+            \\   (local.get $0)
+            \\   (local.get $1)
+            \\  )
+            \\ )
             \\)
             \\
         , wat);
