@@ -45,7 +45,10 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests_run.step);
 
-    const web_target_query = CrossTarget.parse(.{ .arch_os_abi = "wasm32-freestanding" }) catch unreachable;
+    const web_target_query = CrossTarget.parse(.{
+        .arch_os_abi = "wasm32-freestanding",
+        .cpu_features = "mvp+atomics+bulk_memory",
+    }) catch unreachable;
     const web_target = b.resolveTargetQuery(web_target_query);
 
     const web_step = b.step("web", "Build for web");

@@ -8,9 +8,18 @@ pub fn build(b: *std.Build) void {
 
     const web_target = std.Target.Query{
         .cpu_arch = .wasm32,
-        .os_tag = .freestanding,
+        .os_tag = .wasi, // can't use freestanding cuz binaryen is huge
         .abi = .musl,
+        .cpu_features_add = std.Target.wasm.featureSet(&.{
+            .atomics,
+            .multivalue,
+            .bulk_memory,
+        }),
     };
+    // const web_target_query = CrossTarget.parse(.{
+    //     .arch_os_abi = "wasm32-freestanding",
+    //     .cpu_features = "mvp+atomics+bulk_memory",
+    // }) catch unreachable;
 
     const dvui_dep = b.dependency("dvui", .{});
     const grappl_core_dep = b.dependency("grappl_core", .{});
@@ -32,6 +41,10 @@ pub fn build(b: *std.Build) void {
             else => false,
         },
     });
+
+    //exe.shared_memory = true;
+    //exe.export_memory = true;
+    //exe.import_memory = true;
 
     exe.entry = .disabled;
 
