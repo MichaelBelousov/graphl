@@ -1,0 +1,49 @@
+@import "../constants.scss";
+
+// FIXME: use shared css for this common thing
+.separate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  
+  .left, .right {
+    display: flex;
+
+    flex-direction: row;
+    flex-wrap: wrap;
+
+    padding: 22px 44px;
+    // HACK: spaced items without left buffer
+    gap: 22px;
+  }
+}
+
+.navLink {
+  &, &:link, &:visited {
+    // TODO: drop-shadow filter seems to transition slowly?
+    filter: drop-shadow(0 0 0 white);
+    transition: all 10ms ease;
+    font-size: 1rem;
+    color: $body;
+    text-decoration: initial;
+    vertical-align: middle;
+  }
+
+  &:hover {
+    filter: drop-shadow(0 0 5px white);
+  }
+}
+
+.logo {
+  display: flex;
+  flex-direction: row;
+  gap: 11px;
+  align-items: center;
+  font-family:'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;
+  font-size: 3rem !important; // FIXME: not important
+  font-weight: 500 !important;
+
+  > img {
+    width: 80px;
+  }
+}

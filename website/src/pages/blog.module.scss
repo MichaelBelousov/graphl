@@ -1,0 +1,19 @@
+@import '../constants.scss';
+
+.blogLink {
+  margin: 11px;
+}
+
+.blogLink {
+  &,
+  &:link,
+  &:visited {
+    color: $body;
+    text-decoration: initial;
+    font-weight: 700;
+    vertical-align: middle;
+  }
+  &:hover {
+    color: orange;
+  }
+}

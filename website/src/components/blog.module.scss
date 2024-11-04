@@ -1,0 +1,40 @@
+@import "../constants.scss";
+
+.container {
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes spin {
+  0% { transform: scaleX(0); }
+  50% { transform: scaleX(1); }
+  100% { transform: scaleX(0); }
+}
+
+.loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  .inner {
+    //background-color: $body;
+    border: 4px solid $body;
+    height: 26px;
+    width: 26px;
+    border-radius: 50%;
+    animation-name: spin;
+    animation-duration: 1s;
+    animation-iteration-count: infinite;
+    animation-timing-function: ease-out;
+  }
+}
+
+.post {
+  @media only screen {
+    @media (min-width: 700px) {
+      padding: 0 1in;
+      * {
+        max-width: 100%;
+      }
+    }
+  }
+}

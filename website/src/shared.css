@@ -1,0 +1,50 @@
+/* FIXME: merge with app shared.global.css */
+
+.split {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.hoverable {
+  cursor: pointer;
+}
+
+.draggable {
+  cursor: grab;
+}
+
+.hoverable:hover {
+  color: var(--hover);
+  fill: var(--hover);
+  stroke: var(--hover);
+  border-color: var(--hover);
+  background-color: var(--hover);
+}
+
+::-webkit-scrollbar {
+  width: var(--scrollbar-width);
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(128, 128, 128, 0.1);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.8);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar:hover {
+  width: 8px; /* doesn't work on chromium */
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(256, 100, 10, 0.8);
+}
