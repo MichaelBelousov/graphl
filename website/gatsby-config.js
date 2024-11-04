@@ -6,9 +6,9 @@ const constants = require("./src/constants")
 module.exports = {
   siteMetadata: {
     title: constants.companyName,
-    description: `${constants.companyName} cloud storage`,
-    author: `DM Tech`,
-    siteUrl: `https://torakku.com`,
+    description: constants.flagshipProductName,
+    author: constants.companyName,
+    siteUrl: `https://grappl.online`,
     image: `./src/images/logo2.svg`,
   },
   plugins: [
@@ -25,8 +25,8 @@ module.exports = {
     {
       resolve: `gatsby-plugin-manifest`,
       options: {
-        name: `gatsby-starter-default`,
-        short_name: `torakku.io`,
+        name: `grappl`,
+        short_name: `grappl.online`,
         start_url: `/`,
         background_color: `#663399`,
         theme_color: `#663399`,

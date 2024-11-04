@@ -1,6 +1,7 @@
 import React from "react"
 import { useStaticQuery, graphql } from "gatsby"
 import * as constants from "../constants";
+import "./layout.module.scss";
 
 import Header from "./header"
 import SEO from "./seo"

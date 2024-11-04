@@ -1,5 +1,17 @@
 /* FIXME: merge with app shared.global.css */
 
+:root {
+  --background-rgb:  18, 18, 24;
+  --body-rgb:        239, 239, 239;
+  --hover-rgb:       255, 255, 255;
+
+  --hover:           rgb(var(--hover-rgb));
+  --body:            rgb(var(--body-rgb));
+  --background:      rgb(var(--background-rgb));
+
+  --scrollbar-width: 4px;
+}
+
 .split {
   display: flex;
   justify-content: space-between;
@@ -42,7 +54,7 @@
 }
 
 ::-webkit-scrollbar:hover {
-  width: 8px; /* doesn't work on chromium */
+  width: var(--scrollbar-width); /* doesn't work on chromium */
 }
 
 ::-webkit-scrollbar-thumb:hover {

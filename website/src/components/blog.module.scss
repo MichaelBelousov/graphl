@@ -1,5 +1,3 @@
-@import "../constants.scss";
-
 .container {
   display: flex;
   flex-direction: column;
@@ -16,8 +14,8 @@
   align-items: center;
   justify-content: center;
   .inner {
-    //background-color: $body;
-    border: 4px solid $body;
+    //background-color: var(--body);
+    border: 4px solid var(--body);
     height: 26px;
     width: 26px;
     border-radius: 50%;

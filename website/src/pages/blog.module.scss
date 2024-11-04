@@ -1,5 +1,3 @@
-@import '../constants.scss';
-
 .blogLink {
   margin: 11px;
 }
@@ -8,7 +6,7 @@
   &,
   &:link,
   &:visited {
-    color: $body;
+    color: var(--body);
     text-decoration: initial;
     font-weight: 700;
     vertical-align: middle;

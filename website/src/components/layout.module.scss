@@ -1,5 +1,3 @@
-@import "../constants.scss";
-
 main {
   @media only screen {
     @media (max-width: 700px) {
@@ -30,9 +28,9 @@ html, body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: $background;
+  background-color: var(--background);
   font-size: 14pt;
-  color: $body;
+  color: var(--body);
 }
 
 footer {
@@ -78,5 +76,5 @@ h1 + h3 {
 }
 
 hr {
-  color: rgba($body-var, 0.3);
+  color: rgba(var(--body-rgb), 0.3);
 }

@@ -20,26 +20,34 @@ const Homepage = () => {
     <Layout pageTitle="Home">
       <div {...classNames(styles.bigText)} style={{ textAlign: "center" }}>
         {/* TODO: wrap this in a component/function to make it readable */}
+        <ShinyLogo className={"fadeInText_0"} />
+        <div>
+          <strong className={"fadeInText_1"}>is the only no-code solution</strong>
+          {" "}
+          <strong>that is still code</strong>.
+        </div>
+
         {[
-          ShinyLogo,
-          <strong>is the cloud SQL solution</strong>,
-          <strong>that is really cheap</strong>,
           <div>
             {/* TODO: need an image! */}
             <p className={styles.bigText} style={{ textAlign: "center" }}>
-              Blah blah blah
+              Throw away 60 years of text editing baggage and write code <em> without writing code</em>
             </p>
 
             <p className={styles.bigText} style={{ textAlign: "center" }}>
-              Join our <a target="_blank" href="https://e0a075ca.sibforms.com/serve/MUIFANC3EaFwNn2Lb330eR8CUoK52Kqq3Iw805_JEf19NtNbXgz8blNJHfE7RaKNJADeNfGAkMOKu86zmyUy_B8V1ivmiigESd_rQkaChA0dM3eST4ictTcvmsCZXQ2ec4b_xS9nXdaF4S1fOmDeDInPn7hFEVTEiHlExtWpPGNEiPcJXdBTlt7MRtajeVcdJGC3u3dBacXZcMsz">
-                newsletter
-              </a> to receive product updates.
+              Want to understand what your AI generated?
+              <br/>
+              <em> Debug visually </em>
+            </p>
+
+            <p className={styles.bigText} style={{ textAlign: "center" }}>
+              Experience the merging of workflows with optimized code.
             </p>
 
             <p style={{ textAlign: "center" }}>
               Questions?
               <br />
-              Reach out to us at <MailLink email="support@torakku.io" />
+              Reach out to us at <MailLink email="support@grappl.online" />
             </p>
           </div>,
         ].map((e, i, arr) => {
@@ -48,12 +56,12 @@ const Homepage = () => {
             const Tag = typeof e === "function" ? e : "span" as const;
 
             const result = (
-              <div>
+              <React.Fragment key={i}>
                 <Tag key={i} className={styles[`fadeInText_${i}`]}>
                   {typeof e === "function" ? undefined : e}
                 </Tag>
                 {addSpace && " "}
-              </div>
+              </React.Fragment>
             );
 
             return result;

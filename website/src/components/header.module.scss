@@ -1,5 +1,3 @@
-@import "../constants.scss";
-
 // FIXME: use shared css for this common thing
 .separate {
   display: flex;
@@ -24,7 +22,7 @@
     filter: drop-shadow(0 0 0 white);
     transition: all 10ms ease;
     font-size: 1rem;
-    color: $body;
+    color: var(--body);
     text-decoration: initial;
     vertical-align: middle;
   }
