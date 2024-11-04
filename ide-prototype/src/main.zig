@@ -1130,8 +1130,8 @@ fn dvui_frame() !void {
             defer bytes.deinit();
             var diagnostic = compiler.Diagnostic.init();
             if (compiler.compile(gpa, &sexp, &diagnostic)) |module| {
-                std.log.info("compile_result:\n{s}", .{module.emitText()});
-                module.deinit();
+                std.log.info("compile_result:\n{s}", .{module});
+                gpa.free(module);
             } else |err| {
                 std.log.err("compile_error={any}", .{err});
             }

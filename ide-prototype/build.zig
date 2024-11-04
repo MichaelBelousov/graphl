@@ -7,10 +7,17 @@ const CrossTarget = std.zig.CrossTarget;
 pub fn build(b: *std.Build) void {
     const native_target = b.standardTargetOptions(.{});
 
+    // const web_target_query = CrossTarget.parse(.{
+    //     .arch_os_abi = "wasm32-wasi-musl",
+    //     // https://github.com/ziglang/zig/pull/16207
+    //     //.cpu_features = "mvp+atomics+bulk_memory",
+    //     .cpu_features = "mvp+atomics+bulk_memory",
+    // }) catch unreachable;
+
     const web_target_query = std.Target.Query{
         .cpu_arch = .wasm32,
-        .os_tag = .wasi, // can't use freestanding cuz binaryen
-        .abi = .musl,
+        .os_tag = .freestanding, // can't use freestanding cuz binaryen
+        //.abi = .musl,
         // https://github.com/ziglang/zig/pull/16207
         .cpu_features_add = std.Target.wasm.featureSet(&.{
             .atomics,
@@ -26,26 +33,20 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    // const web_target = CrossTarget.parse(.{
-    //     .arch_os_abi = "wasm32-wasi-musl",
-    //     // https://github.com/ziglang/zig/pull/16207
-    //     .cpu_features = "mvp+atomics+bulk_memory",
-    // }) catch unreachable;
-
     const dvui_dep = b.dependency("dvui", .{});
     const grappl_core_dep = b.dependency("grappl_core", .{});
-    // const binaryen_dep = b.dependency("binaryen-zig", .{
-    //     .target = web_target,
-    //     .optimize = optimize,
-    //     //.force_web = true,
-    // });
+
+    const binaryen_dep = b.dependency("binaryen-zig", .{
+        .target = web_target,
+        .optimize = optimize,
+        //.force_web = true,
+    });
 
     const exe = b.addExecutable(.{
         .name = "dvui-frontend",
         .root_source_file = b.path("src/main.zig"),
         .target = web_target,
         .optimize = optimize,
-        .link_libc = true,
         .strip = switch (optimize) {
             .ReleaseFast, .ReleaseSmall => true,
             else => false,
@@ -53,16 +54,26 @@ pub fn build(b: *std.Build) void {
         .single_threaded = false,
     });
 
-    exe.shared_memory = true;
-    exe.export_memory = true;
-    exe.import_memory = true;
+    exe.linkLibC();
 
     exe.entry = .disabled;
 
-    //exe.root_module.addImport("binaryen", binaryen_dep.module("binaryen"));
     exe.root_module.addImport("dvui", dvui_dep.module("dvui_web"));
     exe.root_module.addImport("WebBackend", dvui_dep.module("WebBackend"));
     exe.root_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
+
+    // TODO: build wasm_opt without emscripten
+    const wasm_opt_emscripten_build = b.addSystemCommand(&.{
+        "sh",
+        "-c",
+        std.fmt.allocPrint(b.allocator,
+            \\cd {0s};
+            \\emcmake cmake -DBUILD_FOR_BROWSER=ON -DBUILD_TESTS=OFF .;
+            \\emmake make;
+        , .{binaryen_dep.path("binaryen").getPath(b)}) catch unreachable,
+    });
+
+    b.getInstallStep().dependOn(&wasm_opt_emscripten_build.step);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

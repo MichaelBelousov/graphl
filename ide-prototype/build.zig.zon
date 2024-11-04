@@ -28,6 +28,10 @@
             //.hash = "122018c6375309e30875f736de210fe209ac37021227b69961056c8658398accc772",
             .path = "../../dvui",
         },
+        .@"binaryen-zig" = .{
+            // FIXME: use hashed url
+            .path = "../../binaryen-zig",
+        },
         .grappl_core = .{
             .path = "../lang-lib",
         },
