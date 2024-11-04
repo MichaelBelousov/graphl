@@ -235,3 +235,12 @@ pub const syms = struct {
     pub const @"false" = Sexp{ .value = .{ .symbol = "#f" } };
     pub const @"void" = Sexp{ .value = .{ .symbol = "#void" } };
 };
+
+pub const primitive_type_syms = struct {
+    pub const @"i32" = Sexp{ .value = .{ .symbol = "i32" } };
+    pub const @"i64" = Sexp{ .value = .{ .symbol = "i64" } };
+    pub const @"u32" = Sexp{ .value = .{ .symbol = "u32" } };
+    pub const @"u64" = Sexp{ .value = .{ .symbol = "u64" } };
+    pub const @"f32" = Sexp{ .value = .{ .symbol = "f32" } };
+    pub const @"f64" = Sexp{ .value = .{ .symbol = "f64" } };
+};
