@@ -17,13 +17,13 @@ const Layout = ({
   children,
 }: React.PropsWithChildren<LayoutProps>) => {
   return (
-    <div>
+    <div style={{ position: "relative" }}>
       <Header />
       <SEO title={pageTitle} description={pageDesc} />
       <div>
         <main>{children}</main>
       </div>
-      <footer className="center">
+      <footer className="center" style={{ position: "fixed", bottom: 0 }}>
         &copy; {constants.companyName} 2024
       </footer>
     </div>

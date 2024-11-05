@@ -9,10 +9,12 @@
 
     flex-direction: row;
     flex-wrap: wrap;
+    align-items: center;
 
-    padding: 22px 44px;
+    margin: 0 20px;
+    padding: 15px 20px;
     // HACK: spaced items without left buffer
-    gap: 22px;
+    gap: 20px;
   }
 }
 
@@ -38,10 +40,17 @@
   gap: 11px;
   align-items: center;
   font-family:'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;
-  font-size: 3rem !important; // FIXME: not important
+  font-size: 1.5rem !important;
   font-weight: 500 !important;
 
   > img {
-    width: 80px;
+    width: 40px;
   }
+}
+
+.subButton {
+  padding: 5px;
+  border-radius: 6px;
+  color: var(--background);
+  background-color: var(--color-one);
 }

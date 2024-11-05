@@ -53,7 +53,7 @@
 @media (prefers-reduced-motion: no-preference) {
   .logoAnimated {
     // HACK
-    animation: move-in-0 500ms ease-out forwards, move-bg 1.5s linear infinite;
+    animation: move-in-0 100ms ease-out forwards, move-bg 3.5s linear infinite;
   }
   @keyframes move-bg {
     to {
@@ -64,13 +64,11 @@
 
 .logoAnimated {
   --bg-size: 400%;
-  --color-one: hsl(15 90% 55%);
-  --color-two: hsl(40 95% 55%);
-  font-size: clamp(2rem, 25vmin, 3rem);
+  font-size: clamp(2rem, 25vmin, 4rem);
   background: linear-gradient(
                 90deg,
                 var(--color-one),
-                var(--color-two),
+                var(--color-one-accent),
                 var(--color-one)
               ) 0 0 / var(--bg-size) 100%;
   color: transparent;
@@ -79,3 +77,14 @@
   filter: drop-shadow(0 0 1px var(--color-one));
 }
 
+.blurbBackground {
+  --color-one: hsl(15 90% 55%);
+  --color-two: hsl(40 95% 55%);
+  // TODO: idle animation for background
+  background: radial-gradient(
+    //ellipse at top,
+    circle at center,
+    rgba(100, 100, 150, 0.3) 0%,
+    transparent 60%,
+  );
+}

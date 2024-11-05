@@ -9,66 +9,79 @@ import { classNames } from '../react-utils';
 const ShinyLogo = (divProps: React.HTMLProps<HTMLDivElement>) => {
   const {className, ...rest} = divProps;
   return (
-    <strong {...classNames(styles.logoAnimated, className)} {...rest}>
+    <h1 {...classNames(styles.logoAnimated, className)} {...rest}>
       {constants.flagshipProductName}
-    </strong>
+    </h1>
   );
 };
 
 const Homepage = () => {
+  const mediumText: React.CSSProperties = {
+    fontSize: "1.5em",
+    textAlign: "center",
+    width: "100%",
+  };
+
+  const [iframeInteractable, setIframeInteractable] = React.useState(false);
+
   return (
-    <Layout pageTitle="Home">
-      <div {...classNames(styles.bigText)} style={{ textAlign: "center" }}>
+    <Layout pageTitle="Grappl" pageDesc="The next generation no-coding environment">
+      <div className={styles.blurbBackground}>
         {/* TODO: wrap this in a component/function to make it readable */}
-        <ShinyLogo className={"fadeInText_0"} />
-        <div>
-          <strong className={"fadeInText_1"}>is the only no-code solution</strong>
+        <div className={styles.bigText} style={{ fontSize: "2em", textAlign: "center" }}>
+          <ShinyLogo className={styles["fadeInText_0"]} style={{ marginBottom: "0.5em" }} />
+          <br/>
+          <strong className={styles["fadeInText_1"]}>is the <em>only</em> no-code solution</strong>
           {" "}
-          <strong>that is still code</strong>.
+          <strong className={styles["fadeInText_1"]}>that is as powerful as code</strong>
         </div>
 
-        {[
-          <div>
-            {/* TODO: need an image! */}
-            <p className={styles.bigText} style={{ textAlign: "center" }}>
-              Throw away 60 years of text editing baggage and write code <em> without writing code</em>
-            </p>
+        <div>
+          <br/>
+          {/* TODO: need an image! */}
+          <p style={mediumText} className={styles["fadeInText_2"]}>
+            Throw away 60 years of text editing baggage and write code
+            <br/>
+            <em> without writing code</em>
+          </p>
 
-            <p className={styles.bigText} style={{ textAlign: "center" }}>
-              Want to understand what your AI generated?
-              <br/>
-              <em> Debug visually </em>
-            </p>
+          <p style={mediumText} className={styles["fadeInText_3"]}>
+            Want to understand what your AI generated?
+            <br/>
+            <em> Debug visually </em>
+          </p>
 
-            <p className={styles.bigText} style={{ textAlign: "center" }}>
-              Experience the merging of workflows with optimized code.
-            </p>
+          <p style={mediumText} className={styles["fadeInText_4"]}>
+            Experience the programming language that feels like a
+            <br/>
+            <em>workflow engine</em>
+          </p>
 
-            <p style={{ textAlign: "center" }}>
-              Questions?
-              <br />
-              Reach out to us at <MailLink email="support@grappl.online" />
-            </p>
-          </div>,
-        ].map((e, i, arr) => {
-            // FIXME: do not add space in big thingy
-            const addSpace = i < arr.length - 1;
-            const Tag = typeof e === "function" ? e : "span" as const;
-
-            const result = (
-              <React.Fragment key={i}>
-                <Tag key={i} className={styles[`fadeInText_${i}`]}>
-                  {typeof e === "function" ? undefined : e}
-                </Tag>
-                {addSpace && " "}
-              </React.Fragment>
-            );
-
-            return result;
-          })}
+          <br/>
+          <p style={{ textAlign: "center" }}>
+            Questions?
+            Reach out to us at <a href={`mailto:me@mikemikeb.com`}>support@grappl.online</a>
+          </p>
+        </div>
       </div>
+
+      <iframe
+        id="app-iframe"
+        src={process.env.NODE_ENV === "development"
+          // TODO: serve from same origin
+          ? "http://localhost:3001"
+          : "/app/?demo&noTutorial&noHeaderLogo"}
+        style={{
+          width: "100%",
+          height: "auto",
+          border: 0,
+          margin: "30px 0"
+          //pointerEvents: iframeInteractable ? undefined : "none",
+        }}
+      />
+
     </Layout>
-  )
+  );
 }
 
 export default Homepage

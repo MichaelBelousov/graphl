@@ -5,6 +5,9 @@
   --body-rgb:        239, 239, 239;
   --hover-rgb:       255, 255, 255;
 
+  --color-one:        hsl(15 90% 55%);
+  --color-one-accent: hsl(40 95% 55%);
+
   --hover:           rgb(var(--hover-rgb));
   --body:            rgb(var(--body-rgb));
   --background:      rgb(var(--background-rgb));

@@ -51,7 +51,6 @@ pub fn build(b: *std.Build) void {
             .ReleaseFast, .ReleaseSmall => true,
             else => false,
         },
-        .single_threaded = false,
     });
 
     exe.linkLibC();

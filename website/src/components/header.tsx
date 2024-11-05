@@ -4,13 +4,14 @@ import * as styles from './header.module.scss';
 import logoPath from '../images/logo2.svg';
 import { useIsMobileLike } from '../useIsMobileLike';
 import * as constants from "../constants";
+import { classNames } from '../react-utils';
 
 const Header = () => {
   const logo = (
     <div className={styles.left}>
       {/* FIXME: make svg logo */}
       <Link className={`${styles.navLink} ${styles.logo}`} to="/">
-        <img src={logoPath} width="80px" /> {constants.companyName}
+        <img src={logoPath} /> {constants.flagshipProductName}
       </Link>
     </div>
   );
@@ -18,12 +19,12 @@ const Header = () => {
   const links = (
     <nav className={styles.right}>
       <a className={styles.navLink}
-        href={process.env.NODE_ENV === "development" ? "http://localhost:3001/app/#?trial" : "/app/#?trial"}
+        href={process.env.NODE_ENV === "development" ? "http://localhost:3001/app/#?trial" : "/app"}
       >
-        Try it
+        try it
       </a>
-      <Link className={styles.navLink} to="/pricing">Pricing</Link>
-      <Link className={styles.navLink} to="/blog">Blog</Link>
+      <Link className={styles.navLink} to="/blog">blog</Link>
+      <Link {...classNames(styles.navLink, styles.subButton)} to="/FIXME">subscribe</Link>
     </nav>
   );
 
@@ -32,7 +33,7 @@ const Header = () => {
 
   // FIXME: place the links differently on mobile, keep them!
   return (
-    <header>
+    <header style={{ borderBottom: "1px solid rgba(var(--body-rgb), 0.2)"}}>
       {!isMobileLike ? (
         <div className={styles.separate}>
           {logo} {links}
