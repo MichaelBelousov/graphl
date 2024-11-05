@@ -196,6 +196,7 @@ const Compilation = struct {
     const wat_syms = struct {
         pub const module = Sexp{ .value = .{ .symbol = "module" } };
         pub const @"type" = Sexp{ .value = .{ .symbol = "type" } };
+        pub const @"export" = Sexp{ .value = .{ .symbol = "export" } };
         pub const func = Sexp{ .value = .{ .symbol = "func" } };
         pub const param = Sexp{ .value = .{ .symbol = "param" } };
         pub const result = Sexp{ .value = .{ .symbol = "result" } };
@@ -205,6 +206,8 @@ const Compilation = struct {
             pub const @"i32.add" = Sexp{ .value = .{ .symbol = "i32.add" } };
             pub const @"i32.const" = Sexp{ .value = .{ .symbol = "i32.add" } };
         };
+        pub const memory = Sexp{ .value = .{ .symbol = "memory" } };
+        pub const @"$0" = Sexp{ .value = .{ .symbol = "$0" } };
     };
 
     fn finishCompileTypedFunc(
@@ -225,6 +228,24 @@ const Compilation = struct {
 
         const func_type = try self.env.addType(alloc, complete_func_type_desc);
         _ = func_type;
+
+        //        (export "++"
+        //                (func $++))
+        {
+            const export_sexp = try self.module_body.addOne();
+            export_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            try export_sexp.value.list.ensureTotalCapacityPrecise(3);
+            export_sexp.value.list.addOneAssumeCapacity().* = wat_syms.@"export";
+            export_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .borrowedString = complete_func_type_desc.name } };
+            const export_val_sexp = export_sexp.value.list.addOneAssumeCapacity();
+
+            export_val_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            try export_val_sexp.value.list.ensureTotalCapacityPrecise(2);
+            // 1 for "func", and 1 for result
+            export_val_sexp.value.list.addOneAssumeCapacity().* = wat_syms.func;
+            // FIXME: this leaks! symbols are assumed to be borrowed
+            export_val_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{complete_func_type_desc.name}) } };
+        }
 
         {
             const type_sexp = try self.module_body.addOne();
@@ -266,6 +287,7 @@ const Compilation = struct {
             impl_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
             // TODO: static sexp pointers here
             (try impl_sexp.value.list.addOne()).* = wat_syms.func;
+            // FIXME: this leaks! symbols are assumed to be borrowed!
             (try impl_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{complete_func_type_desc.name}) } };
 
             for (func_decl_param_names, complete_func_type_desc.func_type.?.param_types) |param_name, param_type| {
@@ -304,13 +326,13 @@ const Compilation = struct {
             lhs.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
             try lhs.value.list.ensureTotalCapacityPrecise(2);
             (try lhs.value.list.addOne()).* = wat_syms.ops.@"local.get";
-            (try lhs.value.list.addOne()).* = Sexp{ .value = .{ .symbol = "$local_0" } };
+            (try lhs.value.list.addOne()).* = Sexp{ .value = .{ .symbol = "$local_x" } };
 
             const rhs = try add_sexp.value.list.addOne();
             rhs.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
             try rhs.value.list.ensureTotalCapacityPrecise(2);
             (try rhs.value.list.addOne()).* = wat_syms.ops.@"local.get";
-            (try rhs.value.list.addOne()).* = Sexp{ .value = .{ .symbol = "$local_1" } };
+            (try rhs.value.list.addOne()).* = Sexp{ .value = .{ .symbol = "$local_x" } };
         }
     }
 
@@ -344,8 +366,31 @@ const Compilation = struct {
         const module_body = self.wat.value.module.addOneAssumeCapacity();
         module_body.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
         self.module_body = &module_body.value.list;
-        try self.module_body.ensureTotalCapacity(3);
+        try self.module_body.ensureTotalCapacity(5);
         self.module_body.addOneAssumeCapacity().* = wat_syms.module;
+
+        {
+            const memory = self.module_body.addOneAssumeCapacity();
+            memory.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
+            try memory.value.list.ensureTotalCapacityPrecise(3);
+            memory.value.list.addOneAssumeCapacity().* = wat_syms.memory;
+            memory.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
+            memory.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 0 } };
+        }
+
+        {
+            // TODO: export helper
+            const memory_export = self.module_body.addOneAssumeCapacity();
+            memory_export.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
+            try memory_export.value.list.ensureTotalCapacityPrecise(3);
+            memory_export.value.list.addOneAssumeCapacity().* = wat_syms.@"export";
+            memory_export.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .borrowedString = "memory" } };
+            const memory_export_val = memory_export.value.list.addOneAssumeCapacity();
+            memory_export_val.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
+            try memory_export_val.value.list.ensureTotalCapacityPrecise(2);
+            memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.memory;
+            memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
+        }
 
         for (sexp.value.module.items) |decl| {
             switch (decl.value) {
@@ -403,7 +448,13 @@ test "parse" {
     if (compile(t.allocator, &parsed, &diagnostic)) |wat| {
         defer t.allocator.free(wat);
         try t.expectEqualStrings(
-            \\(module (type $typeof_++
+            \\(module (memory $0
+            \\                0)
+            \\        (export "memory"
+            \\                (memory $0))
+            \\        (export "++"
+            \\                (func $++))
+            \\        (type $typeof_++
             \\              (func (param i32)
             \\                    (result i32)))
             \\        (func $++
@@ -412,8 +463,8 @@ test "parse" {
             \\              (result i32)
             \\              (local $local_x
             \\                     i32)
-            \\              (i32.add (local.get $local_0)
-            \\                       (local.get $local_1))))
+            \\              (i32.add (local.get $local_x)
+            \\                       (local.get $local_x))))
         , wat);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
