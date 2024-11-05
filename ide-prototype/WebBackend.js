@@ -360,20 +360,22 @@ function dvui(canvasId, wasmFile) {
             globalThis._monacoSyncHook?.(msg);
         },
 
-        runCurrentWasm: async (ptr, len) => {
-            if (len === 0) return;
-            const binary = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
-            const compiled = await WebAssembly.compile(binary);
-            const instance = WebAssembly.instantiate(compiled, {});
-            console.log("exports: " + Object.keys(instance.exports).sort().join(","));
-            instance.exports.main();
-        },
-
         runCurrentWat: async (ptr, len) => {
             if (len === 0) return;
-            const wat = utf8decoder.decode(new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len));
-            const compiled = wasmOpt.instance.exports.optimize(wat);
-            const instance = WebAssembly.instantiate(compiled, {});
+
+            const data = new DataView(wasmResult.instance.exports.memory.buffer, ptr, len);
+
+            wasmOpt.FS.writeFile('/transfer.wat', data);
+            // TODO: source maps
+            //wasmOpt.callMain('/transfer.wat', '-o', '/optimized.wasm', '-O', '--intrinsic-lowering', '-O', '-osm', '/optimized.wasm.map');
+            const status = wasmOpt.callMain(['/transfer.wat', '-o', '/optimized.wasm', '-g', '-O']);
+
+            if (status !== 0)
+                throw Error(`non-zero return: ${status}`)
+
+            const moduleBytes = wasmOpt.FS.readFile('/transfer.wat', { encoding: "binary" });
+
+            const instance = await WebAssembly.instantiate(moduleBytes, {});
             instance.exports.main();
         },
       },
@@ -659,11 +661,12 @@ function dvui(canvasId, wasmFile) {
             requestRender();
         }),
 
-        fetch("./zig-out/bin/wasm-opt.wasm")
-            .then((response) => WebAssembly.instantiateStreaming(response, imports))
-            .then(result => {
-                wasmOpt = result;
-            }),
+        import("./zig-out/bin/wasm-opt.js")
+            .then(s => s.default())
+            .then((mod) => {
+                globalThis._wasmOpt = mod;
+                wasmOpt = mod;
+            })
     ]);
 }
 

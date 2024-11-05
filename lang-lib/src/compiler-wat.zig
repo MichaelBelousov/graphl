@@ -104,28 +104,6 @@ const Compilation = struct {
             try self.deferred.func_decls.put(alloc, func_name, func_param_names);
         }
 
-        // TODO: search for types first
-        // const type_info = self.typeof_map.getPtr(func_name) orelse error.NoSuchType;
-        // if (type_info != .@"fn") {
-        //     // TODO: fill diagnostic here
-        //     return error.FuncBadType;
-        // }
-
-        // try writer.print(
-        //     \\(type $type_{0s} (func (param i32 i32) (result i32)))
-        //     \\(func ${0s} (export "{0s}")
-        // , .{func_name_mangled});
-        // for (params, type_info.@"fn".params, 0..) |p, ptype, i| {
-        //     try writer.print("(param ${s}{} {s}) ", .{ p.value.symbol, i, ptype.name });
-        // }
-        // TODO: get locals count
-        // const locals = [_][]const u8{};
-        // for (locals) |l| {
-        //     try writer.print("()", .{l});
-        // }
-        // const result_type = "i32"; // FIXME
-        // try writer.print("(result ${s})", .{result_type});
-
         return true;
     }
 
@@ -264,6 +242,7 @@ const Compilation = struct {
             try func_type_sexp.value.list.ensureTotalCapacityPrecise(1 + complete_func_type_desc.func_type.?.param_types.len + 1);
             func_type_sexp.value.list.addOneAssumeCapacity().* = wat_syms.func;
             for (complete_func_type_desc.func_type.?.param_types) |param_type| {
+                // FIXME: params are not in separate s-exp! it should be (param i32 i32 i32)
                 const param_sexp = func_type_sexp.value.list.addOneAssumeCapacity();
                 param_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                 try param_sexp.value.list.ensureTotalCapacityPrecise(2);

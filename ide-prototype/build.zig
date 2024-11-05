@@ -67,8 +67,9 @@ pub fn build(b: *std.Build) void {
         "-c",
         std.fmt.allocPrint(b.allocator,
             \\cd {0s};
-            \\emcmake cmake -DBUILD_FOR_BROWSER=ON -DBUILD_TESTS=OFF .;
-            \\emmake make;
+            \\emcmake cmake -DBUILD_FOR_BROWSER=ON -DBUILD_TESTS=OFF . > build.log 2>&1 || echo failed;
+            \\emmake make > build.log 2>&1 || echo failed;
+            \\echo "finished building binaryen, see $(pwd)/build.log for details"
         , .{binaryen_dep.path("binaryen").getPath(b)}) catch unreachable,
     });
 
@@ -93,7 +94,8 @@ pub fn build(b: *std.Build) void {
     const output = cb_run.captureStdOut();
 
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(output, .{ .custom = ".." }, "index.html").step);
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path("./vite.config.ts"), .{ .custom = ".." }, "vite.config.ts").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(binaryen_dep.path("binaryen/bin/wasm-opt.wasm"), .bin, "wasm-opt.wasm").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(binaryen_dep.path("binaryen/bin/wasm-opt.js"), .bin, "wasm-opt.js").step);
     b.getInstallStep().dependOn(&install_exe.step);
 
     // This *creates* a Run step in the build graph, to be executed when another

@@ -8,6 +8,7 @@ const Rect = dvui.Rect;
 
 const grappl = @import("grappl_core");
 const compiler = grappl.compiler;
+const SexpParser = @import("grappl_core").SexpParser;
 
 const GraphAreaWidget = @import("./GraphAreaWidget.zig");
 
@@ -114,8 +115,8 @@ const CompileResult = extern struct {
     ptr: ?[*]u8 = null,
 };
 
-extern fn recvCurrentSource(ptr: ?[*]u8, len: usize) void;
-extern fn recvCurrentWat(ptr: ?[*]u8, len: usize) void;
+extern fn recvCurrentSource(ptr: ?[*]const u8, len: usize) void;
+extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
 fn postCurrentSexp() !void {
     const sexp = try current_graph.grappl_graph.compile(gpa);
@@ -1129,8 +1130,22 @@ fn dvui_frame() !void {
             var bytes = std.ArrayList(u8).init(gpa);
             defer bytes.deinit();
             var diagnostic = compiler.Diagnostic.init();
-            if (compiler.compile(gpa, &sexp, &diagnostic)) |module| {
+
+            // FIXME: remove
+            var parsed = try SexpParser.parse(gpa,
+                \\;;; comment
+                \\(typeof x i32)
+                \\(define x 10)
+                \\;;; comment
+                \\(typeof (++ i32) i32)
+                \\(define (++ x) (+ x 1))
+            , null);
+            //std.debug.print("{any}\n", .{parsed});
+            defer parsed.deinit(gpa);
+
+            if (compiler.compile(gpa, &parsed, &diagnostic)) |module| {
                 std.log.info("compile_result:\n{s}", .{module});
+                runCurrentWat(module.ptr, module.len);
                 gpa.free(module);
             } else |err| {
                 std.log.err("compile_error={any}", .{err});
