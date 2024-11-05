@@ -363,20 +363,25 @@ function dvui(canvasId, wasmFile) {
         runCurrentWat: async (ptr, len) => {
             if (len === 0) return;
 
-            const data = new DataView(wasmResult.instance.exports.memory.buffer, ptr, len);
+            const data = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
 
-            wasmOpt.FS.writeFile('/transfer.wat', data);
+            const inputFile = '/input.wat';
+            const outputFile = '/optimized.wasm';
+            wasmOpt.FS.writeFile(inputFile, data);
             // TODO: source maps
             //wasmOpt.callMain('/transfer.wat', '-o', '/optimized.wasm', '-O', '--intrinsic-lowering', '-O', '-osm', '/optimized.wasm.map');
-            const status = wasmOpt.callMain(['/transfer.wat', '-o', '/optimized.wasm', '-g', '-O']);
+            const status = wasmOpt.callMain([inputFile, '-o', outputFile, /*'-g',*/ '-O']);
 
             if (status !== 0)
                 throw Error(`non-zero return: ${status}`)
 
-            const moduleBytes = wasmOpt.FS.readFile('/transfer.wat', { encoding: "binary" });
+            const moduleBytes = wasmOpt.FS.readFile(outputFile, { encoding: "binary" });
 
-            const instance = await WebAssembly.instantiate(moduleBytes, {});
-            instance.exports.main();
+            const compiled = await WebAssembly.instantiate(moduleBytes, {});
+            //const result = instance.exports.main();
+            const result = compiled.instance.exports["++"]();
+
+            console.log(result);
         },
       },
     };
