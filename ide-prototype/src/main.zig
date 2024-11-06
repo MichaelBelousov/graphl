@@ -623,7 +623,7 @@ fn considerSocketForHover(icon_res: *const dvui.ButtonIconResult, socket: Socket
     const r = icon_res.icon.wd.rectScale().r;
     const socket_center = rectCenter(r);
 
-    const is_dragging = dvui.dragging(dvui.Point{ .x = 0, .y = 0 }) != null;
+    const is_dragging = dvui.currentWindow().drag_state == .dragging;
 
     if (rectContainsMouse(r)) {
         if (is_dragging and edge_drag_start != null
@@ -825,6 +825,7 @@ fn renderNode(
                         if (dvui.captured(box.data().id)) {
                             e.handled = true;
                             dvui.captureMouse(null);
+                            dvui.dragEnd();
                         }
                     } else if (me.action == .motion) {
                         if (dvui.captured(box.data().id)) {
@@ -1158,16 +1159,7 @@ fn dvui_frame() !void {
         node_menu_filter = null;
     }
 
-    //var scroll = try dvui.scrollArea(@src(), .{ .horizontal = .auto }, .{ .expand = .both, .color_fill = .{ .name = .fill_window } });
-    //defer scroll.deinit();
-
-    //if (!(std.math.approxEqAbs(f32, scroll_info.virtual_size.h, visual_graph.graph_bb.size().h, 0.1) and std.math.approxEqAbs(f32, scroll_info.virtual_size.w, visual_graph.graph_bb.size().w, 0.1))) {
-    // this causes a refresh for some reason, nextVirtualSize is always 0 for some reason
     //ScrollData.scroll_info.virtual_size = current_graph.visual_graph.graph_bb.size();
-    //}
-
-    //std.log.info("data_pos2: rs={any} me.p={any} ptFromScrn={any}", .{ rs, me.p, rs.pointFromScreen(me.p) });
-    //std.log.info("data_pos: boxTopLeft={any} offset={any} pos={any}", .{ box.data().rect.topLeft(), offset, position.* });
 
     // FIXME: move the viewport to any newly created nodes
     //scroll_info.viewport = current_graph.visual_graph.graph_bb;
