@@ -1,10 +1,12 @@
+///<reference path="./WebBackend.d.ts">
 
+// TODO: remove references to dvui in prod build
+/** @param {number} ms */
 async function dvui_sleep(ms) {
     await new Promise(r => setTimeout(r, ms));
 }
 
-function dvui(canvasId, wasmFile) {
-
+export function Ide(canvasElem, opts) {
     const vertexShaderSource_webgl = `
         precision mediump float;
 
@@ -106,6 +108,8 @@ function dvui(canvasId, wasmFile) {
     let hidden_input;
     let touches = [];  // list of tuple (touch identifier, initial index)
     let textInputRect = [];  // x y w h of on screen keyboard editing position, or empty if none
+    /** @type {undefined | WebAssembly.WebAssemblyInstantiatedSource} */
+    let lastCompiled;
 
 
     function oskCheck() {
@@ -380,6 +384,7 @@ function dvui(canvasId, wasmFile) {
             const moduleBytes = wasmOpt.FS.readFile(outputFile, { encoding: "binary" });
 
             const compiled = await WebAssembly.instantiate(moduleBytes, {});
+            lastCompiled = compiled;
             //const result = instance.exports.main();
             const result = compiled.instance.exports["++"]();
 
@@ -389,14 +394,14 @@ function dvui(canvasId, wasmFile) {
     };
 
     Promise.all([
-    fetch(wasmFile)
+    fetch("zig-out/bin/dvui-frontend.wasm?cache-buster=645b01301f0c87234741b81bbfddfe4db7d66bbe7c88069015cd2038a6ea51c2")
     .then((response) => response.arrayBuffer())
     .then((bytes) => WebAssembly.instantiate(bytes, imports))
     .then(result => {
 
         wasmResult = result;
 
-        const canvas = document.querySelector(canvasId);
+        const canvas = canvasElem;
 
         let div = document.createElement("div");
         div.style.position = "relative";
@@ -679,5 +684,17 @@ function dvui(canvasId, wasmFile) {
             wasmOpt = mod;
         }),
     ]);
+
+    return {
+        functions: new Proxy({}, {
+            get(_target, key, _receiver) {
+                if (typeof key !== "string")
+                    throw Error("function names are strings");
+                if (!lastCompiled?.instance.exports)
+                    throw Error("IDE not compiled")
+                return lastCompiled?.instance.exports?.[key];
+            }
+        })
+    };
 }
 

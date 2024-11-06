@@ -10,8 +10,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <title>Grappl Editor</title>
-    <!-- TEMPLATE_HASH replaced by build.zig -->
-    <script src="WebBackend.js?cache-buster=645b01301f0c87234741b81bbfddfe4db7d66bbe7c88069015cd2038a6ea51c2"></script>
   </head>
 
   <body style="height: 100%; margin: 0; padding: 0;" >
@@ -37,26 +35,48 @@
     <canvas id="dvui-canvas" tabIndex="1"></canvas>
     <div id="react-app"></div>
     <script type="module" src="./index.tsx"></script>
-    <script>
-      document.body.onload = () => {
-        dvui(
-          "#dvui-canvas",
-          "zig-out/bin/dvui-frontend.wasm?cache-buster=645b01301f0c87234741b81bbfddfe4db7d66bbe7c88069015cd2038a6ea51c2",
-        );
-      };
+    <script type="module">
+      import * as grappl from "./WebBackend.js";
 
       const showText = "0 50vw 50vw";
       const noShowText = "0 100vw 50vw";
 
-      document.addEventListener("keydown", (e) => {
-        const isCtrlShiftE = e.ctrlKey && e.shiftKey && e.key === "E";
-        if (!isCtrlShiftE) return;
-        e.preventDefault();
-        document.body.style["grid-template-columns"]
-          = document.body.style["grid-template-columns"] === showText
-          ? noShowText
-          : showText;
-      });
+      let ide;
+
+      async function main() {
+        ide = new Promise((resolve, reject) => {
+          document.body.onload = () => {
+            const canvas = document.getElementById("dvui-canvas");
+            const result = new grappl.Ide(canvas, {
+              bindings: {
+                jsHost: {
+                  functions: {
+                    "test": {
+                      parameters: [],
+                      results: [],
+                      impl() { console.log("test!"); }
+                    }
+                  }
+                }
+              }
+            });
+            resolve(result);
+          };
+          document.body.onerror = (err) => reject(err);
+
+          document.addEventListener("keydown", (e) => {
+            const isCtrlShiftE = e.ctrlKey && e.shiftKey && e.key === "E";
+            if (!isCtrlShiftE) return;
+            e.preventDefault();
+            document.body.style["grid-template-columns"]
+              = document.body.style["grid-template-columns"] === showText
+              ? noShowText
+              : showText;
+          });
+        });
+      }
+
+      void main();
     </script>
   </body>
 </html>
