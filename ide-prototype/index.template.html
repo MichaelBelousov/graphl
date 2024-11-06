@@ -19,7 +19,7 @@
         body {
           overflow-x: hidden;
           display: grid;
-          grid-template-columns: 100vw 50vw;
+          grid-template-columns: 0 100vw 50vw;
           margin: 0;
           padding: 0;
         }
@@ -45,8 +45,8 @@
         );
       };
 
-      const showText = "50vw 50vw";
-      const noShowText = "100vw 50vw";
+      const showText = "0 50vw 50vw";
+      const noShowText = "0 100vw 50vw";
 
       document.addEventListener("keydown", (e) => {
         const isCtrlShiftE = e.ctrlKey && e.shiftKey && e.key === "E";

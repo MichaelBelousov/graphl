@@ -20,7 +20,6 @@ function dvui(canvasId, wasmFile) {
         void main() {
           gl_Position = uMatrix * aVertexPosition;
           vColor = aVertexColor / 255.0;  // normalize u8 colors to 0-1
-          vColor.rgb *= vColor.a;  // convert to premultiplied alpha
           vTextureCoord = aTextureCoord;
         }
     `;
@@ -41,7 +40,6 @@ function dvui(canvasId, wasmFile) {
         void main() {
           gl_Position = uMatrix * aVertexPosition;
           vColor = aVertexColor / 255.0;  // normalize u8 colors to 0-1
-          vColor.rgb *= vColor.a;  // convert to premultiplied alpha
           vTextureCoord = aTextureCoord;
         }
     `;
@@ -107,13 +105,17 @@ function dvui(canvasId, wasmFile) {
     let log_string = '';
     let hidden_input;
     let touches = [];  // list of tuple (touch identifier, initial index)
-    let oskPosition = [];  // x y w h of on screen keyboard editing position, or empty if none
+    let textInputRect = [];  // x y w h of on screen keyboard editing position, or empty if none
 
 
     function oskCheck() {
-        if (oskPosition.length == 0) {
+        if (textInputRect.length == 0) {
             gl.canvas.focus();
         } else {
+	    hidden_input.style.left = textInputRect[0] + 'px';
+	    hidden_input.style.top = textInputRect[1] + 'px';
+	    hidden_input.style.width = textInputRect[2] + 'px';
+	    hidden_input.style.height = textInputRect[3] + 'px';
             hidden_input.focus();
         }
     }
@@ -323,11 +325,11 @@ function dvui(canvasId, wasmFile) {
             let cursor_name = utf8decoder.decode(new Uint8Array(wasmResult.instance.exports.memory.buffer, name_ptr, name_len));
             gl.canvas.style.cursor = cursor_name;
         },
-        wasm_on_screen_keyboard(x, y, w, h) {
+        wasm_text_input(x, y, w, h) {
             if (w > 0 && h > 0) {
-                oskPosition = [x, y, w, h];
+                textInputRect = [x, y, w, h];
             } else {
-                oskPosition = [];
+                textInputRect = [];
             }
         },
         wasm_open_url: (ptr, len) => {
@@ -387,291 +389,295 @@ function dvui(canvasId, wasmFile) {
     };
 
     Promise.all([
-        fetch(wasmFile)
-        .then((response) => WebAssembly.instantiateStreaming(response, imports))
-        .then(result => {
+    fetch(wasmFile)
+    .then((response) => response.arrayBuffer())
+    .then((bytes) => WebAssembly.instantiate(bytes, imports))
+    .then(result => {
 
-            wasmResult = result;
+        wasmResult = result;
 
-            const canvas = document.querySelector(canvasId);
+        const canvas = document.querySelector(canvasId);
 
-            let div = document.createElement("div");
-            div.style.position = "fixed";
-            div.style.opacity = 0;
-            div.style.zIndex = -1;
-            //div.style.width = 0;
-            //div.style.height = 0;
-            //div.style.overflow = "hidden";
-            hidden_input = document.createElement("input");
-            div.appendChild(hidden_input);
-            document.body.prepend(div);
+        let div = document.createElement("div");
+        div.style.position = "relative";
+        div.style.opacity = 0;
+        div.style.zIndex = -1;
+        //div.style.width = 0;
+        //div.style.height = 0;
+        //div.style.overflow = "hidden";
+        hidden_input = document.createElement("input");
+	hidden_input.style.position = "absolute";
+	hidden_input.style.left = 0;
+	hidden_input.style.top = 0;
+        div.appendChild(hidden_input);
+        document.body.prepend(div);
 
-            //let par = document.createElement("p");
-            //document.body.prepend(par);
-            //par.textContent += window.devicePixelRatio;
+        //let par = document.createElement("p");
+        //document.body.prepend(par);
+        //par.textContent += window.devicePixelRatio;
 
-            gl = canvas.getContext("webgl2", { alpha: true });
-            if (gl === null) {
-                webgl2 = false;
-                gl = canvas.getContext("webgl", { alpha: true });
-            }
+        gl = canvas.getContext("webgl2", { alpha: true });
+        if (gl === null) {
+            webgl2 = false;
+            gl = canvas.getContext("webgl", { alpha: true });
+        }
 
-            if (gl === null) {
-                alert("Unable to initialize WebGL.");
+        if (gl === null) {
+            alert("Unable to initialize WebGL.");
+            return;
+        }
+
+        if (!webgl2) {
+            const ext = gl.getExtension("OES_element_index_uint");
+            if (ext === null) {
+                alert("WebGL doesn't support OES_element_index_uint.");
                 return;
             }
+        }
 
-            if (!webgl2) {
-                const ext = gl.getExtension("OES_element_index_uint");
-                if (ext === null) {
-                    alert("WebGL doesn't support OES_element_index_uint.");
-                    return;
-                }
-            }
+        const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+        if (webgl2) {
+            gl.shaderSource(vertexShader, vertexShaderSource_webgl2);
+        } else {
+            gl.shaderSource(vertexShader, vertexShaderSource_webgl);
+        }
+        gl.compileShader(vertexShader);
+        if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+            alert(`Error compiling vertex shader: ${gl.getShaderInfoLog(vertexShader)}`);
+            gl.deleteShader(vertexShader);
+            return null;
+        }
 
-            const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-            if (webgl2) {
-                gl.shaderSource(vertexShader, vertexShaderSource_webgl2);
-            } else {
-                gl.shaderSource(vertexShader, vertexShaderSource_webgl);
-            }
-            gl.compileShader(vertexShader);
-            if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-                alert(`Error compiling vertex shader: ${gl.getShaderInfoLog(vertexShader)}`);
-                gl.deleteShader(vertexShader);
-                return null;
-            }
+        const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+        if (webgl2) {
+            gl.shaderSource(fragmentShader, fragmentShaderSource_webgl2);
+        } else {
+            gl.shaderSource(fragmentShader, fragmentShaderSource_webgl);
+        }
+        gl.compileShader(fragmentShader);
+        if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+            alert(`Error compiling fragment shader: ${gl.getShaderInfoLog(fragmentShader)}`);
+            gl.deleteShader(fragmentShader);
+            return null;
+        }
 
-            const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-            if (webgl2) {
-                gl.shaderSource(fragmentShader, fragmentShaderSource_webgl2);
-            } else {
-                gl.shaderSource(fragmentShader, fragmentShaderSource_webgl);
-            }
-            gl.compileShader(fragmentShader);
-            if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-                alert(`Error compiling fragment shader: ${gl.getShaderInfoLog(fragmentShader)}`);
-                gl.deleteShader(fragmentShader);
-                return null;
-            }
+        shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertexShader);
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
 
-            shaderProgram = gl.createProgram();
-            gl.attachShader(shaderProgram, vertexShader);
-            gl.attachShader(shaderProgram, fragmentShader);
-            gl.linkProgram(shaderProgram);
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+            alert(`Error initializing shader program: ${gl.getProgramInfoLog(shaderProgram)}`);
+            return null;
+        }
 
-            if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
-                alert(`Error initializing shader program: ${gl.getProgramInfoLog(shaderProgram)}`);
-                return null;
-            }
+        programInfo = {
+            attribLocations: {
+                vertexPosition: gl.getAttribLocation(shaderProgram, "aVertexPosition"),
+                vertexColor: gl.getAttribLocation(shaderProgram, "aVertexColor"),
+                textureCoord: gl.getAttribLocation(shaderProgram, "aTextureCoord"),
+            },
+            uniformLocations: {
+                matrix: gl.getUniformLocation(shaderProgram, "uMatrix"),
+                uSampler: gl.getUniformLocation(shaderProgram, "uSampler"),
+                useTex: gl.getUniformLocation(shaderProgram, "useTex"),
+            },
+        };
 
-            programInfo = {
-                attribLocations: {
-                    vertexPosition: gl.getAttribLocation(shaderProgram, "aVertexPosition"),
-                    vertexColor: gl.getAttribLocation(shaderProgram, "aVertexColor"),
-                    textureCoord: gl.getAttribLocation(shaderProgram, "aTextureCoord"),
-                },
-                uniformLocations: {
-                    matrix: gl.getUniformLocation(shaderProgram, "uMatrix"),
-                    uSampler: gl.getUniformLocation(shaderProgram, "uSampler"),
-                    useTex: gl.getUniformLocation(shaderProgram, "useTex"),
-                },
-            };
+        indexBuffer = gl.createBuffer();
+        vertexBuffer = gl.createBuffer();
 
-            indexBuffer = gl.createBuffer();
-            vertexBuffer = gl.createBuffer();
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        gl.enable(gl.SCISSOR_TEST);
+        gl.scissor(0, 0, gl.canvas.clientWidth, gl.canvas.clientHeight);
 
-            gl.enable(gl.BLEND);
-            gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-            gl.enable(gl.SCISSOR_TEST);
-            gl.scissor(0, 0, gl.canvas.clientWidth, gl.canvas.clientHeight);
+        let renderRequested = false;
+        let renderTimeoutId = 0;
+        let app_initialized = false;
 
-            let renderRequested = false;
-            let renderTimeoutId = 0;
-            let app_initialized = false;
+        function render() {
+            renderRequested = false;
 
-            function render() {
-                renderRequested = false;
+            // if the canvas changed size, adjust the backing buffer
+            const w = gl.canvas.clientWidth;
+            const h = gl.canvas.clientHeight;
+            const scale = window.devicePixelRatio;
+            //console.log("wxh " + w + "x" + h + " scale " + scale);
+            gl.canvas.width = Math.round(w * scale);
+            gl.canvas.height = Math.round(h * scale);
+            gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+            gl.scissor(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
 
-                // if the canvas changed size, adjust the backing buffer
-                const w = gl.canvas.clientWidth;
-                const h = gl.canvas.clientHeight;
-                const scale = window.devicePixelRatio;
-                //console.log("wxh " + w + "x" + h + " scale " + scale);
-                gl.canvas.width = Math.round(w * scale);
-                gl.canvas.height = Math.round(h * scale);
-                gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-                gl.scissor(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+            gl.clearColor(0.0, 0.0, 0.0, 1.0); // Clear to black, fully opaque
+            gl.clear(gl.COLOR_BUFFER_BIT);
 
-                gl.clearColor(0.0, 0.0, 0.0, 1.0); // Clear to black, fully opaque
-                gl.clear(gl.COLOR_BUFFER_BIT);
-
-                if (!app_initialized) {
-                    app_initialized = true;
-                let app_init_return = 0;
-                let str = utf8encoder.encode(navigator.platform);
-                    if (str.length > 0) {
-                        const ptr = wasmResult.instance.exports.gpa_u8(str.length);
-                        var dest = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, str.length);
-                        dest.set(str);
-                        app_init_return = wasmResult.instance.exports.app_init(ptr, str.length);
-                wasmResult.instance.exports.gpa_free(ptr, str.length);
-            } else {
-                        app_init_return = wasmResult.instance.exports.app_init(0, 0);
-            }
-
-            if (app_init_return != 0) {
-                console.log("ERROR: app_init returned " + app_init_return);
-                return;
-            }
-                }
-
-                let millis_to_wait = wasmResult.instance.exports.app_update();
-                if (millis_to_wait == 0) {
-                    requestRender();
-                } else if (millis_to_wait > 0) {
-                    renderTimeoutId = setTimeout(function () { renderTimeoutId = 0; requestRender(); }, millis_to_wait);
-                }
-                // otherwise something went wrong, so stop
-            }
-
-            function requestRender() {
-                if (renderTimeoutId > 0) {
-                    // we got called before the timeout happened
-                    clearTimeout(renderTimeoutId);
-                    renderTimeoutId = 0;
-                }
-
-                if (!renderRequested) {
-                    // multiple events could call requestRender multiple times, and
-                    // we only want a single requestAnimationFrame to happen before
-                    // each call to app_update
-                    renderRequested = true;
-                    requestAnimationFrame(render);
-                }
-            }
-
-            // event listeners
-            canvas.addEventListener("contextmenu", (ev) => {
-                ev.preventDefault();
-            });
-            window.addEventListener("resize", (ev) => {
-                requestRender();
-            });
-            canvas.addEventListener("mousemove", (ev) => {
-                let rect = canvas.getBoundingClientRect();
-                let x = (ev.clientX - rect.left) / (rect.right - rect.left) * canvas.clientWidth;
-                let y = (ev.clientY - rect.top) / (rect.bottom - rect.top) * canvas.clientHeight;
-                wasmResult.instance.exports.add_event(1, 0, 0, x, y);
-                requestRender();
-            });
-            canvas.addEventListener("mousedown", (ev) => {
-                wasmResult.instance.exports.add_event(2, ev.button, 0, 0, 0);
-                requestRender();
-            });
-            canvas.addEventListener("mouseup", (ev) => {
-                wasmResult.instance.exports.add_event(3, ev.button, 0, 0, 0);
-                requestRender();
-                oskCheck();
-            });
-            canvas.addEventListener("wheel", (ev) => {
-                wasmResult.instance.exports.add_event(4, 0, 0, ev.deltaY, 0);
-                requestRender();
-            });
-
-            let keydown = function(ev) {
-                if (ev.key == "Tab") {
-                    // stop tab from tabbing away from the canvas
-                    ev.preventDefault();
-                }
-
-                let str = utf8encoder.encode(ev.key);
+            if (!app_initialized) {
+                app_initialized = true;
+	        let app_init_return = 0;
+	        let str = utf8encoder.encode(navigator.platform);
                 if (str.length > 0) {
-                    const ptr = wasmResult.instance.exports.arena_u8(str.length);
+                    const ptr = wasmResult.instance.exports.gpa_u8(str.length);
                     var dest = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, str.length);
                     dest.set(str);
-                    wasmResult.instance.exports.add_event(5, ptr, str.length, ev.repeat, (ev.metaKey << 3) + (ev.altKey << 2) + (ev.ctrlKey << 1) + (ev.shiftKey << 0));
-                    requestRender();
-                }
-            };
-            canvas.addEventListener("keydown", keydown);
-            hidden_input.addEventListener("keydown", keydown);
+                    app_init_return = wasmResult.instance.exports.app_init(ptr, str.length);
+		    wasmResult.instance.exports.gpa_free(ptr, str.length);
+		} else {
+                    app_init_return = wasmResult.instance.exports.app_init(0, 0);
+		}
 
-            let keyup = function(ev) {
-                const str = utf8encoder.encode(ev.key);
+		if (app_init_return != 0) {
+		    console.log("ERROR: app_init returned " + app_init_return);
+		    return;
+		}
+            }
+
+            let millis_to_wait = wasmResult.instance.exports.app_update();
+            if (millis_to_wait == 0) {
+                requestRender();
+            } else if (millis_to_wait > 0) {
+                renderTimeoutId = setTimeout(function () { renderTimeoutId = 0; requestRender(); }, millis_to_wait);
+            }
+            // otherwise something went wrong, so stop
+        }
+
+        function requestRender() {
+            if (renderTimeoutId > 0) {
+                // we got called before the timeout happened
+                clearTimeout(renderTimeoutId);
+                renderTimeoutId = 0;
+            }
+
+            if (!renderRequested) {
+                // multiple events could call requestRender multiple times, and
+                // we only want a single requestAnimationFrame to happen before
+                // each call to app_update
+                renderRequested = true;
+                requestAnimationFrame(render);
+            }
+        }
+
+        // event listeners
+        canvas.addEventListener("contextmenu", (ev) => {
+            ev.preventDefault();
+        });
+        window.addEventListener("resize", (ev) => {
+            requestRender();
+        });
+        canvas.addEventListener("mousemove", (ev) => {
+            let rect = canvas.getBoundingClientRect();
+            let x = (ev.clientX - rect.left) / (rect.right - rect.left) * canvas.clientWidth;
+            let y = (ev.clientY - rect.top) / (rect.bottom - rect.top) * canvas.clientHeight;
+            wasmResult.instance.exports.add_event(1, 0, 0, x, y);
+            requestRender();
+        });
+        canvas.addEventListener("mousedown", (ev) => {
+            wasmResult.instance.exports.add_event(2, ev.button, 0, 0, 0);
+            requestRender();
+        });
+        canvas.addEventListener("mouseup", (ev) => {
+            wasmResult.instance.exports.add_event(3, ev.button, 0, 0, 0);
+            requestRender();
+            oskCheck();
+        });
+        canvas.addEventListener("wheel", (ev) => {
+            wasmResult.instance.exports.add_event(4, 0, 0, ev.deltaY, 0);
+            requestRender();
+        });
+
+        let keydown = function(ev) {
+            if (ev.key == "Tab") {
+                // stop tab from tabbing away from the canvas
+                ev.preventDefault();
+            }
+
+            let str = utf8encoder.encode(ev.key);
+            if (str.length > 0) {
                 const ptr = wasmResult.instance.exports.arena_u8(str.length);
                 var dest = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, str.length);
                 dest.set(str);
-                wasmResult.instance.exports.add_event(6, ptr, str.length, 0, (ev.metaKey << 3) + (ev.altKey << 2) + (ev.ctrlKey << 1) + (ev.shiftKey << 0));
+                wasmResult.instance.exports.add_event(5, ptr, str.length, ev.repeat, (ev.metaKey << 3) + (ev.altKey << 2) + (ev.ctrlKey << 1) + (ev.shiftKey << 0));
                 requestRender();
-            };
-            canvas.addEventListener("keyup", keyup);
-            hidden_input.addEventListener("keyup", keyup);
+            }
+        };
+        canvas.addEventListener("keydown", keydown);
+        hidden_input.addEventListener("keydown", keydown);
 
-            hidden_input.addEventListener("beforeinput", (ev) => {
-                ev.preventDefault();
-                if (ev.data) {
-                    const str = utf8encoder.encode(ev.data);
-                    const ptr = wasmResult.instance.exports.arena_u8(str.length);
-                    var dest = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, str.length);
-                    dest.set(str);
-                    wasmResult.instance.exports.add_event(7, ptr, str.length, 0, 0);
-                    requestRender();
-                }
-            });
-            canvas.addEventListener("touchstart", (ev) => {
-                ev.preventDefault();
-                let rect = canvas.getBoundingClientRect();
-                for (let i = 0; i < ev.changedTouches.length; i++) {
-                    let touch = ev.changedTouches[i];
-                    let x = (touch.clientX - rect.left) / (rect.right - rect.left);
-                    let y = (touch.clientY - rect.top) / (rect.bottom - rect.top);
-                    let tidx = touchIndex(touch.identifier);
-                    wasmResult.instance.exports.add_event(8, touches[tidx][1], 0, x, y);
-                }
-                requestRender();
-            });
-            canvas.addEventListener("touchend", (ev) => {
-                ev.preventDefault();
-                let rect = canvas.getBoundingClientRect();
-                for (let i = 0; i < ev.changedTouches.length; i++) {
-                    let touch = ev.changedTouches[i];
-                    let x = (touch.clientX - rect.left) / (rect.right - rect.left);
-                    let y = (touch.clientY - rect.top) / (rect.bottom - rect.top);
-                    let tidx = touchIndex(touch.identifier);
-                    wasmResult.instance.exports.add_event(9, touches[tidx][1], 0, x, y);
-                    touches.splice(tidx, 1);
-                }
-                requestRender();
-                oskCheck();
-            });
-            canvas.addEventListener("touchmove", (ev) => {
-                ev.preventDefault();
-                let rect = canvas.getBoundingClientRect();
-                for (let i = 0; i < ev.changedTouches.length; i++) {
-                    let touch = ev.changedTouches[i];
-                    let x = (touch.clientX - rect.left) / (rect.right - rect.left);
-                    let y = (touch.clientY - rect.top) / (rect.bottom - rect.top);
-                    let tidx = touchIndex(touch.identifier);
-                    wasmResult.instance.exports.add_event(10, touches[tidx][1], 0, x, y);
-                }
-                requestRender();
-            });
-            //canvas.addEventListener("touchcancel", (ev) => {
-            //    console.log(ev);
-            //    requestRender();
-            //});
-
-            // start the first update
+        let keyup = function(ev) {
+            const str = utf8encoder.encode(ev.key);
+            const ptr = wasmResult.instance.exports.arena_u8(str.length);
+            var dest = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, str.length);
+            dest.set(str);
+            wasmResult.instance.exports.add_event(6, ptr, str.length, 0, (ev.metaKey << 3) + (ev.altKey << 2) + (ev.ctrlKey << 1) + (ev.shiftKey << 0));
             requestRender();
-        }),
+        };
+        canvas.addEventListener("keyup", keyup);
+        hidden_input.addEventListener("keyup", keyup);
 
-        import("./zig-out/bin/wasm-opt.js")
-            .then(s => s.default())
-            .then((mod) => {
-                globalThis._wasmOpt = mod;
-                wasmOpt = mod;
-            })
+        hidden_input.addEventListener("beforeinput", (ev) => {
+            ev.preventDefault();
+            if (ev.data) {
+                const str = utf8encoder.encode(ev.data);
+                const ptr = wasmResult.instance.exports.arena_u8(str.length);
+                var dest = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, str.length);
+                dest.set(str);
+                wasmResult.instance.exports.add_event(7, ptr, str.length, 0, 0);
+                requestRender();
+            }
+        });
+        canvas.addEventListener("touchstart", (ev) => {
+            ev.preventDefault();
+            let rect = canvas.getBoundingClientRect();
+            for (let i = 0; i < ev.changedTouches.length; i++) {
+                let touch = ev.changedTouches[i];
+                let x = (touch.clientX - rect.left) / (rect.right - rect.left);
+                let y = (touch.clientY - rect.top) / (rect.bottom - rect.top);
+                let tidx = touchIndex(touch.identifier);
+                wasmResult.instance.exports.add_event(8, touches[tidx][1], 0, x, y);
+            }
+            requestRender();
+        });
+        canvas.addEventListener("touchend", (ev) => {
+            ev.preventDefault();
+            let rect = canvas.getBoundingClientRect();
+            for (let i = 0; i < ev.changedTouches.length; i++) {
+                let touch = ev.changedTouches[i];
+                let x = (touch.clientX - rect.left) / (rect.right - rect.left);
+                let y = (touch.clientY - rect.top) / (rect.bottom - rect.top);
+                let tidx = touchIndex(touch.identifier);
+                wasmResult.instance.exports.add_event(9, touches[tidx][1], 0, x, y);
+                touches.splice(tidx, 1);
+            }
+            requestRender();
+            oskCheck();
+        });
+        canvas.addEventListener("touchmove", (ev) => {
+            ev.preventDefault();
+            let rect = canvas.getBoundingClientRect();
+            for (let i = 0; i < ev.changedTouches.length; i++) {
+                let touch = ev.changedTouches[i];
+                let x = (touch.clientX - rect.left) / (rect.right - rect.left);
+                let y = (touch.clientY - rect.top) / (rect.bottom - rect.top);
+                let tidx = touchIndex(touch.identifier);
+                wasmResult.instance.exports.add_event(10, touches[tidx][1], 0, x, y);
+            }
+            requestRender();
+        });
+        //canvas.addEventListener("touchcancel", (ev) => {
+        //    console.log(ev);
+        //    requestRender();
+        //});
+
+        // start the first update
+        requestRender();
+    }),
+
+    import("./zig-out/bin/wasm-opt.js")
+        .then(s => s.default())
+        .then((mod) => {
+            globalThis._wasmOpt = mod;
+            wasmOpt = mod;
+        }),
     ]);
 }
 
