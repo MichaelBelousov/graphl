@@ -125,8 +125,8 @@ pub const NodeDesc = struct {
 };
 
 pub const Point = struct {
-    x: usize = 0,
-    y: usize = 0,
+    x: f32 = 0,
+    y: f32 = 0,
 };
 
 pub const GraphTypes = struct {

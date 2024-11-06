@@ -347,8 +347,8 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
                 // HACK
                 const mouse_pt = dvui.currentWindow().mouse_pt;
                 node.position = .{
-                    .x = @intFromFloat(mouse_pt.x),
-                    .y = @intFromFloat(mouse_pt.y),
+                    .x = mouse_pt.x,
+                    .y = mouse_pt.y,
                 };
 
                 if (maybe_create_from) |create_from| {
@@ -386,15 +386,12 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
 fn renderGraph() !void {
     var graph_area = try dvui.scrollArea(
         @src(),
-        .{
-            .scroll_info = &scroll_info,
-            // FIXME: probably can remove?
-            .horizontal = .auto,
-        },
+        .{ .scroll_info = &ScrollData.scroll_info },
         .{
             .expand = .both,
             .color_fill = .{ .name = .fill_window },
             .corner_radius = Rect.all(0),
+            // FIXME: why?
             .min_size_content = dvui.Size{ .w = 300, .h = 300 },
         },
     );
@@ -403,8 +400,9 @@ fn renderGraph() !void {
     var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Point){};
     defer socket_positions.deinit(gpa);
 
-    var mouse_pt = graph_area.scroll.data().contentRectScale().pointFromScreen(dvui.currentWindow().mouse_pt);
-    mouse_pt = mouse_pt.plus(origin).plus(scroll_info.viewport.topLeft());
+    const mouse_pt = dvui.currentWindow().mouse_pt;
+    var mouse_pt2 = graph_area.scroll.data().contentRectScale().pointFromScreen(dvui.currentWindow().mouse_pt);
+    mouse_pt2 = mouse_pt.plus(ScrollData.origin).plus(ScrollData.scroll_info.viewport.topLeft());
 
     var mbbox: ?Rect = null;
 
@@ -418,7 +416,7 @@ fn renderGraph() !void {
             // TODO: don't iterate over unneeded keys
             //const node_id = entry.key_ptr.*;
             const node = entry.value_ptr;
-            const node_rect = try renderNode(node, &socket_positions);
+            const node_rect = try renderNode(node, &socket_positions, graph_area);
 
             if (mbbox != null) {
                 mbbox = mbbox.?.unionWith(node_rect);
@@ -489,9 +487,11 @@ fn renderGraph() !void {
 
         const drag_state_changed = (prev_drag_state == null) != (maybe_drag_offset == null);
 
-        const stopped_dragging = drag_state_changed and maybe_drag_offset == null;
+        const stopped_dragging = drag_state_changed and maybe_drag_offset == null and edge_drag_start != null;
 
         if (stopped_dragging) {
+            std.log.info("stopped dragging", .{});
+
             if (edge_drag_end) |end| {
                 const edge = if (end.kind == .input) .{
                     .source = edge_drag_start.?.socket,
@@ -550,8 +550,8 @@ fn renderGraph() !void {
                     if (dvui.captured(graph_area.scroll.data().id)) {
                         if (dvui.dragging(me.p)) |dps| {
                             const rs = graph_area.scroll.data().rectScale();
-                            scroll_info.viewport.x -= dps.x / rs.s;
-                            scroll_info.viewport.y -= dps.y / rs.s;
+                            ScrollData.scroll_info.viewport.x -= dps.x / rs.s;
+                            ScrollData.scroll_info.viewport.y -= dps.y / rs.s;
                             dvui.refresh(null, @src(), graph_area.scroll.data().id);
                         }
                     }
@@ -564,10 +564,10 @@ fn renderGraph() !void {
     // deinit graph area to process events
     graph_area.deinit();
 
-    if (!scroll_info.viewport.empty()) {
+    if (!ScrollData.scroll_info.viewport.empty()) {
         // add current viewport plus padding
         const pad = 10;
-        var bbox = scroll_info.viewport.outsetAll(pad);
+        var bbox = ScrollData.scroll_info.viewport.outsetAll(pad);
         if (mbbox != null) {
             bbox = bbox.unionWith(mbbox.?);
         }
@@ -577,30 +577,30 @@ fn renderGraph() !void {
         // adjust top if needed
         if (bbox.y != 0) {
             const adj = -bbox.y;
-            scroll_info.virtual_size.h += adj;
-            scroll_info.viewport.y += adj;
-            origin.y += adj;
+            ScrollData.scroll_info.virtual_size.h += adj;
+            ScrollData.scroll_info.viewport.y += adj;
+            ScrollData.origin.y += adj;
             dvui.refresh(null, @src(), graph_area.scroll.data().id);
         }
 
         // adjust left if needed
         if (bbox.x != 0) {
             const adj = -bbox.x;
-            scroll_info.virtual_size.w += adj;
-            scroll_info.viewport.x += adj;
-            origin.x += adj;
+            ScrollData.scroll_info.virtual_size.w += adj;
+            ScrollData.scroll_info.viewport.x += adj;
+            ScrollData.origin.x += adj;
             dvui.refresh(null, @src(), graph_area.scroll.data().id);
         }
 
         // adjust bottom if needed
-        if (bbox.h != scroll_info.virtual_size.h) {
-            scroll_info.virtual_size.h = bbox.h;
+        if (bbox.h != ScrollData.scroll_info.virtual_size.h) {
+            ScrollData.scroll_info.virtual_size.h = bbox.h;
             dvui.refresh(null, @src(), graph_area.scroll.data().id);
         }
 
         // adjust right if needed
-        if (bbox.w != scroll_info.virtual_size.w) {
-            scroll_info.virtual_size.w = bbox.w;
+        if (bbox.w != ScrollData.scroll_info.virtual_size.w) {
+            ScrollData.scroll_info.virtual_size.w = bbox.w;
             dvui.refresh(null, @src(), graph_area.scroll.data().id);
         }
     }
@@ -623,9 +623,9 @@ fn considerSocketForHover(icon_res: *const dvui.ButtonIconResult, socket: Socket
     const r = icon_res.icon.wd.rectScale().r;
     const socket_center = rectCenter(r);
 
-    if (rectContainsMouse(r)) {
-        const is_dragging = dvui.dragging(dvui.Point{ .x = 0, .y = 0 }) != null;
+    const is_dragging = dvui.dragging(dvui.Point{ .x = 0, .y = 0 }) != null;
 
+    if (rectContainsMouse(r)) {
         if (is_dragging and edge_drag_start != null
         //
         and socket.kind != edge_drag_start.?.socket.kind
@@ -642,27 +642,43 @@ fn considerSocketForHover(icon_res: *const dvui.ButtonIconResult, socket: Socket
                 .socket = socket,
             };
         }
+        // FIXME: the last hovered socket is always the start of a new edge, even if it's no longer hovered
+        // } else if (!is_dragging) {
+        //     edge_drag_start = null;
     }
+
     return socket_center;
 }
 
 // TODO: remove need for id, it should be inside the node itself
 fn renderNode(
-    node: *const grappl.Node,
+    node: *grappl.Node,
     socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Point),
+    graph_area: *dvui.ScrollAreaWidget,
 ) !Rect {
     const root_id_extra: usize = @intCast(node.id);
 
-    const position = if (current_graph.visual_graph.node_data.get(node.id)) |viz_data| viz_data.position else dvui.Point{
-        .x = @floatFromInt(node.position.x),
-        .y = @floatFromInt(node.position.y),
+    var backup_pos = dvui.Point{
+        .x = node.position.x,
+        .y = node.position.y,
     };
+
+    const maybe_viz_data = current_graph.visual_graph.node_data.getPtr(node.id);
+
+    const position: *dvui.Point =
+        if (maybe_viz_data) |viz_data|
+        if (viz_data.position_override) |*position_override| position_override else &viz_data.position
+    else
+        &backup_pos;
 
     const box = try dvui.box(
         @src(),
         .vertical,
         .{
-            .rect = dvui.Rect{ .x = position.x, .y = position.y },
+            .rect = dvui.Rect{
+                .x = ScrollData.origin.x + position.x,
+                .y = ScrollData.origin.y + position.y,
+            },
             .id_extra = root_id_extra,
             .debug = true,
             .margin = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
@@ -791,23 +807,71 @@ fn renderNode(
 
     outputs_vbox.deinit();
 
+    // process events to drag the box around
+    if (maybe_viz_data) |viz_data| {
+        const evts = dvui.events();
+        for (evts) |*e| {
+            if (!box.matchEvent(e))
+                continue;
+
+            switch (e.evt) {
+                .mouse => |me| {
+                    if (me.action == .press and me.button.pointer()) {
+                        e.handled = true;
+                        dvui.captureMouse(box.data().id);
+                        const rs = box.data().rectScale();
+                        dvui.dragPreStart(me.p, null, rs.pointFromScreen(me.p));
+                    } else if (me.action == .release and me.button.pointer()) {
+                        if (dvui.captured(box.data().id)) {
+                            e.handled = true;
+                            dvui.captureMouse(null);
+                        }
+                    } else if (me.action == .motion) {
+                        if (dvui.captured(box.data().id)) {
+                            if (dvui.dragging(me.p)) |_| {
+                                const rs = box.data().rectScale();
+                                const offset = rs.pointFromScreen(me.p).diff(dvui.dragOffset()); // how far mouse is from topleft in box coords
+
+                                viz_data.position_override = ScrollData.scroll2Data(box.data().rect.topLeft().plus(offset));
+
+                                dvui.refresh(null, @src(), graph_area.scroll.data().id);
+
+                                var scrolldrag = dvui.Event{ .evt = .{ .scroll_drag = .{
+                                    .mouse_pt = e.evt.mouse.p,
+                                    .screen_rect = box.data().rectScale().r,
+                                    .capture_id = box.data().id,
+                                } } };
+                                box.processEvent(&scrolldrag, true);
+                            }
+                        }
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+
     return result;
 }
 
-var origin: dvui.Point = .{};
-var scroll_info = dvui.ScrollInfo{
-    .horizontal = .given,
-    .vertical = .given,
-    //.velocity = dvui.Point{ .x = 1, .y = 1 },
-    .viewport = dvui.Rect{ .w = 5000, .h = 5000 },
-    // NOTE: updated by the graph
-    .virtual_size = dvui.Size{ .w = 1000, .h = 1000 },
+const ScrollData = struct {
+    var scroll_info: dvui.ScrollInfo = .{ .vertical = .given, .horizontal = .given };
+    var origin: dvui.Point = .{};
+
+    pub fn data2Scroll(p: dvui.Point) dvui.Point {
+        return p.plus(origin).diff(scroll_info.viewport.topLeft());
+    }
+
+    pub fn scroll2Data(p: dvui.Point) dvui.Point {
+        return p.diff(origin);
+    }
 };
 
 pub const VisualGraph = struct {
     pub const NodeData = struct {
         // TODO: remove grappl.Node.position
         position: dvui.Point,
+        position_override: ?dvui.Point = null,
     };
 
     graph: *grappl.GraphBuilder,
@@ -1099,8 +1163,11 @@ fn dvui_frame() !void {
 
     //if (!(std.math.approxEqAbs(f32, scroll_info.virtual_size.h, visual_graph.graph_bb.size().h, 0.1) and std.math.approxEqAbs(f32, scroll_info.virtual_size.w, visual_graph.graph_bb.size().w, 0.1))) {
     // this causes a refresh for some reason, nextVirtualSize is always 0 for some reason
-    scroll_info.virtual_size = current_graph.visual_graph.graph_bb.size();
+    //ScrollData.scroll_info.virtual_size = current_graph.visual_graph.graph_bb.size();
     //}
+
+    //std.log.info("data_pos2: rs={any} me.p={any} ptFromScrn={any}", .{ rs, me.p, rs.pointFromScreen(me.p) });
+    //std.log.info("data_pos: boxTopLeft={any} offset={any} pos={any}", .{ box.data().rect.topLeft(), offset, position.* });
 
     // FIXME: move the viewport to any newly created nodes
     //scroll_info.viewport = current_graph.visual_graph.graph_bb;
