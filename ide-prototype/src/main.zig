@@ -166,8 +166,10 @@ fn addGraph(name: []const u8, set_as_current: bool) !*Graph {
         // FIXME: use reverse list?
         var maybe_cursor = graphs.first;
         while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-            if (cursor.next == null)
+            if (cursor.next == null) {
                 cursor.insertAfter(new_graph);
+                break;
+            }
         }
     }
 
@@ -1238,7 +1240,7 @@ fn dvui_frame() !void {
                 maybe_cursor = cursor.next;
                 i += 1;
             }) {
-                var func_box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal });
+                var func_box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal, .id_extra = i });
                 defer func_box.deinit();
                 _ = try dvui.label(@src(), "{s}()", .{cursor.data.name}, .{ .font_style = .body, .id_extra = i });
                 const graph_clicked = try dvui.buttonIcon(@src(), "open-graph", entypo.chevron_right, .{}, .{ .id_extra = i });
