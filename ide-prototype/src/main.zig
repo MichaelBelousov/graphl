@@ -53,24 +53,33 @@ var backend: WebBackend = undefined;
 var touchPoints: [2]?dvui.Point = [_]?dvui.Point{null} ** 2;
 var orig_content_scale: f32 = 1.0;
 
+const MAX_FUNC_NAME = 256;
+
 const Graph = struct {
     index: u16,
-    name: []const u8,
+
+    name_buff: [MAX_FUNC_NAME]u8 = undefined,
+    name_len: usize = 0,
+
     grappl_graph: grappl.GraphBuilder,
     // FIXME: merge with visual graph
     visual_graph: VisualGraph,
+
+    pub fn name(self: *@This()) []u8 {
+        return &self.name_buff[0..self.name_len];
+    }
 
     pub fn env(self: @This()) *const grappl.Env {
         return &self.grappl_graph.env;
     }
 
-    pub fn init(index: u16, name: []const u8) !@This() {
+    pub fn init(index: u16, in_name: []const u8) !@This() {
         var result: @This() = undefined;
-        try result.initInPlace(index, name);
+        try result.initInPlace(index, in_name);
         return result;
     }
 
-    pub fn initInPlace(self: *@This(), index: u16, name: []const u8) !void {
+    pub fn initInPlace(self: *@This(), index: u16, in_name: []const u8) !void {
         const grappl_env = try grappl.Env.initDefault(gpa);
 
         const grappl_graph = try grappl.GraphBuilder.init(gpa, grappl_env);
@@ -78,10 +87,12 @@ const Graph = struct {
         // NOTE: does this only work because of return value optimization?
         self.* = @This(){
             .index = index,
-            .name = try gpa.dupe(u8, name),
             .grappl_graph = grappl_graph,
             .visual_graph = undefined,
         };
+
+        std.debug.assert(in_name.len <= MAX_FUNC_NAME);
+        @memcpy(self.name_buff[0..in_name.len], in_name);
 
         self.visual_graph = VisualGraph{ .graph = &self.grappl_graph };
     }
@@ -1242,7 +1253,13 @@ fn dvui_frame() !void {
             }) {
                 var func_box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal, .id_extra = i });
                 defer func_box.deinit();
-                _ = try dvui.label(@src(), "{s}()", .{cursor.data.name}, .{ .font_style = .body, .id_extra = i });
+
+                const entry_state = try dvui.textEntry(@src(), .{ .text = .{ .buffer = &cursor.data.name_buff } }, .{ .id_extra = i });
+                // FIXME: use temporary buff and then commit the name after checking it's valid!
+                //if (entry_state.enter_pressed) {}
+                entry_state.deinit();
+
+                //_ = try dvui.label(@src(), "()", .{}, .{ .font_style = .body, .id_extra = i });
                 const graph_clicked = try dvui.buttonIcon(@src(), "open-graph", entypo.chevron_right, .{}, .{ .id_extra = i });
                 if (graph_clicked.clicked)
                     current_graph = &cursor.data;
