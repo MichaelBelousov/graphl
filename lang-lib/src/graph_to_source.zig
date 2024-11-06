@@ -9,8 +9,10 @@ const JsonIntArrayHashMap = @import("./json_int_map.zig").IntArrayHashMap;
 
 const Sexp = @import("./sexp.zig").Sexp;
 const syms = @import("./sexp.zig").syms;
+const primitive_type_syms = @import("./sexp.zig").primitive_type_syms;
 
 const Env = @import("./nodes/builtin.zig").Env;
+const Type = @import("./nodes/builtin.zig").Type;
 const Value = @import("./nodes/builtin.zig").Value;
 
 const debug_tail_call = @import("./common.zig").debug_tail_call;
@@ -38,20 +40,32 @@ pub const ImportBinding = struct {
 // FIXME: deprecate, access this directly
 pub const NodeId = GraphTypes.NodeId;
 
+pub const Binding = struct {
+    name: []u8,
+    type_: Type,
+};
+
 /// all APIs taking an allocator must use the same allocator
 pub const GraphBuilder = struct {
+    // FIXME: then make it a pointer!
     // we do not own this, it is just referenced
     env: Env,
     // FIXME: does this need to be in topological order? Is that advantageous?
     /// map of json node ids to its real node,
     nodes: JsonIntArrayHashMap(NodeId, IndexedNode, 10) = .{},
-    imports: std.ArrayListUnmanaged(Sexp),
     // FIXME: fill the analysis context instead of keeping this in the graph metadata itself
     branch_joiner_map: std.AutoHashMapUnmanaged(*const IndexedNode, *const IndexedNode) = .{},
     is_join_set: std.DynamicBitSetUnmanaged,
     entry_id: ?NodeId = null,
+    return_node_id: ?NodeId = null,
     branch_count: u32 = 0,
     next_node_index: usize = 0,
+
+    // FIXME: who owns these?
+    imports: std.ArrayListUnmanaged(Sexp) = .{},
+    locals: std.ArrayListUnmanaged(Binding) = .{},
+    params: std.ArrayListUnmanaged(Binding) = .{},
+    results: std.ArrayListUnmanaged(Binding) = .{},
 
     const Self = @This();
     const Types = GraphTypes;
@@ -70,7 +84,6 @@ pub const GraphBuilder = struct {
         return Self{
             .env = env,
             .is_join_set = try std.DynamicBitSetUnmanaged.initEmpty(alloc, 0),
-            .imports = std.ArrayListUnmanaged(Sexp){},
         };
     }
 
@@ -226,11 +239,54 @@ pub const GraphBuilder = struct {
         start.inputs[pin_index] = .{ .value = value };
     }
 
-    // FIXME: also emit imports and definitions!
+    // FIXME: emit move name to the graph
     /// NOTE: the outer module is a sexp list
-    pub fn compile(self: *@This(), alloc: std.mem.Allocator) !Sexp {
+    pub fn compile(self: *@This(), alloc: std.mem.Allocator, name: []const u8) !Sexp {
         try self.postPopulate(alloc);
-        return self.rootToSexp(alloc);
+        const body = try self.rootToSexp(alloc);
+
+        var module = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(alloc) } };
+        try module.value.module.ensureTotalCapacityPrecise(2);
+        const type_def = module.value.module.addOneAssumeCapacity();
+        const func_def = module.value.module.addOneAssumeCapacity();
+
+        {
+            type_def.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            try type_def.value.list.ensureTotalCapacityPrecise(3);
+            type_def.value.list.addOneAssumeCapacity().* = syms.typeof;
+            const param_bindings = type_def.value.list.addOneAssumeCapacity();
+            const result_type = type_def.value.list.addOneAssumeCapacity();
+
+            param_bindings.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            try param_bindings.value.list.ensureTotalCapacityPrecise(1 + self.params.items.len);
+            // FIXME: dupe this?
+            param_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
+            for (self.params.items) |param| {
+                param_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param.type_.name } };
+            }
+
+            // FIXME: generate type from return node, anonymous struct maybe?
+            result_type.* = primitive_type_syms.i32;
+        }
+
+        {
+            func_def.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            try func_def.value.list.ensureTotalCapacityPrecise(3);
+            func_def.value.list.addOneAssumeCapacity().* = syms.define;
+            const func_bindings = func_def.value.list.addOneAssumeCapacity();
+            func_def.value.list.addOneAssumeCapacity().* = body;
+
+            // FIXME: also emit imports and definitions!
+            func_bindings.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            try func_bindings.value.list.ensureTotalCapacityPrecise(1 + self.params.items.len);
+            // FIXME: dupe this?
+            func_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
+            for (self.params.items) |param| {
+                func_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param.name } };
+            }
+        }
+
+        return module;
     }
 
     // FIXME: this should return a separate object
@@ -507,7 +563,7 @@ pub const GraphBuilder = struct {
             visited: u1,
         };
 
-        const Block = std.ArrayList(Sexp);
+        pub const Block = std.ArrayList(Sexp);
 
         const Context = struct {
             node_data: std.MultiArrayList(NodeData) = .{},
@@ -526,7 +582,7 @@ pub const GraphBuilder = struct {
             errdefer ctx.deinit(alloc);
             try ctx.node_data.resize(alloc, self.graph.nodes.map.count());
             try self.onNode(alloc, node_id, &ctx);
-            return Sexp{ .value = .{ .module = ctx.block } };
+            return Sexp{ .value = .{ .list = ctx.block } };
         }
 
         const Error = error{
@@ -692,34 +748,6 @@ pub const GraphBuilder = struct {
                 Sexp{ .value = .void }
         else
             error.NoEntryOrNotYetSet;
-    }
-
-    fn toSexp(self: @This(), node_id: i64) !Sexp {
-        return try (ToSexp{ .graph = &self }).toSexp(node_id);
-    }
-
-    pub fn writeGrapplText(self: @This(), writer: anytype) !void {
-        for (self.imports.items) |import| {
-            _ = try import.write(writer);
-            _ = try writer.write("\n");
-        }
-
-        const sexp = try self.rootToSexp();
-
-        switch (sexp.value) {
-            .list => |l| {
-                for (l.items) |s| {
-                    _ = try s.write(writer);
-                    _ = try writer.write("\n");
-                }
-            },
-            else => {
-                _ = try sexp.write(writer);
-                _ = try writer.write("\n");
-            },
-        }
-
-        _ = try writer.write("\n");
     }
 };
 

@@ -66,7 +66,7 @@ const Graph = struct {
     visual_graph: VisualGraph,
 
     pub fn name(self: *@This()) []u8 {
-        return &self.name_buff[0..self.name_len];
+        return self.name_buff[0..self.name_len];
     }
 
     pub fn env(self: @This()) *const grappl.Env {
@@ -130,12 +130,31 @@ extern fn recvCurrentSource(ptr: ?[*]const u8, len: usize) void;
 extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
 fn postCurrentSexp() !void {
-    const sexp = try current_graph.grappl_graph.compile(gpa);
-    defer sexp.deinit(gpa);
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    const alloc = arena.allocator();
+    defer arena.deinit();
 
-    var bytes = std.ArrayList(u8).init(gpa);
+    var bytes = std.ArrayList(u8).init(alloc);
     defer bytes.deinit();
-    _ = try sexp.write(bytes.writer());
+
+    var maybe_current = graphs.first;
+    while (maybe_current) |current| : ({
+        if (current.next != null)
+            try bytes.append('\n');
+        maybe_current = current.next;
+    }) {
+        // FIXME: rework entry ids
+        if (current_graph.grappl_graph.entry_id == null) {
+            var iter = current_graph.grappl_graph.nodes.map.iterator();
+            if (iter.next()) |first| {
+                current_graph.grappl_graph.entry_id = first.key_ptr.*;
+            }
+        }
+        const sexp = try current_graph.grappl_graph.compile(alloc, current_graph.name());
+        defer sexp.deinit(alloc);
+
+        _ = try sexp.write(bytes.writer());
+    }
 
     recvCurrentSource(bytes.items.ptr, bytes.items.len);
 }
@@ -167,6 +186,9 @@ fn addGraph(name: []const u8, set_as_current: bool) !*Graph {
 
     new_graph.* = .{ .data = undefined };
     try new_graph.data.initInPlace(graph_index, name);
+
+    _ = new_graph.data.addNode(gpa, "CustomTickEntry", true, null, null) catch unreachable;
+    //_ = new_graph.data.addNode(gpa, "return", false, null, null) catch unreachable;
 
     if (set_as_current)
         current_graph = &new_graph.data;
@@ -226,7 +248,8 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
             return @intFromEnum(AppInitErrorCodes.GrapplInitFailed);
         };
 
-        const entry_index = first_graph.addNode(gpa, "CustomTickEntry", true, null, null) catch unreachable;
+        // we know the entry is set by addGraph
+        const entry_index = first_graph.grappl_graph.entry_id orelse unreachable;
         const plus_index = first_graph.addNode(gpa, "+", false, null, null) catch unreachable;
         const set_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
         // const set2_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
@@ -762,7 +785,7 @@ fn renderNode(
                     const primitive_type = @field(grappl.primitive_types, @typeName(T) ++ "_");
                     if (input_desc.kind.primitive.value == primitive_type) {
                         const entry = try dvui.textEntryNumber(@src(), T, .{}, .{ .id_extra = j });
-                        if (entry.enter_pressed and entry.value == .Valid)
+                        if (entry.value == .Valid)
                             input.* = .{ .value = .{
                                 .number = if (@typeInfo(T) == .Int) @floatFromInt(entry.value.Valid) else @floatCast(entry.value.Valid),
                             } };
@@ -1205,7 +1228,7 @@ fn dvui_frame() !void {
         }
 
         if (try dvui.button(@src(), "Compile", .{}, .{})) {
-            const sexp = try current_graph.grappl_graph.compile(gpa);
+            const sexp = try current_graph.grappl_graph.compile(gpa, "main");
             defer sexp.deinit(gpa);
             var bytes = std.ArrayList(u8).init(gpa);
             defer bytes.deinit();
@@ -1233,28 +1256,29 @@ fn dvui_frame() !void {
         }
 
         {
-            var func_box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal });
-            defer func_box.deinit();
+            {
+                var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal });
+                defer box.deinit();
 
-            _ = try dvui.label(@src(), "Functions", .{}, .{ .font_style = .heading });
+                _ = try dvui.label(@src(), "Functions", .{}, .{ .font_style = .heading });
 
-            const add_clicked = (try dvui.buttonIcon(@src(), "add-graph", entypo.plus, .{}, .{})).clicked;
-            if (add_clicked) {
-                _ = try addGraph("new graph", false);
+                const add_clicked = (try dvui.buttonIcon(@src(), "add-graph", entypo.plus, .{}, .{})).clicked;
+                if (add_clicked) {
+                    _ = try addGraph("new graph", false);
+                }
             }
-        }
 
-        {
             var maybe_cursor = graphs.first;
             var i: usize = 0;
             while (maybe_cursor) |cursor| : ({
                 maybe_cursor = cursor.next;
                 i += 1;
             }) {
-                var func_box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal, .id_extra = i });
-                defer func_box.deinit();
+                var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal, .id_extra = i });
+                defer box.deinit();
 
                 const entry_state = try dvui.textEntry(@src(), .{ .text = .{ .buffer = &cursor.data.name_buff } }, .{ .id_extra = i });
+                cursor.data.name_len = entry_state.getText().len;
                 // FIXME: use temporary buff and then commit the name after checking it's valid!
                 //if (entry_state.enter_pressed) {}
                 entry_state.deinit();
@@ -1263,6 +1287,89 @@ fn dvui_frame() !void {
                 const graph_clicked = try dvui.buttonIcon(@src(), "open-graph", entypo.chevron_right, .{}, .{ .id_extra = i });
                 if (graph_clicked.clicked)
                     current_graph = &cursor.data;
+            }
+        }
+
+        // TODO: hoist to somewhere else?
+        // FIXME: don't allocate!
+        // TODO: use a map or keep this sorted?
+        const type_options = _: {
+            const result = try gpa.alloc([]const u8, current_graph.grappl_graph.env.types.count());
+            var i: usize = 0;
+            var type_iter = current_graph.grappl_graph.env.types.valueIterator();
+            while (type_iter.next()) |type_entry| : (i += 1) {
+                result[i] = type_entry.name;
+            }
+            break :_ result;
+        };
+        defer gpa.free(type_options);
+
+        const bindings_infos = &.{
+            //.{ .binding_group = &current_graph.grappl_graph.imports, .name = "Imports" },
+            .{ .data = &current_graph.grappl_graph.locals, .name = "Locals" },
+            .{ .data = &current_graph.grappl_graph.params, .name = "Parameters" },
+            .{ .data = &current_graph.grappl_graph.results, .name = "Results" },
+        };
+
+        inline for (bindings_infos, 0..) |bindings_info, i| {
+            {
+                var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal, .id_extra = i });
+                defer box.deinit();
+
+                _ = try dvui.label(@src(), bindings_info.name, .{}, .{ .font_style = .heading });
+
+                const add_clicked = (try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i })).clicked;
+                if (add_clicked) {
+                    const appended = try bindings_info.data.addOne(gpa);
+                    // FIXME: leak
+                    const name = try gpa.alloc(u8, MAX_FUNC_NAME);
+                    //@memcpy(name[0..3], "new");
+                    @memcpy(name[0..4], "new\x00");
+                    appended.* = .{
+                        .name = name,
+                        .type_ = grappl.primitive_types.i32_, // default binding type
+                    };
+                }
+            }
+
+            for (bindings_info.data.items, 0..) |*binding, j| {
+                const i_needed_bits = comptime std.math.log2_int_ceil(usize, bindings_infos.len);
+                // NOTE: we could assert before the loop because we know the bounds
+                std.debug.assert(((j << @intCast(i_needed_bits)) & i) == 0);
+                const id_extra = (j << @intCast(i_needed_bits)) | i;
+
+                var box = try dvui.box(@src(), .horizontal, .{ .id_extra = id_extra });
+                defer box.deinit();
+
+                const text_entry_src = @src();
+                //const text_entry_id = box.widget().extendId(text_entry_src, id_extra);
+                // NOTE: to pre-compute id, must use text_entry_src
+                const text_entry = try dvui.textEntry(text_entry_src, .{ .text = .{ .buffer = binding.name } }, .{ .id_extra = id_extra });
+                //if (text_entry.text_changed) {}
+                //const not_first_render = dvui.dataGet(null, text_entry_id, "_not_first_render", bool) orelse false;
+                //const first_render = !not_first_render;
+                // if (first_render) {
+                //     text_entry.textTyped(binding.name);
+                // }
+                //dvui.dataSet(null, text_entry_id, "_not_first_render", true);
+                text_entry.deinit();
+
+                var type_choice: usize = _: {
+                    // FIXME: assumes iterator is ordered when not mutated
+                    var k: usize = 0;
+                    var type_iter = current_graph.grappl_graph.env.types.valueIterator();
+                    while (type_iter.next()) |type_entry| : (k += 1) {
+                        if (type_entry == binding.type_)
+                            break :_ k;
+                    }
+                    break :_ 0;
+                };
+
+                const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice, .{});
+                if (option_clicked) {
+                    const selected_name = type_options[type_choice];
+                    binding.type_ = current_graph.grappl_graph.env.types.getPtr(selected_name) orelse unreachable;
+                }
             }
         }
     }
