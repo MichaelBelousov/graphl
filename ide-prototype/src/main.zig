@@ -556,6 +556,13 @@ fn renderGraph() !void {
                             dvui.refresh(null, @src(), graph_area.scroll.data().id);
                         }
                     }
+                    // TODO: mouse wheel zoom
+                    // } else if (me.action == .wheel_y) {
+                    //     const scroll_factor = 1.0;
+                    //     std.log.info("vp0={}", .{ScrollData.scroll_info.viewport});
+                    //     ScrollData.scroll_info.viewport = ScrollData.scroll_info.viewport.scale(scroll_factor * me.data.wheel_y);
+                    //     std.log.info("wheel={}, sf={}", .{ me.data.wheel_y, scroll_factor });
+                    //     std.log.info("vp={}", .{ScrollData.scroll_info.viewport});
                 }
             },
             else => {},
