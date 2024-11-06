@@ -473,7 +473,8 @@ fn renderGraph() !void {
 
     // maybe currently dragged edge
     {
-        const maybe_drag_offset = dvui.dragging(mouse_pt);
+        const cw = dvui.currentWindow();
+        const maybe_drag_offset = if (cw.drag_state != .none) cw.drag_offset else null;
 
         if (maybe_drag_offset != null and edge_drag_start != null) {
             const drag_start = edge_drag_start.?.pt;
