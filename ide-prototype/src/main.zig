@@ -1368,13 +1368,21 @@ fn dvui_frame() !void {
                 const add_clicked = (try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{})).clicked;
                 if (add_clicked) {
                     const node_desc = current_graph.grappl_graph.result_node_basic_desc;
+                    const return_node = current_graph.grappl_graph.nodes.map.getPtr(current_graph.grappl_graph.entry_id.?).?;
                     node_desc.inputs = try gpa.realloc(node_desc.inputs, node_desc.inputs.len + 1);
-                    node_desc.inputs[node_desc.inputs.len + 1] = .{
+                    node_desc.inputs[node_desc.inputs.len - 1] = .{
                         .name = "a",
                         // i32 is default param for now
                         .kind = .{ .primitive = .{
                             .value = grappl.primitive_types.i32_,
                         } },
+                    };
+
+                    // TODO: nodes should not be guaranteed to have the same amount of links as their
+                    // definition has pins
+                    return_node.inputs = try gpa.realloc(return_node.inputs, return_node.inputs.len + 1);
+                    return_node.inputs[return_node.inputs.len - 1] = .{
+                        .value = grappl.Value{ .number = 0 },
                     };
                 }
             }
@@ -1408,7 +1416,7 @@ fn dvui_frame() !void {
                 const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice, .{ .id_extra = j });
                 if (option_clicked) {
                     const selected_name = type_options[type_choice];
-                    binding.kind.primitive.value = current_graph.grappl_graph.env.types.get(selected_name) orelse unreachable;
+                    binding.kind.primitive = .{ .value = current_graph.grappl_graph.env.types.get(selected_name) orelse unreachable };
                 }
             }
         }

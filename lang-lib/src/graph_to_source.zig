@@ -797,11 +797,8 @@ pub const GraphBuilder = struct {
     };
 
     fn rootToSexp(self: *@This(), alloc: std.mem.Allocator) !Sexp {
-        return if (self.entry()) |entry_node|
-            if (entry_node.outputs[0]) |first_node|
-                try (ToSexp{ .graph = self }).toSexp(alloc, first_node.link.target)
-            else
-                Sexp{ .value = .void }
+        return if (self.entry_id) |entry_id|
+            try (ToSexp{ .graph = self }).toSexp(alloc, entry_id)
         else
             error.NoEntryOrNotYetSet;
     }
