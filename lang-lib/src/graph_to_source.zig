@@ -745,8 +745,8 @@ pub const GraphBuilder = struct {
                 }
             }
 
-            if (node.outputs[0]) |next| {
-                return @call(debug_tail_call, onNode, .{ self, alloc, next.link.target, context });
+            if (node.outputs.len >= 1 and node.outputs[0] != null) {
+                return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
             }
         }
 

@@ -360,6 +360,9 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
 
             var valid_socket_index: ?u16 = null;
 
+            if (node_desc.hidden)
+                continue;
+
             if (maybe_create_from_type) |create_from_type| {
                 const pins = switch (maybe_create_from.?.kind) {
                     .input => node_desc.getOutputs(),
@@ -368,6 +371,7 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
 
                 if (pins.len > std.math.maxInt(u16))
                     return error.TooManyPins;
+
                 for (pins, 0..) |pin_desc, j| {
                     if (std.meta.eql(pin_desc.asPrimitivePin(), create_from_type)) {
                         valid_socket_index = @intCast(j);
@@ -787,11 +791,22 @@ fn renderNode(
                 inline for (.{ i32, i64, u32, u64, f32, f64 }) |T| {
                     const primitive_type = @field(grappl.primitive_types, @typeName(T) ++ "_");
                     if (input_desc.kind.primitive.value == primitive_type) {
-                        const entry = try dvui.textEntryNumber(@src(), T, .{}, .{ .id_extra = j });
-                        if (entry.value == .Valid)
+                        var value: T = undefined;
+                        if (input.* == .value and input.value == .number) {
+                            value = if (@typeInfo(T) == .Int)
+                                @intFromFloat(input.value.number)
+                            else
+                                @floatCast(input.value.number);
+                        }
+
+                        const entry = try dvui.textEntryNumber(@src(), T, .{ .value = &value }, .{ .id_extra = j });
+
+                        if (entry.value == .Valid) {
                             input.* = .{ .value = .{
                                 .number = if (@typeInfo(T) == .Int) @floatFromInt(entry.value.Valid) else @floatCast(entry.value.Valid),
                             } };
+                        }
+
                         handled = true;
                     }
                 }

@@ -66,6 +66,7 @@ pub const NodeDesc = struct {
     // FIXME: should be scoped
     /// name of the node, used as the type tag in the json format, within a particular scope
     name: []const u8,
+    hidden: bool = false,
 
     context: *align(@sizeOf(usize)) const anyopaque,
     // TODO: do I really need pointers? The types are all going to be well defined aggregates,
@@ -329,6 +330,7 @@ pub fn returnType(builtin_node: *const NodeDesc, input_types: []const Type) Type
 
 pub const BasicNodeDesc = struct {
     name: []const u8,
+    hidden: bool = false,
     inputs: []const Pin = &.{},
     outputs: []const Pin = &.{},
 };
@@ -352,6 +354,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
     return NodeDesc{
         .name = in_desc.name,
         .context = @ptrCast(in_desc),
+        .hidden = in_desc.hidden,
         ._getInputs = NodeImpl.getInputs,
         ._getOutputs = NodeImpl.getOutputs,
     };
@@ -359,6 +362,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
 
 pub const BasicMutNodeDesc = struct {
     name: []const u8,
+    hidden: bool = false,
     inputs: []Pin = &.{},
     outputs: []Pin = &.{},
 };
@@ -381,6 +385,7 @@ pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
     return NodeDesc{
         .name = in_desc.name,
         .context = @ptrCast(in_desc),
+        .hidden = in_desc.hidden,
         ._getInputs = NodeImpl.getInputs,
         ._getOutputs = NodeImpl.getOutputs,
     };
@@ -595,6 +600,14 @@ pub const builtin_nodes = struct {
         },
     });
 
+    pub const func_start: NodeDesc = basicNode(&.{
+        .name = "start",
+        .hidden = true,
+        .outputs = &.{
+            Pin{ .name = "start", .kind = .{ .primitive = .exec } },
+        },
+    });
+
     // "cast":
     // pub const @"switch": NodeDesc = basicNode(&.{
     //     .name = "switch",
@@ -667,11 +680,13 @@ pub const temp_ue = struct {
         //     },
         // });
 
-        // FIXME: remove and just have an entry
-        // pub const custom_tick_entry: NodeDesc = basicNode(&.{
-        //     .name = "CustomTickEntry",
+        // pub const custom_tick_call: NodeDesc = basicNode(&.{
+        //     .name = "CustomTickCall",
+        //     .inputs = &.{
+        //         Pin{ .name = "actor", .kind = .{ .primitive = .{ .value = types.actor } } },
+        //     },
         //     .outputs = &.{
-        //         Pin{ .name = "start", .kind = .{ .primitive = .exec } },
+        //         Pin{ .name = "loc", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
         //     },
         // });
 
