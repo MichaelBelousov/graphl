@@ -3,6 +3,13 @@ import rollupVisualizer from "rollup-plugin-visualizer";
 import viteInspect from "vite-plugin-inspect";
 import { defineConfig, loadEnv } from "vite";
 import * as path from "node:path";
+import * as fs from "node:fs";
+
+// TODO: use vite approved way to ship library types
+fs.copyFileSync(
+  path.join(__dirname, "./WebBackend.d.ts"),
+  path.join(__dirname, "./dist/WebBackend.d.ts"),
+);
 
 export default defineConfig(async ({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ""));

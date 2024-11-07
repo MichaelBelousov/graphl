@@ -327,7 +327,7 @@ pub fn returnType(builtin_node: *const NodeDesc, input_types: []const Type) Type
     };
 }
 
-const BasicNodeDesc = struct {
+pub const BasicNodeDesc = struct {
     name: []const u8,
     inputs: []const Pin = &.{},
     outputs: []const Pin = &.{},
@@ -335,6 +335,35 @@ const BasicNodeDesc = struct {
 
 /// caller owns memory!
 pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
+    const NodeImpl = struct {
+        const Self = @This();
+
+        pub fn getInputs(node: NodeDesc) []const Pin {
+            const desc: *const BasicNodeDesc = @ptrCast(node.context);
+            return desc.inputs;
+        }
+
+        pub fn getOutputs(node: NodeDesc) []const Pin {
+            const desc: *const BasicNodeDesc = @ptrCast(node.context);
+            return desc.outputs;
+        }
+    };
+
+    return NodeDesc{
+        .name = in_desc.name,
+        .context = @ptrCast(in_desc),
+        ._getInputs = NodeImpl.getInputs,
+        ._getOutputs = NodeImpl.getOutputs,
+    };
+}
+
+pub const BasicMutNodeDesc = struct {
+    name: []const u8,
+    inputs: []Pin = &.{},
+    outputs: []Pin = &.{},
+};
+
+pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
     const NodeImpl = struct {
         const Self = @This();
 
@@ -639,12 +668,12 @@ pub const temp_ue = struct {
         // });
 
         // FIXME: remove and just have an entry
-        pub const custom_tick_entry: NodeDesc = basicNode(&.{
-            .name = "CustomTickEntry",
-            .outputs = &.{
-                Pin{ .name = "start", .kind = .{ .primitive = .exec } },
-            },
-        });
+        // pub const custom_tick_entry: NodeDesc = basicNode(&.{
+        //     .name = "CustomTickEntry",
+        //     .outputs = &.{
+        //         Pin{ .name = "start", .kind = .{ .primitive = .exec } },
+        //     },
+        // });
 
         // pub const move_component_to: NodeDesc = basicNode(&.{
         //     .name = "Move Component To",
@@ -818,20 +847,18 @@ test "node types" {
 }
 
 pub const Env = struct {
-    types: std.StringHashMapUnmanaged(Type),
-    nodes: std.StringHashMapUnmanaged(NodeDesc),
+    types: std.StringHashMapUnmanaged(Type) = .{},
+    // could be macro, function, operator
+    nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         self.types.clearAndFree(alloc);
         self.nodes.clearAndFree(alloc);
+        // FIXME: destroy all created slots
     }
 
     pub fn initDefault(alloc: std.mem.Allocator) !@This() {
-        var env = @This(){
-            .types = std.StringHashMapUnmanaged(Type){},
-            // could be macro, function, operator
-            .nodes = std.StringHashMapUnmanaged(NodeDesc){},
-        };
+        var env = @This(){};
 
         inline for (&.{ primitive_types, temp_ue.types }) |types| {
             //const types_decls = comptime std.meta.declList(types, TypeInfo);
@@ -850,7 +877,7 @@ pub const Env = struct {
             try env.nodes.ensureTotalCapacity(alloc, @intCast(nodes_decls.len));
             inline for (nodes_decls) |n| {
                 const node = @field(nodes, n.name);
-                try env.nodes.put(alloc, node.name, node);
+                try env.nodes.put(alloc, node.name, &node);
             }
         }
 
@@ -858,7 +885,7 @@ pub const Env = struct {
     }
 
     pub fn makeNode(self: *const @This(), a: std.mem.Allocator, id: GraphTypes.NodeId, kind: []const u8) !?GraphTypes.Node {
-        return if (self.nodes.getPtr(kind)) |desc|
+        return if (self.nodes.get(kind)) |desc|
             try GraphTypes.Node.initEmptyPins(a, .{ .id = id, .desc = desc })
         else
             null;
@@ -872,6 +899,18 @@ pub const Env = struct {
         // FIXME: leak
         const slot = try a.create(TypeInfo);
         slot.* = type_info;
+        result.value_ptr.* = slot;
+        return slot;
+    }
+
+    pub fn addNode(self: *@This(), a: std.mem.Allocator, node_desc: NodeDesc) !*NodeDesc {
+        // TODO: dupe the key, we need to own the key memory lifetime
+        const result = try self.nodes.getOrPut(a, node_desc.name);
+        // FIXME: allow types to be overriden within scopes?
+        if (result.found_existing) return error.EnvAlreadyExists;
+        // FIXME: leak
+        const slot = try a.create(NodeDesc);
+        slot.* = node_desc;
         result.value_ptr.* = slot;
         return slot;
     }

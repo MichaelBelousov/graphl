@@ -386,7 +386,7 @@ export function Ide(canvasElem, opts) {
             const compiled = await WebAssembly.instantiate(moduleBytes, {});
             lastCompiled = compiled;
             //const result = instance.exports.main();
-            const result = compiled.instance.exports["++"]();
+            const result = compiled.instance.exports["main"]();
 
             console.log(result);
         },

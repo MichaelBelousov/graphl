@@ -66,6 +66,8 @@ const Graph = struct {
     // FIXME: merge with visual graph
     visual_graph: VisualGraph,
 
+    env: grappl.Env,
+
     pub fn name(self: *@This()) []u8 {
         return self.name_buff[0..self.name_len];
     }
@@ -81,21 +83,24 @@ const Graph = struct {
     }
 
     pub fn initInPlace(self: *@This(), index: u16, in_name: []const u8) !void {
-        const grappl_env = try grappl.Env.initDefault(gpa);
+        self.env = try grappl.Env.initDefault(gpa);
 
-        const grappl_graph = try grappl.GraphBuilder.init(gpa, grappl_env);
+        const grappl_graph = try grappl.GraphBuilder.init(gpa, &self.env);
 
         // NOTE: does this only work because of return value optimization?
         self.* = @This(){
             .index = index,
             .grappl_graph = grappl_graph,
             .visual_graph = undefined,
+            .env = self.env,
         };
 
         std.debug.assert(in_name.len <= MAX_FUNC_NAME);
         @memcpy(self.name_buff[0..in_name.len], in_name);
 
         self.visual_graph = VisualGraph{ .graph = &self.grappl_graph };
+
+        _ = try self.addNode(gpa, "return", true, null, null);
     }
 
     pub fn deinit(self: *@This()) void {
@@ -188,9 +193,6 @@ fn addGraph(name: []const u8, set_as_current: bool) !*Graph {
     new_graph.* = .{ .data = undefined };
     try new_graph.data.initInPlace(graph_index, name);
 
-    _ = new_graph.data.addNode(gpa, "CustomTickEntry", true, null, null) catch unreachable;
-    //_ = new_graph.data.addNode(gpa, "return", false, null, null) catch unreachable;
-
     if (set_as_current)
         current_graph = &new_graph.data;
 
@@ -259,8 +261,8 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
         // const set5_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
         // const set6_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
         // const set7_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
-        first_graph.addEdge(entry_index, 0, set_index, 0, 0) catch unreachable;
-        first_graph.addEdge(plus_index, 0, set_index, 2, 0) catch unreachable;
+        first_graph.addEdge(set_index, 0, entry_index, 0, 0) catch unreachable;
+        first_graph.addEdge(plus_index, 0, entry_index, 1, 0) catch unreachable;
         // first_graph.addEdge(set_index, 0, set2_index, 0, 0) catch unreachable;
         // first_graph.addEdge(set2_index, 0, set3_index, 0, 0) catch unreachable;
         // first_graph.addEdge(set3_index, 0, set4_index, 0, 0) catch unreachable;
@@ -350,11 +352,11 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
     } else null;
 
     {
-        var iter = current_graph.grappl_graph.env.nodes.iterator();
+        var iter = current_graph.env.nodes.iterator();
         var i: u32 = 0;
         while (iter.next()) |node_entry| {
             const node_name = node_entry.key_ptr;
-            const node_desc = node_entry.value_ptr;
+            const node_desc = node_entry.value_ptr.*;
 
             var valid_socket_index: ?u16 = null;
 
@@ -1283,9 +1285,9 @@ fn dvui_frame() !void {
         // FIXME: don't allocate!
         // TODO: use a map or keep this sorted?
         const type_options = _: {
-            const result = try gpa.alloc([]const u8, current_graph.grappl_graph.env.types.count());
+            const result = try gpa.alloc([]const u8, current_graph.env.types.count());
             var i: usize = 0;
-            var type_iter = current_graph.grappl_graph.env.types.valueIterator();
+            var type_iter = current_graph.env.types.valueIterator();
             while (type_iter.next()) |type_entry| : (i += 1) {
                 result[i] = type_entry.*.name;
             }
@@ -1297,7 +1299,7 @@ fn dvui_frame() !void {
             //.{ .binding_group = &current_graph.grappl_graph.imports, .name = "Imports" },
             .{ .data = &current_graph.grappl_graph.locals, .name = "Locals" },
             .{ .data = &current_graph.grappl_graph.params, .name = "Parameters" },
-            .{ .data = &current_graph.grappl_graph.results, .name = "Results" },
+            //.{ .data = &current_graph.grappl_graph.results, .name = "Results" },
         };
 
         inline for (bindings_infos, 0..) |bindings_info, i| {
@@ -1339,7 +1341,7 @@ fn dvui_frame() !void {
                 var type_choice: usize = _: {
                     // FIXME: assumes iterator is ordered when not mutated
                     var k: usize = 0;
-                    var type_iter = current_graph.grappl_graph.env.types.valueIterator();
+                    var type_iter = current_graph.env.types.valueIterator();
                     while (type_iter.next()) |type_entry| : (k += 1) {
                         if (type_entry.* == binding.type_)
                             break :_ k;
@@ -1347,10 +1349,66 @@ fn dvui_frame() !void {
                     break :_ 0;
                 };
 
-                const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice, .{});
+                const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice, .{ .id_extra = j });
                 if (option_clicked) {
                     const selected_name = type_options[type_choice];
                     binding.type_ = current_graph.grappl_graph.env.types.get(selected_name) orelse unreachable;
+                }
+            }
+        }
+
+        // results
+        {
+            {
+                var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal });
+                defer box.deinit();
+
+                _ = try dvui.label(@src(), "Results", .{}, .{ .font_style = .heading });
+
+                const add_clicked = (try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{})).clicked;
+                if (add_clicked) {
+                    const node_desc = current_graph.grappl_graph.result_node_basic_desc;
+                    node_desc.inputs = try gpa.realloc(node_desc.inputs, node_desc.inputs.len + 1);
+                    node_desc.inputs[node_desc.inputs.len + 1] = .{
+                        .name = "a",
+                        // i32 is default param for now
+                        .kind = .{ .primitive = .{
+                            .value = grappl.primitive_types.i32_,
+                        } },
+                    };
+                }
+            }
+
+            for (current_graph.grappl_graph.result_node_basic_desc.inputs, 0..) |*binding, j| {
+                var box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
+                defer box.deinit();
+
+                const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = j });
+                if (text_entry.text_changed) {
+                    binding.name = text_entry.getText();
+                }
+                text_entry.deinit();
+
+                // FIXME: this is slow to run every frame!
+                var type_choice: usize = _: {
+                    // FIXME: assumes iterator is ordered when not mutated
+                    var k: usize = 0;
+                    var type_iter = current_graph.env.types.valueIterator();
+                    while (type_iter.next()) |type_entry| : (k += 1) {
+                        if (binding.kind != .primitive)
+                            continue;
+                        if (binding.kind.primitive != .value)
+                            continue;
+                        if (type_entry.* == binding.kind.primitive.value)
+                            break :_ k;
+                    }
+                    break :_ 0;
+                };
+
+                const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice, .{ .id_extra = j });
+                if (option_clicked) {
+                    const selected_name = type_options[type_choice];
+                    binding.kind.primitive.value = current_graph.grappl_graph.env.types.get(selected_name) orelse unreachable;
                 }
             }
         }

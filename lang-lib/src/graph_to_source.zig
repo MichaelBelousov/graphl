@@ -11,9 +11,14 @@ const Sexp = @import("./sexp.zig").Sexp;
 const syms = @import("./sexp.zig").syms;
 const primitive_type_syms = @import("./sexp.zig").primitive_type_syms;
 
+// FIXME: better name
+const helpers = @import("./nodes/builtin.zig");
 const Env = @import("./nodes/builtin.zig").Env;
 const Type = @import("./nodes/builtin.zig").Type;
 const Value = @import("./nodes/builtin.zig").Value;
+const NodeDesc = @import("./nodes/builtin.zig").NodeDesc;
+const BasicMutNodeDesc = @import("./nodes/builtin.zig").BasicMutNodeDesc;
+const Pin = @import("./nodes/builtin.zig").Pin;
 
 const debug_tail_call = @import("./common.zig").debug_tail_call;
 const global_alloc = @import("./common.zig").global_alloc;
@@ -49,9 +54,7 @@ pub const Binding = struct {
 
 /// all APIs taking an allocator must use the same allocator
 pub const GraphBuilder = struct {
-    // FIXME: then make it a pointer!
-    // we do not own this, it is just referenced
-    env: Env,
+    env: *Env,
     // FIXME: does this need to be in topological order? Is that advantageous?
     /// map of json node ids to its real node,
     nodes: JsonIntArrayHashMap(NodeId, IndexedNode, 10) = .{},
@@ -67,7 +70,10 @@ pub const GraphBuilder = struct {
     imports: std.ArrayListUnmanaged(Sexp) = .{},
     locals: std.ArrayListUnmanaged(Binding) = .{},
     params: std.ArrayListUnmanaged(Binding) = .{},
-    results: std.ArrayListUnmanaged(Binding) = .{},
+    // FIXME: consolidate input nodes with types and structs
+    result_node: *const NodeDesc,
+    // FIXME: remove need for this?
+    result_node_basic_desc: *BasicMutNodeDesc,
 
     const Self = @This();
     const Types = GraphTypes;
@@ -82,10 +88,26 @@ pub const GraphBuilder = struct {
     }
 
     // FIXME: remove buildFromJson and just do it all in init?
-    pub fn init(alloc: std.mem.Allocator, env: Env) !Self {
+    pub fn init(alloc: std.mem.Allocator, env: *Env) !Self {
+        const result_node_basic_desc = try alloc.create(BasicMutNodeDesc);
+        // FIXME: leak!
+        const inputs = try alloc.alloc(Pin, 2);
+        inputs[0] = Pin{ .name = "exit", .kind = .{ .primitive = .exec } };
+        inputs[1] = Pin{ .name = "result", .kind = .{ .primitive = .{ .value = helpers.primitive_types.i32_ } } };
+        const outputs = try alloc.alloc(Pin, 0);
+        result_node_basic_desc.* = .{
+            .name = "return",
+            .inputs = inputs,
+            .outputs = outputs,
+        };
+
+        const result_node = try env.addNode(alloc, helpers.basicMutableNode(result_node_basic_desc));
+
         return Self{
             .env = env,
             .is_join_set = try std.DynamicBitSetUnmanaged.initEmpty(alloc, 0),
+            .result_node = result_node,
+            .result_node_basic_desc = result_node_basic_desc,
         };
     }
 
@@ -98,7 +120,7 @@ pub const GraphBuilder = struct {
             }
         }
         self.nodes.deinit(alloc);
-        // do not delete env, we don't own it
+        alloc.destroy(self.result_node_basic_desc);
     }
 
     const GetSingleExecFromEntryError = error{
