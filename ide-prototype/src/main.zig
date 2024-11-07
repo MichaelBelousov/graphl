@@ -1299,7 +1299,7 @@ fn dvui_frame() !void {
             var i: usize = 0;
             var type_iter = current_graph.grappl_graph.env.types.valueIterator();
             while (type_iter.next()) |type_entry| : (i += 1) {
-                result[i] = type_entry.name;
+                result[i] = type_entry.*.name;
             }
             break :_ result;
         };
@@ -1347,12 +1347,13 @@ fn dvui_frame() !void {
                 }
                 text_entry.deinit();
 
+                // FIXME: this is slow to run every frame!
                 var type_choice: usize = _: {
                     // FIXME: assumes iterator is ordered when not mutated
                     var k: usize = 0;
                     var type_iter = current_graph.grappl_graph.env.types.valueIterator();
                     while (type_iter.next()) |type_entry| : (k += 1) {
-                        if (type_entry == binding.type_)
+                        if (type_entry.* == binding.type_)
                             break :_ k;
                     }
                     break :_ 0;
@@ -1361,7 +1362,7 @@ fn dvui_frame() !void {
                 const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice, .{});
                 if (option_clicked) {
                     const selected_name = type_options[type_choice];
-                    binding.type_ = current_graph.grappl_graph.env.types.getPtr(selected_name) orelse unreachable;
+                    binding.type_ = current_graph.grappl_graph.env.types.get(selected_name) orelse unreachable;
                 }
             }
         }

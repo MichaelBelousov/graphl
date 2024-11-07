@@ -816,7 +816,7 @@ test "node types" {
 }
 
 pub const Env = struct {
-    types: std.StringHashMapUnmanaged(TypeInfo),
+    types: std.StringHashMapUnmanaged(Type),
     nodes: std.StringHashMapUnmanaged(NodeDesc),
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
@@ -826,7 +826,7 @@ pub const Env = struct {
 
     pub fn initDefault(alloc: std.mem.Allocator) !@This() {
         var env = @This(){
-            .types = std.StringHashMapUnmanaged(TypeInfo){},
+            .types = std.StringHashMapUnmanaged(Type){},
             // could be macro, function, operator
             .nodes = std.StringHashMapUnmanaged(NodeDesc){},
         };
@@ -837,7 +837,7 @@ pub const Env = struct {
             try env.types.ensureTotalCapacity(alloc, @intCast(types_decls.len));
             inline for (types_decls) |d| {
                 const type_ = @field(types, d.name);
-                try env.types.put(alloc, type_.name, type_.*);
+                try env.types.put(alloc, type_.name, type_);
             }
         }
 
@@ -867,8 +867,11 @@ pub const Env = struct {
         const result = try self.types.getOrPut(a, type_info.name);
         // FIXME: allow types to be overriden within scopes?
         if (result.found_existing) return error.EnvAlreadyExists;
-        result.value_ptr.* = type_info;
-        return result.value_ptr;
+        // FIXME: leak
+        const slot = try a.create(TypeInfo);
+        slot.* = type_info;
+        result.value_ptr.* = slot;
+        return slot;
     }
 };
 

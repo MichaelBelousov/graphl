@@ -190,11 +190,11 @@ const Compilation = struct {
         const param_types = try alloc.alloc(Type, param_type_exprs.len);
         for (param_type_exprs, param_types) |type_expr, *type_| {
             const param_type = type_expr.value.symbol;
-            type_.* = self.env.types.getPtr(param_type) orelse return error.UnknownType;
+            type_.* = self.env.types.get(param_type) orelse return error.UnknownType;
         }
 
         const result_types = try alloc.alloc(Type, 1);
-        result_types[0] = self.env.types.getPtr(result_type_name) orelse return error.UnknownType;
+        result_types[0] = self.env.types.get(result_type_name) orelse return error.UnknownType;
 
         const func_type_desc = DeferredFuncTypeInfo{
             .param_types = param_types,
