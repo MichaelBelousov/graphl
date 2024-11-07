@@ -1235,19 +1235,7 @@ fn dvui_frame() !void {
             defer bytes.deinit();
             var diagnostic = compiler.Diagnostic.init();
 
-            // FIXME: remove
-            var parsed = try SexpParser.parse(gpa,
-                \\;;; comment
-                \\(typeof x i32)
-                \\(define x 10)
-                \\;;; comment
-                \\(typeof (++ i32) i32)
-                \\(define (++ x) (+ x 1))
-            , null);
-            //std.debug.print("{any}\n", .{parsed});
-            defer parsed.deinit(gpa);
-
-            if (compiler.compile(gpa, &parsed, &diagnostic)) |module| {
+            if (compiler.compile(gpa, &sexp, &diagnostic)) |module| {
                 std.log.info("compile_result:\n{s}", .{module});
                 runCurrentWat(module.ptr, module.len);
                 gpa.free(module);

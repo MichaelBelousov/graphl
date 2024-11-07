@@ -31,6 +31,7 @@ const DeferredFuncDeclInfo = struct {
     param_names: []const []const u8,
     local_names: []const []const u8,
     local_types: []const Type,
+    local_defaults: []const Sexp,
     result_names: []const []const u8,
 };
 
@@ -92,10 +93,53 @@ const Compilation = struct {
         //if (sexp.value.list.items[0].value.symbol.ptr != syms.define.value.symbol.ptr) return false;
         if (!std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.define.value.symbol)) return false;
 
+        if (sexp.value.list.items.len <= 2) return false;
         if (sexp.value.list.items[1].value != .list) return false;
         if (sexp.value.list.items[1].value.list.items.len < 1) return error.FuncBindingsListEmpty;
         for (sexp.value.list.items[1].value.list.items) |*def_item| {
             if (def_item.value != .symbol) return error.FuncParamBindingNotSymbol;
+        }
+
+        if (sexp.value.list.items.len < 3) return error.FuncWithoutBody;
+        const body = sexp.value.list.items[2];
+        // NOTE: if there are no locals this should be ok!
+        if (body.value != .list) return error.FuncBodyNotList;
+        if (body.value.list.items.len < 1) return error.FuncBodyWithoutBegin;
+        if (body.value.list.items[0].value != .symbol) return error.FuncBodyWithoutBegin;
+        if (body.value.list.items[0].value.symbol.ptr != syms.begin.value.symbol.ptr) return error.FuncBodyWithoutBegin;
+
+        var local_names = std.ArrayList([]const u8).init(alloc);
+        defer local_names.deinit();
+
+        var local_types = std.ArrayList(Type).init(alloc);
+        defer local_types.deinit();
+
+        var local_defaults = std.ArrayList(Sexp).init(alloc);
+        defer local_defaults.deinit();
+
+        for (body.value.list.items[1..]) |maybe_local_def| {
+            // locals are all in one block at the beginning. If it's not a local def, stop looking for more
+            if (maybe_local_def.value != .list) break;
+            if (maybe_local_def.value.list.items.len < 3) break;
+            if (maybe_local_def.value.list.items[0].value.symbol.ptr != syms.define.value.symbol.ptr and maybe_local_def.value.list.items[0].value.symbol.ptr != syms.typeof.value.symbol.ptr)
+                break;
+            if (maybe_local_def.value.list.items[1].value != .symbol) return error.LocalBindingNotSymbol;
+
+            const is_typeof = maybe_local_def.value.list.items[0].value.symbol.ptr == syms.typeof.value.symbol.ptr;
+            const local_name = maybe_local_def.value.list.items[1].value.symbol;
+
+            // FIXME: typeofs must come before or after because the name isn't inserted in order!
+            if (is_typeof) {
+                const local_type = maybe_local_def.value.list.items[2];
+                if (local_type.value != .symbol)
+                    return error.LocalBindingTypeNotSymbol;
+                // TODO: diagnostic
+                (try local_types.addOne()).* = self.env.types.get(local_type.value.symbol) orelse return error.TypeNotFound;
+            } else {
+                const local_default = maybe_local_def.value.list.items[2];
+                (try local_defaults.addOne()).* = local_default;
+                (try local_names.addOne()).* = local_name;
+            }
         }
 
         const func_name = sexp.value.list.items[1].value.list.items[0].value.symbol;
@@ -106,18 +150,20 @@ const Compilation = struct {
         const func_bindings = sexp.value.list.items[1].value.list.items[1..];
 
         const param_names = try alloc.alloc([]const u8, func_bindings.len);
-
-        const func_desc = DeferredFuncDeclInfo{
-            .param_names = param_names,
-            // TODO: read all defines at beginning of sexp or something
-            .local_names = &.{},
-            .local_types = &.{},
-            .result_names = &.{},
-        };
+        errdefer alloc.free(param_names);
 
         for (func_bindings, param_names) |func_binding, *param_name| {
             param_name.* = func_binding.value.symbol;
         }
+
+        const func_desc = DeferredFuncDeclInfo{
+            .param_names = param_names,
+            // TODO: read all defines at beginning of sexp or something
+            .local_names = try local_names.toOwnedSlice(),
+            .local_types = try local_types.toOwnedSlice(),
+            .local_defaults = try local_defaults.toOwnedSlice(),
+            .result_names = &.{},
+        };
 
         if (self.deferred.func_types.get(func_name)) |func_type| {
             try self.finishCompileTypedFunc(func_name, func_desc, func_type);
@@ -188,12 +234,14 @@ const Compilation = struct {
         const result_type_name = sexp.value.list.items[2].value.symbol;
 
         const param_types = try alloc.alloc(Type, param_type_exprs.len);
+        errdefer alloc.free(param_types);
         for (param_type_exprs, param_types) |type_expr, *type_| {
             const param_type = type_expr.value.symbol;
             type_.* = self.env.types.get(param_type) orelse return error.UnknownType;
         }
 
         const result_types = try alloc.alloc(Type, 1);
+        errdefer alloc.free(result_types);
         result_types[0] = self.env.types.get(result_type_name) orelse return error.UnknownType;
 
         const func_type_desc = DeferredFuncTypeInfo{
