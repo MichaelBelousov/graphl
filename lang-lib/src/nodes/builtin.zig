@@ -20,6 +20,8 @@ pub const TypeInfo = struct {
     field_types: []const Type = &.{},
     // FIXME: use a union
     func_type: ?FuncType = null,
+    // the wasm primitive associated with this type, if it is a primitive
+    wasm_primitive: ?[]const u8 = null,
 };
 
 pub const Type = *const TypeInfo;
@@ -226,30 +228,30 @@ pub const GraphTypes = struct {
 
 pub const primitive_types = struct {
     // nums
-    pub const i32_: Type = &TypeInfo{ .name = "i32" };
-    pub const i64_: Type = &TypeInfo{ .name = "i64" };
-    pub const u32_: Type = &TypeInfo{ .name = "u32" };
-    pub const u64_: Type = &TypeInfo{ .name = "u64" };
-    pub const f32_: Type = &TypeInfo{ .name = "f32" };
-    pub const f64_ = &TypeInfo{ .name = "f64" };
+    pub const i32_: Type = &TypeInfo{ .name = "i32", .wasm_primitive = "i32" };
+    pub const i64_: Type = &TypeInfo{ .name = "i64", .wasm_primitive = "i64" };
+    pub const u32_: Type = &TypeInfo{ .name = "u32", .wasm_primitive = "i32" };
+    pub const u64_: Type = &TypeInfo{ .name = "u64", .wasm_primitive = "i64" };
+    pub const f32_: Type = &TypeInfo{ .name = "f32", .wasm_primitive = "f32" };
+    pub const f64_ = &TypeInfo{ .name = "f64", .wasm_primitive = "f64" };
 
-    pub const byte: Type = &TypeInfo{ .name = "byte" };
-    pub const bool_: Type = &TypeInfo{ .name = "bool" };
-    pub const rune: Type = &TypeInfo{ .name = "rune" };
-    pub const symbol: Type = &TypeInfo{ .name = "symbol" };
+    pub const byte: Type = &TypeInfo{ .name = "byte", .wasm_primitive = "u8" };
+    pub const bool_: Type = &TypeInfo{ .name = "bool", .wasm_primitive = "u8" };
+    pub const rune: Type = &TypeInfo{ .name = "rune", .wasm_primitive = "i32" };
+    pub const symbol: Type = &TypeInfo{ .name = "symbol", .wasm_primitive = "i32" };
     pub const @"void": Type = &TypeInfo{ .name = "void" };
 
-    pub const string: Type = &TypeInfo{ .name = "string" };
-    pub const vec3: Type = &TypeInfo{
-        .name = "vec3",
-        .field_names = &.{ "x", "y", "z" },
-        .field_types = &.{ f64_, f64_, f64_ },
-    };
-    pub const vec4: Type = &TypeInfo{
-        .name = "vec4",
-        .field_names = &.{ "x", "y", "z", "w" },
-        .field_types = &.{ f64_, f64_, f64_, f64_ },
-    };
+    // pub const string: Type = &TypeInfo{ .name = "string" };
+    // pub const vec3: Type = &TypeInfo{
+    //     .name = "vec3",
+    //     .field_names = &.{ "x", "y", "z" },
+    //     .field_types = &.{ f64_, f64_, f64_ },
+    // };
+    // pub const vec4: Type = &TypeInfo{
+    //     .name = "vec4",
+    //     .field_names = &.{ "x", "y", "z", "w" },
+    //     .field_types = &.{ f64_, f64_, f64_, f64_ },
+    // };
 
     // pub fn list(_: @This(), t: Type, fallback_alloc: std.mem.Allocator) Type {
     //     // FIXME: which allocator?
@@ -540,15 +542,15 @@ pub const builtin_nodes = struct {
         },
     });
     // TODO: function...
-    pub const sequence: NodeDesc = basicNode(&.{
-        .name = "sequence",
-        .inputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .exec } },
-        },
-        .outputs = &.{
-            Pin{ .name = "then", .kind = .{ .variadic = .exec } },
-        },
-    });
+    // pub const sequence: NodeDesc = basicNode(&.{
+    //     .name = "sequence",
+    //     .inputs = &.{
+    //         Pin{ .name = "", .kind = .{ .primitive = .exec } },
+    //     },
+    //     .outputs = &.{
+    //         Pin{ .name = "then", .kind = .{ .variadic = .exec } },
+    //     },
+    // });
 
     pub const @"set!": NodeDesc = basicNode(&.{
         .name = "set!",
@@ -565,76 +567,76 @@ pub const builtin_nodes = struct {
     });
 
     // "cast":
-    pub const @"switch": NodeDesc = basicNode(&.{
-        .name = "switch",
-        .inputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .exec } },
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-        },
-        .outputs = &.{
-            Pin{ .name = "", .kind = .{ .variadic = .exec } },
-        },
-    });
+    // pub const @"switch": NodeDesc = basicNode(&.{
+    //     .name = "switch",
+    //     .inputs = &.{
+    //         Pin{ .name = "", .kind = .{ .primitive = .exec } },
+    //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+    //     },
+    //     .outputs = &.{
+    //         Pin{ .name = "", .kind = .{ .variadic = .exec } },
+    //     },
+    // });
 };
 
 pub const temp_ue = struct {
     pub const types = struct {
         // TODO: impl enums
-        pub const physical_material: Type = &TypeInfo{ .name = "physical_material" };
-        pub const actor: Type = &TypeInfo{ .name = "actor" };
-        pub const scene_component: Type = &TypeInfo{ .name = "SceneComponent" };
+        // pub const physical_material: Type = &TypeInfo{ .name = "physical_material" };
+        // pub const actor: Type = &TypeInfo{ .name = "actor" };
+        // pub const scene_component: Type = &TypeInfo{ .name = "SceneComponent" };
 
-        // FIXME: use list(actor)
-        pub const actor_list: Type = &TypeInfo{ .name = "list(actor)" };
-        pub const trace_channels: Type = &TypeInfo{ .name = "trace_channels" };
-        pub const draw_debug_types: Type = &TypeInfo{ .name = "draw_debug_types" };
-        pub const hit_result: Type = &TypeInfo{
-            .name = "hit_result",
-            .field_names = &[_][]const u8{
-                "location",
-                "normal",
-                "impact point",
-                "impact normal",
-                "physical material",
-                "hit actor",
-                "hit component",
-                "hit bone name",
-            },
-            .field_types = &.{
-                primitive_types.vec3,
-                primitive_types.vec3,
-                primitive_types.vec3,
-                primitive_types.vec3,
-                physical_material,
-                actor,
-                scene_component,
-                primitive_types.string,
-            },
-        };
+        // // FIXME: use list(actor)
+        // pub const actor_list: Type = &TypeInfo{ .name = "list(actor)" };
+        // pub const trace_channels: Type = &TypeInfo{ .name = "trace_channels" };
+        // pub const draw_debug_types: Type = &TypeInfo{ .name = "draw_debug_types" };
+        // pub const hit_result: Type = &TypeInfo{
+        //     .name = "hit_result",
+        //     .field_names = &[_][]const u8{
+        //         "location",
+        //         "normal",
+        //         "impact point",
+        //         "impact normal",
+        //         "physical material",
+        //         "hit actor",
+        //         "hit component",
+        //         "hit bone name",
+        //     },
+        //     .field_types = &.{
+        //         primitive_types.vec3,
+        //         primitive_types.vec3,
+        //         primitive_types.vec3,
+        //         primitive_types.vec3,
+        //         physical_material,
+        //         actor,
+        //         scene_component,
+        //         primitive_types.string,
+        //     },
+        // };
     };
 
     pub const nodes = struct {
         // TODO: replace with live vars
-        const capsule_component = VarNodes.init(
-            failing_allocator,
-            "capsule-component",
-            types.scene_component,
-        ) catch unreachable;
-        const current_spawn_point = VarNodes.init(failing_allocator, "current-spawn-point", types.scene_component) catch unreachable;
-        const drone_state = VarNodes.init(failing_allocator, "drone-state", types.scene_component) catch unreachable;
-        const mesh = VarNodes.init(failing_allocator, "mesh", types.scene_component) catch unreachable;
-        const over_time = VarNodes.init(failing_allocator, "over-time", types.scene_component) catch unreachable;
-        const speed = VarNodes.init(failing_allocator, "speed", primitive_types.f32_) catch unreachable;
+        // const capsule_component = VarNodes.init(
+        //     failing_allocator,
+        //     "capsule-component",
+        //     types.scene_component,
+        // ) catch unreachable;
+        // const current_spawn_point = VarNodes.init(failing_allocator, "current-spawn-point", types.scene_component) catch unreachable;
+        // const drone_state = VarNodes.init(failing_allocator, "drone-state", types.scene_component) catch unreachable;
+        // const mesh = VarNodes.init(failing_allocator, "mesh", types.scene_component) catch unreachable;
+        // const over_time = VarNodes.init(failing_allocator, "over-time", types.scene_component) catch unreachable;
+        // const speed = VarNodes.init(failing_allocator, "speed", primitive_types.f32_) catch unreachable;
 
-        pub const custom_tick_call: NodeDesc = basicNode(&.{
-            .name = "CustomTickCall",
-            .inputs = &.{
-                Pin{ .name = "actor", .kind = .{ .primitive = .{ .value = types.actor } } },
-            },
-            .outputs = &.{
-                Pin{ .name = "loc", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-            },
-        });
+        // pub const custom_tick_call: NodeDesc = basicNode(&.{
+        //     .name = "CustomTickCall",
+        //     .inputs = &.{
+        //         Pin{ .name = "actor", .kind = .{ .primitive = .{ .value = types.actor } } },
+        //     },
+        //     .outputs = &.{
+        //         Pin{ .name = "loc", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        //     },
+        // });
 
         // FIXME: remove and just have an entry
         pub const custom_tick_entry: NodeDesc = basicNode(&.{
@@ -644,157 +646,157 @@ pub const temp_ue = struct {
             },
         });
 
-        pub const move_component_to: NodeDesc = basicNode(&.{
-            .name = "Move Component To",
-            .inputs = &.{
-                Pin{ .name = "Move", .kind = .{ .primitive = .exec } },
-                Pin{ .name = "Stop", .kind = .{ .primitive = .exec } },
-                Pin{ .name = "Return", .kind = .{ .primitive = .exec } },
-                Pin{ .name = "Component", .kind = .{ .primitive = .{ .value = types.scene_component } } },
-                Pin{ .name = "TargetRelativeLocation", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-                Pin{ .name = "TargetRelativeRotation", .kind = .{ .primitive = .{ .value = primitive_types.vec4 } } },
-                Pin{ .name = "Ease Out", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-                Pin{ .name = "Ease In", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-                Pin{ .name = "Over Time", .kind = .{ .primitive = .{ .value = primitive_types.f32_ } } },
-                Pin{ .name = "Force Shortest Rotation Time", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-            },
-            .outputs = &.{
-                Pin{ .name = "Completed", .kind = .{ .primitive = .exec } },
-            },
-        });
+        // pub const move_component_to: NodeDesc = basicNode(&.{
+        //     .name = "Move Component To",
+        //     .inputs = &.{
+        //         Pin{ .name = "Move", .kind = .{ .primitive = .exec } },
+        //         Pin{ .name = "Stop", .kind = .{ .primitive = .exec } },
+        //         Pin{ .name = "Return", .kind = .{ .primitive = .exec } },
+        //         Pin{ .name = "Component", .kind = .{ .primitive = .{ .value = types.scene_component } } },
+        //         Pin{ .name = "TargetRelativeLocation", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        //         Pin{ .name = "TargetRelativeRotation", .kind = .{ .primitive = .{ .value = primitive_types.vec4 } } },
+        //         Pin{ .name = "Ease Out", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        //         Pin{ .name = "Ease In", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        //         Pin{ .name = "Over Time", .kind = .{ .primitive = .{ .value = primitive_types.f32_ } } },
+        //         Pin{ .name = "Force Shortest Rotation Time", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        //     },
+        //     .outputs = &.{
+        //         Pin{ .name = "Completed", .kind = .{ .primitive = .exec } },
+        //     },
+        // });
 
-        pub const break_hit_result: NodeDesc =
-            makeBreakNodeForStruct(failing_allocator, types.hit_result) catch unreachable;
+        // pub const break_hit_result: NodeDesc =
+        //     makeBreakNodeForStruct(failing_allocator, types.hit_result) catch unreachable;
 
-        pub const get_capsule_component: NodeDesc = capsule_component.get;
-        pub const set_capsule_component: NodeDesc = capsule_component.set;
+        // pub const get_capsule_component: NodeDesc = capsule_component.get;
+        // pub const set_capsule_component: NodeDesc = capsule_component.set;
 
-        pub const get_current_spawn_point: NodeDesc = current_spawn_point.get;
-        pub const set_current_spawn_point: NodeDesc = current_spawn_point.set;
+        // pub const get_current_spawn_point: NodeDesc = current_spawn_point.get;
+        // pub const set_current_spawn_point: NodeDesc = current_spawn_point.set;
 
-        pub const get_drone_state: NodeDesc = drone_state.get;
-        pub const set_drone_state: NodeDesc = drone_state.set;
+        // pub const get_drone_state: NodeDesc = drone_state.get;
+        // pub const set_drone_state: NodeDesc = drone_state.set;
 
-        pub const get_mesh: NodeDesc = mesh.get;
-        pub const set_mesh: NodeDesc = mesh.set;
+        // pub const get_mesh: NodeDesc = mesh.get;
+        // pub const set_mesh: NodeDesc = mesh.set;
 
-        pub const get_over_time: NodeDesc = over_time.get;
-        pub const set_over_time: NodeDesc = over_time.set;
+        // pub const get_over_time: NodeDesc = over_time.get;
+        // pub const set_over_time: NodeDesc = over_time.set;
 
-        pub const get_speed: NodeDesc = speed.get;
-        pub const set_speed: NodeDesc = speed.set;
+        // pub const get_speed: NodeDesc = speed.get;
+        // pub const set_speed: NodeDesc = speed.set;
 
-        pub const cast: NodeDesc = basicNode(&.{
-            .name = "cast",
-            .inputs = &.{
-                exec,
-                exec,
-            },
-            .outputs = &.{
-                exec,
-                exec,
-                Pin{ .name = "value", .kind = .{ .primitive = .{ .value = types.actor } } },
-            },
-        });
+        // pub const cast: NodeDesc = basicNode(&.{
+        //     .name = "cast",
+        //     .inputs = &.{
+        //         exec,
+        //         exec,
+        //     },
+        //     .outputs = &.{
+        //         exec,
+        //         exec,
+        //         Pin{ .name = "value", .kind = .{ .primitive = .{ .value = types.actor } } },
+        //     },
+        // });
 
-        pub const do_once: NodeDesc = basicNode(&.{
-            .name = "do-once",
-            .inputs = &.{
-                exec,
-                exec, // reset
-                Pin{ .name = "start closed", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-            },
-            .outputs = &.{
-                exec, // completed
-            },
-        });
+        // pub const do_once: NodeDesc = basicNode(&.{
+        //     .name = "do-once",
+        //     .inputs = &.{
+        //         exec,
+        //         exec, // reset
+        //         Pin{ .name = "start closed", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        //     },
+        //     .outputs = &.{
+        //         exec, // completed
+        //     },
+        // });
 
-        pub const fake_switch: NodeDesc = basicNode(&.{
-            .name = "fake-switch",
-            .inputs = &.{
-                exec,
-                Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            },
-            .outputs = &.{
-                Pin{ .name = "move to player", .kind = .{ .primitive = .exec } },
-                Pin{ .name = "move up", .kind = .{ .primitive = .exec } },
-                Pin{ .name = "dead", .kind = .{ .primitive = .exec } },
-            },
-        });
+        // pub const fake_switch: NodeDesc = basicNode(&.{
+        //     .name = "fake-switch",
+        //     .inputs = &.{
+        //         exec,
+        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+        //     },
+        //     .outputs = &.{
+        //         Pin{ .name = "move to player", .kind = .{ .primitive = .exec } },
+        //         Pin{ .name = "move up", .kind = .{ .primitive = .exec } },
+        //         Pin{ .name = "dead", .kind = .{ .primitive = .exec } },
+        //     },
+        // });
 
-        pub const this_actor_location: NodeDesc = basicNode(&.{
-            .name = "#GET#actor-location",
-            .inputs = &.{},
-            .outputs = &.{
-                Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-            },
-        });
+        // pub const this_actor_location: NodeDesc = basicNode(&.{
+        //     .name = "#GET#actor-location",
+        //     .inputs = &.{},
+        //     .outputs = &.{
+        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        //     },
+        // });
 
-        pub const get_location_of_actor: NodeDesc = basicNode(&.{
-            .name = "get-actor-location",
-            .inputs = &.{
-                Pin{ .name = "", .kind = .{ .primitive = .{ .value = types.actor } } },
-            },
-            .outputs = &.{
-                Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-            },
-        });
+        // pub const get_location_of_actor: NodeDesc = basicNode(&.{
+        //     .name = "get-actor-location",
+        //     .inputs = &.{
+        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = types.actor } } },
+        //     },
+        //     .outputs = &.{
+        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        //     },
+        // });
 
-        pub const get_actor_rotation: NodeDesc = basicNode(&.{
-            .name = "#GET#actor-rotation",
-            .inputs = &.{
-                Pin{ .name = "", .kind = .{ .primitive = .{ .value = types.actor } } },
-            },
-            .outputs = &.{
-                Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec4 } } },
-            },
-        });
+        // pub const get_actor_rotation: NodeDesc = basicNode(&.{
+        //     .name = "#GET#actor-rotation",
+        //     .inputs = &.{
+        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = types.actor } } },
+        //     },
+        //     .outputs = &.{
+        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec4 } } },
+        //     },
+        // });
 
-        pub const get_socket_location: NodeDesc = basicNode(&.{
-            .name = "#GET#socket-location",
-            .inputs = &.{
-                Pin{ .name = "", .kind = .{ .primitive = .{ .value = types.actor } } },
-                Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
-            },
-            .outputs = &.{
-                Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-            },
-        });
+        // pub const get_socket_location: NodeDesc = basicNode(&.{
+        //     .name = "#GET#socket-location",
+        //     .inputs = &.{
+        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = types.actor } } },
+        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+        //     },
+        //     .outputs = &.{
+        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        //     },
+        // });
 
-        pub const fake_sequence_3: NodeDesc = basicNode(&.{
-            .name = "fake-sequence-3",
-            .inputs = &.{exec},
-            .outputs = &.{ exec, exec, exec },
-        });
+        // pub const fake_sequence_3: NodeDesc = basicNode(&.{
+        //     .name = "fake-sequence-3",
+        //     .inputs = &.{exec},
+        //     .outputs = &.{ exec, exec, exec },
+        // });
 
-        pub const single_line_trace_by_channel: NodeDesc = basicNode(&.{
-            .name = "single-line-trace-by-channel",
-            .inputs = &.{
-                exec,
-                Pin{ .name = "start", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-                Pin{ .name = "end", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-                Pin{ .name = "channel", .kind = .{ .primitive = .{ .value = types.trace_channels } } },
-                Pin{ .name = "trace-complex", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-                Pin{ .name = "actors-to-ignore", .kind = .{ .primitive = .{ .value = types.actor_list } } },
-                Pin{ .name = "draw-debug-type (default 'none)", .kind = .{ .primitive = .{ .value = types.draw_debug_types } } },
-                Pin{ .name = "ignore-self (default false)", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-            },
-            .outputs = &.{
-                exec,
-                Pin{ .name = "out hit", .kind = .{ .primitive = .{ .value = types.hit_result } } },
-                Pin{ .name = "did hit", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-            },
-        });
+        // pub const single_line_trace_by_channel: NodeDesc = basicNode(&.{
+        //     .name = "single-line-trace-by-channel",
+        //     .inputs = &.{
+        //         exec,
+        //         Pin{ .name = "start", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        //         Pin{ .name = "end", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        //         Pin{ .name = "channel", .kind = .{ .primitive = .{ .value = types.trace_channels } } },
+        //         Pin{ .name = "trace-complex", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        //         Pin{ .name = "actors-to-ignore", .kind = .{ .primitive = .{ .value = types.actor_list } } },
+        //         Pin{ .name = "draw-debug-type (default 'none)", .kind = .{ .primitive = .{ .value = types.draw_debug_types } } },
+        //         Pin{ .name = "ignore-self (default false)", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        //     },
+        //     .outputs = &.{
+        //         exec,
+        //         Pin{ .name = "out hit", .kind = .{ .primitive = .{ .value = types.hit_result } } },
+        //         Pin{ .name = "did hit", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        //     },
+        // });
 
-        pub const vector_length: NodeDesc = basicNode(&.{
-            .name = "vector-length",
-            .inputs = &.{
-                Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-            },
-            .outputs = &.{
-                Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            },
-        });
+        // pub const vector_length: NodeDesc = basicNode(&.{
+        //     .name = "vector-length",
+        //     .inputs = &.{
+        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        //     },
+        //     .outputs = &.{
+        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+        //     },
+        // });
     };
 };
 
