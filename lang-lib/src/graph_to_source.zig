@@ -44,6 +44,7 @@ pub const Binding = struct {
     name: []u8,
     type_: Type,
     comment: ?[]u8 = null,
+    default: ?Sexp = null,
 };
 
 /// all APIs taking an allocator must use the same allocator
@@ -280,17 +281,32 @@ pub const GraphBuilder = struct {
 
             body_begin.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
             // 1 for "begin", then local defs, then 1 for body
-            try body_begin.value.list.ensureTotalCapacityPrecise(1 + self.locals.items.len + 1);
+            try body_begin.value.list.ensureTotalCapacityPrecise(1 + 2 * self.locals.items.len + 1);
             body_begin.value.list.addOneAssumeCapacity().* = syms.begin;
             for (self.locals.items) |local| {
+                const local_type = body_begin.value.list.addOneAssumeCapacity();
+                local_type.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                try local_type.value.list.ensureTotalCapacityPrecise(3);
+                local_type.value.list.addOneAssumeCapacity().* = syms.typeof;
+                local_type.value.list.addOneAssumeCapacity().* = Sexp{
+                    .value = .{ .symbol = local.name },
+                    .comment = local.comment,
+                };
+                local_type.value.list.addOneAssumeCapacity().* = Sexp{
+                    .value = .{ .symbol = local.type_.name },
+                    .comment = local.comment,
+                };
+
                 const local_def = body_begin.value.list.addOneAssumeCapacity();
                 local_def.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try local_def.value.list.ensureTotalCapacityPrecise(3);
+                try local_def.value.list.ensureTotalCapacityPrecise(if (local.default != null) 3 else 2);
                 local_def.value.list.addOneAssumeCapacity().* = syms.define;
                 local_def.value.list.addOneAssumeCapacity().* = Sexp{
                     .value = .{ .symbol = local.name },
                     .comment = local.comment,
                 };
+                if (local.default) |default|
+                    local_def.value.list.addOneAssumeCapacity().* = default;
             }
             body_begin.value.list.addOneAssumeCapacity().* = body;
 

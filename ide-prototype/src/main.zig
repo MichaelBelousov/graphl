@@ -9,6 +9,7 @@ const Rect = dvui.Rect;
 const grappl = @import("grappl_core");
 const compiler = grappl.compiler;
 const SexpParser = @import("grappl_core").SexpParser;
+const Sexp = @import("grappl_core").Sexp;
 
 const GraphAreaWidget = @import("./GraphAreaWidget.zig");
 
@@ -1326,6 +1327,7 @@ fn dvui_frame() !void {
                     appended.* = .{
                         .name = name,
                         .type_ = grappl.primitive_types.i32_, // default binding type
+                        .default = Sexp{ .value = .{ .int = 1 } },
                     };
                 }
             }
