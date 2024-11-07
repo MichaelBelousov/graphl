@@ -7,7 +7,10 @@ const failing_allocator = std.testing.failing_allocator;
 pub const FuncType = struct {
     param_names: []const []const u8 = &.{},
     param_types: []const Type = &.{},
-    return_type: Type = primitive_types.void,
+    local_names: []const []const u8 = &.{},
+    local_types: []const Type = &.{},
+    result_names: []const []const u8 = &.{},
+    result_types: []const Type = &.{},
 };
 
 pub const TypeInfo = struct {

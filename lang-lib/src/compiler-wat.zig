@@ -27,15 +27,27 @@ pub const Diagnostic = struct {
     }
 };
 
+const DeferredFuncDeclInfo = struct {
+    param_names: []const []const u8,
+    local_names: []const []const u8,
+    local_types: []const Type,
+    result_names: []const []const u8,
+};
+
+const DeferredFuncTypeInfo = struct {
+    param_types: []const Type,
+    result_types: []const Type,
+};
+
 const Compilation = struct {
     env: Env,
     // TODO: have a first pass just figure out types?
     /// a list of forms that are incompletely compiled
     deferred: struct {
         /// function with parameter names that need the function's type
-        func_decls: std.StringHashMapUnmanaged([]const []const u8) = .{},
+        func_decls: std.StringHashMapUnmanaged(DeferredFuncDeclInfo) = .{},
         /// typeof's of functions that need function param names
-        func_types: std.StringHashMapUnmanaged(TypeInfo) = .{},
+        func_types: std.StringHashMapUnmanaged(DeferredFuncTypeInfo) = .{},
     } = .{},
     /// the WAT output
     wat: Sexp,
@@ -93,15 +105,24 @@ const Compilation = struct {
 
         const func_bindings = sexp.value.list.items[1].value.list.items[1..];
 
-        const func_param_names = try alloc.alloc([]const u8, func_bindings.len);
-        for (func_bindings, func_param_names) |func_binding, *param_name| {
+        const param_names = try alloc.alloc([]const u8, func_bindings.len);
+
+        const func_desc = DeferredFuncDeclInfo{
+            .param_names = param_names,
+            // TODO: read all defines at beginning of sexp or something
+            .local_names = &.{},
+            .local_types = &.{},
+            .result_names = &.{},
+        };
+
+        for (func_bindings, param_names) |func_binding, *param_name| {
             param_name.* = func_binding.value.symbol;
         }
 
-        if (self.deferred.func_types.get(func_name)) |func_type_desc| {
-            try self.finishCompileTypedFunc(func_param_names, func_type_desc);
+        if (self.deferred.func_types.get(func_name)) |func_type| {
+            try self.finishCompileTypedFunc(func_name, func_desc, func_type);
         } else {
-            try self.deferred.func_decls.put(alloc, func_name, func_param_names);
+            try self.deferred.func_decls.put(alloc, func_name, func_desc);
         }
 
         return true;
@@ -172,20 +193,16 @@ const Compilation = struct {
             type_.* = self.env.types.getPtr(param_type) orelse return error.UnknownType;
         }
 
-        const return_type = self.env.types.getPtr(result_type_name) orelse return error.UnknownType;
+        const result_types = try alloc.alloc(Type, 1);
+        result_types[0] = self.env.types.getPtr(result_type_name) orelse return error.UnknownType;
 
-        const func_type_desc = TypeInfo{
-            .name = func_name,
-            .func_type = .{
-                // FIXME: use types to prevent this invalid object!
-                // param_names will be filled when the function is not deferred
-                .param_types = param_types,
-                .return_type = return_type,
-            },
+        const func_type_desc = DeferredFuncTypeInfo{
+            .param_types = param_types,
+            .result_types = result_types,
         };
 
         if (self.deferred.func_decls.getPtr(func_name)) |func_decl| {
-            try self.finishCompileTypedFunc(func_decl.*, func_type_desc);
+            try self.finishCompileTypedFunc(func_name, func_decl.*, func_type_desc);
         } else {
             try self.deferred.func_types.put(alloc, func_name, func_type_desc);
         }
@@ -210,27 +227,24 @@ const Compilation = struct {
         pub const @"$0" = Sexp{ .value = .{ .symbol = "$0" } };
     };
 
-    fn finishCompileTypedFunc(
-        self: *@This(),
-        func_decl_param_names: []const []const u8,
-        incomplete_func_type_desc: TypeInfo,
-    ) !void {
+    fn finishCompileTypedFunc(self: *@This(), name: []const u8, func_decl: DeferredFuncDeclInfo, func_type: DeferredFuncTypeInfo) !void {
         const alloc = self.arena.allocator();
 
         const complete_func_type_desc = TypeInfo{
-            .name = incomplete_func_type_desc.name,
+            .name = name,
             .func_type = .{
-                .param_names = func_decl_param_names,
-                .param_types = incomplete_func_type_desc.func_type.?.param_types,
-                .return_type = incomplete_func_type_desc.func_type.?.return_type,
+                .param_names = func_decl.param_names,
+                .param_types = func_type.param_types,
+                .local_names = func_decl.local_names,
+                .local_types = func_decl.local_types,
+                .result_names = func_decl.result_names,
+                .result_types = func_type.result_types,
             },
         };
 
-        const func_type = try self.env.addType(alloc, complete_func_type_desc);
-        _ = func_type;
+        const func_type_in_env = try self.env.addType(alloc, complete_func_type_desc);
+        _ = func_type_in_env;
 
-        //        (export "++"
-        //                (func $++))
         {
             const export_sexp = try self.module_body.addOne();
             export_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
@@ -290,7 +304,7 @@ const Compilation = struct {
             // FIXME: this leaks! symbols are assumed to be borrowed!
             (try impl_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{complete_func_type_desc.name}) } };
 
-            for (func_decl_param_names, complete_func_type_desc.func_type.?.param_types) |param_name, param_type| {
+            for (func_decl.param_names, complete_func_type_desc.func_type.?.param_types) |param_name, param_type| {
                 const param_sexp = try impl_sexp.value.list.addOne();
                 param_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                 try param_sexp.value.list.ensureTotalCapacityPrecise(3);
@@ -302,12 +316,11 @@ const Compilation = struct {
             const result_sexp = try impl_sexp.value.list.addOne();
             result_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
             try result_sexp.value.list.ensureTotalCapacityPrecise(2);
-            (try result_sexp.value.list.addOne()).* = wat_syms.result;
+            result_sexp.value.list.addOneAssumeCapacity().* = wat_syms.result;
             // FIXME: compile return type
-            (try result_sexp.value.list.addOne()).* = primitive_type_syms.i32;
+            result_sexp.value.list.addOneAssumeCapacity().* = primitive_type_syms.i32;
 
-            // FIXME: locals not implemented
-            for (func_decl_param_names, complete_func_type_desc.func_type.?.param_types) |local_name, local_type| {
+            for (func_decl.local_names, complete_func_type_desc.func_type.?.local_types) |local_name, local_type| {
                 const local_sexp = try impl_sexp.value.list.addOne();
                 local_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                 try local_sexp.value.list.ensureTotalCapacityPrecise(3);

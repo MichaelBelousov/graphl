@@ -43,6 +43,7 @@ pub const NodeId = GraphTypes.NodeId;
 pub const Binding = struct {
     name: []u8,
     type_: Type,
+    comment: ?[]u8 = null,
 };
 
 /// all APIs taking an allocator must use the same allocator
@@ -244,6 +245,7 @@ pub const GraphBuilder = struct {
     pub fn compile(self: *@This(), alloc: std.mem.Allocator, name: []const u8) !Sexp {
         try self.postPopulate(alloc);
         const body = try self.rootToSexp(alloc);
+        std.debug.assert(body.value == .list);
 
         var module = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(alloc) } };
         try module.value.module.ensureTotalCapacityPrecise(2);
@@ -251,7 +253,7 @@ pub const GraphBuilder = struct {
         const func_def = module.value.module.addOneAssumeCapacity();
 
         {
-            type_def.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            type_def.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) }, .comment = "comment!" };
             try type_def.value.list.ensureTotalCapacityPrecise(3);
             type_def.value.list.addOneAssumeCapacity().* = syms.typeof;
             const param_bindings = type_def.value.list.addOneAssumeCapacity();
@@ -274,7 +276,23 @@ pub const GraphBuilder = struct {
             try func_def.value.list.ensureTotalCapacityPrecise(3);
             func_def.value.list.addOneAssumeCapacity().* = syms.define;
             const func_bindings = func_def.value.list.addOneAssumeCapacity();
-            func_def.value.list.addOneAssumeCapacity().* = body;
+            const body_begin = func_def.value.list.addOneAssumeCapacity();
+
+            body_begin.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            // 1 for "begin", then local defs, then 1 for body
+            try body_begin.value.list.ensureTotalCapacityPrecise(1 + self.locals.items.len + 1);
+            body_begin.value.list.addOneAssumeCapacity().* = syms.begin;
+            for (self.locals.items) |local| {
+                const local_def = body_begin.value.list.addOneAssumeCapacity();
+                local_def.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                try local_def.value.list.ensureTotalCapacityPrecise(3);
+                local_def.value.list.addOneAssumeCapacity().* = syms.define;
+                local_def.value.list.addOneAssumeCapacity().* = Sexp{
+                    .value = .{ .symbol = local.name },
+                    .comment = local.comment,
+                };
+            }
+            body_begin.value.list.addOneAssumeCapacity().* = body;
 
             // FIXME: also emit imports and definitions!
             func_bindings.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };

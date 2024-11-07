@@ -577,7 +577,7 @@ fn renderGraph() !void {
                 if (me.action == .press and me.button.pointer()) {
                     e.handled = true;
                     dvui.captureMouse(graph_area.scroll.data().id);
-                    dvui.dragPreStart(me.p, null, dvui.Point{});
+                    dvui.dragPreStart(me.p, .{ .offset = dvui.Point{} });
                 } else if (me.action == .release and me.button.pointer()) {
                     if (dvui.captured(graph_area.scroll.data().id)) {
                         e.handled = true;
@@ -864,7 +864,7 @@ fn renderNode(
                         e.handled = true;
                         dvui.captureMouse(box.data().id);
                         const rs = box.data().rectScale();
-                        dvui.dragPreStart(me.p, null, rs.pointFromScreen(me.p));
+                        dvui.dragPreStart(me.p, .{ .offset = rs.pointFromScreen(me.p) });
                     } else if (me.action == .release and me.button.pointer()) {
                         if (dvui.captured(box.data().id)) {
                             e.handled = true;
@@ -1321,10 +1321,8 @@ fn dvui_frame() !void {
                 const add_clicked = (try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i })).clicked;
                 if (add_clicked) {
                     const appended = try bindings_info.data.addOne(gpa);
-                    // FIXME: leak
-                    const name = try gpa.alloc(u8, MAX_FUNC_NAME);
-                    //@memcpy(name[0..3], "new");
-                    @memcpy(name[0..4], "new\x00");
+                    const name = try gpa.dupe(u8, "new");
+                    // FIXME: leaks!
                     appended.* = .{
                         .name = name,
                         .type_ = grappl.primitive_types.i32_, // default binding type
@@ -1341,17 +1339,10 @@ fn dvui_frame() !void {
                 var box = try dvui.box(@src(), .horizontal, .{ .id_extra = id_extra });
                 defer box.deinit();
 
-                const text_entry_src = @src();
-                //const text_entry_id = box.widget().extendId(text_entry_src, id_extra);
-                // NOTE: to pre-compute id, must use text_entry_src
-                const text_entry = try dvui.textEntry(text_entry_src, .{ .text = .{ .buffer = binding.name } }, .{ .id_extra = id_extra });
-                //if (text_entry.text_changed) {}
-                //const not_first_render = dvui.dataGet(null, text_entry_id, "_not_first_render", bool) orelse false;
-                //const first_render = !not_first_render;
-                // if (first_render) {
-                //     text_entry.textTyped(binding.name);
-                // }
-                //dvui.dataSet(null, text_entry_id, "_not_first_render", true);
+                const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = id_extra });
+                if (text_entry.text_changed) {
+                    binding.name = text_entry.getText();
+                }
                 text_entry.deinit();
 
                 var type_choice: usize = _: {
