@@ -69,24 +69,36 @@ pub const NodeSpecialInfo = union(enum) {
 };
 
 pub const NodeDesc = struct {
-    // FIXME: should be scoped
-    /// name of the node, used as the type tag in the json format, within a particular scope
-    name: []const u8,
     hidden: bool = false,
+
+    /// if ==0, it is a non-builtin node that is not inserted into an env yet
+    /// if <2048, it is a builtin node
+    /// if >=2048, it is a non-builtin node in an env
+    id: u32 = 0,
 
     // FIXME: horrible
     special: NodeSpecialInfo = .none,
 
-    context: *align(@sizeOf(usize)) const anyopaque,
+    context: *const anyopaque,
     // TODO: do I really need pointers? The types are all going to be well defined aggregates,
     // and the nodes too
     // FIXME: read https://pithlessly.github.io/allocgate.html, the same logic as to why zig
     // stopped using @fieldParentPtr-based polymorphism applies here to, this is needlessly slow
-    _getInputs: *const fn (NodeDesc) []const Pin,
-    _getOutputs: *const fn (NodeDesc) []const Pin,
+    _getInputs: *const fn (*const NodeDesc) []const Pin,
+    _getOutputs: *const fn (*const NodeDesc) []const Pin,
+    /// name is relative to the env it is stored in
+    _getName: *const fn (*const NodeDesc) []const u8,
+
+    pub fn name(self: *const @This()) []const u8 {
+        return self._getName(self);
+    }
 
     pub fn getInputs(self: *const @This()) []const Pin {
-        return self._getInputs(self.*);
+        return self._getInputs(self);
+    }
+
+    pub fn getOutputs(self: *const @This()) []const Pin {
+        return self._getOutputs(self);
     }
 
     pub fn maybeStaticOutputsLen(self: @This()) ?usize {
@@ -111,10 +123,6 @@ pub const NodeDesc = struct {
             }
         }
         return if (is_static) inputs.len else null;
-    }
-
-    pub fn getOutputs(self: *const @This()) []const Pin {
-        return self._getOutputs(self.*);
     }
 
     const FlowType = enum {
@@ -345,28 +353,35 @@ pub const BasicNodeDesc = struct {
     outputs: []const Pin = &.{},
 };
 
+const BasicNodeImpl = struct {
+    const Self = @This();
+
+    pub fn getInputs(node: *const NodeDesc) []const Pin {
+        const desc: *const BasicNodeDesc = @alignCast(@ptrCast(node.context));
+        return desc.inputs;
+    }
+
+    pub fn getOutputs(node: *const NodeDesc) []const Pin {
+        const desc: *const BasicNodeDesc = @alignCast(@ptrCast(node.context));
+        return desc.outputs;
+    }
+
+    pub fn getName(node: *const NodeDesc) []const u8 {
+        const desc: *const BasicNodeDesc = @alignCast(@ptrCast(node.context));
+        return desc.name;
+    }
+};
+
 /// caller owns memory!
-pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
-    const NodeImpl = struct {
-        const Self = @This();
-
-        pub fn getInputs(node: NodeDesc) []const Pin {
-            const desc: *const BasicNodeDesc = @ptrCast(node.context);
-            return desc.inputs;
-        }
-
-        pub fn getOutputs(node: NodeDesc) []const Pin {
-            const desc: *const BasicNodeDesc = @ptrCast(node.context);
-            return desc.outputs;
-        }
-    };
-
+pub fn basicNode(comptime id: u32, in_desc: *const BasicNodeDesc) NodeDesc {
     return NodeDesc{
-        .name = in_desc.name,
+        .id = id,
         .context = @ptrCast(in_desc),
         .hidden = in_desc.hidden,
-        ._getInputs = NodeImpl.getInputs,
-        ._getOutputs = NodeImpl.getOutputs,
+        .special = in_desc.special,
+        ._getInputs = BasicNodeImpl.getInputs,
+        ._getOutputs = BasicNodeImpl.getOutputs,
+        ._getName = BasicNodeImpl.getName,
     };
 }
 
@@ -379,26 +394,14 @@ pub const BasicMutNodeDesc = struct {
 };
 
 pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
-    const NodeImpl = struct {
-        const Self = @This();
-
-        pub fn getInputs(node: NodeDesc) []const Pin {
-            const desc: *const BasicNodeDesc = @ptrCast(node.context);
-            return desc.inputs;
-        }
-
-        pub fn getOutputs(node: NodeDesc) []const Pin {
-            const desc: *const BasicNodeDesc = @ptrCast(node.context);
-            return desc.outputs;
-        }
-    };
-
     return NodeDesc{
-        .name = in_desc.name,
+        .id = 0,
         .context = @ptrCast(in_desc),
         .hidden = in_desc.hidden,
-        ._getInputs = NodeImpl.getInputs,
-        ._getOutputs = NodeImpl.getOutputs,
+        .special = in_desc.special,
+        ._getInputs = BasicNodeImpl.getInputs,
+        ._getOutputs = BasicNodeImpl.getOutputs,
+        ._getName = BasicNodeImpl.getName,
     };
 }
 
@@ -406,7 +409,7 @@ pub const VarNodes = struct {
     get: NodeDesc,
     set: NodeDesc,
 
-    fn init(alloc: std.mem.Allocator, var_name: []const u8, var_type: Type) !VarNodes {
+    fn init(alloc: std.mem.Allocator, comptime get_id: u32, comptime set_id: u32, var_name: []const u8, var_type: Type) !VarNodes {
         // FIXME: test and plug non-comptime alloc leaks
         comptime var getter_outputs_slot: [if (@inComptime()) 1 else 0]Pin = undefined;
         const _getter_outputs = if (@inComptime()) &getter_outputs_slot else try alloc.alloc(Pin, 1);
@@ -441,11 +444,11 @@ pub const VarNodes = struct {
             try std.fmt.allocPrint(alloc, "#SET#{s}", .{var_name});
 
         return VarNodes{
-            .get = basicNode(&.{
+            .get = basicNode(get_id, &.{
                 .name = getter_name,
                 .outputs = getter_outputs,
             }),
-            .set = basicNode(&.{
+            .set = basicNode(set_id, &.{
                 .name = setter_name,
                 .inputs = setter_inputs,
                 .outputs = setter_outputs,
@@ -515,7 +518,7 @@ pub fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !N
 }
 
 pub const builtin_nodes = struct {
-    pub const @"+": NodeDesc = basicNode(&.{
+    pub const @"+": NodeDesc = basicNode(0, &.{
         .name = "+",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -525,7 +528,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
-    pub const @"-": NodeDesc = basicNode(&.{
+    pub const @"-": NodeDesc = basicNode(1, &.{
         .name = "-",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -535,7 +538,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
-    pub const max: NodeDesc = basicNode(&.{
+    pub const max: NodeDesc = basicNode(2, &.{
         .name = "max",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -545,7 +548,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
-    pub const min: NodeDesc = basicNode(&.{
+    pub const min: NodeDesc = basicNode(3, &.{
         .name = "min",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -555,7 +558,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
-    pub const @"*": NodeDesc = basicNode(&.{
+    pub const @"*": NodeDesc = basicNode(4, &.{
         .name = "*",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -565,7 +568,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
-    pub const @"/": NodeDesc = basicNode(&.{
+    pub const @"/": NodeDesc = basicNode(5, &.{
         .name = "/",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -575,7 +578,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
-    pub const @"if": NodeDesc = basicNode(&.{
+    pub const @"if": NodeDesc = basicNode(6, &.{
         .name = "if",
         .inputs = &.{
             Pin{ .name = "run", .kind = .{ .primitive = .exec } },
@@ -587,7 +590,7 @@ pub const builtin_nodes = struct {
         },
     });
     // TODO: function...
-    // pub const sequence: NodeDesc = basicNode(&.{
+    // pub const sequence: NodeDesc = basicNode(7, &.{
     //     .name = "sequence",
     //     .inputs = &.{
     //         Pin{ .name = "", .kind = .{ .primitive = .exec } },
@@ -597,7 +600,7 @@ pub const builtin_nodes = struct {
     //     },
     // });
 
-    pub const @"set!": NodeDesc = basicNode(&.{
+    pub const @"set!": NodeDesc = basicNode(8, &.{
         .name = "set!",
         // FIXME: needs to be generic/per variable
         .inputs = &.{
@@ -611,7 +614,7 @@ pub const builtin_nodes = struct {
         },
     });
 
-    pub const func_start: NodeDesc = basicNode(&.{
+    pub const func_start: NodeDesc = basicNode(9, &.{
         .name = "start",
         .hidden = true,
         .outputs = &.{
@@ -620,7 +623,7 @@ pub const builtin_nodes = struct {
     });
 
     // "cast":
-    // pub const @"switch": NodeDesc = basicNode(&.{
+    // pub const @"switch": NodeDesc = basicNode(10, &.{
     //     .name = "switch",
     //     .inputs = &.{
     //         Pin{ .name = "", .kind = .{ .primitive = .exec } },
@@ -875,7 +878,9 @@ test "node types" {
 pub const Env = struct {
     types: std.StringHashMapUnmanaged(Type) = .{},
     // could be macro, function, operator
-    nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
+    nodes: std.AutoHashMapUnmanaged(u32, *const NodeDesc) = .{},
+
+    next_node_id: u32 = 1,
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         self.types.clearAndFree(alloc);
@@ -903,7 +908,7 @@ pub const Env = struct {
             try env.nodes.ensureTotalCapacity(alloc, @intCast(nodes_decls.len));
             inline for (nodes_decls) |n| {
                 const node = @field(nodes, n.name);
-                try env.nodes.put(alloc, node.name, &node);
+                try env.nodes.put(alloc, node.id, &node);
             }
         }
 
@@ -930,14 +935,32 @@ pub const Env = struct {
     }
 
     pub fn addNode(self: *@This(), a: std.mem.Allocator, node_desc: NodeDesc) !*NodeDesc {
+        std.debug.assert(node_desc.id < 2048);
+
         // TODO: dupe the key, we need to own the key memory lifetime
         const result = try self.nodes.getOrPut(a, node_desc.name);
+
+        const is_builtin_node = node_desc.id > 0 and node_desc.id < 2048;
+        if (is_builtin_node) {
+            std.debug.assert(!result.found_existing);
+        }
+
         // FIXME: allow types to be overriden within scopes?
         if (result.found_existing) return error.EnvAlreadyExists;
         // FIXME: leak
         const slot = try a.create(NodeDesc);
         slot.* = node_desc;
         result.value_ptr.* = slot;
+
+        if (node_desc.id == 0) {
+            slot.id = 2048 + self.next_id;
+            self.next_node_id += 1;
+        }
+
+        errdefer if (node_desc.id == 0) {
+            self.next_node_id -= 1;
+        };
+
         return slot;
     }
 };

@@ -384,7 +384,14 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
                     continue;
             }
 
-            if ((try dvui.menuItemLabel(@src(), node_name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
+            var name_buf: [MAX_FUNC_NAME]u8 = undefined;
+            const name = switch (node_desc.special) {
+                .none => try std.fmt.bufPrint(&name_buf, "{s}", .{node_name}),
+                .get => try std.fmt.bufPrint(&name_buf, "Get {s}", .{node_name[4..]}),
+                .set => try std.fmt.bufPrint(&name_buf, "Set {s}", .{node_name[4..]}),
+            };
+
+            if ((try dvui.menuItemLabel(@src(), name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
                 // TODO: use diagnostic
                 const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null);
                 const new_node = current_graph.grappl_graph.nodes.map.getPtr(new_node_id) orelse unreachable;
@@ -746,7 +753,11 @@ fn renderNode(
 
     const result = box.data().rect; // already has origin added (already in scroll coords)
 
-    try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .font_style = .title_3 });
+    switch (node.desc.special) {
+        .none => try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .font_style = .title_3 }),
+        .get => try dvui.label(@src(), "Get {s}", .{node.desc.name[4..]}, .{ .font_style = .title_3 }),
+        .set => try dvui.label(@src(), "Set {s}", .{node.desc.name[4..]}, .{ .font_style = .title_3 }),
+    }
 
     var hbox = try dvui.box(@src(), .horizontal, .{});
     defer hbox.deinit();
@@ -1343,21 +1354,55 @@ fn dvui_frame() !void {
 
                     errdefer gpa.free(name);
 
+                    // default binding type
+                    const new_type = grappl.primitive_types.i32_;
+
+                    const getter_inputs = [_]helpers.Pin{};
+
+                    const getter_outputs = [_]helpers.Pin{
+                        helpers.Pin{
+                            .name = "value",
+                            .kind = .{ .primitive = .{ .value = new_type } },
+                        },
+                    };
+
+                    const setter_inputs = [_]helpers.Pin{
+                        helpers.Pin{
+                            .name = "",
+                            .kind = .{ .primitive = .exec },
+                        },
+                        helpers.Pin{
+                            .name = "new value",
+                            .kind = .{ .primitive = .{ .value = new_type } },
+                        },
+                    };
+
+                    const setter_outputs = [_]helpers.Pin{
+                        helpers.Pin{
+                            .name = "",
+                            .kind = .{ .primitive = .exec },
+                        },
+                        helpers.Pin{
+                            .name = "value",
+                            .kind = .{ .primitive = .{ .value = new_type } },
+                        },
+                    };
+
                     const node_descs = try gpa.alloc(grappl.helpers.BasicMutNodeDesc, 2);
                     node_descs[0] = grappl.helpers.BasicMutNodeDesc{
                         // FIXME: leaks
                         .name = try std.fmt.allocPrint(gpa, "get_{s}", .{name}),
                         .special = .get,
-                        .inputs = &.{},
-                        .outputs = &.{},
+                        .inputs = try gpa.dupe(helpers.Pin, &getter_inputs),
+                        .outputs = try gpa.dupe(helpers.Pin, &getter_outputs),
                     };
                     errdefer gpa.free(node_descs[0].name);
                     node_descs[1] = grappl.helpers.BasicMutNodeDesc{
                         // FIXME: leaks
                         .name = try std.fmt.allocPrint(gpa, "set_{s}", .{name}),
                         .special = .set,
-                        .inputs = &.{},
-                        .outputs = &.{},
+                        .inputs = try gpa.dupe(helpers.Pin, &setter_inputs),
+                        .outputs = try gpa.dupe(helpers.Pin, &setter_outputs),
                     };
                     errdefer gpa.free(node_descs[1].name);
 
@@ -1369,7 +1414,7 @@ fn dvui_frame() !void {
                     // FIXME: leaks!
                     appended.* = .{
                         .name = name,
-                        .type_ = grappl.primitive_types.i32_, // default binding type
+                        .type_ = new_type,
                         .default = Sexp{ .value = .{ .int = 1 } },
                         .extra = node_descs.ptr,
                     };
@@ -1398,10 +1443,14 @@ fn dvui_frame() !void {
                         const nodes: *[2]grappl.helpers.BasicMutNodeDesc = @alignCast(@ptrCast(extra));
                         const get_node = &nodes[0];
                         const set_node = &nodes[1];
-                        gpa.free(get_node.name);
+                        // TODO: REPORT ME... allocator doesn't seem to return right slice len
+                        // when freeing right before resetting?
+                        const old_get_node_name = get_node.name;
                         get_node.name = try std.fmt.allocPrint(gpa, "get_{s}", .{new_name});
-                        gpa.free(set_node.name);
+                        const old_set_node_name = set_node.name;
                         set_node.name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name});
+                        gpa.free(old_get_node_name);
+                        gpa.free(old_set_node_name);
                     }
                 }
                 // must occur after text_changed check or this operation will set it
