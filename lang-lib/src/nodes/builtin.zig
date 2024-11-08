@@ -239,6 +239,9 @@ pub const GraphTypes = struct {
     };
 };
 
+// place holder during analysis
+pub const empty_type: Type = &TypeInfo{ .name = "EMPTY_TYPE" };
+
 pub const primitive_types = struct {
     // nums
     pub const i32_: Type = &TypeInfo{ .name = "i32", .wasm_primitive = "i32" };

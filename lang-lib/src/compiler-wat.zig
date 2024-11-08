@@ -1,11 +1,12 @@
 const std = @import("std");
 const Sexp = @import("./sexp.zig").Sexp;
-const Env = @import("./nodes//builtin.zig").Env;
-const TypeInfo = @import("./nodes//builtin.zig").TypeInfo;
-const Type = @import("./nodes//builtin.zig").Type;
 const syms = @import("./sexp.zig").syms;
 const primitive_type_syms = @import("./sexp.zig").primitive_type_syms;
 const builtin = @import("./nodes/builtin.zig");
+const primitive_types = @import("./nodes/builtin.zig").primitive_types;
+const Env = @import("./nodes//builtin.zig").Env;
+const TypeInfo = @import("./nodes//builtin.zig").TypeInfo;
+const Type = @import("./nodes//builtin.zig").Type;
 const PageWriter = @import(".//PageWriter.zig").PageWriter;
 
 pub const Diagnostic = struct {
@@ -291,6 +292,14 @@ const Compilation = struct {
                 pub const @"const" = Sexp{ .value = .{ .symbol = "i32.const" } };
             };
 
+            pub const i64_ = struct {
+                pub const add = Sexp{ .value = .{ .symbol = "i64.add" } };
+                pub const sub = Sexp{ .value = .{ .symbol = "i64.sub" } };
+                pub const mul = Sexp{ .value = .{ .symbol = "i64.mul" } };
+                pub const div = Sexp{ .value = .{ .symbol = "i64.div" } };
+                pub const @"const" = Sexp{ .value = .{ .symbol = "i64.const" } };
+            };
+
             pub const f32_ = struct {
                 pub const add = Sexp{ .value = .{ .symbol = "f32.add" } };
                 pub const sub = Sexp{ .value = .{ .symbol = "f32.sub" } };
@@ -426,8 +435,12 @@ const Compilation = struct {
                 _ = i;
                 const body_fragment = try self.compileExpr(&return_expr);
                 std.debug.assert(func_type.result_types.len == 1);
-                if (body_fragment.resolved_type != func_type.result_types[0]) return error.ReturnTypeMismatch;
-                (try impl_sexp.value.list.addOne()).* = Sexp{ .value = .{ .list = body_fragment.code } };
+                if (body_fragment.resolved_type != func_type.result_types[0]) {
+                    std.log.err("type: '{s}' doesn't match '{s}'", .{ body_fragment.resolved_type.name, func_type.result_types[0].name });
+                    return error.ReturnTypeMismatch;
+                }
+                // FIXME: what about the rest of the code?
+                (try impl_sexp.value.list.addOne()).* = body_fragment.code.items[0];
             }
         }
     }
@@ -444,9 +457,69 @@ const Compilation = struct {
     };
 
     fn resolvePeerTypes(a: Fragment, b: Fragment) Type {
-        _ = a;
-        _ = b;
-        return builtin.primitive_types.i32_;
+        // REPORT: zig can't switch on constant pointers
+        // return switch (a.resolved_type) {
+        //     primitive_types.i32_ => switch (b.resolved_type) {
+        //         primitive_types.i32_ => primitive_types.i32_,
+        //         primitive_types.i64_ => primitive_types.i64_,
+        //         primitive_types.f32_ => primitive_types.f32_,
+        //         primitive_types.f64_ => primitive_types.f64_,
+        //         else => @panic("unimplemented peer type resolution"),
+        //     },
+        //     primitive_types.i64_ => switch (b.resolved_type) {
+        //         primitive_types.i32_ => primitive_types.i64_,
+        //         primitive_types.i64_ => primitive_types.i64_,
+        //         primitive_types.f32_ => primitive_types.f32_,
+        //         primitive_types.f64_ => primitive_types.f64_,
+        //         else => @panic("unimplemented peer type resolution"),
+        //     },
+        //     primitive_types.f32_ => switch (b.resolved_type) {
+        //         primitive_types.i32_ => primitive_types.f32_,
+        //         primitive_types.i64_ => primitive_types.f32_,
+        //         primitive_types.f32_ => primitive_types.f32_,
+        //         primitive_types.f64_ => primitive_types.f64_,
+        //         else => @panic("unimplemented peer type resolution"),
+        //     },
+        //     primitive_types.f64_ => switch (b.resolved_type) {
+        //         primitive_types.i32_ => primitive_types.f64_,
+        //         primitive_types.i64_ => primitive_types.f64_,
+        //         primitive_types.f32_ => primitive_types.f64_,
+        //         primitive_types.f64_ => primitive_types.f64_,
+        //         else => @panic("unimplemented peer type resolution"),
+        //     },
+        //     else => @panic("unimplemented peer type resolution"),
+        // };
+
+        if (a.resolved_type == builtin.empty_type)
+            return b.resolved_type;
+
+        if (b.resolved_type == builtin.empty_type)
+            return a.resolved_type;
+
+        if (a.resolved_type == primitive_types.i32_) {
+            if (b.resolved_type == primitive_types.i32_) return primitive_types.i32_;
+            if (b.resolved_type == primitive_types.i64_) return primitive_types.i64_;
+            if (b.resolved_type == primitive_types.f32_) return primitive_types.f32_;
+            if (b.resolved_type == primitive_types.f64_) return primitive_types.f64_;
+        } else if (a.resolved_type == primitive_types.i64_) {
+            if (b.resolved_type == primitive_types.i32_) return primitive_types.i64_;
+            if (b.resolved_type == primitive_types.i64_) return primitive_types.i64_;
+            if (b.resolved_type == primitive_types.f32_) return primitive_types.f32_;
+            if (b.resolved_type == primitive_types.f64_) return primitive_types.f64_;
+        } else if (a.resolved_type == primitive_types.f32_) {
+            if (b.resolved_type == primitive_types.i32_) return primitive_types.f32_;
+            if (b.resolved_type == primitive_types.i64_) return primitive_types.f32_;
+            if (b.resolved_type == primitive_types.f32_) return primitive_types.f32_;
+            if (b.resolved_type == primitive_types.f64_) return primitive_types.f64_;
+        } else if (a.resolved_type == primitive_types.f64_) {
+            if (b.resolved_type == primitive_types.i32_) return primitive_types.f64_;
+            if (b.resolved_type == primitive_types.i64_) return primitive_types.f64_;
+            if (b.resolved_type == primitive_types.f32_) return primitive_types.f64_;
+            if (b.resolved_type == primitive_types.f64_) return primitive_types.f64_;
+        }
+
+        std.log.err("unimplemented peer type resolution: {s} & {s}", .{ a.resolved_type.name, b.resolved_type.name });
+        std.debug.panic("unimplemented peer type resolution: {s} & {s}", .{ a.resolved_type.name, b.resolved_type.name });
     }
 
     // TODO: take a diagnostic
@@ -460,7 +533,7 @@ const Compilation = struct {
 
                 var result = Fragment{
                     .code = std.ArrayList(Sexp).init(alloc),
-                    .resolved_type = undefined,
+                    .resolved_type = builtin.empty_type,
                 };
 
                 const arg_fragments = try alloc.alloc(Fragment, v.items.len - 1);
@@ -476,23 +549,19 @@ const Compilation = struct {
                 inline for (&.{
                     .{
                         .sym = syms.@"+",
-                        .wasm_i32 = wat_syms.ops.i32_.add,
-                        .wasm_f32 = wat_syms.ops.f32_.add,
+                        .wasm_name = "add",
                     },
                     .{
                         .sym = syms.@"-",
-                        .wasm_i32 = wat_syms.ops.i32_.sub,
-                        .wasm_f32 = wat_syms.ops.f32_.sub,
+                        .wasm_name = "sub",
                     },
                     .{
                         .sym = syms.@"*",
-                        .wasm_i32 = wat_syms.ops.i32_.mul,
-                        .wasm_f32 = wat_syms.ops.f32_.mul,
+                        .wasm_name = "mul",
                     },
                     .{
                         .sym = syms.@"/",
-                        .wasm_i32 = wat_syms.ops.i32_.div,
-                        .wasm_f32 = wat_syms.ops.f32_.div,
+                        .wasm_name = "div",
                     },
                 }) |builtin_op| {
                     if (func.value.symbol.ptr == builtin_op.sym.value.symbol.ptr) {
@@ -500,8 +569,7 @@ const Compilation = struct {
                         const wasm_op = result.code.addOneAssumeCapacity();
                         wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                         try wasm_op.value.list.ensureTotalCapacityPrecise(3);
-                        // FIXME: use types to determine
-                        wasm_op.value.list.addOneAssumeCapacity().* = builtin_op.wasm_i32;
+                        const op_name = wasm_op.value.list.addOneAssumeCapacity();
 
                         std.debug.assert(arg_fragments.len == 2);
                         for (arg_fragments) |arg_fragment| {
@@ -509,6 +577,26 @@ const Compilation = struct {
                             std.debug.assert(arg_fragment.code.items.len == 1);
                             wasm_op.value.list.addOneAssumeCapacity().* = arg_fragment.code.items[0];
                             arg_fragment.code.items[0] = Sexp{ .value = .void };
+                        }
+
+                        // REPORT ME: when inline, for some reason the f32 and f64 aren't picked up?
+                        // or maybe the debugger is weird and the else is overly done?
+                        //const arith_types = [_][]const u8{ "i32_", "i64_", "f32_", "f64_" };
+                        var handled = false;
+
+                        inline for (&.{ "i32_", "i64_", "f32_", "f64_" }) |type_name| {
+                            const primitive_type: Type = @field(primitive_types, type_name);
+                            if (result.resolved_type == primitive_type) {
+                                const wasm_type_ops = @field(wat_syms.ops, type_name);
+                                op_name.* = @field(wasm_type_ops, builtin_op.wasm_name);
+                                handled = true;
+                            }
+                        }
+
+                        // TODO: try to prefer an else on the above for loop, currently couldn't get it to compile right
+                        if (!handled) {
+                            std.log.err("unimplemented type resolution: '{s}'", .{result.resolved_type.name});
+                            std.debug.panic("unimplemented type resolution: '{s}'", .{result.resolved_type.name});
                         }
                     }
                     return result;
