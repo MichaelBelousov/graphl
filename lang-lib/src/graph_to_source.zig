@@ -50,6 +50,8 @@ pub const Binding = struct {
     type_: Type,
     comment: ?[]u8 = null,
     default: ?Sexp = null,
+    // FIXME: gross, used currently for custom associated data
+    extra: ?*anyopaque = null,
 };
 
 /// all APIs taking an allocator must use the same allocator

@@ -62,11 +62,20 @@ pub const Pin = struct {
     }
 };
 
+pub const NodeSpecialInfo = union(enum) {
+    none: void,
+    get: void,
+    set: void,
+};
+
 pub const NodeDesc = struct {
     // FIXME: should be scoped
     /// name of the node, used as the type tag in the json format, within a particular scope
     name: []const u8,
     hidden: bool = false,
+
+    // FIXME: horrible
+    special: NodeSpecialInfo = .none,
 
     context: *align(@sizeOf(usize)) const anyopaque,
     // TODO: do I really need pointers? The types are all going to be well defined aggregates,
@@ -331,6 +340,7 @@ pub fn returnType(builtin_node: *const NodeDesc, input_types: []const Type) Type
 pub const BasicNodeDesc = struct {
     name: []const u8,
     hidden: bool = false,
+    special: NodeSpecialInfo = .none,
     inputs: []const Pin = &.{},
     outputs: []const Pin = &.{},
 };
@@ -363,6 +373,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
 pub const BasicMutNodeDesc = struct {
     name: []const u8,
     hidden: bool = false,
+    special: NodeSpecialInfo = .none,
     inputs: []Pin = &.{},
     outputs: []Pin = &.{},
 };

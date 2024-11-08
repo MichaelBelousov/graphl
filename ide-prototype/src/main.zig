@@ -10,6 +10,7 @@ const grappl = @import("grappl_core");
 const compiler = grappl.compiler;
 const SexpParser = @import("grappl_core").SexpParser;
 const Sexp = @import("grappl_core").Sexp;
+const helpers = @import("grappl_core").helpers;
 
 const GraphAreaWidget = @import("./GraphAreaWidget.zig");
 
@@ -352,11 +353,11 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
     } else null;
 
     {
-        var iter = current_graph.env.nodes.iterator();
+        var iter = current_graph.env.nodes.valueIterator();
         var i: u32 = 0;
-        while (iter.next()) |node_entry| {
-            const node_name = node_entry.key_ptr;
-            const node_desc = node_entry.value_ptr.*;
+        while (iter.next()) |node| {
+            const node_desc = node.*;
+            const node_name = node_desc.name;
 
             var valid_socket_index: ?u16 = null;
 
@@ -383,13 +384,13 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
                     continue;
             }
 
-            if ((try dvui.menuItemLabel(@src(), node_name.*, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
+            if ((try dvui.menuItemLabel(@src(), node_name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
                 // TODO: use diagnostic
-                const node_id = try current_graph.addNode(gpa, node_name.*, false, null, null);
-                const node = current_graph.grappl_graph.nodes.map.getPtr(node_id) orelse unreachable;
+                const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null);
+                const new_node = current_graph.grappl_graph.nodes.map.getPtr(new_node_id) orelse unreachable;
                 // HACK
                 const mouse_pt = dvui.currentWindow().mouse_pt;
-                node.position = .{
+                new_node.position = .{
                     .x = mouse_pt.x,
                     .y = mouse_pt.y,
                 };
@@ -399,7 +400,7 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
                         .input => {
                             // TODO: add it to the first type-compatible socket!
                             try current_graph.addEdge(
-                                node_id,
+                                new_node_id,
                                 valid_socket_index orelse unreachable,
                                 create_from.node_id,
                                 create_from.index,
@@ -411,7 +412,7 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
                             try current_graph.addEdge(
                                 create_from.node_id,
                                 create_from.index,
-                                node_id,
+                                new_node_id,
                                 valid_socket_index orelse unreachable,
                                 0,
                             );
@@ -1312,8 +1313,8 @@ fn dvui_frame() !void {
 
         const bindings_infos = &.{
             //.{ .binding_group = &current_graph.grappl_graph.imports, .name = "Imports" },
-            .{ .data = &current_graph.grappl_graph.locals, .name = "Locals" },
-            .{ .data = &current_graph.grappl_graph.params, .name = "Parameters" },
+            .{ .data = &current_graph.grappl_graph.locals, .name = "Locals", .type = .locals },
+            .{ .data = &current_graph.grappl_graph.params, .name = "Parameters", .type = .params },
             //.{ .data = &current_graph.grappl_graph.results, .name = "Results" },
         };
 
@@ -1326,13 +1327,51 @@ fn dvui_frame() !void {
 
                 const add_clicked = (try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i })).clicked;
                 if (add_clicked) {
+                    var name_buf: [MAX_FUNC_NAME]u8 = undefined;
+
+                    // FIXME: leak
+                    // FIXME: obviously this could be faster by keeping track of state
+                    const name = try gpa.dupe(u8, for (0..10_000) |j| {
+                        const getter_name = try std.fmt.bufPrint(&name_buf, "get_new{}", .{j});
+                        if (current_graph.env.nodes.contains(getter_name))
+                            continue;
+                        const raw_name = try std.fmt.bufPrint(&name_buf, "new{}", .{j});
+                        break raw_name;
+                    } else {
+                        return error.MaxItersFindingFreeBindingName;
+                    });
+
+                    errdefer gpa.free(name);
+
+                    const node_descs = try gpa.alloc(grappl.helpers.BasicMutNodeDesc, 2);
+                    node_descs[0] = grappl.helpers.BasicMutNodeDesc{
+                        // FIXME: leaks
+                        .name = try std.fmt.allocPrint(gpa, "get_{s}", .{name}),
+                        .special = .get,
+                        .inputs = &.{},
+                        .outputs = &.{},
+                    };
+                    errdefer gpa.free(node_descs[0].name);
+                    node_descs[1] = grappl.helpers.BasicMutNodeDesc{
+                        // FIXME: leaks
+                        .name = try std.fmt.allocPrint(gpa, "set_{s}", .{name}),
+                        .special = .set,
+                        .inputs = &.{},
+                        .outputs = &.{},
+                    };
+                    errdefer gpa.free(node_descs[1].name);
+
+                    _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(&node_descs[0]));
+                    _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(&node_descs[1]));
+
                     const appended = try bindings_info.data.addOne(gpa);
-                    const name = try gpa.dupe(u8, "new");
+
                     // FIXME: leaks!
                     appended.* = .{
                         .name = name,
                         .type_ = grappl.primitive_types.i32_, // default binding type
                         .default = Sexp{ .value = .{ .int = 1 } },
+                        .extra = node_descs.ptr,
                     };
                 }
             }
@@ -1346,9 +1385,28 @@ fn dvui_frame() !void {
                 var box = try dvui.box(@src(), .horizontal, .{ .id_extra = id_extra });
                 defer box.deinit();
 
-                const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = id_extra });
+                const text_entry_src = @src();
+                const text_entry_id = dvui.parentGet().extendId(text_entry_src, id_extra);
+                const first_render = !(dvui.dataGet(null, text_entry_id, "_not_first_render", bool) orelse false);
+                dvui.dataSet(null, text_entry_id, "_not_first_render", true);
+
+                const text_entry = try dvui.textEntry(text_entry_src, .{}, .{ .id_extra = id_extra });
                 if (text_entry.text_changed) {
-                    binding.name = text_entry.getText();
+                    const new_name = text_entry.getText();
+                    binding.name = new_name;
+                    if (binding.extra) |extra| {
+                        const nodes: *[2]grappl.helpers.BasicMutNodeDesc = @alignCast(@ptrCast(extra));
+                        const get_node = &nodes[0];
+                        const set_node = &nodes[1];
+                        gpa.free(get_node.name);
+                        get_node.name = try std.fmt.allocPrint(gpa, "get_{s}", .{new_name});
+                        gpa.free(set_node.name);
+                        set_node.name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name});
+                    }
+                }
+                // must occur after text_changed check or this operation will set it
+                if (first_render) {
+                    text_entry.textTyped(binding.name);
                 }
                 text_entry.deinit();
 
@@ -1406,9 +1464,18 @@ fn dvui_frame() !void {
                 var box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
                 defer box.deinit();
 
-                const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = j });
+                const text_entry_src = @src();
+                const text_entry_id = dvui.parentGet().extendId(text_entry_src, j);
+                const first_render = !(dvui.dataGet(null, text_entry_id, "_not_first_render", bool) orelse false);
+                dvui.dataSet(null, text_entry_id, "_not_first_render", true);
+
+                const text_entry = try dvui.textEntry(text_entry_src, .{}, .{ .id_extra = j });
                 if (text_entry.text_changed) {
                     binding.name = text_entry.getText();
+                }
+                // must occur after text_changed check or this operation will set it
+                if (first_render) {
+                    text_entry.textTyped(binding.name);
                 }
                 text_entry.deinit();
 
