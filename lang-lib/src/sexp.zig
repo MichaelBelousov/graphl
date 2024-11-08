@@ -230,10 +230,14 @@ pub const syms = struct {
     pub const typeof = Sexp{ .value = .{ .symbol = "typeof" } };
     pub const as = Sexp{ .value = .{ .symbol = "as" } };
     pub const begin = Sexp{ .value = .{ .symbol = "begin" } };
+    pub const @"return" = Sexp{ .value = .{ .symbol = "return" } };
     // FIXME: is this really a symbol?
     pub const @"true" = Sexp{ .value = .{ .symbol = "#t" } };
     pub const @"false" = Sexp{ .value = .{ .symbol = "#f" } };
     pub const @"void" = Sexp{ .value = .{ .symbol = "#void" } };
+
+    const builtin_nodes = @import("./nodes/builtin.zig").builtin_nodes;
+    pub const @"+" = Sexp{ .value = .{ .symbol = builtin_nodes.@"+".name() } };
 };
 
 pub const primitive_type_syms = struct {

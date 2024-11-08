@@ -640,7 +640,9 @@ pub const GraphBuilder = struct {
             errdefer ctx.deinit(alloc);
             try ctx.node_data.resize(alloc, self.graph.nodes.map.count());
             try self.onNode(alloc, node_id, &ctx);
-            return Sexp{ .value = .{ .list = ctx.block } };
+            //return Sexp{ .value = .{ .list = ctx.block } };
+            // FIXME/HACK: leak
+            return ctx.block.items[0];
         }
 
         const Error = error{

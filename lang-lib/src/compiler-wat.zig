@@ -33,6 +33,7 @@ const DeferredFuncDeclInfo = struct {
     local_types: []const Type,
     local_defaults: []const Sexp,
     result_names: []const []const u8,
+    return_exprs: []const Sexp,
 };
 
 const DeferredFuncTypeInfo = struct {
@@ -108,6 +109,14 @@ const Compilation = struct {
         if (body.value.list.items[0].value != .symbol) return error.FuncBodyWithoutBegin;
         if (body.value.list.items[0].value.symbol.ptr != syms.begin.value.symbol.ptr) return error.FuncBodyWithoutBegin;
 
+        if (body.value.list.items.len < 2) return error.FuncBodyWithoutImmediateReturn;
+        const last_in_begin = &body.value.list.items[body.value.list.items.len - 1];
+        if (last_in_begin.value != .list) return error.FuncBodyBeginReturnNotList;
+        if (last_in_begin.value.list.items.len < 1) return error.FuncBodyNotEndingInReturn;
+        const return_sym = &last_in_begin.value.list.items[0];
+        if (return_sym.value.symbol.ptr != syms.@"return".value.symbol.ptr) return error.FuncBodyNotEndingInReturn;
+        const return_exprs = last_in_begin.value.list.items[1..];
+
         var local_names = std.ArrayList([]const u8).init(alloc);
         defer local_names.deinit();
 
@@ -163,6 +172,7 @@ const Compilation = struct {
             .local_types = try local_types.toOwnedSlice(),
             .local_defaults = try local_defaults.toOwnedSlice(),
             .result_names = &.{},
+            .return_exprs = return_exprs,
         };
 
         if (self.deferred.func_types.get(func_name)) |func_type| {
@@ -377,23 +387,55 @@ const Compilation = struct {
                 (try local_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = local_type.name } };
             }
 
-            // FIXME: test generated stub
-            const add_sexp = try impl_sexp.value.list.addOne();
-            add_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-            try add_sexp.value.list.ensureTotalCapacityPrecise(3);
-            (try add_sexp.value.list.addOne()).* = wat_syms.ops.@"i32.add";
+            for (func_decl.return_exprs, 0..) |return_expr, i| {
+                _ = i;
+                try self.compileExpr(&return_expr, impl_sexp);
 
-            const lhs = try add_sexp.value.list.addOne();
-            lhs.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-            try lhs.value.list.ensureTotalCapacityPrecise(2);
-            (try lhs.value.list.addOne()).* = wat_syms.ops.@"local.get";
-            (try lhs.value.list.addOne()).* = Sexp{ .value = .{ .symbol = "$local_x" } };
+                // // FIXME: test generated stub
+                // const add_sexp = try impl_sexp.value.list.addOne();
+                // add_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                // try add_sexp.value.list.ensureTotalCapacityPrecise(3);
+                // (try add_sexp.value.list.addOne()).* = wat_syms.ops.@"i32.add";
 
-            const rhs = try add_sexp.value.list.addOne();
-            rhs.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-            try rhs.value.list.ensureTotalCapacityPrecise(2);
-            (try rhs.value.list.addOne()).* = wat_syms.ops.@"local.get";
-            (try rhs.value.list.addOne()).* = Sexp{ .value = .{ .symbol = "$local_x" } };
+                // const lhs = try add_sexp.value.list.addOne();
+                // lhs.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                // try lhs.value.list.ensureTotalCapacityPrecise(2);
+                // (try lhs.value.list.addOne()).* = wat_syms.ops.@"local.get";
+                // (try lhs.value.list.addOne()).* = Sexp{ .value = .{ .symbol = "$local_x" } };
+
+                // const rhs = try add_sexp.value.list.addOne();
+                // rhs.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                // try rhs.value.list.ensureTotalCapacityPrecise(2);
+                // (try rhs.value.list.addOne()).* = wat_syms.ops.@"local.get";
+                // (try rhs.value.list.addOne()).* = Sexp{ .value = .{ .symbol = "$local_x" } };
+            }
+        }
+    }
+
+    // TODO: take a diagnostic
+    fn compileExpr(self: *@This(), code_sexp: *const Sexp, out_sexp: *Sexp) !void {
+        const alloc = self.arena.allocator();
+        switch (code_sexp.value) {
+            .list => |v| {
+                std.debug.assert(v.items.len >= 1);
+                const operator = v.items[0];
+                std.debug.assert(operator.value == .symbol);
+                if (operator.value.symbol.ptr == syms.@"+".value.symbol.ptr) {}
+
+                for (v.items[1..]) |operand| {
+                    try self.compileExpr(&operand, out_sexp);
+                }
+            },
+            .int => {
+                std.debug.assert(out_sexp.value == .list);
+                const load = try out_sexp.value.list.addOne();
+                load.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                try load.value.list.ensureTotalCapacityPrecise(2);
+                load.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"i32.const";
+                // FIXME: deep copy
+                load.value.list.addOneAssumeCapacity().* = code_sexp.*;
+            },
+            else => @panic("unimplemented"),
         }
     }
 
