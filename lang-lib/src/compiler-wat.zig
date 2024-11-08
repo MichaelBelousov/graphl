@@ -269,6 +269,7 @@ const Compilation = struct {
     }
 
     const wat_syms = struct {
+        pub const call = Sexp{ .value = .{ .symbol = "call" } };
         pub const module = Sexp{ .value = .{ .symbol = "module" } };
         pub const @"type" = Sexp{ .value = .{ .symbol = "type" } };
         pub const @"export" = Sexp{ .value = .{ .symbol = "export" } };
@@ -276,13 +277,47 @@ const Compilation = struct {
         pub const param = Sexp{ .value = .{ .symbol = "param" } };
         pub const result = Sexp{ .value = .{ .symbol = "result" } };
         pub const local = Sexp{ .value = .{ .symbol = "local" } };
-        pub const ops = struct {
-            pub const @"local.get" = Sexp{ .value = .{ .symbol = "local.get" } };
-            pub const @"i32.add" = Sexp{ .value = .{ .symbol = "i32.add" } };
-            pub const @"i32.const" = Sexp{ .value = .{ .symbol = "i32.add" } };
-        };
         pub const memory = Sexp{ .value = .{ .symbol = "memory" } };
         pub const @"$0" = Sexp{ .value = .{ .symbol = "$0" } };
+
+        pub const ops = struct {
+            pub const @"local.get" = Sexp{ .value = .{ .symbol = "local.get" } };
+
+            pub const i32_ = struct {
+                pub const add = Sexp{ .value = .{ .symbol = "i32.add" } };
+                pub const sub = Sexp{ .value = .{ .symbol = "i32.sub" } };
+                pub const mul = Sexp{ .value = .{ .symbol = "i32.mul" } };
+                pub const div = Sexp{ .value = .{ .symbol = "i32.div" } };
+                pub const @"const" = Sexp{ .value = .{ .symbol = "i32.const" } };
+            };
+
+            pub const f32_ = struct {
+                pub const add = Sexp{ .value = .{ .symbol = "f32.add" } };
+                pub const sub = Sexp{ .value = .{ .symbol = "f32.sub" } };
+                pub const mul = Sexp{ .value = .{ .symbol = "f32.mul" } };
+                pub const div = Sexp{ .value = .{ .symbol = "f32.div" } };
+                pub const @"const" = Sexp{ .value = .{ .symbol = "f32.const" } };
+            };
+
+            pub const f64_ = struct {
+                pub const add = Sexp{ .value = .{ .symbol = "f64.add" } };
+                pub const sub = Sexp{ .value = .{ .symbol = "f64.sub" } };
+                pub const mul = Sexp{ .value = .{ .symbol = "f64.mul" } };
+                pub const div = Sexp{ .value = .{ .symbol = "f64.div" } };
+                pub const @"const" = Sexp{ .value = .{ .symbol = "f64.const" } };
+            };
+        };
+
+        pub const intrinsics = struct {
+            pub const max = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "__$$max" } },
+                .node = builtin.builtin_nodes.max,
+            };
+            pub const min = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "__$$min" } },
+                .node = builtin.builtin_nodes.min,
+            };
+        };
     };
 
     fn finishCompileTypedFunc(self: *@This(), name: []const u8, func_decl: DeferredFuncDeclInfo, func_type: DeferredFuncTypeInfo) !void {
@@ -389,51 +424,154 @@ const Compilation = struct {
 
             for (func_decl.return_exprs, 0..) |return_expr, i| {
                 _ = i;
-                try self.compileExpr(&return_expr, impl_sexp);
-
-                // // FIXME: test generated stub
-                // const add_sexp = try impl_sexp.value.list.addOne();
-                // add_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                // try add_sexp.value.list.ensureTotalCapacityPrecise(3);
-                // (try add_sexp.value.list.addOne()).* = wat_syms.ops.@"i32.add";
-
-                // const lhs = try add_sexp.value.list.addOne();
-                // lhs.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                // try lhs.value.list.ensureTotalCapacityPrecise(2);
-                // (try lhs.value.list.addOne()).* = wat_syms.ops.@"local.get";
-                // (try lhs.value.list.addOne()).* = Sexp{ .value = .{ .symbol = "$local_x" } };
-
-                // const rhs = try add_sexp.value.list.addOne();
-                // rhs.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                // try rhs.value.list.ensureTotalCapacityPrecise(2);
-                // (try rhs.value.list.addOne()).* = wat_syms.ops.@"local.get";
-                // (try rhs.value.list.addOne()).* = Sexp{ .value = .{ .symbol = "$local_x" } };
+                const body_fragment = try self.compileExpr(&return_expr);
+                std.debug.assert(func_type.result_types.len == 1);
+                if (body_fragment.resolved_type != func_type.result_types[0]) return error.ReturnTypeMismatch;
+                (try impl_sexp.value.list.addOne()).* = Sexp{ .value = .{ .list = body_fragment.code } };
             }
         }
     }
 
+    /// A fragment of compiled code and the type of its final variable
+    const Fragment = struct {
+        code: std.ArrayList(Sexp),
+        resolved_type: Type,
+
+        pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+            _ = alloc;
+            self.code.deinit();
+        }
+    };
+
+    fn resolvePeerTypes(a: Fragment, b: Fragment) Type {
+        _ = a;
+        _ = b;
+        return builtin.primitive_types.i32_;
+    }
+
     // TODO: take a diagnostic
-    fn compileExpr(self: *@This(), code_sexp: *const Sexp, out_sexp: *Sexp) !void {
+    fn compileExpr(self: *@This(), code_sexp: *const Sexp) !Fragment {
         const alloc = self.arena.allocator();
         switch (code_sexp.value) {
             .list => |v| {
                 std.debug.assert(v.items.len >= 1);
-                const operator = v.items[0];
-                std.debug.assert(operator.value == .symbol);
-                if (operator.value.symbol.ptr == syms.@"+".value.symbol.ptr) {}
+                const func = v.items[0];
+                std.debug.assert(func.value == .symbol);
 
-                for (v.items[1..]) |operand| {
-                    try self.compileExpr(&operand, out_sexp);
+                var result = Fragment{
+                    .code = std.ArrayList(Sexp).init(alloc),
+                    .resolved_type = undefined,
+                };
+
+                const arg_fragments = try alloc.alloc(Fragment, v.items.len - 1);
+                // FIXME: don't deinit!
+                //defer for (arg_fragments) |*frag| frag.deinit(alloc);
+                defer alloc.free(arg_fragments);
+
+                for (v.items[1..], arg_fragments) |arg_src, *arg_fragment| {
+                    arg_fragment.* = try self.compileExpr(&arg_src);
                 }
+
+                // builtins with wasm primitives
+                inline for (&.{
+                    .{
+                        .sym = syms.@"+",
+                        .wasm_i32 = wat_syms.ops.i32_.add,
+                        .wasm_f32 = wat_syms.ops.f32_.add,
+                    },
+                    .{
+                        .sym = syms.@"-",
+                        .wasm_i32 = wat_syms.ops.i32_.sub,
+                        .wasm_f32 = wat_syms.ops.f32_.sub,
+                    },
+                    .{
+                        .sym = syms.@"*",
+                        .wasm_i32 = wat_syms.ops.i32_.mul,
+                        .wasm_f32 = wat_syms.ops.f32_.mul,
+                    },
+                    .{
+                        .sym = syms.@"/",
+                        .wasm_i32 = wat_syms.ops.i32_.div,
+                        .wasm_f32 = wat_syms.ops.f32_.div,
+                    },
+                }) |builtin_op| {
+                    if (func.value.symbol.ptr == builtin_op.sym.value.symbol.ptr) {
+                        try result.code.ensureTotalCapacityPrecise(1);
+                        const wasm_op = result.code.addOneAssumeCapacity();
+                        wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                        try wasm_op.value.list.ensureTotalCapacityPrecise(3);
+                        // FIXME: use types to determine
+                        wasm_op.value.list.addOneAssumeCapacity().* = builtin_op.wasm_i32;
+
+                        std.debug.assert(arg_fragments.len == 2);
+                        for (arg_fragments) |arg_fragment| {
+                            result.resolved_type = resolvePeerTypes(result, arg_fragment);
+                            std.debug.assert(arg_fragment.code.items.len == 1);
+                            wasm_op.value.list.addOneAssumeCapacity().* = arg_fragment.code.items[0];
+                            arg_fragment.code.items[0] = Sexp{ .value = .void };
+                        }
+                    }
+                    return result;
+                }
+
+                // builtins with intrinsics
+                inline for (&.{
+                    .{ .sym = syms.min, .intrinsic = wat_syms.intrinsics.min },
+                    .{ .sym = syms.max, .intrinsic = wat_syms.intrinsics.max },
+                }) |builtin_func| {
+                    result.resolved_type = builtin_func.intrinsic.node.result;
+
+                    if (func.value.symbol.ptr == builtin_func.sym.value.symbol.ptr) {
+                        try result.code.ensureTotalCapacityPrecise(1);
+                        const wasm_call = result.code.addOneAssumeCapacity();
+                        wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                        try wasm_call.value.list.ensureTotalCapacityPrecise(2 + arg_fragments.len);
+                        // FIXME: use types to determine
+                        wasm_call.value.list.addOneAssumeCapacity().* = wat_syms.call;
+                        wasm_call.value.list.addOneAssumeCapacity().* = builtin_func.intrinsic.wasm_sym;
+
+                        for (arg_fragments) |arg_fragment| {
+                            std.debug.assert(arg_fragment.code.items.len == 1);
+                            wasm_call.value.list.addOneAssumeCapacity().* = arg_fragment.code.items[0];
+                            // move out
+                            arg_fragment.code.items[0] = Sexp{ .value = .void };
+                        }
+                    }
+                    return result;
+                }
+
+                // otherwise we have a non builtin
             },
-            .int => {
-                std.debug.assert(out_sexp.value == .list);
-                const load = try out_sexp.value.list.addOne();
-                load.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try load.value.list.ensureTotalCapacityPrecise(2);
-                load.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"i32.const";
-                // FIXME: deep copy
-                load.value.list.addOneAssumeCapacity().* = code_sexp.*;
+            .int => |v| {
+                var result = Fragment{
+                    .code = std.ArrayList(Sexp).init(alloc),
+                    .resolved_type = builtin.primitive_types.i32_,
+                };
+
+                try result.code.ensureTotalCapacityPrecise(1);
+                const wasm_const = result.code.addOneAssumeCapacity();
+                wasm_const.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                try wasm_const.value.list.ensureTotalCapacityPrecise(2);
+                wasm_const.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+                wasm_const.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = v } };
+
+                return result;
+            },
+
+            .float => |v| {
+                var result = Fragment{
+                    .code = std.ArrayList(Sexp).init(alloc),
+                    .resolved_type = builtin.primitive_types.f64_,
+                };
+
+                try result.code.ensureTotalCapacityPrecise(1);
+                const wasm_const = result.code.addOneAssumeCapacity();
+                wasm_const.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                try wasm_const.value.list.ensureTotalCapacityPrecise(2);
+                wasm_const.value.list.addOneAssumeCapacity().* = wat_syms.ops.f64_.@"const";
+                wasm_const.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .float = v } };
+
+                return result;
             },
             else => @panic("unimplemented"),
         }

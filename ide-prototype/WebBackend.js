@@ -375,8 +375,8 @@ export function Ide(canvasElem, opts) {
             const outputFile = '/optimized.wasm';
             wasmOpt.FS.writeFile(inputFile, data);
             // TODO: source maps
-            //wasmOpt.callMain('/transfer.wat', '-o', '/optimized.wasm', '-O', '--intrinsic-lowering', '-O', '-osm', '/optimized.wasm.map');
-            const status = wasmOpt.callMain([inputFile, '-o', outputFile, /*'-g',*/ '-O']);
+            // FIXME: consider whether it's worth enabling optimizations
+            const status = wasmOpt.callMain([inputFile, '-o', outputFile, '-g',]);
 
             if (status !== 0)
                 throw Error(`non-zero return: ${status}`)
