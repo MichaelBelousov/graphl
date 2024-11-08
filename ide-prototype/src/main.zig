@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const WebBackend = @import("WebBackend");
 usingnamespace WebBackend.wasm;
 
@@ -1253,8 +1254,16 @@ fn dvui_frame() !void {
         if (try dvui.button(@src(), "Compile", .{}, .{})) {
             const sexp = try current_graph.grappl_graph.compile(gpa, "main");
             defer sexp.deinit(gpa);
+
             var bytes = std.ArrayList(u8).init(gpa);
             defer bytes.deinit();
+
+            if (builtin.mode == .Debug) {
+                _ = try sexp.write(bytes.writer());
+                std.log.info("sexp:\n{s}", .{bytes.items});
+                bytes.clearRetainingCapacity();
+            }
+
             var diagnostic = compiler.Diagnostic.init();
 
             if (compiler.compile(gpa, &sexp, &diagnostic)) |module| {

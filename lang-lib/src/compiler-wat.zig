@@ -363,7 +363,7 @@ const Compilation = struct {
             export_val_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{complete_func_type_desc.name}) } };
         }
 
-        {
+        const result_type_sexp = _: {
             const type_sexp = try self.module_body.addOne();
             // FIXME: would be really nice to just have comptime sexp parsing...
             // or: Sexp.fromFormat("(+ {} 3)", .{sexp});
@@ -392,8 +392,8 @@ const Compilation = struct {
             try result_sexp.value.list.ensureTotalCapacityPrecise(2);
             result_sexp.value.list.addOneAssumeCapacity().* = wat_syms.result;
             // FIXME: compile return type
-            result_sexp.value.list.addOneAssumeCapacity().* = primitive_type_syms.i32;
-        }
+            break :_ result_sexp.value.list.addOneAssumeCapacity();
+        };
 
         // FIXME: use addOneAssumeCapacity
         {
@@ -419,8 +419,8 @@ const Compilation = struct {
             result_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
             try result_sexp.value.list.ensureTotalCapacityPrecise(2);
             result_sexp.value.list.addOneAssumeCapacity().* = wat_syms.result;
-            // FIXME: compile return type
-            result_sexp.value.list.addOneAssumeCapacity().* = primitive_type_syms.i32;
+
+            const result_type_sexp2 = result_sexp.value.list.addOneAssumeCapacity();
 
             for (func_decl.local_names, complete_func_type_desc.func_type.?.local_types) |local_name, local_type| {
                 const local_sexp = try impl_sexp.value.list.addOne();
@@ -431,14 +431,19 @@ const Compilation = struct {
                 (try local_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = local_type.name } };
             }
 
-            for (func_decl.return_exprs, 0..) |return_expr, i| {
-                _ = i;
+            std.debug.assert(func_decl.return_exprs.len >= 1);
+            for (func_decl.return_exprs) |return_expr| {
                 const body_fragment = try self.compileExpr(&return_expr);
+                // FIXME: this is a horrible way to do type resolution
+                // FIXME: use known type symbol where possible
+                result_type_sexp.* = Sexp{ .value = .{ .symbol = body_fragment.resolved_type.name } };
+                result_type_sexp2.* = result_type_sexp.*;
                 std.debug.assert(func_type.result_types.len == 1);
                 if (body_fragment.resolved_type != func_type.result_types[0]) {
                     std.log.err("type: '{s}' doesn't match '{s}'", .{ body_fragment.resolved_type.name, func_type.result_types[0].name });
                     return error.ReturnTypeMismatch;
                 }
+
                 // FIXME: what about the rest of the code?
                 (try impl_sexp.value.list.addOne()).* = body_fragment.code.items[0];
             }
@@ -579,9 +584,6 @@ const Compilation = struct {
                             arg_fragment.code.items[0] = Sexp{ .value = .void };
                         }
 
-                        // REPORT ME: when inline, for some reason the f32 and f64 aren't picked up?
-                        // or maybe the debugger is weird and the else is overly done?
-                        //const arith_types = [_][]const u8{ "i32_", "i64_", "f32_", "f64_" };
                         var handled = false;
 
                         inline for (&.{ "i32_", "i64_", "f32_", "f64_" }) |type_name| {
@@ -593,7 +595,7 @@ const Compilation = struct {
                             }
                         }
 
-                        // TODO: try to prefer an else on the above for loop, currently couldn't get it to compile right
+                        // REPORT ME: try to prefer an else on the above for loop, currently couldn't get it to compile right
                         if (!handled) {
                             std.log.err("unimplemented type resolution: '{s}'", .{result.resolved_type.name});
                             std.debug.panic("unimplemented type resolution: '{s}'", .{result.resolved_type.name});

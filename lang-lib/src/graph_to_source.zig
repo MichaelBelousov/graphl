@@ -92,11 +92,13 @@ pub const GraphBuilder = struct {
     // FIXME: remove buildFromJson and just do it all in init?
     pub fn init(alloc: std.mem.Allocator, env: *Env) !Self {
         const result_node_basic_desc = try alloc.create(BasicMutNodeDesc);
-        // FIXME: leak!
+
         const inputs = try alloc.alloc(Pin, 2);
         inputs[0] = Pin{ .name = "exit", .kind = .{ .primitive = .exec } };
         inputs[1] = Pin{ .name = "result", .kind = .{ .primitive = .{ .value = helpers.primitive_types.i32_ } } };
+
         const outputs = try alloc.alloc(Pin, 0);
+
         result_node_basic_desc.* = .{
             .name = "return",
             .inputs = inputs,
@@ -122,6 +124,8 @@ pub const GraphBuilder = struct {
             }
         }
         self.nodes.deinit(alloc);
+        alloc.free(self.result_node_basic_desc.inputs);
+        alloc.free(self.result_node_basic_desc.outputs);
         alloc.destroy(self.result_node_basic_desc);
     }
 
@@ -292,8 +296,11 @@ pub const GraphBuilder = struct {
                 param_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param.type_.name } };
             }
 
-            // FIXME: generate type from return node, anonymous struct maybe?
-            result_type.* = primitive_type_syms.i32;
+            std.debug.assert(self.result_node_basic_desc.inputs.len >= 2);
+            std.debug.assert(self.result_node_basic_desc.inputs[1].kind == .primitive);
+            std.debug.assert(self.result_node_basic_desc.inputs[1].kind.primitive == .value);
+            // FIXME: share symbols for primitives!
+            result_type.* = Sexp{ .value = .{ .symbol = self.result_node_basic_desc.inputs[1].kind.primitive.value.name } };
         }
 
         {
