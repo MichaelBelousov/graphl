@@ -357,7 +357,7 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
         var i: u32 = 0;
         while (iter.next()) |node| {
             const node_desc = node.*;
-            const node_name = node_desc.name;
+            const node_name = node_desc.name();
 
             var valid_socket_index: ?u16 = null;
 
@@ -754,9 +754,9 @@ fn renderNode(
     const result = box.data().rect; // already has origin added (already in scroll coords)
 
     switch (node.desc.special) {
-        .none => try dvui.label(@src(), "{s}", .{node.desc.name}, .{ .font_style = .title_3 }),
-        .get => try dvui.label(@src(), "Get {s}", .{node.desc.name[4..]}, .{ .font_style = .title_3 }),
-        .set => try dvui.label(@src(), "Set {s}", .{node.desc.name[4..]}, .{ .font_style = .title_3 }),
+        .none => try dvui.label(@src(), "{s}", .{node.desc.name()}, .{ .font_style = .title_3 }),
+        .get => try dvui.label(@src(), "Get {s}", .{node.desc.name()[4..]}, .{ .font_style = .title_3 }),
+        .set => try dvui.label(@src(), "Set {s}", .{node.desc.name()[4..]}, .{ .font_style = .title_3 }),
     }
 
     var hbox = try dvui.box(@src(), .horizontal, .{});
@@ -1449,6 +1449,11 @@ fn dvui_frame() !void {
                         get_node.name = try std.fmt.allocPrint(gpa, "get_{s}", .{new_name});
                         const old_set_node_name = set_node.name;
                         set_node.name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name});
+                        // FIXME: should be able to use removeByPtr here to avoid look up?
+                        std.debug.assert(current_graph.env.nodes.remove(old_get_node_name));
+                        std.debug.assert(current_graph.env.nodes.remove(old_set_node_name));
+                        _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(get_node));
+                        _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(set_node));
                         gpa.free(old_get_node_name);
                         gpa.free(old_set_node_name);
                     }

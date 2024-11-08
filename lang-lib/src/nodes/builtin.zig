@@ -71,11 +71,6 @@ pub const NodeSpecialInfo = union(enum) {
 pub const NodeDesc = struct {
     hidden: bool = false,
 
-    /// if ==0, it is a non-builtin node that is not inserted into an env yet
-    /// if <2048, it is a builtin node
-    /// if >=2048, it is a non-builtin node in an env
-    id: u32 = 0,
-
     // FIXME: horrible
     special: NodeSpecialInfo = .none,
 
@@ -132,8 +127,8 @@ pub const NodeDesc = struct {
     };
 
     // FIXME: pre-calculate this at construction (or cache it?)
-    pub fn isSimpleBranch(self: @This()) bool {
-        const is_branch = std.mem.eql(u8, self.name, "if");
+    pub fn isSimpleBranch(self: *const @This()) bool {
+        const is_branch = self == &builtin_nodes.@"if";
         if (is_branch) {
             std.debug.assert(self.getOutputs().len == 2);
             std.debug.assert(self.getOutputs()[0].isExec());
@@ -373,9 +368,8 @@ const BasicNodeImpl = struct {
 };
 
 /// caller owns memory!
-pub fn basicNode(comptime id: u32, in_desc: *const BasicNodeDesc) NodeDesc {
+pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
     return NodeDesc{
-        .id = id,
         .context = @ptrCast(in_desc),
         .hidden = in_desc.hidden,
         .special = in_desc.special,
@@ -395,7 +389,6 @@ pub const BasicMutNodeDesc = struct {
 
 pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
     return NodeDesc{
-        .id = 0,
         .context = @ptrCast(in_desc),
         .hidden = in_desc.hidden,
         .special = in_desc.special,
@@ -409,7 +402,7 @@ pub const VarNodes = struct {
     get: NodeDesc,
     set: NodeDesc,
 
-    fn init(alloc: std.mem.Allocator, comptime get_id: u32, comptime set_id: u32, var_name: []const u8, var_type: Type) !VarNodes {
+    fn init(alloc: std.mem.Allocator, var_name: []const u8, var_type: Type) !VarNodes {
         // FIXME: test and plug non-comptime alloc leaks
         comptime var getter_outputs_slot: [if (@inComptime()) 1 else 0]Pin = undefined;
         const _getter_outputs = if (@inComptime()) &getter_outputs_slot else try alloc.alloc(Pin, 1);
@@ -444,11 +437,11 @@ pub const VarNodes = struct {
             try std.fmt.allocPrint(alloc, "#SET#{s}", .{var_name});
 
         return VarNodes{
-            .get = basicNode(get_id, &.{
+            .get = basicNode(&.{
                 .name = getter_name,
                 .outputs = getter_outputs,
             }),
-            .set = basicNode(set_id, &.{
+            .set = basicNode(&.{
                 .name = setter_name,
                 .inputs = setter_inputs,
                 .outputs = setter_outputs,
@@ -518,7 +511,7 @@ pub fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !N
 }
 
 pub const builtin_nodes = struct {
-    pub const @"+": NodeDesc = basicNode(0, &.{
+    pub const @"+": NodeDesc = basicNode(&.{
         .name = "+",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -528,7 +521,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
-    pub const @"-": NodeDesc = basicNode(1, &.{
+    pub const @"-": NodeDesc = basicNode(&.{
         .name = "-",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -538,7 +531,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
-    pub const max: NodeDesc = basicNode(2, &.{
+    pub const max: NodeDesc = basicNode(&.{
         .name = "max",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -548,7 +541,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
-    pub const min: NodeDesc = basicNode(3, &.{
+    pub const min: NodeDesc = basicNode(&.{
         .name = "min",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -558,7 +551,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
-    pub const @"*": NodeDesc = basicNode(4, &.{
+    pub const @"*": NodeDesc = basicNode(&.{
         .name = "*",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -568,7 +561,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
-    pub const @"/": NodeDesc = basicNode(5, &.{
+    pub const @"/": NodeDesc = basicNode(&.{
         .name = "/",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -578,7 +571,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
     });
-    pub const @"if": NodeDesc = basicNode(6, &.{
+    pub const @"if": NodeDesc = basicNode(&.{
         .name = "if",
         .inputs = &.{
             Pin{ .name = "run", .kind = .{ .primitive = .exec } },
@@ -590,7 +583,7 @@ pub const builtin_nodes = struct {
         },
     });
     // TODO: function...
-    // pub const sequence: NodeDesc = basicNode(7, &.{
+    // pub const sequence: NodeDesc = basicNode(&.{
     //     .name = "sequence",
     //     .inputs = &.{
     //         Pin{ .name = "", .kind = .{ .primitive = .exec } },
@@ -600,7 +593,7 @@ pub const builtin_nodes = struct {
     //     },
     // });
 
-    pub const @"set!": NodeDesc = basicNode(8, &.{
+    pub const @"set!": NodeDesc = basicNode(&.{
         .name = "set!",
         // FIXME: needs to be generic/per variable
         .inputs = &.{
@@ -614,7 +607,7 @@ pub const builtin_nodes = struct {
         },
     });
 
-    pub const func_start: NodeDesc = basicNode(9, &.{
+    pub const func_start: NodeDesc = basicNode(&.{
         .name = "start",
         .hidden = true,
         .outputs = &.{
@@ -623,7 +616,7 @@ pub const builtin_nodes = struct {
     });
 
     // "cast":
-    // pub const @"switch": NodeDesc = basicNode(10, &.{
+    // pub const @"switch": NodeDesc = basicNode(&.{
     //     .name = "switch",
     //     .inputs = &.{
     //         Pin{ .name = "", .kind = .{ .primitive = .exec } },
@@ -878,9 +871,7 @@ test "node types" {
 pub const Env = struct {
     types: std.StringHashMapUnmanaged(Type) = .{},
     // could be macro, function, operator
-    nodes: std.AutoHashMapUnmanaged(u32, *const NodeDesc) = .{},
-
-    next_node_id: u32 = 1,
+    nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         self.types.clearAndFree(alloc);
@@ -908,7 +899,7 @@ pub const Env = struct {
             try env.nodes.ensureTotalCapacity(alloc, @intCast(nodes_decls.len));
             inline for (nodes_decls) |n| {
                 const node = @field(nodes, n.name);
-                try env.nodes.put(alloc, node.id, &node);
+                try env.nodes.put(alloc, node.name(), &node);
             }
         }
 
@@ -935,31 +926,14 @@ pub const Env = struct {
     }
 
     pub fn addNode(self: *@This(), a: std.mem.Allocator, node_desc: NodeDesc) !*NodeDesc {
-        std.debug.assert(node_desc.id < 2048);
-
         // TODO: dupe the key, we need to own the key memory lifetime
-        const result = try self.nodes.getOrPut(a, node_desc.name);
-
-        const is_builtin_node = node_desc.id > 0 and node_desc.id < 2048;
-        if (is_builtin_node) {
-            std.debug.assert(!result.found_existing);
-        }
-
+        const result = try self.nodes.getOrPut(a, node_desc.name());
         // FIXME: allow types to be overriden within scopes?
         if (result.found_existing) return error.EnvAlreadyExists;
         // FIXME: leak
         const slot = try a.create(NodeDesc);
         slot.* = node_desc;
         result.value_ptr.* = slot;
-
-        if (node_desc.id == 0) {
-            slot.id = 2048 + self.next_id;
-            self.next_node_id += 1;
-        }
-
-        errdefer if (node_desc.id == 0) {
-            self.next_node_id -= 1;
-        };
 
         return slot;
     }

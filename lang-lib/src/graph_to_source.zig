@@ -178,7 +178,7 @@ pub const GraphBuilder = struct {
         }
 
         // FIXME: a more sophisticated check for if it's a branch, including macro expansion
-        const is_branch = std.mem.eql(u8, node.desc.name, "if");
+        const is_branch = node.desc == &helpers.builtin_nodes.@"if";
 
         if (is_branch)
             self.branch_count += 1;
@@ -698,7 +698,7 @@ pub const GraphBuilder = struct {
             branch_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
 
             // (if
-            (try branch_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc.name } };
+            (try branch_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc.name() } };
 
             // condition
             const condition_sexp = try self.nodeInputTreeToSexp(alloc, node.inputs[1]);
@@ -718,16 +718,16 @@ pub const GraphBuilder = struct {
             if (self.graph.isJoin(node))
                 return;
 
-            const special_type: enum { none, getter, setter } = if (std.mem.startsWith(u8, node.desc.name, "#"))
-                if (std.mem.startsWith(u8, node.desc.name, "#GET#")) .getter else .setter
+            const special_type: enum { none, getter, setter } = if (std.mem.startsWith(u8, node.desc.name(), "#"))
+                if (std.mem.startsWith(u8, node.desc.name(), "#GET#")) .getter else .setter
             else
                 .none;
 
             const name =
                 if (special_type != .none)
-                node.desc.name["#GET#".len..]
+                node.desc.name()["#GET#".len..]
             else
-                node.desc.name;
+                node.desc.name();
 
             var call_sexp = try context.block.addOne();
 
@@ -758,16 +758,16 @@ pub const GraphBuilder = struct {
                     const node = self.graph.nodes.map.getPtr(v.target) orelse std.debug.panic("couldn't find link target id={}", .{v.target});
 
                     // TODO: should have a comptime sexp parsing utility, or otherwise terser syntax...
-                    const special_type: enum { none, getter, setter } = if (std.mem.startsWith(u8, node.desc.name, "#"))
-                        if (std.mem.startsWith(u8, node.desc.name, "#GET#")) .getter else .setter
+                    const special_type: enum { none, getter, setter } = if (std.mem.startsWith(u8, node.desc.name(), "#"))
+                        if (std.mem.startsWith(u8, node.desc.name(), "#GET#")) .getter else .setter
                     else
                         .none;
 
                     const name =
                         if (special_type != .none)
-                        node.desc.name["#GET#".len..]
+                        node.desc.name()["#GET#".len..]
                     else
-                        node.desc.name;
+                        node.desc.name();
 
                     if (special_type == .getter)
                         break :_ Sexp{ .value = .{ .symbol = name } };
