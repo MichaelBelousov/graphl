@@ -422,6 +422,7 @@ const Compilation = struct {
 
             const result_type_sexp2 = result_sexp.value.list.addOneAssumeCapacity();
 
+            // NOTE: if these are unmatched, it might mean a typeof for that local is missing
             for (func_decl.local_names, complete_func_type_desc.func_type.?.local_types) |local_name, local_type| {
                 const local_sexp = try impl_sexp.value.list.addOne();
                 local_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
@@ -663,7 +664,10 @@ const Compilation = struct {
 
                 return result;
             },
-            else => @panic("unimplemented"),
+            inline else => {
+                std.debug.print("unimplemented expr for compilation:\n{}\n", .{code_sexp});
+                std.debug.panic("unimplemented type: '{s}'", .{@tagName(code_sexp.value)});
+            },
         }
     }
 
@@ -764,13 +768,26 @@ const t = std.testing;
 const SexpParser = @import("./sexp_parser.zig").Parser;
 
 test "parse" {
+    // FIXME: support expression functions
+    // var parsed = try SexpParser.parse(t.allocator,
+    //     \\;;; comment
+    //     \\(typeof x i32)
+    //     \\(define x 10)
+    //     \\;;; comment
+    //     \\(typeof (++ i32) i32)
+    //     \\(define (++ x) (+ x 1))
+    // , null);
     var parsed = try SexpParser.parse(t.allocator,
         \\;;; comment
-        \\(typeof x i32)
+        \\(typeof x i64)
         \\(define x 10)
         \\;;; comment
-        \\(typeof (++ i32) i32)
-        \\(define (++ x) (+ x 1))
+        \\(typeof (++ i64) i64)
+        \\(define (++ x)
+        \\  (begin
+        \\    (typeof a i64)
+        \\    (define a 1)
+        \\    (return (+ x a))))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
@@ -792,10 +809,10 @@ test "parse" {
             \\              (param $param_x
             \\                     i32)
             \\              (result i32)
-            \\              (local $local_x
+            \\              (local $local_a
             \\                     i32)
-            \\              (i32.add (local.get $local_x)
-            \\                       (local.get $local_x))))
+            \\              (i32.add (local.get $param_x)
+            \\                       (local.get $local_a))))
         , wat);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });

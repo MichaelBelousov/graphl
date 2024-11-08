@@ -227,7 +227,22 @@ pub const Parser = struct {
                     ' ', '\n', '\t', ')', '(' => {
                         const top = peek(&algo_state.stack) orelse unreachable;
                         const last = try top.value.list.addOne();
-                        last.* = Sexp{ .value = .{ .symbol = tok_slice } };
+
+                        // FIXME: do symbol interning instead!
+                        var handled = false;
+                        const sym_decls = comptime std.meta.declarations(syms);
+                        inline for (sym_decls) |sym_decl| {
+                            const sym = @field(syms, sym_decl.name);
+                            if (std.mem.eql(u8, tok_slice, sym.value.symbol)) {
+                                handled = true;
+                                last.* = sym;
+                            }
+                        }
+                        // REPORTME: inline for doesn't work with `else`
+                        if (!handled) {
+                            last.* = Sexp{ .value = .{ .symbol = tok_slice } };
+                        }
+
                         algo_state.tok_start = algo_state.loc.index;
                         try algo_state.onNextCharAfterTok(out_diag);
                     },

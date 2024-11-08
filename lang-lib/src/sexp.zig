@@ -244,7 +244,7 @@ pub const syms = struct {
     pub const @"/" = Sexp{ .value = .{ .symbol = builtin_nodes.@"/".name() } };
     pub const min = Sexp{ .value = .{ .symbol = builtin_nodes.min.name() } };
     pub const max = Sexp{ .value = .{ .symbol = builtin_nodes.max.name() } };
-    pub const @"if" = Sexp{ .value = .{ .symbol = builtin_nodes.@"if" } };
+    pub const @"if" = Sexp{ .value = .{ .symbol = builtin_nodes.@"if".name() } };
 
     //pub const string_index_of = Sexp{ .value = .{ .symbol = builtin_nodes.join_strings.name() } };
     //pub const join_strings = Sexp{ .value = .{ .symbol = builtin_nodes.join_strings.name() } };
