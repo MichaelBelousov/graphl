@@ -144,20 +144,13 @@ fn postCurrentSexp() !void {
     var bytes = std.ArrayList(u8).init(alloc);
     defer bytes.deinit();
 
-    var maybe_current = graphs.first;
-    while (maybe_current) |current| : ({
-        if (current.next != null)
+    var maybe_cursor = graphs.first;
+    while (maybe_cursor) |cursor| : ({
+        if (cursor.next != null)
             try bytes.append('\n');
-        maybe_current = current.next;
+        maybe_cursor = cursor.next;
     }) {
-        // FIXME: rework entry ids
-        if (current_graph.grappl_graph.entry_id == null) {
-            var iter = current_graph.grappl_graph.nodes.map.iterator();
-            if (iter.next()) |first| {
-                current_graph.grappl_graph.entry_id = first.key_ptr.*;
-            }
-        }
-        const sexp = try current_graph.grappl_graph.compile(alloc, current_graph.name());
+        const sexp = try cursor.data.grappl_graph.compile(alloc, cursor.data.name());
         defer sexp.deinit(alloc);
 
         _ = try sexp.write(bytes.writer());
