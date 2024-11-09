@@ -644,7 +644,7 @@ pub const GraphBuilder = struct {
             var ctx = Context{
                 .block = Block.init(alloc),
             };
-            errdefer ctx.deinit(alloc);
+            defer ctx.deinit(alloc);
             try ctx.node_data.resize(alloc, self.graph.nodes.map.count());
             try self.onNode(alloc, node_id, &ctx);
             // FIXME/HACK: process them in reverse rather than this temp hack
@@ -660,7 +660,8 @@ pub const GraphBuilder = struct {
                 ctx.block.items[left] = ctx.block.items[right];
                 ctx.block.items[right] = tmp;
             }
-            return Sexp{ .value = .{ .list = ctx.block } };
+            // FIXME: move instead of clone!
+            return Sexp{ .value = .{ .list = try ctx.block.clone() } };
             //return ctx.block.items[0];
         }
 

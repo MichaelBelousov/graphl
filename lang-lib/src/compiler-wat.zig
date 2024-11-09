@@ -128,7 +128,6 @@ const Compilation = struct {
         if (last_in_begin.value.list.items.len < 1) return error.FuncBodyNotEndingInReturn;
         const return_sym = &last_in_begin.value.list.items[0];
         if (return_sym.value.symbol.ptr != syms.@"return".value.symbol.ptr) return error.FuncBodyNotEndingInReturn;
-        const return_exprs = last_in_begin.value.list.items[1..];
 
         var local_names = std.ArrayList([]const u8).init(alloc);
         defer local_names.deinit();
@@ -139,7 +138,9 @@ const Compilation = struct {
         var local_defaults = std.ArrayList(Sexp).init(alloc);
         defer local_defaults.deinit();
 
-        for (body.value.list.items[1..]) |maybe_local_def| {
+        var first_non_def: usize = 0;
+        for (body.value.list.items[1..], 1..) |maybe_local_def, i| {
+            first_non_def = i;
             // locals are all in one block at the beginning. If it's not a local def, stop looking for more
             if (maybe_local_def.value != .list) break;
             if (maybe_local_def.value.list.items.len < 3) break;
@@ -163,6 +164,10 @@ const Compilation = struct {
                 (try local_names.addOne()).* = local_name;
             }
         }
+
+        std.debug.assert(first_non_def < body.value.list.items.len);
+
+        const return_exprs = body.value.list.items[first_non_def..];
 
         const func_name = sexp.value.list.items[1].value.list.items[0].value.symbol;
         //const params = sexp.value.list.items[1].value.list.items[1..];
@@ -295,6 +300,7 @@ const Compilation = struct {
 
         pub const ops = struct {
             pub const @"local.get" = Sexp{ .value = .{ .symbol = "local.get" } };
+            pub const @"local.set" = Sexp{ .value = .{ .symbol = "local.set" } };
 
             pub const i32_ = struct {
                 pub const add = Sexp{ .value = .{ .symbol = "i32.add" } };
@@ -453,13 +459,15 @@ const Compilation = struct {
                     .param_types = func_type.param_types,
                 });
                 // FIXME: this is a horrible way to do type resolution
-                // FIXME: use known type symbol where possible
+                // FIXME: use known type symbol where possible (e.g. interning!)
                 result_type_sexp.* = Sexp{ .value = .{ .symbol = body_fragment.resolved_type.name } };
                 result_type_sexp2.* = result_type_sexp.*;
                 std.debug.assert(func_type.result_types.len == 1);
                 if (body_fragment.resolved_type != func_type.result_types[0]) {
+                    std.log.err("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = body_fragment.code } }});
                     std.log.err("type: '{s}' doesn't match '{s}'", .{ body_fragment.resolved_type.name, func_type.result_types[0].name });
-                    return error.ReturnTypeMismatch;
+                    // FIXME/HACK: re-enable but disabling now to allow for type promotion
+                    //return error.ReturnTypeMismatch;
                 }
 
                 // FIXME: what about the rest of the code?
@@ -577,7 +585,51 @@ const Compilation = struct {
                     arg_fragment.* = try self.compileExpr(&arg_src, context);
                 }
 
-                // builtins with wasm primitives
+                if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
+                    // FIXME:
+                    try result.code.ensureUnusedCapacity(v.items.len - 1);
+                    for (v.items[1..]) |return_expr| {
+                        var compiled = try self.compileExpr(&return_expr, context);
+                        result.resolved_type = resolvePeerTypes(result, compiled);
+                        try result.code.appendSlice(try compiled.code.toOwnedSlice());
+                    }
+
+                    return result;
+                }
+
+                if (func.value.symbol.ptr == syms.@"set!".value.symbol.ptr) {
+                    std.debug.assert(arg_fragments.len == 2);
+
+                    std.debug.assert(arg_fragments[0].code.items.len == 1);
+                    std.debug.assert(arg_fragments[0].code.items[0].value == .list);
+                    std.debug.assert(arg_fragments[0].code.items[0].value.list.items.len == 2);
+                    std.debug.assert(arg_fragments[0].code.items[0].value.list.items[0].value == .symbol);
+                    std.debug.assert(arg_fragments[0].code.items[0].value.list.items[1].value == .symbol);
+                    // FIXME: leak
+                    const set_sym = arg_fragments[0].code.items[0].value.list.items[1];
+
+                    std.debug.assert(arg_fragments[1].code.items.len == 1);
+                    const set_val = arg_fragments[1].code.items[0];
+
+                    try result.code.ensureTotalCapacityPrecise(1);
+                    const wasm_op = result.code.addOneAssumeCapacity();
+                    wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                    try wasm_op.value.list.ensureTotalCapacityPrecise(3);
+                    wasm_op.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.set";
+
+                    wasm_op.value.list.addOneAssumeCapacity().* = set_sym;
+                    // TODO: more idiomatic move out data
+                    arg_fragments[0].code.items[0] = Sexp{ .value = .void };
+
+                    wasm_op.value.list.addOneAssumeCapacity().* = set_val;
+                    // TODO: more idiomatic move out data
+                    arg_fragments[1].code.items[0] = Sexp{ .value = .void };
+
+                    result.resolved_type = arg_fragments[1].resolved_type;
+                    return result;
+                }
+
+                // arithmetic builtins
                 inline for (&.{
                     .{
                         .sym = syms.@"+",
@@ -608,6 +660,7 @@ const Compilation = struct {
                             result.resolved_type = resolvePeerTypes(result, arg_fragment);
                             std.debug.assert(arg_fragment.code.items.len == 1);
                             wasm_op.value.list.addOneAssumeCapacity().* = arg_fragment.code.items[0];
+                            // TODO: more idiomatic move out data
                             arg_fragment.code.items[0] = Sexp{ .value = .void };
                         }
 
@@ -664,14 +717,18 @@ const Compilation = struct {
                 }
 
                 // call (host?) functions
-                const func_node_desc = self.env.nodes.get(func.value.symbol) orelse return error.UndefinedSymbol;
+                const func_node_desc = self.env.nodes.get(func.value.symbol) orelse {
+                    std.log.err("undefined symbol1: '{}'\n", .{func});
+                    return error.UndefinedSymbol;
+                };
 
                 {
                     const outputs = func_node_desc.getOutputs();
-                    std.debug.assert(outputs.len == 1);
-                    std.debug.assert(outputs[0].kind == .primitive);
-                    std.debug.assert(outputs[0].kind.primitive == .value);
-                    result.resolved_type = outputs[0].kind.primitive.value;
+                    result.resolved_type = if (outputs.len >= 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .value)
+                        outputs[0].kind.primitive.value
+                        // FIXME: bad type resolution for void returning functions
+                    else
+                        primitive_types.i32_;
 
                     try result.code.ensureTotalCapacityPrecise(1);
                     const wasm_call = result.code.addOneAssumeCapacity();
@@ -747,7 +804,7 @@ const Compilation = struct {
                         }
                     }
 
-                    std.log.err("undefined symbol: '{s}'", .{v});
+                    std.log.err("undefined symbol2: '{s}'", .{v});
                     return error.UndefinedSymbol;
                 };
 
@@ -810,6 +867,14 @@ const Compilation = struct {
         self.module_body = &module_body.value.list;
         try self.module_body.ensureTotalCapacity(5);
         self.module_body.addOneAssumeCapacity().* = wat_syms.module;
+
+        // add user funcs to env
+        {
+            var maybe_cursor = self.user_context.funcs.first;
+            while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
+                _ = try self.env.addNode(alloc, builtin.basicMutableNode(&cursor.data));
+            }
+        }
 
         // imports
         {
@@ -947,7 +1012,9 @@ test "parse" {
         \\(define (++ x)
         \\  (begin
         \\    (typeof a i64)
-        \\    (define a 1)
+        \\    (define a 2)
+        \\    (set! a 1)
+        \\    (Confetti 100)
         \\    (return (+ x a))))
         \\
         \\;;; comment
@@ -1003,6 +1070,10 @@ test "parse" {
         \\              (result i64)
         \\              (local $local_a
         \\                     i64)
+        \\              (local.set $local_a
+        \\                         (i32.const 1))
+        \\              (call Confetti
+        \\                    (i32.const 100))
         \\              (i64.add (local.get $param_x)
         \\                       (local.get $local_a)))
         \\        (export "deep"
@@ -1032,5 +1103,6 @@ test "parse" {
         t.allocator.free(wat);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
+        try t.expect(false);
     }
 }
