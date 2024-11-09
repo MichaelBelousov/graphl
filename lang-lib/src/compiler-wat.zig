@@ -859,7 +859,6 @@ const Compilation = struct {
                     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
                     var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     defer user_func_thunk.deinit(alloc);
-                    std.log.info("user_thunk:\n{s}\n", .{user_func_thunk_src});
                     try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
                 } else {
                     std.debug.panic("unhandled user_func type: {s}", .{user_func.data.name});

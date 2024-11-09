@@ -1495,6 +1495,8 @@ fn dvui_frame() !void {
                     };
                     errdefer gpa.free(node_descs[1].name);
 
+                    // FIXME: move all this to "addLocal" and "addParam" functions
+                    // of the graph which manage the nodes for you
                     _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(&node_descs[0]));
                     _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(&node_descs[1]));
 

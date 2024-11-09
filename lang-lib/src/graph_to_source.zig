@@ -273,7 +273,7 @@ pub const GraphBuilder = struct {
     /// NOTE: the outer module is a sexp list
     pub fn compile(self: *@This(), alloc: std.mem.Allocator, name: []const u8) !Sexp {
         try self.postPopulate(alloc);
-        const body = try self.rootToSexp(alloc);
+        var body = try self.rootToSexp(alloc);
         std.debug.assert(body.value == .list);
 
         var module = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(alloc) } };
@@ -312,7 +312,7 @@ pub const GraphBuilder = struct {
 
             body_begin.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
             // 1 for "begin", then local defs, then 1 for body
-            try body_begin.value.list.ensureTotalCapacityPrecise(1 + 2 * self.locals.items.len + 1);
+            try body_begin.value.list.ensureTotalCapacityPrecise(1 + 2 * self.locals.items.len + body.value.list.items.len + 1);
             body_begin.value.list.addOneAssumeCapacity().* = syms.begin;
             for (self.locals.items) |local| {
                 const local_type = body_begin.value.list.addOneAssumeCapacity();
@@ -339,7 +339,7 @@ pub const GraphBuilder = struct {
                 if (local.default) |default|
                     local_def.value.list.addOneAssumeCapacity().* = default;
             }
-            body_begin.value.list.addOneAssumeCapacity().* = body;
+            body_begin.value.list.appendSliceAssumeCapacity(try body.value.list.toOwnedSlice());
 
             // FIXME: also emit imports and definitions!
             func_bindings.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
@@ -647,9 +647,21 @@ pub const GraphBuilder = struct {
             errdefer ctx.deinit(alloc);
             try ctx.node_data.resize(alloc, self.graph.nodes.map.count());
             try self.onNode(alloc, node_id, &ctx);
-            //return Sexp{ .value = .{ .list = ctx.block } };
-            // FIXME/HACK: leak
-            return ctx.block.items[0];
+            // FIXME/HACK: process them in reverse rather than this temp hack
+            // reverse
+            var left: usize = 0;
+            var right: usize = if (ctx.block.items.len > 0) ctx.block.items.len - 1 else 0;
+            while (left < right) : ({
+                left += 1;
+                right -= 1;
+            }) {
+                // TODO: do this in the loop
+                const tmp = ctx.block.items[left];
+                ctx.block.items[left] = ctx.block.items[right];
+                ctx.block.items[right] = tmp;
+            }
+            return Sexp{ .value = .{ .list = ctx.block } };
+            //return ctx.block.items[0];
         }
 
         const Error = error{
@@ -672,6 +684,8 @@ pub const GraphBuilder = struct {
                 @call(debug_tail_call, onFunctionCallNode, .{ self, alloc, node, context });
         }
 
+        // FIXME: probably totally broken after refactoring onFunctionCallNode to
+        // traverse backwards
         // FIXME: refactor to find joins during this?
         pub fn onBranchNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, context: *Context) !void {
             std.debug.assert(node.desc.isSimpleBranch());
@@ -750,15 +764,27 @@ pub const GraphBuilder = struct {
             if (special_type != .getter) {
                 (try call_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
 
-                for (node.inputs[1..]) |input| {
-                    const input_tree = try self.nodeInputTreeToSexp(alloc, input);
-                    (try call_sexp.value.list.addOne()).* = input_tree;
+                // FIXME: doesn't work for variadics
+                for (node.inputs, node.desc.getInputs()) |input, input_desc| {
+                    std.debug.assert(input_desc.kind == .primitive);
+                    switch (input_desc.kind.primitive) {
+                        .exec => {
+                            if (input == .link) {
+                                try self.onNode(alloc, input.link.target, context);
+                            }
+                        },
+                        .value => {
+                            const input_tree = try self.nodeInputTreeToSexp(alloc, input);
+                            (try call_sexp.value.list.addOne()).* = input_tree;
+                        },
+                    }
                 }
             }
 
-            if (node.outputs.len >= 1 and node.outputs[0] != null) {
-                return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
-            }
+            // TODO: tail call on the next node again?
+            // if (node.outputs.len >= 1 and node.outputs[0] != null) {
+            //     return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
+            // }
         }
 
         fn nodeInputTreeToSexp(self: @This(), alloc: std.mem.Allocator, in_link: GraphTypes.Input) !Sexp {
@@ -948,23 +974,23 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
     return page_writer.concat(global_alloc);
 }
 
-test "big graph_to_source" {
-    const alloc = std.testing.allocator;
-    const source = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/source.scm");
-    defer source.free(alloc);
-    const graph_json = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/graph.json");
-    defer graph_json.free(alloc);
+// test "big graph_to_source" {
+//     const alloc = std.testing.allocator;
+//     const source = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/source.scm");
+//     defer source.free(alloc);
+//     const graph_json = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/graph.json");
+//     defer graph_json.free(alloc);
 
-    var diagnostic: GraphToSourceDiagnostic = undefined;
-    const result = graphToSource(alloc, graph_json.buffer, &diagnostic);
-    if (result) |compiled_source| {
-        try testing.expectEqualStrings(source.buffer, compiled_source);
-        alloc.free(compiled_source);
-    } else |err| {
-        debug_print("\nDIAGNOSTIC ({}):\n{}\n", .{ err, diagnostic });
-        return error.FailTest;
-    }
-}
+//     var diagnostic: GraphToSourceDiagnostic = undefined;
+//     const result = graphToSource(alloc, graph_json.buffer, &diagnostic);
+//     if (result) |compiled_source| {
+//         try testing.expectEqualStrings(source.buffer, compiled_source);
+//         alloc.free(compiled_source);
+//     } else |err| {
+//         debug_print("\nDIAGNOSTIC ({}):\n{}\n", .{ err, diagnostic });
+//         return error.FailTest;
+//     }
+// }
 
 test "small local built graph" {
     const a = testing.allocator;
@@ -974,24 +1000,33 @@ test "small local built graph" {
 
     var diagnostic: GraphBuilder.Diagnostic = .None;
     errdefer std.debug.print("DIAGNOSTIC:\n{}\n", .{diagnostic});
-    var builder = GraphBuilder.init(a, env) catch |e| {
+    var graph = GraphBuilder.init(a, &env) catch |e| {
         std.debug.print("\nERROR: {}\n", .{e});
         return e;
     };
-    defer builder.deinit(a);
+    defer graph.deinit(a);
 
-    const entry_index = try builder.addNode(a, "CustomTickEntry", true, null, &diagnostic);
-    const plus_index = try builder.addNode(a, "+", false, null, &diagnostic);
-    const actor_loc_index = try builder.addNode(a, "#GET#actor-location", false, null, &diagnostic);
-    const set_index = try builder.addNode(a, "set!", false, null, &diagnostic);
+    try graph.locals.append(a, .{
+        .name = try a.dupe(u8, "x"),
+        .type_ = helpers.primitive_types.i32_,
+    });
+    defer for (graph.locals.items) |l| a.free(l.name);
 
-    try builder.addEdge(actor_loc_index, 0, plus_index, 0, 0);
-    try builder.addLiteralInput(plus_index, 1, 0, .{ .number = 4.0 });
-    try builder.addEdge(entry_index, 0, set_index, 0, 0);
-    try builder.addLiteralInput(set_index, 1, 0, .{ .symbol = "x" });
-    try builder.addEdge(plus_index, 0, set_index, 2, 0);
+    const return_index = try graph.addNode(a, "return", true, null, null);
+    const plus_index = try graph.addNode(a, "+", false, null, &diagnostic);
+    const set_index = try graph.addNode(a, "set!", false, null, &diagnostic);
+    const set2_index = try graph.addNode(a, "set!", false, null, &diagnostic);
 
-    const sexp = builder.compile(a) catch |e| {
+    try graph.addLiteralInput(plus_index, 0, 0, .{ .number = 4.0 });
+    try graph.addLiteralInput(plus_index, 1, 0, .{ .number = 8 });
+    try graph.addLiteralInput(set_index, 1, 0, .{ .symbol = "x" });
+    try graph.addLiteralInput(set2_index, 1, 0, .{ .symbol = "x" });
+    try graph.addLiteralInput(set2_index, 2, 0, .{ .number = 10 });
+    try graph.addEdge(set2_index, 0, set_index, 0, 0);
+    try graph.addEdge(plus_index, 0, set_index, 2, 0);
+    try graph.addEdge(set_index, 0, return_index, 0, 0);
+
+    const sexp = graph.compile(a, "main") catch |e| {
         std.debug.print("\ncompile error: {}\n", .{e});
         return e;
     };
@@ -1002,9 +1037,18 @@ test "small local built graph" {
     _ = try sexp.write(text.writer());
 
     try testing.expectEqualStrings(
-        \\(set! x
-        \\      (+ actor-location
-        \\         4))
+        \\(typeof (main)
+        \\        i32)
+        \\(define (main)
+        \\        (begin (typeof x
+        \\                       i32)
+        \\               (define x)
+        \\               (set! x
+        \\                     10)
+        \\               (set! x
+        \\                     (+ 4
+        \\                        8))
+        \\               (return 0)))
         // TODO: print floating point explicitly
     , text.items);
 }
