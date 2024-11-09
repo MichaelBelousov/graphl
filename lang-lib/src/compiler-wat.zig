@@ -651,6 +651,34 @@ const Compilation = struct {
                     }
                 }
 
+                // call (host?) functions
+                const func_node_desc = self.env.nodes.get(func.value.symbol) orelse return error.UndefinedSymbol;
+
+                {
+                    const outputs = func_node_desc.getOutputs();
+                    std.debug.assert(outputs.len == 1);
+                    std.debug.assert(outputs[0].kind == .primitive);
+                    std.debug.assert(outputs[0].kind.primitive == .value);
+                    result.resolved_type = outputs[0].kind.primitive.value;
+
+                    try result.code.ensureTotalCapacityPrecise(1);
+                    const wasm_call = result.code.addOneAssumeCapacity();
+                    wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                    try wasm_call.value.list.ensureTotalCapacityPrecise(2 + arg_fragments.len);
+                    // FIXME: use types to determine
+                    wasm_call.value.list.addOneAssumeCapacity().* = wat_syms.call;
+                    wasm_call.value.list.addOneAssumeCapacity().* = func;
+
+                    for (arg_fragments) |arg_fragment| {
+                        std.debug.assert(arg_fragment.code.items.len == 1);
+                        wasm_call.value.list.addOneAssumeCapacity().* = arg_fragment.code.items[0];
+                        // move out
+                        arg_fragment.code.items[0] = Sexp{ .value = .void };
+                    }
+
+                    return result;
+                }
+
                 // otherwise we have a non builtin
                 std.log.err("unhandled call: {}", .{code_sexp});
                 return error.UnhandledCall;
@@ -771,6 +799,17 @@ const Compilation = struct {
         try self.module_body.ensureTotalCapacity(5);
         self.module_body.addOneAssumeCapacity().* = wat_syms.module;
 
+        // imports
+        {
+            var host_callbacks_prologue = try SexpParser.parse(alloc,
+                \\(func $callUserFunc_R_void (import "env" "callUserFunc_R_void") (param i32))
+                \\(func $callUserFunc_i32_R_void (import "env" "callUserFunc_i32_R_void") (param i32) (param i32))
+                \\(func $callUserFunc_i32_R_i32 (import "env" "callUserFunc_i32_R_i32") (parami32) (param i32) (result i32))
+                \\(func $callUserFunc_i32_i32_R_i32 (import "env" "callUserFunc_i32_i32_R_i32") (param i32) (param i32) (param i32) (result i32))
+            , null);
+            try self.module_body.appendSlice(try host_callbacks_prologue.value.module.toOwnedSlice());
+        }
+
         {
             const memory = self.module_body.addOneAssumeCapacity();
             memory.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
@@ -778,6 +817,17 @@ const Compilation = struct {
             memory.value.list.addOneAssumeCapacity().* = wat_syms.memory;
             memory.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
             memory.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 0 } };
+        }
+
+        // thunks for user provided functions
+        {
+            // TODO/NEXT: for each user provided function, build a thunk and append it
+            var user_func_thunk = try SexpParser.parse(alloc,
+                \\(func Confetti
+                \\      (param $param_1 i32)
+                \\      (call $callUserFunc_i32_R_void (i32.const {FUNC_ID}) (local.get $param_1)))
+            , null);
+            try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
         }
 
         {
@@ -792,17 +842,6 @@ const Compilation = struct {
             try memory_export_val.value.list.ensureTotalCapacityPrecise(2);
             memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.memory;
             memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
-        }
-
-        // host callbacks
-        {
-            var host_callbacks_prologue = try SexpParser.parse(alloc,
-                \\(func $callUserFunc_R_void (import "imports" "callUserFunc_R_void"))
-                \\(func $callUserFunc_i32_R_void (import "imports" "callUserFunc_i32_R_void") (param i32) )
-                \\(func $callUserFunc_i32_R_i32 (import "imports" "callUserFunc_i32_R_i32") (param i32) (result i32))
-                \\(func $callUserFunc_i32_i32_R_i32 (import "imports" "callUserFunc_i32_i32_R_i32") (param i32) (param i32) (result i32))
-            , null);
-            try self.module_body.appendSlice(try host_callbacks_prologue.value.module.toOwnedSlice());
         }
 
         for (sexp.value.module.items) |decl| {
