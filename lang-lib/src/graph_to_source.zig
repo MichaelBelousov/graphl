@@ -156,7 +156,6 @@ pub const GraphBuilder = struct {
     pub const Diagnostic = BuildFromJsonDiagnostic;
 
     // HACK: remove force_node_id
-    // TODO: return a pointer to the newly placed node?
     pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?NodeId, diag: ?*Diagnostic) !NodeId {
         const node_id: NodeId = force_node_id orelse @intCast(self.next_node_index);
         const putResult = try self.nodes.map.getOrPut(alloc, node_id);
@@ -285,7 +284,7 @@ pub const GraphBuilder = struct {
         start.outputs[start_index] = null;
 
         // FIXME: should have a function to choose the default for a disconnected pin
-        end.inputs[end_index] = .{ .value = .{ .number = 0 } };
+        end.inputs[end_index] = .{ .value = .{ .int = 0 } };
     }
 
     // NOTE: consider renaming to "setLiteralInput"
@@ -800,8 +799,8 @@ pub const GraphBuilder = struct {
                     std.debug.assert(input_desc.kind == .primitive);
                     switch (input_desc.kind.primitive) {
                         .exec => {
-                            if (input == .link) {
-                                try self.onNode(alloc, input.link.target, context);
+                            if (input == .link and input.link != null) {
+                                try self.onNode(alloc, input.link.?.target, context);
                             }
                         },
                         .value => {
@@ -821,7 +820,9 @@ pub const GraphBuilder = struct {
         fn nodeInputTreeToSexp(self: @This(), alloc: std.mem.Allocator, in_link: GraphTypes.Input) !Sexp {
             const sexp = switch (in_link) {
                 .link => |v| _: {
-                    const node = self.graph.nodes.map.getPtr(v.target) orelse std.debug.panic("couldn't find link target id={}", .{v.target});
+                    // FIXME: is void really correct?
+                    const target = if (v) |_v| _v.target else return Sexp{ .value = .void };
+                    const node = self.graph.nodes.map.getPtr(target) orelse std.debug.panic("couldn't find link target id={}", .{target});
 
                     // TODO: should have a comptime sexp parsing utility, or otherwise terser syntax...
                     const special_type: enum { none, getter, setter } = if (std.mem.startsWith(u8, node.desc.name(), "#"))
@@ -852,7 +853,8 @@ pub const GraphBuilder = struct {
                 },
                 // FIXME: move to own func for Value=>Sexp?, or just make Value==Sexp now...
                 .value => |v| switch (v) {
-                    .number => |u| Sexp{ .value = .{ .float = u } },
+                    .int => |u| Sexp{ .value = .{ .int = u } },
+                    .float => |u| Sexp{ .value = .{ .float = u } },
                     .string => |u| Sexp{ .value = .{ .borrowedString = u } },
                     .bool => |u| Sexp{ .value = .{ .bool = u } },
                     .null => Sexp{ .value = .void },

@@ -35,8 +35,8 @@ pub const exec = Pin{ .name = "Exec", .kind = .{ .primitive = .exec } };
 
 // FIXME: replace with or convert to sexp?
 pub const Value = union(enum) {
-    // FIXME: handle integers separately? (e.g. check for '.' in token)
-    number: f64,
+    int: i64,
+    float: f64,
     string: []const u8,
     bool: bool,
     null: void,
@@ -157,7 +157,7 @@ pub const GraphTypes = struct {
     };
 
     pub const Input = union(enum) {
-        link: Link,
+        link: ?Link,
         value: Value,
     };
 
@@ -235,7 +235,7 @@ pub const GraphTypes = struct {
                 //     }
                 // }
                 _ = i_desc;
-                i.* = .{ .value = .{ .number = 0.0 } };
+                i.* = .{ .value = .{ .float = 0.0 } };
             }
             for (result.outputs) |*o| o.* = null;
 

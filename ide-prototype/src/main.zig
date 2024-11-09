@@ -574,7 +574,7 @@ fn renderGraph() !void {
             const node = entry.value_ptr;
 
             for (node.inputs, 0..) |input, input_index| {
-                if (input != .link)
+                if (input != .link or input.link == null)
                     continue;
 
                 const target = Socket{
@@ -589,9 +589,9 @@ fn renderGraph() !void {
                 };
 
                 const source = Socket{
-                    .node_id = input.link.target,
+                    .node_id = input.link.?.target,
                     .kind = .output,
-                    .index = input.link.pin_index,
+                    .index = input.link.?.pin_index,
                 };
 
                 const target_pos = socket_positions.get(source) orelse {
@@ -913,19 +913,36 @@ fn renderNode(
                     const primitive_type = @field(grappl.primitive_types, @typeName(T) ++ "_");
                     if (input_desc.kind.primitive.value == primitive_type) {
                         var value: T = undefined;
-                        if (input.* == .value and input.value == .number) {
-                            value = if (@typeInfo(T) == .Int)
-                                @intFromFloat(input.value.number)
-                            else
-                                @floatCast(input.value.number);
+                        if (input.* == .value) {
+                            switch (input.value) {
+                                .float => |v| {
+                                    value = if (@typeInfo(T) == .Int)
+                                        @intFromFloat(v)
+                                    else
+                                        @floatCast(v);
+                                },
+                                .int => |v| {
+                                    value = if (@typeInfo(T) == .Int)
+                                        @intCast(v)
+                                    else
+                                        @floatFromInt(v);
+                                },
+                                else => @panic("unhandled"),
+                            }
                         }
 
                         const entry = try dvui.textEntryNumber(@src(), T, .{ .value = &value }, .{ .id_extra = j });
 
                         if (entry.value == .Valid) {
-                            input.* = .{ .value = .{
-                                .number = if (@typeInfo(T) == .Int) @floatFromInt(entry.value.Valid) else @floatCast(entry.value.Valid),
-                            } };
+                            switch (@typeInfo(T)) {
+                                .Int => {
+                                    input.* = .{ .value = .{ .int = @intCast(entry.value.Valid) } };
+                                },
+                                .Float => {
+                                    input.* = .{ .value = .{ .float = @floatCast(entry.value.Valid) } };
+                                },
+                                else => @panic("unhandled"),
+                            }
                         }
 
                         handled = true;
@@ -1186,7 +1203,7 @@ pub const VisualGraph = struct {
                     for (sockets, 0..) |maybe_socket, i| {
                         const link = switch (socket_type) {
                             .input => switch (maybe_socket) {
-                                .link => |v| v,
+                                .link => |v| if (v != null) v.? else continue,
                                 else => continue,
                             },
                             .output => (maybe_socket orelse continue).link,
@@ -1668,7 +1685,7 @@ fn dvui_frame() !void {
                     // definition has pins
                     return_node.inputs = try gpa.realloc(return_node.inputs, return_node.inputs.len + 1);
                     return_node.inputs[return_node.inputs.len - 1] = .{
-                        .value = grappl.Value{ .number = 0 },
+                        .value = grappl.Value{ .int = 0 },
                     };
                 }
             }
