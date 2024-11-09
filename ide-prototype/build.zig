@@ -55,6 +55,8 @@ pub fn build(b: *std.Build) void {
 
     exe.linkLibC();
 
+    exe.import_symbols = true;
+    exe.rdynamic = true; // https://github.com/ziglang/zig/issues/14139
     exe.entry = .disabled;
 
     exe.root_module.addImport("dvui", dvui_dep.module("dvui_web"));

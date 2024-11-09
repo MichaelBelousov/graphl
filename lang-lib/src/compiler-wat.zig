@@ -759,6 +759,8 @@ const Compilation = struct {
     pub fn compileModule(self: *@This(), sexp: *const Sexp) ![]const u8 {
         std.debug.assert(sexp.value == .module);
 
+        const alloc = self.arena.allocator();
+
         // set these since they are inited to undefined
         self.env = try Env.initDefault(self.arena.allocator());
         self.wat = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(self.arena.allocator()) } };
@@ -790,6 +792,17 @@ const Compilation = struct {
             try memory_export_val.value.list.ensureTotalCapacityPrecise(2);
             memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.memory;
             memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
+        }
+
+        // host callbacks
+        {
+            var host_callbacks_prologue = try SexpParser.parse(alloc,
+                \\(func $callUserFunc_R_void (import "imports" "callUserFunc_R_void"))
+                \\(func $callUserFunc_i32_R_void (import "imports" "callUserFunc_i32_R_void") (param i32) )
+                \\(func $callUserFunc_i32_R_i32 (import "imports" "callUserFunc_i32_R_i32") (param i32) (result i32))
+                \\(func $callUserFunc_i32_i32_R_i32 (import "imports" "callUserFunc_i32_i32_R_i32") (param i32) (param i32) (result i32))
+            , null);
+            try self.module_body.appendSlice(try host_callbacks_prologue.value.module.toOwnedSlice());
         }
 
         for (sexp.value.module.items) |decl| {

@@ -351,27 +351,27 @@ pub const BasicNodeDesc = struct {
     outputs: []const Pin = &.{},
 };
 
-const BasicNodeImpl = struct {
-    const Self = @This();
-
-    pub fn getInputs(node: *const NodeDesc) []const Pin {
-        const desc: *const BasicNodeDesc = @alignCast(@ptrCast(node.context));
-        return desc.inputs;
-    }
-
-    pub fn getOutputs(node: *const NodeDesc) []const Pin {
-        const desc: *const BasicNodeDesc = @alignCast(@ptrCast(node.context));
-        return desc.outputs;
-    }
-
-    pub fn getName(node: *const NodeDesc) []const u8 {
-        const desc: *const BasicNodeDesc = @alignCast(@ptrCast(node.context));
-        return desc.name;
-    }
-};
-
 /// caller owns memory!
 pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
+    const BasicNodeImpl = struct {
+        const Self = @This();
+
+        pub fn getInputs(node: *const NodeDesc) []const Pin {
+            const desc: *const BasicNodeDesc = @alignCast(@ptrCast(node.context));
+            return desc.inputs;
+        }
+
+        pub fn getOutputs(node: *const NodeDesc) []const Pin {
+            const desc: *const BasicNodeDesc = @alignCast(@ptrCast(node.context));
+            return desc.outputs;
+        }
+
+        pub fn getName(node: *const NodeDesc) []const u8 {
+            const desc: *const BasicNodeDesc = @alignCast(@ptrCast(node.context));
+            return desc.name;
+        }
+    };
+
     return NodeDesc{
         .context = @ptrCast(in_desc),
         .hidden = in_desc.hidden,
@@ -391,13 +391,32 @@ pub const BasicMutNodeDesc = struct {
 };
 
 pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
+    const BasicMutNodeImpl = struct {
+        const Self = @This();
+
+        pub fn getInputs(node: *const NodeDesc) []const Pin {
+            const desc: *const BasicMutNodeDesc = @alignCast(@ptrCast(node.context));
+            return desc.inputs;
+        }
+
+        pub fn getOutputs(node: *const NodeDesc) []const Pin {
+            const desc: *const BasicMutNodeDesc = @alignCast(@ptrCast(node.context));
+            return desc.outputs;
+        }
+
+        pub fn getName(node: *const NodeDesc) []const u8 {
+            const desc: *const BasicMutNodeDesc = @alignCast(@ptrCast(node.context));
+            return desc.name;
+        }
+    };
+
     return NodeDesc{
         .context = @ptrCast(in_desc),
         .hidden = in_desc.hidden,
         .special = in_desc.special,
-        ._getInputs = BasicNodeImpl.getInputs,
-        ._getOutputs = BasicNodeImpl.getOutputs,
-        ._getName = BasicNodeImpl.getName,
+        ._getInputs = BasicMutNodeImpl.getInputs,
+        ._getOutputs = BasicMutNodeImpl.getOutputs,
+        ._getName = BasicMutNodeImpl.getName,
     };
 }
 

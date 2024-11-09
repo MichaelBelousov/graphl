@@ -12,6 +12,9 @@ async function dvui_sleep(ms) {
  * @param {import("./WebBackend").Ide.Options} opts
  */
 export function Ide(canvasElem, opts) {
+    /** @type {Map<number, { name: string, func: import("./WebBackend").JsFunctionBinding }>} */
+    const userFuncs = new Map();
+
     const vertexShaderSource_webgl = `
         precision mediump float;
 
@@ -144,7 +147,9 @@ export function Ide(canvasElem, opts) {
 
     const imports = {
         env: {
+
         wasm_opt_transfer: sharedWasmMem,
+
         wasm_about_webgl2: () => {
             if (webgl2) {
                 return 1;
@@ -393,15 +398,30 @@ export function Ide(canvasElem, opts) {
                     })
             );
 
-            /** @type {Map<number, { name: string, func: import("./WebBackend").JsFunctionBinding>}} */
-            const userFuncs = new Map();
-
             const imports = {
                 env: {
-                    transferBuffer: new WebAssembly.Memory({
-                        initial: 1, // measured in pages of 64KiB
-                        maximum: 1,
-                    }),
+                    callUserFunc_R_void(func_id) {
+                        const funcInfo = userFuncs.get(func_id);
+
+                        if (funcInfo === undefined
+                         || funcInfo.func.parameters.length !== 0
+                         || funcInfo.func.results.length !== 0
+                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
+
+                        funcInfo.func.impl();
+                    },
+
+                    callUserFunc_i32_R_void(func_id, i1) {
+                        const funcInfo = userFuncs.get(func_id);
+
+                        if (funcInfo === undefined
+                         || funcInfo.func.parameters.length !== 1
+                         || funcInfo.func.parameters[0].type !== Types.i32
+                         || funcInfo.func.results.length !== 0
+                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
+
+                        funcInfo.func.impl(i1);
+                    },
 
                     callUserFunc_i32_R_i32(func_id, i1) {
                         const funcInfo = userFuncs.get(func_id);
@@ -434,38 +454,6 @@ export function Ide(canvasElem, opts) {
 
             const compiled = await WebAssembly.instantiate(moduleBytes, imports);
             lastCompiled = compiled;
-
-            const MAX_FUNC_NAME = 255;
-            for (const [funcName, func] of Object.entries(opts.bindings.jsHost.functions)) {
-                if (funcName.length > MAX_FUNC_NAME)
-                    throw Error(`function name '${funcName}' is too long to be bound`);
-
-                const namePtr = 0;
-                const write = utf8encoder.encodeInto(funcName, new Uint8Array(imports.env.transferBuffer.buffer, namePtr));
-
-                if (write.read === funcName.length)
-                    throw Error("failed to write whole func name");
-
-                const inputCount = func.parameters.length;
-                const outputCount = func.results.length;
-                const funcId = compiled.instance.exports.createUserFunc(namePtr, write.written, inputCount, outputCount);
-                userFuncs.set(funcId, func);
-
-                for (let i = 0; i < func.parameters.length; ++i) {
-                    const param = func.parameters[i];
-                    const write = utf8encoder.encodeInto(param.name, new Uint8Array(imports.env.transferBuffer.buffer, namePtr));
-                    compiled.instance.exports.addUserFuncInput(funcId, i, namePtr, write.written, param.type);
-                }
-
-                for (let i = 0; i < func.results.length; ++i) {
-                    const result = func.results[i];
-                    const write = utf8encoder.encodeInto(result.name, new Uint8Array(imports.env.transferBuffer.buffer, namePtr));
-                    compiled.instance.exports.addUserFuncOutput(funcId, i, namePtr, write.written, param.type);
-                }
-            }
-            //compiled.instance.exports["initUserEnv"]();
-
-            //const result = instance.exports.main();
             const result = compiled.instance.exports["main"]();
 
             console.log(result);
@@ -480,6 +468,42 @@ export function Ide(canvasElem, opts) {
     .then(result => {
 
         wasmResult = result;
+
+        const MAX_FUNC_NAME = 256;
+
+        for (const [funcName, func] of Object.entries(opts.bindings.jsHost.functions)) {
+            if (funcName.length > MAX_FUNC_NAME)
+                throw Error(`function name '${funcName}' is too long to be bound`);
+
+            const transferBuffer = () => new Uint8Array(
+                wasmResult.instance.exports.memory.buffer,
+                // FIXME: why is the end of the region exported? This doesn't seem to match what zig sees
+                wasmResult.instance.exports.grappl_init_start - MAX_FUNC_NAME,
+                MAX_FUNC_NAME,
+            );
+
+            const write = utf8encoder.encodeInto(funcName, transferBuffer());
+            if (write.read !== funcName.length) throw Error("failed to write func name");
+
+            const inputCount = func.parameters.length;
+            const outputCount = func.results.length;
+            const funcId = wasmResult.instance.exports.createUserFunc(write.written, inputCount, outputCount);
+            userFuncs.set(funcId, { name: funcName, func });
+
+            for (let i = 0; i < func.parameters.length; ++i) {
+                const param = func.parameters[i];
+                const write = utf8encoder.encodeInto(param.name, transferBuffer());
+                if (write.read !== param.name.length) throw Error("failed to write input name");
+                wasmResult.instance.exports.addUserFuncInput(funcId, i, write.written, param.type);
+            }
+
+            for (let i = 0; i < func.results.length; ++i) {
+                const result = func.results[i];
+                const write = utf8encoder.encodeInto(result.name, transferBuffer());
+                if (write.read !== result.name.length) throw Error("failed to write output name");
+                wasmResult.instance.exports.addUserFuncOutput(funcId, i, write.written, result.type);
+            }
+        }
 
         const canvas = canvasElem;
 

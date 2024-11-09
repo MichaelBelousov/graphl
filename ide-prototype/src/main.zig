@@ -13,12 +13,13 @@ const SexpParser = @import("grappl_core").SexpParser;
 const Sexp = @import("grappl_core").Sexp;
 const helpers = @import("grappl_core").helpers;
 
+const MAX_FUNC_NAME = 256;
+
 extern fn recvCurrentSource(ptr: ?[*]const u8, len: usize) void;
 extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
-extern fn callUserFunc_i32_R_i32(*const fn (i32) i32, i32) i32;
-extern fn callUserFunc_i32_i32_R_i32(*const fn (i32, i32) i32) i32;
-//extern fn callUserFunc(*const fn (*anyopaque) *anyopaque) *anyopaque;
+const grappl_init_buffer: [MAX_FUNC_NAME]u8 = undefined;
+export const grappl_init_start: *const u8 = &grappl_init_buffer[0];
 
 const UserFuncList = std.SinglyLinkedList(helpers.BasicMutNodeDesc);
 var user_funcs = UserFuncList{};
@@ -32,21 +33,24 @@ const UserFuncTypes = enum(u32) {
     string = 4,
 };
 
-export fn createUserFunc(name_ptr: [*]const u8, name_len: u32, input_count: u32, output_count: u32) *const anyopaque {
-    return _createUserFunc(name_ptr[0..name_len], input_count, output_count) catch unreachable;
+export fn createUserFunc(name_len: u32, input_count: u32, output_count: u32) *const anyopaque {
+    const name = grappl_init_buffer[0..name_len];
+    return _createUserFunc(name, input_count, output_count) catch unreachable;
 }
 
-export fn addUserFuncInput(func_id: *const anyopaque, index: u32, name_ptr: [*]const u8, name_len: u32, input_type: u32) void {
-    return _addUserFuncInput(@alignCast(@ptrCast(func_id)), index, name_ptr[0..name_len], @enumFromInt(input_type)) catch unreachable;
+export fn addUserFuncInput(func_id: *const anyopaque, index: u32, name_len: u32, input_type: u32) void {
+    const name = grappl_init_buffer[0..name_len];
+    return _addUserFuncInput(@alignCast(@ptrCast(func_id)), index, name, @enumFromInt(input_type)) catch unreachable;
 }
 
-export fn addUserFuncOutput(func_id: *const anyopaque, index: u32, name_ptr: [*]const u8, name_len: u32, output_type: u32) void {
-    return _addUserFuncOutput(@alignCast(@ptrCast(func_id)), index, name_ptr[0..name_len], @enumFromInt(output_type)) catch unreachable;
+export fn addUserFuncOutput(func_id: *const anyopaque, index: u32, name_len: u32, output_type: u32) void {
+    const name = grappl_init_buffer[0..name_len];
+    return _addUserFuncOutput(@alignCast(@ptrCast(func_id)), index, name, @enumFromInt(output_type)) catch unreachable;
 }
 
 fn _createUserFunc(name: []const u8, input_count: u32, output_count: u32) !*const helpers.BasicMutNodeDesc {
-    const slot = try gpa.create(UserFuncList.Node);
-    slot.* = UserFuncList.Node{
+    const node = try gpa.create(UserFuncList.Node);
+    node.* = UserFuncList.Node{
         .data = .{
             .name = try gpa.dupe(u8, name),
             .hidden = false,
@@ -54,9 +58,9 @@ fn _createUserFunc(name: []const u8, input_count: u32, output_count: u32) !*cons
             .outputs = try gpa.alloc(helpers.Pin, output_count + 1), // an extra is inserted for exec
         },
     };
-    user_funcs.prepend(slot);
+    user_funcs.prepend(node);
 
-    const result = &user_funcs.first.?.data;
+    const result = &node.data;
 
     result.inputs[0] = helpers.Pin{
         .name = "exec",
@@ -80,7 +84,8 @@ fn _addUserFuncInput(func_id: *const helpers.BasicMutNodeDesc, index: u32, name:
         .string => @panic("string user func type not yet supported"),
     };
 
-    func_id.inputs[index] = helpers.Pin{
+    // skip the exec index
+    func_id.inputs[index + 1] = helpers.Pin{
         .name = try gpa.dupe(u8, name),
         .kind = .{ .primitive = .{ .value = input_type } },
     };
@@ -95,7 +100,8 @@ fn _addUserFuncOutput(func_id: *const helpers.BasicMutNodeDesc, index: u32, name
         .string => @panic("string user func type not yet supported"),
     };
 
-    func_id.outputs[index] = helpers.Pin{
+    // skip the exec index
+    func_id.outputs[index + 1] = helpers.Pin{
         .name = try gpa.dupe(u8, name),
         .kind = .{ .primitive = .{ .value = output_type } },
     };
@@ -142,8 +148,6 @@ var backend: WebBackend = undefined;
 var touchPoints: [2]?dvui.Point = [_]?dvui.Point{null} ** 2;
 var orig_content_scale: f32 = 1.0;
 
-const MAX_FUNC_NAME = 256;
-
 const Graph = struct {
     index: u16,
 
@@ -172,6 +176,13 @@ const Graph = struct {
 
     pub fn initInPlace(self: *@This(), index: u16, in_name: []const u8) !void {
         self.env = try grappl.Env.initDefault(gpa);
+
+        {
+            var maybe_cursor = user_funcs.first;
+            while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
+                _ = try self.env.addNode(gpa, helpers.basicMutableNode(&cursor.data));
+            }
+        }
 
         const grappl_graph = try grappl.GraphBuilder.init(gpa, &self.env);
 
@@ -614,8 +625,6 @@ fn renderGraph() !void {
         const stopped_dragging = drag_state_changed and maybe_drag_offset == null and edge_drag_start != null;
 
         if (stopped_dragging) {
-            std.log.info("stopped dragging", .{});
-
             if (edge_drag_end) |end| {
                 const edge = if (end.kind == .input) .{
                     .source = edge_drag_start.?.socket,
@@ -836,7 +845,7 @@ fn renderNode(
 
     var inputs_vbox = try dvui.box(@src(), .vertical, .{});
 
-    for (node.desc.getInputs(), node.inputs, 0..) |input_desc, *input, j| {
+    for (node.desc.getInputs(), node.inputs, 0..) |*input_desc, *input, j| {
         var input_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
         defer input_box.deinit();
 
@@ -1612,6 +1621,9 @@ fn dvui_frame() !void {
                     text_entry.textTyped(binding.name);
                 }
                 text_entry.deinit();
+
+                if (binding.kind != .primitive or binding.kind.primitive == .exec)
+                    continue;
 
                 // FIXME: this is slow to run every frame!
                 var type_choice: usize = _: {

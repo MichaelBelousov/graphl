@@ -10,6 +10,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <title>Grappl Editor</title>
+    <!-- FIXME: remove temp -->
+    <script src="https://cdn.jsdelivr.net/npm/@tsparticles/confetti@3.0.3/tsparticles.confetti.bundle.min.js"></script>
   </head>
 
   <body style="height: 100%; margin: 0; padding: 0;" >
@@ -51,10 +53,17 @@
               bindings: {
                 jsHost: {
                   functions: {
-                    "test": {
-                      parameters: [],
+                    "Confetti": {
+                      parameters: [{ name: "particleCount", type: grappl.Types.i32 }],
                       results: [],
-                      impl() { console.log("test!"); }
+                      impl(particleCount) {
+                        console.log("test!");
+                        confetti({
+                          particleCount,
+                          spread: 70,
+                          origin: { y: 0.6 },
+                        });
+                      }
                     }
                   }
                 }
@@ -62,17 +71,18 @@
             });
             resolve(result);
           };
-          document.body.onerror = (err) => reject(err);
 
-          document.addEventListener("keydown", (e) => {
-            const isCtrlShiftE = e.ctrlKey && e.shiftKey && e.key === "E";
-            if (!isCtrlShiftE) return;
-            e.preventDefault();
-            document.body.style["grid-template-columns"]
-              = document.body.style["grid-template-columns"] === showText
-              ? noShowText
-              : showText;
-          });
+          document.body.onerror = (err) => reject(err);
+        });
+
+        document.addEventListener("keydown", (e) => {
+          const isCtrlShiftE = e.ctrlKey && e.shiftKey && e.key === "E";
+          if (!isCtrlShiftE) return;
+          e.preventDefault();
+          document.body.style["grid-template-columns"]
+            = document.body.style["grid-template-columns"] === showText
+            ? noShowText
+            : showText;
         });
       }
 

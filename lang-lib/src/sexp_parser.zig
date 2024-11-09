@@ -228,7 +228,7 @@ pub const Parser = struct {
                         const top = peek(&algo_state.stack) orelse unreachable;
                         const last = try top.value.list.addOne();
 
-                        // FIXME: do symbol interning instead!
+                        // FIXME: do symbol interning and a prefix tree instead!
                         var handled = false;
                         const sym_decls = comptime std.meta.declarations(syms);
                         inline for (sym_decls) |sym_decl| {
