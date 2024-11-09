@@ -13,7 +13,6 @@ const SexpParser = @import("grappl_core").SexpParser;
 const Sexp = @import("grappl_core").Sexp;
 const helpers = @import("grappl_core").helpers;
 
-const GraphAreaWidget = @import("./GraphAreaWidget.zig");
 
 const WriteError = error{};
 const LogWriter = std.io.Writer(void, WriteError, writeLog);
