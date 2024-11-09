@@ -338,19 +338,20 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
             std.log.err("Grappl Graph failed to init", .{});
             return @intFromEnum(AppInitErrorCodes.GrapplInitFailed);
         };
+        _ = first_graph;
 
         // we know the entry is set by addGraph
-        const entry_index = first_graph.grappl_graph.entry_id orelse unreachable;
-        const plus_index = first_graph.addNode(gpa, "+", false, null, null) catch unreachable;
-        const set_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
+        //const entry_index = first_graph.grappl_graph.entry_id orelse unreachable;
+        //const plus_index = first_graph.addNode(gpa, "+", false, null, null) catch unreachable;
+        //const set_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
         // const set2_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
         // const set3_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
         // const set4_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
         // const set5_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
         // const set6_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
         // const set7_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
-        first_graph.addEdge(set_index, 0, entry_index, 0, 0) catch unreachable;
-        first_graph.addEdge(plus_index, 0, entry_index, 1, 0) catch unreachable;
+        //first_graph.addEdge(set_index, 0, entry_index, 0, 0) catch unreachable;
+        //first_graph.addEdge(plus_index, 0, entry_index, 1, 0) catch unreachable;
         // first_graph.addEdge(set_index, 0, set2_index, 0, 0) catch unreachable;
         // first_graph.addEdge(set2_index, 0, set3_index, 0, 0) catch unreachable;
         // first_graph.addEdge(set3_index, 0, set4_index, 0, 0) catch unreachable;

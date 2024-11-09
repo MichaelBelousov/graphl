@@ -225,15 +225,17 @@ pub const GraphTypes = struct {
             };
 
             for (result.inputs, args.desc.getInputs()) |*i, i_desc| {
-                if (i_desc.kind == .primitive and i_desc.kind.primitive == .value) {
-                    if (i_desc.kind.primitive.value == primitive_types.i32_ or i_desc.kind.primitive.value == primitive_types.u32_ or i_desc.kind.primitive.value == primitive_types.f32_ or i_desc.kind.primitive.value == primitive_types.i64_ or i_desc.kind.primitive.value == primitive_types.u64_ or i_desc.kind.primitive.value == primitive_types.f64_) {
-                        i.* = .{ .value = .{ .number = 0.0 } };
-                    } else {
-                        std.log.err("unknown type: '{s}'", .{i_desc.kind.primitive.value.name});
-                        // FIXME: non-numeric types should not default to 0, should be based on
-                        i.* = .{ .value = .{ .number = 0.0 } };
-                    }
-                }
+                // if (i_desc.kind == .primitive and i_desc.kind.primitive == .value) {
+                //     if (i_desc.kind.primitive.value == primitive_types.i32_ or i_desc.kind.primitive.value == primitive_types.u32_ or i_desc.kind.primitive.value == primitive_types.f32_ or i_desc.kind.primitive.value == primitive_types.i64_ or i_desc.kind.primitive.value == primitive_types.u64_ or i_desc.kind.primitive.value == primitive_types.f64_) {
+                //         i.* = .{ .value = .{ .number = 0.0 } };
+                //     } else {
+                //         std.log.err("unknown type: '{s}'", .{i_desc.kind.primitive.value.name});
+                //         // FIXME: non-numeric types should not default to 0, should be based on
+                //         i.* = .{ .value = .{ .number = 0.0 } };
+                //     }
+                // }
+                _ = i_desc;
+                i.* = .{ .value = .{ .number = 0.0 } };
             }
             for (result.outputs) |*o| o.* = null;
 
