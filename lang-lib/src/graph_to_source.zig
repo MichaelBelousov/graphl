@@ -258,6 +258,36 @@ pub const GraphBuilder = struct {
         } };
     }
 
+    pub fn removeEdge(self: @This(), start_id: NodeId, start_index: u16, end_id: NodeId, end_index: u16, end_subindex: u16) !void {
+        _ = end_subindex;
+        const start = self.nodes.map.getPtr(start_id) orelse return error.SourceNodeNotFound;
+        const end = self.nodes.map.getPtr(end_id) orelse return error.TargetNodeNotFound;
+
+        // TODO: some macros this might be allowable
+        if (start_id == end_id) {
+            // TODO: return diagnostic
+            std.log.err("edges must be between nodes", .{});
+            return error.SourceIndexInvalid;
+        }
+
+        if (start_index >= start.outputs.len) {
+            // TODO: return diagnostic
+            std.log.err("start_index {} not valid, only {} available inputs\n", .{ start_index, start.outputs.len });
+            return error.SourceIndexInvalid;
+        }
+
+        if (end_index >= end.inputs.len) {
+            // TODO: return diagnostic
+            std.log.err("end_index {} not valid, only {} available inputs\n", .{ end_index, end.inputs.len });
+            return error.TargetIndexInvalid;
+        }
+
+        start.outputs[start_index] = null;
+
+        // FIXME: should have a function to choose the default for a disconnected pin
+        end.inputs[end_index] = .{ .value = .{ .number = 0 } };
+    }
+
     // NOTE: consider renaming to "setLiteralInput"
     pub fn addLiteralInput(self: @This(), node_id: NodeId, pin_index: u16, subpin_index: u16, value: Value) !void {
         const start = self.nodes.map.getPtr(node_id) orelse return error.SourceNodeNotFound;

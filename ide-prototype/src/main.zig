@@ -216,6 +216,10 @@ const Graph = struct {
         return self.visual_graph.addEdge(start_id, start_index, end_id, end_index, end_subindex);
     }
 
+    pub fn removeEdge(self: *@This(), start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
+        return self.visual_graph.removeEdge(start_id, start_index, end_id, end_index, end_subindex);
+    }
+
     pub fn addLiteralInput(self: @This(), node_id: grappl.NodeId, pin_index: u16, subpin_index: u16, value: grappl.Value) !void {
         return self.visual_graph.addLiteralInput(node_id, pin_index, subpin_index, value);
     }
@@ -360,6 +364,7 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
     win.themes.put("Adwaita Light", theme.fontSizeAdd(2)) catch {};
     theme = win.themes.get("Adwaita Dark").?;
     win.themes.put("Adwaita Dark", theme.fontSizeAdd(2)) catch {};
+    //win.theme = win.themes.get("Adwaita Dark").?;
     win.theme = win.themes.get("Adwaita Light").?;
 
     WebBackend.win = &win;
@@ -634,11 +639,20 @@ fn renderGraph() !void {
                     .target = edge_drag_start.?.socket,
                 };
 
-                const valid_edge = edge.source.kind != edge.target.kind and edge.source.node_id != edge.target.node_id;
+                const same_edge = edge.source.node_id == edge.target.node_id;
+                const valid_edge = edge.source.kind != edge.target.kind and !same_edge;
                 if (valid_edge) {
                     // FIXME: why am I assumign edge_drag_start exists?
                     // TODO: maybe use unreachable instead of try?
                     try current_graph.addEdge(
+                        edge.source.node_id,
+                        edge.source.index,
+                        edge.target.node_id,
+                        edge.target.index,
+                        0,
+                    );
+                } else if (same_edge) {
+                    try current_graph.removeEdge(
                         edge.source.node_id,
                         edge.source.index,
                         edge.target.node_id,
@@ -651,6 +665,7 @@ fn renderGraph() !void {
                 node_menu_filter = if (edge_drag_start != null) edge_drag_start.?.socket else null;
             }
 
+            std.log.info("stopped dragging, set start to null", .{});
             edge_drag_start = null;
         }
 
@@ -759,32 +774,44 @@ fn rectContainsMouse(r: Rect) bool {
     return r.contains(mouse_pt);
 }
 
-fn considerSocketForHover(icon_res: *const dvui.ButtonIconResult, socket: Socket) dvui.Point {
+// FIXME: replace with idiomatic dvui event processing
+fn considerSocketForHover(icon_res: *dvui.ButtonIconResult, socket: Socket) dvui.Point {
     const r = icon_res.icon.wd.rectScale().r;
     const socket_center = rectCenter(r);
 
-    const is_dragging = dvui.currentWindow().drag_state == .dragging;
+    const is_dragging = dvui.currentWindow().drag_state != .none;
 
     if (rectContainsMouse(r)) {
         if (is_dragging and edge_drag_start != null
         //
         and socket.kind != edge_drag_start.?.socket.kind
-        // FIXME: for now not allowing trivial cyclic connections
-        and socket.node_id != edge_drag_start.?.socket.node_id) {
+        // allow selecting self as drag end as a form of deletion
+        //and socket.node_id != edge_drag_start.?.socket.node_id
+        ) {
             dvui.cursorSet(.crosshair);
             edge_drag_end = socket;
         }
 
-        if (!is_dragging) {
-            dvui.cursorSet(.crosshair);
-            edge_drag_start = .{
-                .pt = socket_center,
-                .socket = socket,
-            };
+        // FIXME: make more idiomatic
+        const evts = dvui.events();
+        for (evts) |*e| {
+            //if (!icon_res.icon.matchEvent(e))
+            //continue;
+            switch (e.evt) {
+                .mouse => |me| {
+                    if (me.action == .press and me.button.pointer()) {
+                        std.log.info("pressed, setting new drag start ({})", .{dvui.currentWindow().drag_state});
+                        dvui.cursorSet(.crosshair);
+                        edge_drag_start = .{
+                            .pt = socket_center,
+                            .socket = socket,
+                        };
+                        break;
+                    }
+                },
+                else => {},
+            }
         }
-        // FIXME: the last hovered socket is always the start of a new edge, even if it's no longer hovered
-        // } else if (!is_dragging) {
-        //     edge_drag_start = null;
     }
 
     return socket_center;
@@ -864,14 +891,14 @@ fn renderNode(
         };
 
         const socket_point: dvui.Point = if (input_desc.kind.primitive == .exec) _: {
-            const icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
+            var icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
             const socket_center = considerSocketForHover(&icon_res, socket);
 
             break :_ socket_center;
         } else _: {
             // FIXME: make non interactable/hoverable
 
-            const icon_res = try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
+            var icon_res = try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
             const socket_center = considerSocketForHover(&icon_res, socket);
 
             // FIXME: report compiler bug
@@ -910,8 +937,38 @@ fn renderNode(
                         input.* = .{ .value = .{ .bool = false } };
                     }
 
-                    std.debug.assert(input.*.value == .bool);
                     _ = try dvui.checkbox(@src(), &input.value.bool, null, .{ .id_extra = j });
+                    handled = true;
+                }
+
+                if (input_desc.kind.primitive.value == grappl.primitive_types.symbol and input.* == .value) {
+                    if (current_graph.grappl_graph.locals.items.len > 0) {
+                        //node.inputs[j] = .{.literal}
+                        if (input.* != .value or input.value != .symbol) {
+                            input.* = .{ .value = .{ .symbol = "" } };
+                        }
+
+                        // TODO: use stack buffer with reasonable max options?
+                        const local_options: [][]const u8 = try gpa.alloc([]const u8, current_graph.grappl_graph.locals.items.len);
+                        defer gpa.free(local_options);
+
+                        var local_choice: usize = 0;
+
+                        for (current_graph.grappl_graph.locals.items, local_options, 0..) |local, *local_opt, k| {
+                            local_opt.* = local.name;
+                            // FIXME: symbol interning
+                            if (std.mem.eql(u8, local.name, input.value.symbol)) {
+                                local_choice = k;
+                            }
+                        }
+
+                        const opt_clicked = try dvui.dropdown(@src(), local_options, &local_choice, .{ .id_extra = j });
+                        if (opt_clicked) {
+                            input.value = .{ .symbol = current_graph.grappl_graph.locals.items[local_choice].name };
+                        }
+                    } else {
+                        try dvui.label(@src(), "No locals", .{}, .{ .id_extra = j });
+                    }
                     handled = true;
                 }
 
@@ -945,13 +1002,14 @@ fn renderNode(
             .debug = true,
             .border = .{ .x = 1, .y = 1, .w = 1, .h = 1 },
             .color_border = .{ .color = .{ .g = 0xff, .a = 0xff } },
+            .color_fill_hover = .{ .color = .{ .r = 0x99, .g = 0x99, .b = 0xff, .a = 0xff } },
             .background = true,
         };
 
         _ = output;
         _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .id_extra = j });
 
-        const icon_res = if (output_desc.kind.primitive == .exec)
+        var icon_res = if (output_desc.kind.primitive == .exec)
             try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts)
         else
             try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
@@ -1052,6 +1110,15 @@ pub const VisualGraph = struct {
 
     pub fn addEdge(self: *@This(), start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
         const result = try self.graph.addEdge(start_id, start_index, end_id, end_index, end_subindex);
+        // FIXME: (note that if edge did any "replacing", that also needs to be restored!)
+        // errdefer self.graph.removeEdge(result);
+        // TODO:
+        try self.formatGraphNaive(gpa); // FIXME: do this iteratively! don't reformat the whole thing...
+        return result;
+    }
+
+    pub fn removeEdge(self: *@This(), start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
+        const result = try self.graph.removeEdge(start_id, start_index, end_id, end_index, end_subindex);
         // FIXME: (note that if edge did any "replacing", that also needs to be restored!)
         // errdefer self.graph.removeEdge(result);
         // TODO:
@@ -1444,7 +1511,7 @@ fn dvui_frame() !void {
                     errdefer gpa.free(name);
 
                     // default binding type
-                    const new_type = grappl.primitive_types.i32_;
+                    const new_type = grappl.primitive_types.f64_;
 
                     const getter_inputs = [_]helpers.Pin{};
 
