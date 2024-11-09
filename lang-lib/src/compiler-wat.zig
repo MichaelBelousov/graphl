@@ -736,7 +736,8 @@ const Compilation = struct {
                     try wasm_call.value.list.ensureTotalCapacityPrecise(2 + arg_fragments.len);
                     // FIXME: use types to determine
                     wasm_call.value.list.addOneAssumeCapacity().* = wat_syms.call;
-                    wasm_call.value.list.addOneAssumeCapacity().* = func;
+                    // FIXME: leak
+                    wasm_call.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{func.value.symbol}) } };
 
                     for (arg_fragments) |arg_fragment| {
                         std.debug.assert(arg_fragment.code.items.len == 1);
@@ -918,7 +919,7 @@ const Compilation = struct {
                 if (user_func.data.inputs.len == 2 and user_func.data.inputs[1].kind == .primitive and user_func.data.inputs[1].kind.primitive == .value and user_func.data.inputs[1].kind.primitive.value == primitive_types.i32_) {
                     // TODO: create dedicated function for this kind of substitution
                     const user_func_thunk_src = try std.fmt.allocPrint(alloc,
-                        \\(func {s}
+                        \\(func ${s}
                         \\      (param $param_1 i32)
                         \\      (call $callUserFunc_i32_R_void (i32.const {}) (local.get $param_1)))
                     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
@@ -1053,7 +1054,7 @@ test "parse" {
         \\                0)
         \\        (export "memory"
         \\                (memory $0))
-        \\        (func Confetti
+        \\        (func $Confetti
         \\              (param $param_1
         \\                     i32)
         \\              (call $callUserFunc_i32_R_void
@@ -1072,7 +1073,7 @@ test "parse" {
         \\                     i64)
         \\              (local.set $local_a
         \\                         (i32.const 1))
-        \\              (call Confetti
+        \\              (call $Confetti
         \\                    (i32.const 100))
         \\              (i64.add (local.get $param_x)
         \\                       (local.get $local_a)))
