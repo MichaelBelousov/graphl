@@ -594,10 +594,6 @@ const Compilation = struct {
                         std.debug.assert(arg_fragments.len == 2);
                         for (arg_fragments) |arg_fragment| {
                             result.resolved_type = resolvePeerTypes(result, arg_fragment);
-                            if (arg_fragment.code.items.len != 1) {
-                                std.debug.print("op={s}\n", .{builtin_op.wasm_name});
-                                std.debug.print("len={}, type={s}, sexp={}\n", .{ arg_fragment.code.items.len, @tagName(arg_fragment.code.items[0].value), Sexp{ .value = .{ .module = arg_fragment.code } } });
-                            }
                             std.debug.assert(arg_fragment.code.items.len == 1);
                             wasm_op.value.list.addOneAssumeCapacity().* = arg_fragment.code.items[0];
                             arg_fragment.code.items[0] = Sexp{ .value = .void };
@@ -734,7 +730,7 @@ const Compilation = struct {
             },
 
             inline else => {
-                std.debug.print("unimplemented expr for compilation:\n{}\n", .{code_sexp});
+                std.log.err("unimplemented expr for compilation:\n{}\n", .{code_sexp});
                 std.debug.panic("unimplemented type: '{s}'", .{@tagName(code_sexp.value)});
             },
         }

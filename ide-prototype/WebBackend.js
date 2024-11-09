@@ -1,11 +1,16 @@
 ///<reference path="./WebBackend.d.ts">
 
 // TODO: remove references to dvui in prod build
+
 /** @param {number} ms */
 async function dvui_sleep(ms) {
     await new Promise(r => setTimeout(r, ms));
 }
 
+/**
+ * @param {HTMLCanvasElement} canvasElem
+ * @param {import("./WebBackend").Ide.Options} opts
+ */
 export function Ide(canvasElem, opts) {
     const vertexShaderSource_webgl = `
         precision mediump float;
@@ -138,10 +143,8 @@ export function Ide(canvasElem, opts) {
     const utf8encoder = new TextEncoder();
 
     const imports = {
-        transfer: {
-            wasm_opt: sharedWasmMem,
-        },
         env: {
+        wasm_opt_transfer: sharedWasmMem,
         wasm_about_webgl2: () => {
             if (webgl2) {
                 return 1;
@@ -383,8 +386,85 @@ export function Ide(canvasElem, opts) {
 
             const moduleBytes = wasmOpt.FS.readFile(outputFile, { encoding: "binary" });
 
-            const compiled = await WebAssembly.instantiate(moduleBytes, {});
+            const userProvidedEnv = Object.fromEntries(
+                Object.entries(opts.bindings.jsHost.functions)
+                    .map(([name, func]) => {
+                        return [name, func];
+                    })
+            );
+
+            /** @type {Map<number, { name: string, func: import("./WebBackend").JsFunctionBinding>}} */
+            const userFuncs = new Map();
+
+            const imports = {
+                env: {
+                    transferBuffer: new WebAssembly.Memory({
+                        initial: 1, // measured in pages of 64KiB
+                        maximum: 1,
+                    }),
+
+                    callUserFunc_i32_R_i32(func_id, i1) {
+                        const funcInfo = userFuncs.get(func_id);
+
+                        if (funcInfo === undefined
+                         || funcInfo.func.parameters.length !== 1
+                         || funcInfo.func.parameters[0].type !== Types.i32
+                         || funcInfo.func.results.length !== 1
+                         || funcInfo.func.results[0].type !== Types.i32
+                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
+
+                        return funcInfo.func.impl(i1);
+                    },
+
+                    callUserFunc_i32_i32_R_i32(func_id, i1, i2) {
+                        const funcInfo = userFuncs.get(func_id);
+
+                        if (funcInfo === undefined
+                         || funcInfo.func.parameters.length !== 2
+                         || funcInfo.func.parameters[0].type !== Types.i32
+                         || funcInfo.func.parameters[1].type !== Types.i32
+                         || funcInfo.func.results.length !== 1
+                         || funcInfo.func.results[0].type !== Types.i32
+                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
+
+                        return funcInfo.func.impl(i1, i2);
+                    },
+                },
+            };
+
+            const compiled = await WebAssembly.instantiate(moduleBytes, imports);
             lastCompiled = compiled;
+
+            const MAX_FUNC_NAME = 255;
+            for (const [funcName, func] of Object.entries(opts.bindings.jsHost.functions)) {
+                if (funcName.length > MAX_FUNC_NAME)
+                    throw Error(`function name '${funcName}' is too long to be bound`);
+
+                const namePtr = 0;
+                const write = utf8encoder.encodeInto(funcName, new Uint8Array(imports.env.transferBuffer.buffer, namePtr));
+
+                if (write.read === funcName.length)
+                    throw Error("failed to write whole func name");
+
+                const inputCount = func.parameters.length;
+                const outputCount = func.results.length;
+                const funcId = compiled.instance.exports.createUserFunc(namePtr, write.written, inputCount, outputCount);
+                userFuncs.set(funcId, func);
+
+                for (let i = 0; i < func.parameters.length; ++i) {
+                    const param = func.parameters[i];
+                    const write = utf8encoder.encodeInto(param.name, new Uint8Array(imports.env.transferBuffer.buffer, namePtr));
+                    compiled.instance.exports.addUserFuncInput(funcId, i, namePtr, write.written, param.type);
+                }
+
+                for (let i = 0; i < func.results.length; ++i) {
+                    const result = func.results[i];
+                    const write = utf8encoder.encodeInto(result.name, new Uint8Array(imports.env.transferBuffer.buffer, namePtr));
+                    compiled.instance.exports.addUserFuncOutput(funcId, i, namePtr, write.written, param.type);
+                }
+            }
+            //compiled.instance.exports["initUserEnv"]();
+
             //const result = instance.exports.main();
             const result = compiled.instance.exports["main"]();
 
@@ -411,9 +491,9 @@ export function Ide(canvasElem, opts) {
         //div.style.height = 0;
         //div.style.overflow = "hidden";
         hidden_input = document.createElement("input");
-	hidden_input.style.position = "absolute";
-	hidden_input.style.left = 0;
-	hidden_input.style.top = 0;
+        hidden_input.style.position = "absolute";
+        hidden_input.style.left = 0;
+        hidden_input.style.top = 0;
         div.appendChild(hidden_input);
         document.body.prepend(div);
 
@@ -698,3 +778,10 @@ export function Ide(canvasElem, opts) {
     };
 }
 
+export const Types = {
+    "i32": 0,
+    "i64": 1,
+    "f32": 2,
+    "f64": 3,
+    "string": 4,
+};
