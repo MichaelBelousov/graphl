@@ -307,15 +307,22 @@ const Compilation = struct {
                 pub const sub = Sexp{ .value = .{ .symbol = "i32.sub" } };
                 pub const mul = Sexp{ .value = .{ .symbol = "i32.mul" } };
                 pub const div = Sexp{ .value = .{ .symbol = "i32.div" } };
+                pub const rem = Sexp{ .value = .{ .symbol = "i32.rem" } };
                 pub const @"const" = Sexp{ .value = .{ .symbol = "i32.const" } };
             };
+
+            pub const u32_ = i32_;
 
             pub const i64_ = struct {
                 pub const add = Sexp{ .value = .{ .symbol = "i64.add" } };
                 pub const sub = Sexp{ .value = .{ .symbol = "i64.sub" } };
                 pub const mul = Sexp{ .value = .{ .symbol = "i64.mul" } };
                 pub const div = Sexp{ .value = .{ .symbol = "i64.div" } };
+                pub const rem = Sexp{ .value = .{ .symbol = "i64.rem" } };
                 pub const @"const" = Sexp{ .value = .{ .symbol = "i64.const" } };
+
+                pub const extend_i32_s = Sexp{ .value = .{ .symbol = "i64.extend_i32_s" } };
+                pub const extend_i32_u = Sexp{ .value = .{ .symbol = "i64.extend_i32_u" } };
             };
 
             pub const f32_ = struct {
@@ -323,7 +330,13 @@ const Compilation = struct {
                 pub const sub = Sexp{ .value = .{ .symbol = "f32.sub" } };
                 pub const mul = Sexp{ .value = .{ .symbol = "f32.mul" } };
                 pub const div = Sexp{ .value = .{ .symbol = "f32.div" } };
+                pub const rem = Sexp{ .value = .{ .symbol = "f32.rem" } };
                 pub const @"const" = Sexp{ .value = .{ .symbol = "f32.const" } };
+
+                pub const convert_i32_s = Sexp{ .value = .{ .symbol = "f32.convert_i32_s" } };
+                pub const convert_i32_u = Sexp{ .value = .{ .symbol = "f32.convert_i32_u" } };
+                pub const convert_i64_s = Sexp{ .value = .{ .symbol = "f32.convert_i64_s" } };
+                pub const convert_i64_u = Sexp{ .value = .{ .symbol = "f32.convert_i64_u" } };
             };
 
             pub const f64_ = struct {
@@ -331,7 +344,15 @@ const Compilation = struct {
                 pub const sub = Sexp{ .value = .{ .symbol = "f64.sub" } };
                 pub const mul = Sexp{ .value = .{ .symbol = "f64.mul" } };
                 pub const div = Sexp{ .value = .{ .symbol = "f64.div" } };
+                pub const rem = Sexp{ .value = .{ .symbol = "f64.rem" } };
                 pub const @"const" = Sexp{ .value = .{ .symbol = "f64.const" } };
+
+                pub const convert_i32_s = Sexp{ .value = .{ .symbol = "f64.convert_i32_s" } };
+                pub const convert_i32_u = Sexp{ .value = .{ .symbol = "f64.convert_i32_u" } };
+                pub const convert_i64_s = Sexp{ .value = .{ .symbol = "f64.convert_i64_s" } };
+                pub const convert_i64_u = Sexp{ .value = .{ .symbol = "f64.convert_i64_u" } };
+
+                pub const promote_f32 = Sexp{ .value = .{ .symbol = "f64.promote_f32" } };
             };
         };
 
@@ -487,7 +508,7 @@ const Compilation = struct {
         }
     };
 
-    fn resolvePeerTypes(a: Fragment, b: Fragment) Type {
+    fn resolvePeerTypesWithPromotions(self: *@This(), a: *Fragment, b: *Fragment) !Type {
         // REPORT: zig can't switch on constant pointers
         // return switch (a.resolved_type) {
         //     primitive_types.i32_ => switch (b.resolved_type) {
@@ -527,30 +548,75 @@ const Compilation = struct {
         if (b.resolved_type == builtin.empty_type)
             return a.resolved_type;
 
-        if (a.resolved_type == primitive_types.i32_) {
-            if (b.resolved_type == primitive_types.i32_) return primitive_types.i32_;
-            if (b.resolved_type == primitive_types.i64_) return primitive_types.i64_;
-            if (b.resolved_type == primitive_types.f32_) return primitive_types.f32_;
-            if (b.resolved_type == primitive_types.f64_) return primitive_types.f64_;
-        } else if (a.resolved_type == primitive_types.i64_) {
-            if (b.resolved_type == primitive_types.i32_) return primitive_types.i64_;
-            if (b.resolved_type == primitive_types.i64_) return primitive_types.i64_;
-            if (b.resolved_type == primitive_types.f32_) return primitive_types.f32_;
-            if (b.resolved_type == primitive_types.f64_) return primitive_types.f64_;
-        } else if (a.resolved_type == primitive_types.f32_) {
-            if (b.resolved_type == primitive_types.i32_) return primitive_types.f32_;
-            if (b.resolved_type == primitive_types.i64_) return primitive_types.f32_;
-            if (b.resolved_type == primitive_types.f32_) return primitive_types.f32_;
-            if (b.resolved_type == primitive_types.f64_) return primitive_types.f64_;
-        } else if (a.resolved_type == primitive_types.f64_) {
-            if (b.resolved_type == primitive_types.i32_) return primitive_types.f64_;
-            if (b.resolved_type == primitive_types.i64_) return primitive_types.f64_;
-            if (b.resolved_type == primitive_types.f32_) return primitive_types.f64_;
-            if (b.resolved_type == primitive_types.f64_) return primitive_types.f64_;
+        const resolved_type = _: {
+            if (a.resolved_type == primitive_types.i32_) {
+                if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.i32_;
+                if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.i64_;
+                if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f32_;
+                if (b.resolved_type == primitive_types.f64_) break :_ primitive_types.f64_;
+            } else if (a.resolved_type == primitive_types.i64_) {
+                if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.i64_;
+                if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.i64_;
+                if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f32_;
+                if (b.resolved_type == primitive_types.f64_) break :_ primitive_types.f64_;
+            } else if (a.resolved_type == primitive_types.f32_) {
+                if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.f32_;
+                if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.f32_;
+                if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f32_;
+                if (b.resolved_type == primitive_types.f64_) break :_ primitive_types.f64_;
+            } else if (a.resolved_type == primitive_types.f64_) {
+                if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.f64_;
+                if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.f64_;
+                if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f64_;
+                if (b.resolved_type == primitive_types.f64_) break :_ primitive_types.f64_;
+            }
+            std.log.err("unimplemented peer type resolution: {s} & {s}", .{ a.resolved_type.name, b.resolved_type.name });
+            std.debug.panic("unimplemented peer type resolution: {s} & {s}", .{ a.resolved_type.name, b.resolved_type.name });
+        };
+
+        const alloc = self.arena.allocator();
+
+        inline for (&.{ a, b }) |fragment| {
+            var i: usize = 0;
+            const MAX_ITERS = 128;
+            while (fragment.resolved_type != resolved_type) : (i += 1) {
+                if (i > MAX_ITERS) {
+                    std.debug.panic("max iters resolving types: {s} -> {s}", .{ fragment.resolved_type.name, resolved_type.name });
+                }
+
+                std.debug.assert(fragment.code.items.len == 1);
+
+                const prev = fragment.code.items[0];
+                fragment.code.items[0] = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                try fragment.code.items[0].value.list.ensureTotalCapacityPrecise(2);
+                const converter = fragment.code.items[0].value.list.addOneAssumeCapacity();
+                fragment.code.items[0].value.list.addOneAssumeCapacity().* = prev;
+
+                if (fragment.resolved_type == primitive_types.i32_) {
+                    converter.* = wat_syms.ops.i64_.extend_i32_s;
+                    fragment.resolved_type = primitive_types.i64_;
+                } else if (fragment.resolved_type == primitive_types.i64_) {
+                    converter.* = wat_syms.ops.f32_.convert_i64_s;
+                    fragment.resolved_type = primitive_types.f32_;
+                } else if (fragment.resolved_type == primitive_types.u32_) {
+                    converter.* = wat_syms.ops.i64_.extend_i32_u;
+                    fragment.resolved_type = primitive_types.i64_;
+                } else if (fragment.resolved_type == primitive_types.u64_) {
+                    converter.* = wat_syms.ops.f32_.convert_i64_u;
+                    fragment.resolved_type = primitive_types.f32_;
+                } else if (fragment.resolved_type == primitive_types.f32_) {
+                    converter.* = wat_syms.ops.f64_.promote_f32;
+                    fragment.resolved_type = primitive_types.f64_;
+                } else if (fragment.resolved_type == primitive_types.f64_) {
+                    unreachable; // currently can't resolve higher than this
+                } else {
+                    std.log.err("unimplemented type promotion: {s} -> {s}", .{ fragment.resolved_type.name, resolved_type.name });
+                    std.debug.panic("unimplemented type promotion: {s} -> {s}", .{ fragment.resolved_type.name, resolved_type.name });
+                }
+            }
         }
 
-        std.log.err("unimplemented peer type resolution: {s} & {s}", .{ a.resolved_type.name, b.resolved_type.name });
-        std.debug.panic("unimplemented peer type resolution: {s} & {s}", .{ a.resolved_type.name, b.resolved_type.name });
+        return resolved_type;
     }
 
     // TODO: take a diagnostic
@@ -588,9 +654,9 @@ const Compilation = struct {
                 if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
                     // FIXME:
                     try result.code.ensureUnusedCapacity(v.items.len - 1);
-                    for (v.items[1..]) |return_expr| {
-                        var compiled = try self.compileExpr(&return_expr, context);
-                        result.resolved_type = resolvePeerTypes(result, compiled);
+                    for (v.items[1..]) |*return_expr| {
+                        var compiled = try self.compileExpr(return_expr, context);
+                        result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, &compiled);
                         try result.code.appendSlice(try compiled.code.toOwnedSlice());
                     }
 
@@ -605,6 +671,9 @@ const Compilation = struct {
                     std.debug.assert(arg_fragments[0].code.items[0].value.list.items.len == 2);
                     std.debug.assert(arg_fragments[0].code.items[0].value.list.items[0].value == .symbol);
                     std.debug.assert(arg_fragments[0].code.items[0].value.list.items[1].value == .symbol);
+
+                    result.resolved_type = try self.resolvePeerTypesWithPromotions(&arg_fragments[0], &arg_fragments[1]);
+
                     // FIXME: leak
                     const set_sym = arg_fragments[0].code.items[0].value.list.items[1];
 
@@ -625,7 +694,6 @@ const Compilation = struct {
                     // TODO: more idiomatic move out data
                     arg_fragments[1].code.items[0] = Sexp{ .value = .void };
 
-                    result.resolved_type = arg_fragments[1].resolved_type;
                     return result;
                 }
 
@@ -656,10 +724,11 @@ const Compilation = struct {
                         const op_name = wasm_op.value.list.addOneAssumeCapacity();
 
                         std.debug.assert(arg_fragments.len == 2);
-                        for (arg_fragments) |arg_fragment| {
-                            result.resolved_type = resolvePeerTypes(result, arg_fragment);
+                        for (arg_fragments) |*arg_fragment| {
+                            result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, arg_fragment);
                             std.debug.assert(arg_fragment.code.items.len == 1);
-                            wasm_op.value.list.addOneAssumeCapacity().* = arg_fragment.code.items[0];
+                            // resolve peer types could have mutated it
+                            (try wasm_op.value.list.addOne()).* = arg_fragment.code.items[0];
                             // TODO: more idiomatic move out data
                             arg_fragment.code.items[0] = Sexp{ .value = .void };
                         }
@@ -753,6 +822,7 @@ const Compilation = struct {
                 std.log.err("unhandled call: {}", .{code_sexp});
                 return error.UnhandledCall;
             },
+
             .int => |v| {
                 var result = Fragment{
                     .code = std.ArrayList(Sexp).init(alloc),
@@ -763,6 +833,8 @@ const Compilation = struct {
                 const wasm_const = result.code.addOneAssumeCapacity();
                 wasm_const.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                 try wasm_const.value.list.ensureTotalCapacityPrecise(2);
+
+                // FIXME: have a type context
                 wasm_const.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
                 wasm_const.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = v } };
 
@@ -1072,7 +1144,7 @@ test "parse" {
         \\              (local $local_a
         \\                     i64)
         \\              (local.set $local_a
-        \\                         (i32.const 1))
+        \\                         (i64.extend_i32_s (i32.const 1)))
         \\              (call $Confetti
         \\                    (i32.const 100))
         \\              (i64.add (local.get $param_x)
@@ -1090,7 +1162,7 @@ test "parse" {
         \\                     f32)
         \\              (result f32)
         \\              (f32.add (f32.div (local.get $param_a)
-        \\                                (i32.const 10))
+        \\                                (f32.convert_i64_s (i64.extend_i32_s (i32.const 10))))
         \\                       (f32.mul (local.get $param_a)
         \\                                (local.get $param_b)))))
         // TODO: clearly instead of embedding the pointer we should have a global variable
