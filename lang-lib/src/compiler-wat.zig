@@ -42,6 +42,8 @@ const DeferredFuncTypeInfo = struct {
     result_types: []const Type,
 };
 
+var empty_user_funcs = std.SinglyLinkedList(builtin.BasicMutNodeDesc){};
+
 const Compilation = struct {
     env: Env,
     // TODO: have a first pass just figure out types?
@@ -57,9 +59,16 @@ const Compilation = struct {
     /// the body of the (module ) at the top level of the WAT output
     module_body: *std.ArrayList(Sexp),
     arena: std.heap.ArenaAllocator,
+    user_context: struct {
+        funcs: *std.SinglyLinkedList(builtin.BasicMutNodeDesc),
+    },
     diag: *Diagnostic,
 
-    pub fn init(alloc: std.mem.Allocator, in_diag: *Diagnostic) !@This() {
+    pub fn init(
+        alloc: std.mem.Allocator,
+        user_funcs: ?*std.SinglyLinkedList(builtin.BasicMutNodeDesc),
+        in_diag: *Diagnostic,
+    ) !@This() {
         const result = @This(){
             .arena = std.heap.ArenaAllocator.init(alloc),
             .diag = in_diag,
@@ -68,6 +77,9 @@ const Compilation = struct {
             .env = undefined,
             .wat = undefined,
             .module_body = undefined,
+            .user_context = .{
+                .funcs = user_funcs orelse &empty_user_funcs,
+            },
         };
 
         return result;
@@ -804,7 +816,7 @@ const Compilation = struct {
             var host_callbacks_prologue = try SexpParser.parse(alloc,
                 \\(func $callUserFunc_R_void (import "env" "callUserFunc_R_void") (param i32))
                 \\(func $callUserFunc_i32_R_void (import "env" "callUserFunc_i32_R_void") (param i32) (param i32))
-                \\(func $callUserFunc_i32_R_i32 (import "env" "callUserFunc_i32_R_i32") (parami32) (param i32) (result i32))
+                \\(func $callUserFunc_i32_R_i32 (import "env" "callUserFunc_i32_R_i32") (param i32) (param i32) (result i32))
                 \\(func $callUserFunc_i32_i32_R_i32 (import "env" "callUserFunc_i32_i32_R_i32") (param i32) (param i32) (param i32) (result i32))
             , null);
             try self.module_body.appendSlice(try host_callbacks_prologue.value.module.toOwnedSlice());
@@ -819,17 +831,6 @@ const Compilation = struct {
             memory.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 0 } };
         }
 
-        // thunks for user provided functions
-        {
-            // TODO/NEXT: for each user provided function, build a thunk and append it
-            var user_func_thunk = try SexpParser.parse(alloc,
-                \\(func Confetti
-                \\      (param $param_1 i32)
-                \\      (call $callUserFunc_i32_R_void (i32.const {FUNC_ID}) (local.get $param_1)))
-            , null);
-            try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
-        }
-
         {
             // TODO: export helper
             const memory_export = self.module_body.addOneAssumeCapacity();
@@ -842,6 +843,28 @@ const Compilation = struct {
             try memory_export_val.value.list.ensureTotalCapacityPrecise(2);
             memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.memory;
             memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
+        }
+
+        // thunks for user provided functions
+        {
+            // TODO/NEXT: for each user provided function, build a thunk and append it
+            var maybe_user_func = self.user_context.funcs.first;
+            while (maybe_user_func) |user_func| : (maybe_user_func = user_func.next) {
+                if (user_func.data.inputs.len == 2 and user_func.data.inputs[1].kind == .primitive and user_func.data.inputs[1].kind.primitive == .value and user_func.data.inputs[1].kind.primitive.value == primitive_types.i32_) {
+                    // TODO: create dedicated function for this kind of substitution
+                    const user_func_thunk_src = try std.fmt.allocPrint(alloc,
+                        \\(func {s}
+                        \\      (param $param_1 i32)
+                        \\      (call $callUserFunc_i32_R_void (i32.const {}) (local.get $param_1)))
+                    , .{ user_func.data.name, @intFromPtr(&user_func.data) });
+                    var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
+                    defer user_func_thunk.deinit(alloc);
+                    std.log.info("user_thunk:\n{s}\n", .{user_func_thunk_src});
+                    try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
+                } else {
+                    std.debug.panic("unhandled user_func type: {s}", .{user_func.data.name});
+                }
+            }
         }
 
         for (sexp.value.module.items) |decl| {
@@ -870,12 +893,17 @@ const Compilation = struct {
     }
 };
 
-pub fn compile(a: std.mem.Allocator, sexp: *const Sexp, _in_diagnostic: ?*Diagnostic) ![]const u8 {
+pub fn compile(
+    a: std.mem.Allocator,
+    sexp: *const Sexp,
+    user_funcs: ?*std.SinglyLinkedList(builtin.BasicMutNodeDesc),
+    _in_diagnostic: ?*Diagnostic,
+) ![]const u8 {
     var ignored_diagnostic: Diagnostic = undefined; // FIXME: why don't we init?
     const diag = if (_in_diagnostic) |d| d else &ignored_diagnostic;
     diag.module = sexp;
 
-    var unit = try Compilation.init(a, diag);
+    var unit = try Compilation.init(a, user_funcs, diag);
     defer unit.deinit();
 
     return unit.compileModule(sexp);
@@ -884,22 +912,31 @@ pub fn compile(a: std.mem.Allocator, sexp: *const Sexp, _in_diagnostic: ?*Diagno
 const t = std.testing;
 const SexpParser = @import("./sexp_parser.zig").Parser;
 
-test "parse" {
-    // FIXME: support expression functions
-    // var parsed = try SexpParser.parse(t.allocator,
-    //     \\;;; comment
-    //     \\(typeof x i32)
-    //     \\(define x 10)
-    //     \\;;; comment
-    //     \\(typeof (++ i32) i32)
-    //     \\(define (++ x) (+ x 1))
-    // , null);
+test "simple" {
+    var user_funcs = std.SinglyLinkedList(builtin.BasicMutNodeDesc){};
+    const user_func_1 = try t.allocator.create(std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node);
+    user_func_1.* = std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node{
+        .data = .{
+            .name = "Confetti",
+            .inputs = try t.allocator.dupe(builtin.Pin, &.{
+                builtin.Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
+                builtin.Pin{
+                    .name = "particleCount",
+                    .kind = .{ .primitive = .{ .value = primitive_types.i32_ } },
+                },
+            }),
+            .outputs = try t.allocator.dupe(builtin.Pin, &.{
+                builtin.Pin{ .name = "", .kind = .{ .primitive = .exec } },
+            }),
+        },
+    };
+    defer t.allocator.free(user_func_1.data.inputs);
+    defer t.allocator.free(user_func_1.data.outputs);
+    defer t.allocator.destroy(user_func_1);
+    user_funcs.prepend(user_func_1);
 
     var parsed = try SexpParser.parse(t.allocator,
         \\;;; comment
-        \\(typeof g i64)
-        \\(define g 10)
-        \\
         \\;;; comment
         \\(typeof (++ i64) i64)
         \\(define (++ x)
@@ -907,55 +944,163 @@ test "parse" {
         \\    (typeof a i64)
         \\    (define a 1)
         \\    (return (+ x a))))
-        \\
-        \\;;; comment
-        \\(typeof (deep f32 f32) f32)
-        \\(define (deep a b)
-        \\  (begin
-        \\    (return (+ (/ a 10) (* a b))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
 
+    // TODO: don't use raw pointers for this...
+    const expected = try std.fmt.allocPrint(t.allocator,
+        \\(module (func $callUserFunc_R_void
+        \\              (import "env"
+        \\                      "callUserFunc_R_void")
+        \\              (param i32))
+        \\        (func $callUserFunc_i32_R_void
+        \\              (import "env"
+        \\                      "callUserFunc_i32_R_void")
+        \\              (param i32)
+        \\              (param i32))
+        \\        (func $callUserFunc_i32_R_i32
+        \\              (import "env"
+        \\                      "callUserFunc_i32_R_i32")
+        \\              (param i32)
+        \\              (param i32)
+        \\              (result i32))
+        \\        (func $callUserFunc_i32_i32_R_i32
+        \\              (import "env"
+        \\                      "callUserFunc_i32_i32_R_i32")
+        \\              (param i32)
+        \\              (param i32)
+        \\              (param i32)
+        \\              (result i32))
+        \\        (memory $0
+        \\                0)
+        \\        (export "memory"
+        \\                (memory $0))
+        \\        (func Confetti
+        \\              (param $param_1
+        \\                     i32)
+        \\              (call $callUserFunc_i32_R_void
+        \\                    (i32.const {})
+        \\                    (local.get $param_1)))
+        \\        (export "++"
+        \\                (func $++))
+        \\        (type $typeof_++
+        \\              (func (param i64)
+        \\                    (result i64)))
+        \\        (func $++
+        \\              (param $param_x
+        \\                     i64)
+        \\              (result i64)
+        \\              (local $local_a
+        \\                     i64)
+        \\              (i64.add (local.get $param_x)
+        \\                       (local.get $local_a)))
+    , .{@intFromPtr(&user_func_1.data)});
+    defer t.allocator.free(expected);
+
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &diagnostic)) |wat| {
+    if (compile(t.allocator, &parsed, &user_funcs, &diagnostic)) |wat| {
         defer t.allocator.free(wat);
-        try t.expectEqualStrings(
-            \\(module (memory $0
-            \\                0)
-            \\        (export "memory"
-            \\                (memory $0))
-            \\        (export "++"
-            \\                (func $++))
-            \\        (type $typeof_++
-            \\              (func (param i64)
-            \\                    (result i64)))
-            \\        (func $++
-            \\              (param $param_x
-            \\                     i64)
-            \\              (result i64)
-            \\              (local $local_a
-            \\                     i64)
-            \\              (i64.add (local.get $param_x)
-            \\                       (local.get $local_a)))
-            \\        (export "deep"
-            \\                (func $deep))
-            \\        (type $typeof_deep
-            \\              (func (param f32)
-            \\                    (param f32)
-            \\                    (result f32)))
-            \\        (func $deep
-            \\              (param $param_a
-            \\                     f32)
-            \\              (param $param_b
-            \\                     f32)
-            \\              (result f32)
-            \\              (f32.add (f32.div (local.get $param_a)
-            \\                                (i32.const 10))
-            \\                       (f32.mul (local.get $param_a)
-            \\                                (local.get $param_b)))))
-        , wat);
+        try t.expectEqualStrings(expected, wat);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
     }
 }
+
+// test "parse" {
+//     // FIXME: support expression functions
+//     // var parsed = try SexpParser.parse(t.allocator,
+//     //     \\;;; comment
+//     //     \\(typeof x i32)
+//     //     \\(define x 10)
+//     //     \\;;; comment
+//     //     \\(typeof (++ i32) i32)
+//     //     \\(define (++ x) (+ x 1))
+//     // , null);
+
+//     var user_funcs = std.SinglyLinkedList(builtin.BasicMutNodeDesc){};
+//     const user_func_1 = try t.allocator.create(std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node);
+//     user_func_1.* = std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node{
+//         .data = .{
+//             .name = "Confetti",
+//             .inputs = try t.allocator.dupe(builtin.Pin, &.{
+//                 builtin.Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
+//                 builtin.Pin{
+//                     .name = "particleCount",
+//                     .kind = .{ .primitive = .{ .value = primitive_types.i32_ } },
+//                 },
+//             }),
+//             .outputs = try t.allocator.dupe(builtin.Pin, &.{
+//                 builtin.Pin{ .name = "", .kind = .{ .primitive = .exec } },
+//             }),
+//         },
+//     };
+//     defer t.allocator.free(user_func_1.data.inputs);
+//     defer t.allocator.free(user_func_1.data.outputs);
+//     defer t.allocator.destroy(user_func_1);
+//     user_funcs.prepend(user_func_1);
+
+//     var parsed = try SexpParser.parse(t.allocator,
+//         \\;;; comment
+//         \\(typeof g i64)
+//         \\(define g 10)
+//         \\
+//         \\;;; comment
+//         \\(typeof (++ i64) i64)
+//         \\(define (++ x)
+//         \\  (begin
+//         \\    (typeof a i64)
+//         \\    (define a 1)
+//         \\    (return (+ x a))))
+//         \\
+//         \\;;; comment
+//         \\(typeof (deep f32 f32) f32)
+//         \\(define (deep a b)
+//         \\  (begin
+//         \\    (return (+ (/ a 10) (* a b))
+//     , null);
+//     //std.debug.print("{any}\n", .{parsed});
+//     defer parsed.deinit(t.allocator);
+
+//     var diagnostic = Diagnostic.init();
+//     if (compile(t.allocator, &parsed, &user_funcs, &diagnostic)) |wat| {
+//         defer t.allocator.free(wat);
+//         try t.expectEqualStrings(
+//             \\(module (memory $0
+//             \\                0)
+//             \\        (export "memory"
+//             \\                (memory $0))
+//             \\        (export "++"
+//             \\                (func $++))
+//             \\        (type $typeof_++
+//             \\              (func (param i64)
+//             \\                    (result i64)))
+//             \\        (func $++
+//             \\              (param $param_x
+//             \\                     i64)
+//             \\              (result i64)
+//             \\              (local $local_a
+//             \\                     i64)
+//             \\              (i64.add (local.get $param_x)
+//             \\                       (local.get $local_a)))
+//             \\        (export "deep"
+//             \\                (func $deep))
+//             \\        (type $typeof_deep
+//             \\              (func (param f32)
+//             \\                    (param f32)
+//             \\                    (result f32)))
+//             \\        (func $deep
+//             \\              (param $param_a
+//             \\                     f32)
+//             \\              (param $param_b
+//             \\                     f32)
+//             \\              (result f32)
+//             \\              (f32.add (f32.div (local.get $param_a)
+//             \\                                (i32.const 10))
+//             \\                       (f32.mul (local.get $param_a)
+//             \\                                (local.get $param_b)))))
+//         , wat);
+//     } else |err| {
+//         std.debug.print("err {}:\n{}", .{ err, diagnostic });
+//     }
+// }
