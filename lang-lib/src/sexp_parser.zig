@@ -152,7 +152,7 @@ pub const Parser = struct {
             fn onNextCharAfterTok(self: *@This(), algo_diag: *Diagnostic) Error!void {
                 const c = self.p_src[self.loc.index];
                 switch (c) {
-                    '1'...'9' => {
+                    '0'...'9' => {
                         self.tok_start = self.loc.index;
                         self.state = .integer;
                     },
@@ -325,18 +325,20 @@ const t = std.testing;
 
 test "parse 1" {
     var expected = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(t.allocator) } };
+    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .int = 0 } };
     (try expected.value.module.addOne()).* = Sexp{ .value = .{ .int = 2 } };
     (try expected.value.module.addOne()).* = Sexp{ .value = .{ .borrowedString = "hel\\\"lo\nworld" } };
     (try expected.value.module.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
-    (try expected.value.module.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "+" } };
-    (try expected.value.module.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 3 } };
-    (try expected.value.module.items[2].value.list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
-    (try expected.value.module.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "-" } };
-    (try expected.value.module.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 210 } };
-    (try expected.value.module.items[2].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 5 } };
+    (try expected.value.module.items[3].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "+" } };
+    (try expected.value.module.items[3].value.list.addOne()).* = Sexp{ .value = .{ .int = 3 } };
+    (try expected.value.module.items[3].value.list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
+    (try expected.value.module.items[3].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "-" } };
+    (try expected.value.module.items[3].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 210 } };
+    (try expected.value.module.items[3].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 5 } };
     defer expected.deinit(t.allocator);
 
     var actual = try Parser.parse(t.allocator,
+        \\0
         \\2
         \\"hel\"lo
         \\world" ;; comment
@@ -344,15 +346,19 @@ test "parse 1" {
     , null);
     defer actual.deinit(t.allocator);
 
-    // std.debug.print("\n{any}\n", .{actual});
-    // std.debug.print("=========================\n", .{});
-    // for (actual.value.module.items) |expr| {
-    //     _ = try expr.write(std.io.getStdErr().writer());
-    //     std.debug.print("\n", .{});
-    // }
-    // std.debug.print("=========================\n", .{});
+    const result = expected.recursive_eq(actual);
 
-    try t.expect(expected.recursive_eq(actual));
+    if (!result) {
+        std.debug.print("\n{any}\n", .{actual});
+        std.debug.print("=========================\n", .{});
+        for (actual.value.module.items) |expr| {
+            _ = try expr.write(std.io.getStdErr().writer());
+            std.debug.print("\n", .{});
+        }
+        std.debug.print("=========================\n", .{});
+    }
+
+    try t.expect(result);
 }
 
 test "parse recovery" {

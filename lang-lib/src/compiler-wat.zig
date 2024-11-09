@@ -711,7 +711,7 @@ const Compilation = struct {
                         }
                     }
 
-                    std.log.err("undefined symbol: {s}", .{v});
+                    std.log.err("undefined symbol: '{s}'", .{v});
                     return error.UndefinedSymbol;
                 };
 
@@ -864,7 +864,7 @@ test "parse" {
         \\(typeof (deep f32 f32) f32)
         \\(define (deep a b)
         \\  (begin
-        \\    (return (+ (/ a 10) (* a b)))))
+        \\    (return (+ (/ a 10) (* a b))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
