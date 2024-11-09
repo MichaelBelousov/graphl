@@ -13,6 +13,93 @@ const SexpParser = @import("grappl_core").SexpParser;
 const Sexp = @import("grappl_core").Sexp;
 const helpers = @import("grappl_core").helpers;
 
+extern fn recvCurrentSource(ptr: ?[*]const u8, len: usize) void;
+extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
+
+extern fn callUserFunc_i32_R_i32(*const fn (i32) i32, i32) i32;
+extern fn callUserFunc_i32_i32_R_i32(*const fn (i32, i32) i32) i32;
+//extern fn callUserFunc(*const fn (*anyopaque) *anyopaque) *anyopaque;
+
+const UserFuncList = std.SinglyLinkedList(helpers.BasicMutNodeDesc);
+var user_funcs = UserFuncList{};
+
+// FIXME: keep in sync with typescript automatically
+const UserFuncTypes = enum(u32) {
+    i32_ = 0,
+    i64_ = 1,
+    f32_ = 2,
+    f64_ = 3,
+    string = 4,
+};
+
+export fn createUserFunc(name_ptr: [*]const u8, name_len: u32, input_count: u32, output_count: u32) *const anyopaque {
+    return _createUserFunc(name_ptr[0..name_len], input_count, output_count) catch unreachable;
+}
+
+export fn addUserFuncInput(func_id: *const anyopaque, index: u32, name_ptr: [*]const u8, name_len: u32, input_type: u32) void {
+    return _addUserFuncInput(@alignCast(@ptrCast(func_id)), index, name_ptr[0..name_len], @enumFromInt(input_type)) catch unreachable;
+}
+
+export fn addUserFuncOutput(func_id: *const anyopaque, index: u32, name_ptr: [*]const u8, name_len: u32, output_type: u32) void {
+    return _addUserFuncOutput(@alignCast(@ptrCast(func_id)), index, name_ptr[0..name_len], @enumFromInt(output_type)) catch unreachable;
+}
+
+fn _createUserFunc(name: []const u8, input_count: u32, output_count: u32) !*const helpers.BasicMutNodeDesc {
+    const slot = try gpa.create(UserFuncList.Node);
+    slot.* = UserFuncList.Node{
+        .data = .{
+            .name = try gpa.dupe(u8, name),
+            .hidden = false,
+            .inputs = try gpa.alloc(helpers.Pin, input_count + 1), // an extra is inserted for exec
+            .outputs = try gpa.alloc(helpers.Pin, output_count + 1), // an extra is inserted for exec
+        },
+    };
+    user_funcs.prepend(slot);
+
+    const result = &user_funcs.first.?.data;
+
+    result.inputs[0] = helpers.Pin{
+        .name = "exec",
+        .kind = .{ .primitive = .exec },
+    };
+
+    result.outputs[0] = helpers.Pin{
+        .name = "",
+        .kind = .{ .primitive = .exec },
+    };
+
+    return result;
+}
+
+fn _addUserFuncInput(func_id: *const helpers.BasicMutNodeDesc, index: u32, name: []const u8, input_type_tag: UserFuncTypes) !void {
+    const input_type = switch (input_type_tag) {
+        .i32_ => grappl.primitive_types.i32_,
+        .i64_ => grappl.primitive_types.i64_,
+        .f32_ => grappl.primitive_types.f32_,
+        .f64_ => grappl.primitive_types.f64_,
+        .string => @panic("string user func type not yet supported"),
+    };
+
+    func_id.inputs[index] = helpers.Pin{
+        .name = try gpa.dupe(u8, name),
+        .kind = .{ .primitive = .{ .value = input_type } },
+    };
+}
+
+fn _addUserFuncOutput(func_id: *const helpers.BasicMutNodeDesc, index: u32, name: []const u8, output_type_tag: UserFuncTypes) !void {
+    const output_type = switch (output_type_tag) {
+        .i32_ => grappl.primitive_types.i32_,
+        .i64_ => grappl.primitive_types.i64_,
+        .f32_ => grappl.primitive_types.f32_,
+        .f64_ => grappl.primitive_types.f64_,
+        .string => @panic("string user func type not yet supported"),
+    };
+
+    func_id.outputs[index] = helpers.Pin{
+        .name = try gpa.dupe(u8, name),
+        .kind = .{ .primitive = .{ .value = output_type } },
+    };
+}
 
 const WriteError = error{};
 const LogWriter = std.io.Writer(void, WriteError, writeLog);
@@ -127,14 +214,6 @@ const Graph = struct {
 var graphs = std.SinglyLinkedList(Graph){};
 var current_graph: *Graph = undefined;
 var next_graph_index: u16 = 0;
-
-const CompileResult = extern struct {
-    len: usize = 0,
-    ptr: ?[*]u8 = null,
-};
-
-extern fn recvCurrentSource(ptr: ?[*]const u8, len: usize) void;
-extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
 fn postCurrentSexp() !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
