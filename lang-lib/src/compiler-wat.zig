@@ -434,7 +434,12 @@ const Compilation = struct {
 
             std.debug.assert(func_decl.return_exprs.len >= 1);
             for (func_decl.return_exprs) |return_expr| {
-                const body_fragment = try self.compileExpr(&return_expr);
+                const body_fragment = try self.compileExpr(&return_expr, &.{
+                    .local_names = func_decl.local_names,
+                    .local_types = func_decl.local_types,
+                    .param_names = func_decl.param_names,
+                    .param_types = func_type.param_types,
+                });
                 // FIXME: this is a horrible way to do type resolution
                 // FIXME: use known type symbol where possible
                 result_type_sexp.* = Sexp{ .value = .{ .symbol = body_fragment.resolved_type.name } };
@@ -529,7 +534,16 @@ const Compilation = struct {
     }
 
     // TODO: take a diagnostic
-    fn compileExpr(self: *@This(), code_sexp: *const Sexp) !Fragment {
+    fn compileExpr(
+        self: *@This(),
+        code_sexp: *const Sexp,
+        context: *const struct {
+            local_names: []const []const u8,
+            local_types: []const Type,
+            param_names: []const []const u8,
+            param_types: []const Type,
+        },
+    ) !Fragment {
         const alloc = self.arena.allocator();
         switch (code_sexp.value) {
             .list => |v| {
@@ -548,7 +562,7 @@ const Compilation = struct {
                 defer alloc.free(arg_fragments);
 
                 for (v.items[1..], arg_fragments) |arg_src, *arg_fragment| {
-                    arg_fragment.* = try self.compileExpr(&arg_src);
+                    arg_fragment.* = try self.compileExpr(&arg_src, context);
                 }
 
                 // builtins with wasm primitives
@@ -580,6 +594,10 @@ const Compilation = struct {
                         std.debug.assert(arg_fragments.len == 2);
                         for (arg_fragments) |arg_fragment| {
                             result.resolved_type = resolvePeerTypes(result, arg_fragment);
+                            if (arg_fragment.code.items.len != 1) {
+                                std.debug.print("op={s}\n", .{builtin_op.wasm_name});
+                                std.debug.print("len={}, type={s}, sexp={}\n", .{ arg_fragment.code.items.len, @tagName(arg_fragment.code.items[0].value), Sexp{ .value = .{ .module = arg_fragment.code } } });
+                            }
                             std.debug.assert(arg_fragment.code.items.len == 1);
                             wasm_op.value.list.addOneAssumeCapacity().* = arg_fragment.code.items[0];
                             arg_fragment.code.items[0] = Sexp{ .value = .void };
@@ -601,8 +619,9 @@ const Compilation = struct {
                             std.log.err("unimplemented type resolution: '{s}'", .{result.resolved_type.name});
                             std.debug.panic("unimplemented type resolution: '{s}'", .{result.resolved_type.name});
                         }
+
+                        return result;
                     }
-                    return result;
                 }
 
                 // builtins with intrinsics
@@ -610,7 +629,11 @@ const Compilation = struct {
                     .{ .sym = syms.min, .intrinsic = wat_syms.intrinsics.min },
                     .{ .sym = syms.max, .intrinsic = wat_syms.intrinsics.max },
                 }) |builtin_func| {
-                    result.resolved_type = builtin_func.intrinsic.node.result;
+                    const node_desc: *const builtin.BasicNodeDesc = @alignCast(@ptrCast(builtin_func.intrinsic.node.context));
+                    std.debug.assert(node_desc.outputs.len == 1);
+                    std.debug.assert(node_desc.outputs[0].kind == .primitive);
+                    std.debug.assert(node_desc.outputs[0].kind.primitive == .value);
+                    result.resolved_type = node_desc.outputs[0].kind.primitive.value;
 
                     if (func.value.symbol.ptr == builtin_func.sym.value.symbol.ptr) {
                         try result.code.ensureTotalCapacityPrecise(1);
@@ -627,11 +650,14 @@ const Compilation = struct {
                             // move out
                             arg_fragment.code.items[0] = Sexp{ .value = .void };
                         }
+
+                        return result;
                     }
-                    return result;
                 }
 
                 // otherwise we have a non builtin
+                std.log.err("unhandled call: {}", .{code_sexp});
+                return error.UnhandledCall;
             },
             .int => |v| {
                 var result = Fragment{
@@ -664,6 +690,49 @@ const Compilation = struct {
 
                 return result;
             },
+
+            .symbol => |v| {
+                // FIXME: use hashmap instead
+                const Info = struct {
+                    resolved_type: builtin.Type,
+                    ref: []const u8,
+                };
+
+                const info = _: {
+                    for (context.local_names, context.local_types) |local_name, local_type| {
+                        if (std.mem.eql(u8, v, local_name)) {
+                            break :_ Info{ .resolved_type = local_type, .ref = try std.fmt.allocPrint(alloc, "$local_{s}", .{v}) };
+                        }
+                    }
+
+                    for (context.param_names, context.param_types) |param_name, param_type| {
+                        if (std.mem.eql(u8, v, param_name)) {
+                            break :_ Info{ .resolved_type = param_type, .ref = try std.fmt.allocPrint(alloc, "$param_{s}", .{v}) };
+                        }
+                    }
+
+                    std.log.err("undefined symbol: {s}", .{v});
+                    return error.UndefinedSymbol;
+                };
+
+                var result = Fragment{
+                    .code = std.ArrayList(Sexp).init(alloc),
+                    .resolved_type = info.resolved_type,
+                };
+
+                try result.code.ensureTotalCapacityPrecise(1);
+                const wasm_local_get = result.code.addOneAssumeCapacity();
+                wasm_local_get.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                try wasm_local_get.value.list.ensureTotalCapacityPrecise(2);
+                wasm_local_get.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.get";
+                // FIXME: leak
+                wasm_local_get.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{
+                    .symbol = info.ref,
+                } };
+
+                return result;
+            },
+
             inline else => {
                 std.debug.print("unimplemented expr for compilation:\n{}\n", .{code_sexp});
                 std.debug.panic("unimplemented type: '{s}'", .{@tagName(code_sexp.value)});
@@ -777,10 +846,12 @@ test "parse" {
     //     \\(typeof (++ i32) i32)
     //     \\(define (++ x) (+ x 1))
     // , null);
+
     var parsed = try SexpParser.parse(t.allocator,
         \\;;; comment
-        \\(typeof x i64)
-        \\(define x 10)
+        \\(typeof g i64)
+        \\(define g 10)
+        \\
         \\;;; comment
         \\(typeof (++ i64) i64)
         \\(define (++ x)
@@ -788,6 +859,12 @@ test "parse" {
         \\    (typeof a i64)
         \\    (define a 1)
         \\    (return (+ x a))))
+        \\
+        \\;;; comment
+        \\(typeof (deep f32 f32) f32)
+        \\(define (deep a b)
+        \\  (begin
+        \\    (return (+ (/ a 10) (* a b)))))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
@@ -803,16 +880,32 @@ test "parse" {
             \\        (export "++"
             \\                (func $++))
             \\        (type $typeof_++
-            \\              (func (param i32)
-            \\                    (result i32)))
+            \\              (func (param i64)
+            \\                    (result i64)))
             \\        (func $++
             \\              (param $param_x
-            \\                     i32)
-            \\              (result i32)
+            \\                     i64)
+            \\              (result i64)
             \\              (local $local_a
-            \\                     i32)
-            \\              (i32.add (local.get $param_x)
-            \\                       (local.get $local_a))))
+            \\                     i64)
+            \\              (i64.add (local.get $param_x)
+            \\                       (local.get $local_a)))
+            \\        (export "deep"
+            \\                (func $deep))
+            \\        (type $typeof_deep
+            \\              (func (param f32)
+            \\                    (param f32)
+            \\                    (result f32)))
+            \\        (func $deep
+            \\              (param $param_a
+            \\                     f32)
+            \\              (param $param_b
+            \\                     f32)
+            \\              (result f32)
+            \\              (f32.add (f32.div (local.get $param_a)
+            \\                                (i32.const 10))
+            \\                       (f32.mul (local.get $param_a)
+            \\                                (local.get $param_b)))))
         , wat);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
