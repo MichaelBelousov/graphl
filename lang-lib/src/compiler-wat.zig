@@ -912,7 +912,10 @@ pub fn compile(
 const t = std.testing;
 const SexpParser = @import("./sexp_parser.zig").Parser;
 
-test "simple" {
+test "parse" {
+    // FIXME: support expression functions
+    //     \\(define (++ x) (+ x 1))
+
     var user_funcs = std.SinglyLinkedList(builtin.BasicMutNodeDesc){};
     const user_func_1 = try t.allocator.create(std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node);
     user_func_1.* = std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node{
@@ -930,13 +933,16 @@ test "simple" {
             }),
         },
     };
+    defer t.allocator.destroy(user_func_1);
     defer t.allocator.free(user_func_1.data.inputs);
     defer t.allocator.free(user_func_1.data.outputs);
-    defer t.allocator.destroy(user_func_1);
     user_funcs.prepend(user_func_1);
 
     var parsed = try SexpParser.parse(t.allocator,
         \\;;; comment
+        \\(typeof g i64)
+        \\(define g 10)
+        \\
         \\;;; comment
         \\(typeof (++ i64) i64)
         \\(define (++ x)
@@ -944,11 +950,16 @@ test "simple" {
         \\    (typeof a i64)
         \\    (define a 1)
         \\    (return (+ x a))))
+        \\
+        \\;;; comment
+        \\(typeof (deep f32 f32) f32)
+        \\(define (deep a b)
+        \\  (begin
+        \\    (return (+ (/ a 10) (* a b)))))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
 
-    // TODO: don't use raw pointers for this...
     const expected = try std.fmt.allocPrint(t.allocator,
         \\(module (func $callUserFunc_R_void
         \\              (import "env"
@@ -995,112 +1006,32 @@ test "simple" {
         \\                     i64)
         \\              (i64.add (local.get $param_x)
         \\                       (local.get $local_a)))
+        \\        (export "deep"
+        \\                (func $deep))
+        \\        (type $typeof_deep
+        \\              (func (param f32)
+        \\                    (param f32)
+        \\                    (result f32)))
+        \\        (func $deep
+        \\              (param $param_a
+        \\                     f32)
+        \\              (param $param_b
+        \\                     f32)
+        \\              (result f32)
+        \\              (f32.add (f32.div (local.get $param_a)
+        \\                                (i32.const 10))
+        \\                       (f32.mul (local.get $param_a)
+        \\                                (local.get $param_b)))))
+        // TODO: clearly instead of embedding the pointer we should have a global variable
+        // so the host can set that
     , .{@intFromPtr(&user_func_1.data)});
     defer t.allocator.free(expected);
 
     var diagnostic = Diagnostic.init();
     if (compile(t.allocator, &parsed, &user_funcs, &diagnostic)) |wat| {
-        defer t.allocator.free(wat);
         try t.expectEqualStrings(expected, wat);
+        t.allocator.free(wat);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
     }
 }
-
-// test "parse" {
-//     // FIXME: support expression functions
-//     // var parsed = try SexpParser.parse(t.allocator,
-//     //     \\;;; comment
-//     //     \\(typeof x i32)
-//     //     \\(define x 10)
-//     //     \\;;; comment
-//     //     \\(typeof (++ i32) i32)
-//     //     \\(define (++ x) (+ x 1))
-//     // , null);
-
-//     var user_funcs = std.SinglyLinkedList(builtin.BasicMutNodeDesc){};
-//     const user_func_1 = try t.allocator.create(std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node);
-//     user_func_1.* = std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node{
-//         .data = .{
-//             .name = "Confetti",
-//             .inputs = try t.allocator.dupe(builtin.Pin, &.{
-//                 builtin.Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
-//                 builtin.Pin{
-//                     .name = "particleCount",
-//                     .kind = .{ .primitive = .{ .value = primitive_types.i32_ } },
-//                 },
-//             }),
-//             .outputs = try t.allocator.dupe(builtin.Pin, &.{
-//                 builtin.Pin{ .name = "", .kind = .{ .primitive = .exec } },
-//             }),
-//         },
-//     };
-//     defer t.allocator.free(user_func_1.data.inputs);
-//     defer t.allocator.free(user_func_1.data.outputs);
-//     defer t.allocator.destroy(user_func_1);
-//     user_funcs.prepend(user_func_1);
-
-//     var parsed = try SexpParser.parse(t.allocator,
-//         \\;;; comment
-//         \\(typeof g i64)
-//         \\(define g 10)
-//         \\
-//         \\;;; comment
-//         \\(typeof (++ i64) i64)
-//         \\(define (++ x)
-//         \\  (begin
-//         \\    (typeof a i64)
-//         \\    (define a 1)
-//         \\    (return (+ x a))))
-//         \\
-//         \\;;; comment
-//         \\(typeof (deep f32 f32) f32)
-//         \\(define (deep a b)
-//         \\  (begin
-//         \\    (return (+ (/ a 10) (* a b))
-//     , null);
-//     //std.debug.print("{any}\n", .{parsed});
-//     defer parsed.deinit(t.allocator);
-
-//     var diagnostic = Diagnostic.init();
-//     if (compile(t.allocator, &parsed, &user_funcs, &diagnostic)) |wat| {
-//         defer t.allocator.free(wat);
-//         try t.expectEqualStrings(
-//             \\(module (memory $0
-//             \\                0)
-//             \\        (export "memory"
-//             \\                (memory $0))
-//             \\        (export "++"
-//             \\                (func $++))
-//             \\        (type $typeof_++
-//             \\              (func (param i64)
-//             \\                    (result i64)))
-//             \\        (func $++
-//             \\              (param $param_x
-//             \\                     i64)
-//             \\              (result i64)
-//             \\              (local $local_a
-//             \\                     i64)
-//             \\              (i64.add (local.get $param_x)
-//             \\                       (local.get $local_a)))
-//             \\        (export "deep"
-//             \\                (func $deep))
-//             \\        (type $typeof_deep
-//             \\              (func (param f32)
-//             \\                    (param f32)
-//             \\                    (result f32)))
-//             \\        (func $deep
-//             \\              (param $param_a
-//             \\                     f32)
-//             \\              (param $param_b
-//             \\                     f32)
-//             \\              (result f32)
-//             \\              (f32.add (f32.div (local.get $param_a)
-//             \\                                (i32.const 10))
-//             \\                       (f32.mul (local.get $param_a)
-//             \\                                (local.get $param_b)))))
-//         , wat);
-//     } else |err| {
-//         std.debug.print("err {}:\n{}", .{ err, diagnostic });
-//     }
-// }

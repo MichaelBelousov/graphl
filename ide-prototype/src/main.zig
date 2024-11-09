@@ -1353,7 +1353,7 @@ fn dvui_frame() !void {
 
             var diagnostic = compiler.Diagnostic.init();
 
-            if (compiler.compile(gpa, &sexp, &diagnostic)) |module| {
+            if (compiler.compile(gpa, &sexp, &user_funcs, &diagnostic)) |module| {
                 std.log.info("compile_result:\n{s}", .{module});
                 runCurrentWat(module.ptr, module.len);
                 gpa.free(module);
