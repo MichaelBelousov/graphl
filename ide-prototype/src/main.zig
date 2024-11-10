@@ -199,7 +199,7 @@ const Graph = struct {
 
         self.visual_graph = VisualGraph{ .graph = &self.grappl_graph };
 
-        _ = try self.addNode(gpa, "return", true, null, null);
+        _ = try self.addNode(gpa, "return", true, null, null, .{});
     }
 
     pub fn deinit(self: *@This()) void {
@@ -208,8 +208,8 @@ const Graph = struct {
         gpa.free(self.name);
     }
 
-    pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?grappl.NodeId, diag: ?*grappl.GraphBuilder.Diagnostic) !grappl.NodeId {
-        return self.visual_graph.addNode(alloc, kind, is_entry, force_node_id, diag);
+    pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?grappl.NodeId, diag: ?*grappl.GraphBuilder.Diagnostic, pos: dvui.Point) !grappl.NodeId {
+        return self.visual_graph.addNode(alloc, kind, is_entry, force_node_id, diag, pos);
     }
 
     pub fn addEdge(self: *@This(), start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
@@ -426,7 +426,8 @@ const Socket = struct {
     index: u16,
 };
 
-fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
+fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket, graph_area: *dvui.ScrollAreaWidget) !void {
+    _ = graph_area;
     var fw2 = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
     defer fw2.deinit();
 
@@ -481,15 +482,22 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
             };
 
             if ((try dvui.menuItemLabel(@src(), name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
-                // TODO: use diagnostic
-                const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null);
-                const new_node = current_graph.grappl_graph.nodes.map.getPtr(new_node_id) orelse unreachable;
-                // HACK
+                // NEXT
                 const mouse_pt = dvui.currentWindow().mouse_pt;
-                new_node.position = .{
-                    .x = mouse_pt.x,
-                    .y = mouse_pt.y,
-                };
+
+                //const pos = ScrollData.scroll_info.viewport.topLeft().plus(mouse_pt).diff(ScrollData.scroll_info.viewport.scale(0.5).bottomRight());
+                const half_vp_size = ScrollData.scroll_info.viewport.size().scale(0.2);
+                const pos = ScrollData.scroll_info.viewport.topLeft().plus(mouse_pt).diff(dvui.Point{
+                    .x = half_vp_size.w,
+                    .y = half_vp_size.h,
+                }); //.diff(ScrollData.scroll_info.viewport.scale(0.5).bottomRight());
+                //const rs = graph_area.scroll.data().rectScale();
+                //ScrollData.scroll_info.viewport.x -= dps.x / rs.s;
+                //ScrollData.scroll_info.viewport.y -= dps.y / rs.s;
+                //dvui.refresh(null, @src(), graph_area.scroll.data().id);
+
+                // TODO: use diagnostic
+                const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null, pos);
 
                 if (maybe_create_from) |create_from| {
                     switch (create_from.kind) {
@@ -523,8 +531,8 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
     }
 }
 
-fn renderGraph() !void {
-    var graph_area = try dvui.scrollArea(
+fn renderGraph(in_graph_area: **dvui.ScrollAreaWidget) !void {
+    in_graph_area.* = try dvui.scrollArea(
         @src(),
         .{ .scroll_info = &ScrollData.scroll_info },
         .{
@@ -536,13 +544,15 @@ fn renderGraph() !void {
         },
     );
 
+    const graph_area = in_graph_area.*;
+
     // TODO: use link struct?
     var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Point){};
     defer socket_positions.deinit(gpa);
 
     const mouse_pt = dvui.currentWindow().mouse_pt;
-    var mouse_pt2 = graph_area.scroll.data().contentRectScale().pointFromScreen(dvui.currentWindow().mouse_pt);
-    mouse_pt2 = mouse_pt.plus(ScrollData.origin).plus(ScrollData.scroll_info.viewport.topLeft());
+    //var mouse_pt2 = graph_area.scroll.data().contentRectScale().pointFromScreen(dvui.currentWindow().mouse_pt);
+    //mouse_pt2 = mouse_pt.plus(ScrollData.origin).plus(ScrollData.scroll_info.viewport.topLeft());
 
     var mbbox: ?Rect = null;
 
@@ -775,6 +785,30 @@ fn rectContainsMouse(r: Rect) bool {
     return r.contains(mouse_pt);
 }
 
+// FIXME: can do better than this
+var colors = std.AutoHashMap(grappl.Type, dvui.Color).init(gpa);
+fn colorForType(t: grappl.Type) !dvui.Color {
+    if (colors.get(t)) |color| {
+        return color;
+    } else {
+        var hasher = std.hash.Wyhash.init(0);
+        std.hash.autoHash(&hasher, t);
+        const hash = hasher.final();
+        const as_f32 = @as(f32, @floatFromInt(hash)) / @as(f32, @floatFromInt(std.math.maxInt(@TypeOf(hash))));
+        // TODO: something much more balanced
+        const color = dvui.Color.fromHSLuv(
+            as_f32 * 360,
+            100.0,
+            50,
+            100.0,
+        );
+        std.log.info("color f32 {}, {}", .{ hash, as_f32 });
+        std.log.info("color of {s} = {}", .{ t.name, color });
+        try colors.put(t, color);
+        return color;
+    }
+}
+
 // FIXME: replace with idiomatic dvui event processing
 fn considerSocketForHover(icon_res: *dvui.ButtonIconResult, socket: Socket) dvui.Point {
     const r = icon_res.icon.wd.rectScale().r;
@@ -826,18 +860,20 @@ fn renderNode(
 ) !Rect {
     const root_id_extra: usize = @intCast(node.id);
 
-    var backup_pos = dvui.Point{
-        .x = node.position.x,
-        .y = node.position.y,
-    };
-
-    const maybe_viz_data = current_graph.visual_graph.node_data.getPtr(node.id);
-
-    const position: *dvui.Point =
-        if (maybe_viz_data) |viz_data|
-        if (viz_data.position_override) |*position_override| position_override else &viz_data.position
-    else
-        &backup_pos;
+    // FIXME:  this is temp, go back to auto graph formatting
+    var maybe_viz_data = current_graph.visual_graph.node_data.getPtr(node.id);
+    if (maybe_viz_data == null) {
+        const putresult = try current_graph.visual_graph.node_data.getOrPutValue(gpa, node.id, .{
+            .position = dvui.Point{},
+            .position_override = null,
+        });
+        maybe_viz_data = putresult.value_ptr;
+    }
+    const viz_data = maybe_viz_data.?;
+    if (viz_data.position_override == null) {
+        viz_data.position_override = dvui.Point{};
+    }
+    const position: *dvui.Point = &viz_data.position_override.?;
 
     const box = try dvui.box(
         @src(),
@@ -879,12 +915,16 @@ fn renderNode(
 
         const socket = Socket{ .node_id = node.id, .kind = .input, .index = @intCast(j) };
 
+        const color = if (input_desc.kind == .primitive and input_desc.kind.primitive == .value)
+            try colorForType(input_desc.kind.primitive.value)
+        else
+            dvui.Color.black;
+
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
             .gravity_y = 0.5,
             .id_extra = j,
-            .color_fill_hover = .{ .color = .{ .r = 0x99, .g = 0x99, .b = 0xff, .a = 0xff } },
-            //
+            .color_fill = .{ .color = color },
             .debug = true,
             .border = .{ .x = 1, .y = 1, .w = 1, .h = 1 },
             .color_border = .{ .color = .{ .b = 0xff, .a = 0xff } },
@@ -1018,6 +1058,11 @@ fn renderNode(
 
         const socket = Socket{ .node_id = node.id, .kind = .output, .index = @intCast(j) };
 
+        const color = if (output_desc.kind == .primitive and output_desc.kind.primitive == .value)
+            try colorForType(output_desc.kind.primitive.value)
+        else
+            dvui.Color.black;
+
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
             .gravity_y = 0.5,
@@ -1026,7 +1071,7 @@ fn renderNode(
             .debug = true,
             .border = .{ .x = 1, .y = 1, .w = 1, .h = 1 },
             .color_border = .{ .color = .{ .g = 0xff, .a = 0xff } },
-            .color_fill_hover = .{ .color = .{ .r = 0x99, .g = 0x99, .b = 0xff, .a = 0xff } },
+            .color_fill = .{ .color = color },
             .background = true,
         };
 
@@ -1038,6 +1083,7 @@ fn renderNode(
             try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
 
         if (icon_res.clicked) {
+            // FIXME: use graph.removeEdge?
             std.log.info("clicked", .{});
             // FIXME: get target
             if (output.*) |o| {
@@ -1056,7 +1102,8 @@ fn renderNode(
     outputs_vbox.deinit();
 
     // process events to drag the box around
-    if (maybe_viz_data) |viz_data| {
+    //if (maybe_viz_data) |viz_data| {
+    {
         const evts = dvui.events();
         for (evts) |*e| {
             if (!box.matchEvent(e))
@@ -1135,11 +1182,19 @@ pub const VisualGraph = struct {
         self.node_data.deinit(alloc);
     }
 
-    pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?grappl.NodeId, diag: ?*grappl.GraphBuilder.Diagnostic) !grappl.NodeId {
+    pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?grappl.NodeId, diag: ?*grappl.GraphBuilder.Diagnostic, pos: dvui.Point) !grappl.NodeId {
+        // HACK
         const result = try self.graph.addNode(alloc, kind, is_entry, force_node_id, diag);
+
+        try self.node_data.put(gpa, result, .{
+            .position = pos,
+            .position_override = pos,
+        });
+
         // FIXME:
         // errdefer self.graph.removeNode(result);
-        try self.formatGraphNaive(gpa); // FIXME: do this iteratively! don't reformat the whole thing...
+        // FIXME: re-enable after demo
+        //try self.formatGraphNaive(gpa); // FIXME: do this iteratively! don't reformat the whole thing...
         return result;
     }
 
@@ -1147,8 +1202,8 @@ pub const VisualGraph = struct {
         const result = try self.graph.addEdge(start_id, start_index, end_id, end_index, end_subindex);
         // FIXME: (note that if edge did any "replacing", that also needs to be restored!)
         // errdefer self.graph.removeEdge(result);
-        // TODO:
-        try self.formatGraphNaive(gpa); // FIXME: do this iteratively! don't reformat the whole thing...
+        // FIXME: re-enable after demo
+        //try self.formatGraphNaive(gpa); // FIXME: do this iteratively! don't reformat the whole thing...
         return result;
     }
 
@@ -1156,8 +1211,8 @@ pub const VisualGraph = struct {
         const result = try self.graph.removeEdge(start_id, start_index, end_id, end_index, end_subindex);
         // FIXME: (note that if edge did any "replacing", that also needs to be restored!)
         // errdefer self.graph.removeEdge(result);
-        // TODO:
-        try self.formatGraphNaive(gpa); // FIXME: do this iteratively! don't reformat the whole thing...
+        // FIXME: re-enable after demo
+        //try self.formatGraphNaive(gpa); // FIXME: do this iteratively! don't reformat the whole thing...
         return result;
     }
 
@@ -1337,10 +1392,6 @@ pub const VisualGraph = struct {
     }
 };
 
-fn updateScrollInfo() void {
-    //grappl_graph.getSize();
-}
-
 fn dvui_frame() !void {
     var new_content_scale: ?f32 = null;
     var old_dist: ?f32 = null;
@@ -1380,8 +1431,6 @@ fn dvui_frame() !void {
         }
     }
 
-    updateScrollInfo();
-
     // file menu
     {
         var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .expand = .horizontal });
@@ -1409,12 +1458,6 @@ fn dvui_frame() !void {
     defer ctext.deinit();
 
     context_menu_widget_id = ctext.wd.id;
-
-    if (ctext.activePoint()) |cp| {
-        try renderAddNodeMenu(cp, node_menu_filter);
-    } else {
-        node_menu_filter = null;
-    }
 
     //ScrollData.scroll_info.virtual_size = current_graph.visual_graph.graph_bb.size();
 
@@ -1657,21 +1700,24 @@ fn dvui_frame() !void {
                 }
                 text_entry.deinit();
 
-                // FIXME: this is slow to run every frame!
-                var type_choice: usize = _: {
+                var type_choice: grappl.Type = undefined;
+                var type_choice_index: usize = undefined;
+                {
+                    // FIXME: this is slow to run every frame!
                     // FIXME: assumes iterator is ordered when not mutated
                     var k: usize = 0;
                     var type_iter = current_graph.env.types.valueIterator();
                     while (type_iter.next()) |type_entry| : (k += 1) {
                         if (type_entry.* == binding.type_)
-                            break :_ k;
+                            type_choice = type_entry.*;
+                        type_choice_index = k;
+                        break;
                     }
-                    break :_ 0;
-                };
+                }
 
-                const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice, .{ .id_extra = j });
+                const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice_index, .{ .id_extra = j, .color_text = .{ .color = try colorForType(type_choice) } });
                 if (option_clicked) {
-                    const selected_name = type_options[type_choice];
+                    const selected_name = type_options[type_choice_index];
                     binding.type_ = current_graph.grappl_graph.env.types.get(selected_name) orelse unreachable;
                 }
             }
@@ -1730,7 +1776,9 @@ fn dvui_frame() !void {
                     continue;
 
                 // FIXME: this is slow to run every frame!
-                var type_choice: usize = _: {
+                var type_choice: grappl.Type = undefined;
+                var type_choice_index: usize = undefined;
+                {
                     // FIXME: assumes iterator is ordered when not mutated
                     var k: usize = 0;
                     var type_iter = current_graph.env.types.valueIterator();
@@ -1739,22 +1787,31 @@ fn dvui_frame() !void {
                             continue;
                         if (binding.kind.primitive != .value)
                             continue;
-                        if (type_entry.* == binding.kind.primitive.value)
-                            break :_ k;
+                        if (type_entry.* == binding.kind.primitive.value) {
+                            type_choice = type_entry.*;
+                            type_choice_index = k;
+                            break;
+                        }
                     }
-                    break :_ 0;
-                };
+                }
 
-                const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice, .{ .id_extra = j });
+                const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice_index, .{ .id_extra = j, .color_text = .{ .color = try colorForType(type_choice) } });
                 if (option_clicked) {
-                    const selected_name = type_options[type_choice];
+                    const selected_name = type_options[type_choice_index];
                     binding.kind.primitive = .{ .value = current_graph.grappl_graph.env.types.get(selected_name) orelse unreachable };
                 }
             }
         }
     }
 
-    try renderGraph();
+    var graph_area: *dvui.ScrollAreaWidget = undefined;
+    try renderGraph(&graph_area);
+
+    if (ctext.activePoint()) |cp| {
+        try renderAddNodeMenu(cp, node_menu_filter, graph_area);
+    } else {
+        node_menu_filter = null;
+    }
 
     // const label = if (dvui.Examples.show_demo_window) "Hide Demo Window" else "Show Demo Window";
     // if (try dvui.button(@src(), label, .{}, .{})) {
