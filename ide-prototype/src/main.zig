@@ -894,6 +894,9 @@ fn renderNode(
         const socket_point: dvui.Point = if (input_desc.kind.primitive == .exec) _: {
             var icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
             const socket_center = considerSocketForHover(&icon_res, socket);
+            if (icon_res.clicked) {
+                input.* = .{ .link = null };
+            }
 
             break :_ socket_center;
         } else _: {
@@ -901,6 +904,9 @@ fn renderNode(
 
             var icon_res = try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
             const socket_center = considerSocketForHover(&icon_res, socket);
+            if (icon_res.clicked) {
+                input.* = .{ .value = .{ .int = 0 } };
+            }
 
             // FIXME: report compiler bug
             // } else switch (i.kind.primitive.value) {
@@ -1006,7 +1012,7 @@ fn renderNode(
 
     var outputs_vbox = try dvui.box(@src(), .vertical, .{});
 
-    for (node.desc.getOutputs(), node.outputs, 0..) |output_desc, output, j| {
+    for (node.desc.getOutputs(), node.outputs, 0..) |output_desc, *output, j| {
         var output_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
         defer output_box.deinit();
 
@@ -1024,13 +1030,24 @@ fn renderNode(
             .background = true,
         };
 
-        _ = output;
         _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .id_extra = j });
 
         var icon_res = if (output_desc.kind.primitive == .exec)
             try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts)
         else
             try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
+
+        if (icon_res.clicked) {
+            std.log.info("clicked", .{});
+            // FIXME: get target
+            if (output.*) |o| {
+                const target_node = current_graph.grappl_graph.nodes.map.getPtr(o.link.target);
+                if (target_node) |target| {
+                    target.inputs[o.link.pin_index] = .{ .link = null };
+                }
+            }
+            output.* = null;
+        }
 
         const socket_center = considerSocketForHover(&icon_res, socket);
         try socket_positions.put(gpa, socket, socket_center);
