@@ -104,6 +104,9 @@ export function Ide(canvasElem, opts) {
     let programInfo;
     const textures = new Map();
     let newTextureId = 1;
+    let using_fb = false;
+    let frame_buffer = null;
+    let renderTargetSize = [0, 0];
 
     const sharedWasmMem = new WebAssembly.Memory({
         initial: 50, // measured in pages of 64KiB
@@ -181,6 +184,12 @@ export function Ide(canvasElem, opts) {
         wasm_pixel_height() {
             return gl.drawingBufferHeight;
         },
+        wasm_frame_buffer() {
+           if (using_fb)
+               return 1;
+           else
+               return 0;
+        },
         wasm_canvas_width() {
             return gl.canvas.clientWidth;
         },
@@ -194,7 +203,7 @@ export function Ide(canvasElem, opts) {
             const id = newTextureId;
             //console.log("creating texture " + id);
             newTextureId += 1;
-            textures.set(id, texture);
+            textures.set(id, [texture, width, height]);
           
             gl.bindTexture(gl.TEXTURE_2D, texture);
 
@@ -226,19 +235,68 @@ export function Ide(canvasElem, opts) {
 
             return id;
         },
+        wasm_textureCreateTarget(width, height, interp) {
+            const texture = gl.createTexture();
+            const id = newTextureId;
+            //console.log("creating texture " + id);
+            newTextureId += 1;
+            textures.set(id, [texture, width, height]);
+
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+
+            gl.texImage2D(
+                gl.TEXTURE_2D,
+                0,
+                gl.RGBA,
+                width,
+                height,
+                0,
+                gl.RGBA,
+                gl.UNSIGNED_BYTE,
+                null,
+            );
+
+           if (interp == 0) {
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+           } else {
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+           }
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+           return id;
+       },
+       wasm_renderTarget(id) {
+           if (id === 0) {
+               using_fb = false;
+               gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+               renderTargetSize = [gl.drawingBufferWidth, gl.drawingBufferHeight];
+               gl.viewport(0, 0, renderTargetSize[0], renderTargetSize[1]);
+               gl.scissor(0, 0, renderTargetSize[0], renderTargetSize[1]);
+           } else {
+               using_fb = true;
+               gl.bindFramebuffer(gl.FRAMEBUFFER, frame_buffer);
+
+               gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, textures.get(id)[0], 0);
+               renderTargetSize = [textures.get(id)[1], textures.get(id)[2]];
+               gl.viewport(0, 0, renderTargetSize[0], renderTargetSize[1]);
+               gl.scissor(0, 0, renderTargetSize[0], renderTargetSize[1]);
+           }
+       },
         wasm_textureDestroy(id) {
             //console.log("deleting texture " + id);
-            const texture = textures.get(id);
+            const texture = textures.get(id)[0];
             textures.delete(id);
 
             gl.deleteTexture(texture);
         },
-        wasm_renderGeometry(textureId, index_ptr, index_len, vertex_ptr, vertex_len, sizeof_vertex, offset_pos, offset_col, offset_uv, x, y, w, h) {
+        wasm_renderGeometry(textureId, index_ptr, index_len, vertex_ptr, vertex_len, sizeof_vertex, offset_pos, offset_col, offset_uv, clip, x, y, w, h) {
             //console.log("drawClippedTriangles " + textureId + " sizeof " + sizeof_vertex + " pos " + offset_pos + " col " + offset_col + " uv " + offset_uv);
 
 	    //let old_scissor;
-	    let max_u16 = 0xFFFF;
-	    if (x != max_u16) {
+	    if (clip === 1) {
 		// just calling getParameter here is quite slow (5-10 ms per frame according to chrome)
                 //old_scissor = gl.getParameter(gl.SCISSOR_BOX);
                 gl.scissor(x, y, w, h);
@@ -253,12 +311,16 @@ export function Ide(canvasElem, opts) {
             gl.bufferData( gl.ARRAY_BUFFER, vertexes, gl.STATIC_DRAW);
 
             let matrix = new Float32Array(16);
-            matrix[0] = 2.0 / gl.drawingBufferWidth;
+            matrix[0] = 2.0 / renderTargetSize[0];
             matrix[1] = 0.0;
             matrix[2] = 0.0;
             matrix[3] = 0.0;
             matrix[4] = 0.0;
-            matrix[5] = -2.0 / gl.drawingBufferHeight;
+           if (using_fb) {
+               matrix[5] = 2.0 / renderTargetSize[1];
+           } else {
+               matrix[5] = -2.0 / renderTargetSize[1];
+           }
             matrix[6] = 0.0;
             matrix[7] = 0.0;
             matrix[8] = 0.0;
@@ -266,7 +328,11 @@ export function Ide(canvasElem, opts) {
             matrix[10] = 1.0;
             matrix[11] = 0.0;
             matrix[12] = -1.0;
-            matrix[13] = 1.0;
+           if (using_fb) {
+                matrix[13] = -1.0;
+           } else {
+                matrix[13] = 1.0;
+           }
             matrix[14] = 0.0;
             matrix[15] = 1.0;
 
@@ -318,7 +384,7 @@ export function Ide(canvasElem, opts) {
 
             if (textureId != 0) {
                 gl.activeTexture(gl.TEXTURE0);
-                gl.bindTexture(gl.TEXTURE_2D, textures.get(textureId));
+                gl.bindTexture(gl.TEXTURE_2D, textures.get(textureId)[0]);
                 gl.uniform1i(programInfo.uniformLocations.useTex, 1);
             } else {
                 gl.uniform1i(programInfo.uniformLocations.useTex, 0);
@@ -328,9 +394,9 @@ export function Ide(canvasElem, opts) {
 
             gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
 
-	    if (x != max_u16) {
+	    if (clip === 1) {
 		//gl.scissor(old_scissor[0], old_scissor[1], old_scissor[2], old_scissor[3]);
-                gl.scissor(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+               gl.scissor(0, 0, renderTargetSize[0], renderTargetSize[1]);
 	    }
         },
         wasm_cursor(name_ptr, name_len) {
@@ -515,9 +581,9 @@ export function Ide(canvasElem, opts) {
         //div.style.height = 0;
         //div.style.overflow = "hidden";
         hidden_input = document.createElement("input");
-        hidden_input.style.position = "absolute";
-        hidden_input.style.left = 0;
-        hidden_input.style.top = 0;
+       hidden_input.style.position = "absolute";
+       hidden_input.style.left = 0;
+       hidden_input.style.top = 0;
         div.appendChild(hidden_input);
         document.body.prepend(div);
 
@@ -543,6 +609,8 @@ export function Ide(canvasElem, opts) {
                 return;
             }
         }
+
+       frame_buffer = gl.createFramebuffer();
 
         const vertexShader = gl.createShader(gl.VERTEX_SHADER);
         if (webgl2) {
@@ -615,6 +683,7 @@ export function Ide(canvasElem, opts) {
             //console.log("wxh " + w + "x" + h + " scale " + scale);
             gl.canvas.width = Math.round(w * scale);
             gl.canvas.height = Math.round(h * scale);
+           renderTargetSize = [gl.drawingBufferWidth, gl.drawingBufferHeight];
             gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
             gl.scissor(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
 
