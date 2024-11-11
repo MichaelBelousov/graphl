@@ -426,7 +426,7 @@ const Socket = struct {
     index: u16,
 };
 
-fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
+fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from: ?Socket) !void {
     var fw2 = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
     defer fw2.deinit();
 
@@ -481,21 +481,8 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
             };
 
             if ((try dvui.menuItemLabel(@src(), name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
-
-                //const rs = box.data().rectScale();
-                //const offset = rs.pointFromScreen(me.p).diff(dvui.dragOffset()); // how far mouse is from topleft in box coords
-
-                //viz_data.position_override = ScrollData.scroll2Data(box.data().rect.topLeft().plus(offset));
-
-                const mouse_pt = dvui.currentWindow().mouse_pt;
-                // FIXME/HACK: make this work for real
-                const pos = ScrollData.scroll_info.viewport.topLeft().plus(mouse_pt).plus(dvui.Point{
-                    .x = -350,
-                    .y = -100,
-                });
-
                 // TODO: use diagnostic
-                const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null, pos);
+                const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null, pt_in_graph);
 
                 if (maybe_create_from) |create_from| {
                     switch (create_from.kind) {
@@ -529,8 +516,8 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
     }
 }
 
-fn renderGraph(in_graph_area: **dvui.ScrollAreaWidget) !void {
-    in_graph_area.* = try dvui.scrollArea(
+fn renderGraph() !void {
+    var graph_area = try dvui.scrollArea(
         @src(),
         .{ .scroll_info = &ScrollData.scroll_info },
         .{
@@ -542,7 +529,21 @@ fn renderGraph(in_graph_area: **dvui.ScrollAreaWidget) !void {
         },
     );
 
-    const graph_area = in_graph_area.*;
+    const ctext = try dvui.context(@src(), .{ .expand = .both });
+    context_menu_widget_id = ctext.wd.id;
+
+    if (ctext.activePoint()) |cp| {
+        const mp = dvui.currentWindow().mouse_pt;
+        const mp_in_graph = graph_area.data().rectScale().pointFromScreen(mp);
+        // FIXME/HACK: make this work for real
+        var rs = dvui.RectScale{ .r = ScrollData.scroll_info.viewport, .s = dvui.windowNaturalScale() };
+        rs.r.x = -ScrollData.origin.x;
+        rs.r.y = -ScrollData.origin.y;
+        const pt_in_graph = rs.pointToScreen(mp_in_graph);
+        try renderAddNodeMenu(cp, pt_in_graph, node_menu_filter);
+    } else {
+        node_menu_filter = null;
+    }
 
     // TODO: use link struct?
     var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Point){};
@@ -718,6 +719,7 @@ fn renderGraph(in_graph_area: **dvui.ScrollAreaWidget) !void {
     }
 
     // deinit graph area to process events
+    ctext.deinit();
     graph_area.deinit();
 
     if (!ScrollData.scroll_info.viewport.empty()) {
@@ -1439,11 +1441,6 @@ fn dvui_frame() !void {
         }
     }
 
-    const ctext = try dvui.context(@src(), .{ .expand = .both });
-    defer ctext.deinit();
-
-    context_menu_widget_id = ctext.wd.id;
-
     //ScrollData.scroll_info.virtual_size = current_graph.visual_graph.graph_bb.size();
 
     // FIXME: move the viewport to any newly created nodes
@@ -1789,14 +1786,7 @@ fn dvui_frame() !void {
         }
     }
 
-    if (ctext.activePoint()) |cp| {
-        try renderAddNodeMenu(cp, node_menu_filter);
-    } else {
-        node_menu_filter = null;
-    }
-
-    var graph_area: *dvui.ScrollAreaWidget = undefined;
-    try renderGraph(&graph_area);
+    try renderGraph();
 
     // const label = if (dvui.Examples.show_demo_window) "Hide Demo Window" else "Show Demo Window";
     // if (try dvui.button(@src(), label, .{}, .{})) {
