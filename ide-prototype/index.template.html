@@ -19,7 +19,7 @@
         body {
           overflow-x: hidden;
           display: grid;
-          grid-template-columns: 0 100vw 50vw;
+          grid-template-columns: 0px 100vw 50vw;
           margin: 0;
           padding: 0;
         }
@@ -40,8 +40,8 @@
     <script type="module">
       import * as grappl from "./WebBackend.js";
 
-      const showText = "0 50vw 50vw";
-      const noShowText = "0 100vw 50vw";
+      const showText = "0px 50vw 50vw";
+      const noShowText = "0px 100vw 50vw";
 
       let ide;
 
@@ -76,7 +76,7 @@
         });
 
         document.addEventListener("keydown", (e) => {
-          const isCtrlShiftE = e.ctrlKey && e.shiftKey && e.key === "E";
+          const isCtrlShiftE = e.ctrlKey && e.shiftKey && /[eE]/.test(e.key);
           if (!isCtrlShiftE) return;
           e.preventDefault();
           document.body.style["grid-template-columns"]
