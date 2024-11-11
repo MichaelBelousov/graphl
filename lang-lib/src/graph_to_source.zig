@@ -101,7 +101,7 @@ pub const GraphBuilder = struct {
 
         result_node_basic_desc.* = .{
             .name = "return",
-            .hidden = true,
+            .hidden = false,
             .inputs = inputs,
             .outputs = outputs,
         };

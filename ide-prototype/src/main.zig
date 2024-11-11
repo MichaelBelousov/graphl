@@ -481,6 +481,12 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
             };
 
             if ((try dvui.menuItemLabel(@src(), name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
+
+                //const rs = box.data().rectScale();
+                //const offset = rs.pointFromScreen(me.p).diff(dvui.dragOffset()); // how far mouse is from topleft in box coords
+
+                //viz_data.position_override = ScrollData.scroll2Data(box.data().rect.topLeft().plus(offset));
+
                 const mouse_pt = dvui.currentWindow().mouse_pt;
                 // FIXME/HACK: make this work for real
                 const pos = ScrollData.scroll_info.viewport.topLeft().plus(mouse_pt).plus(dvui.Point{
@@ -776,7 +782,7 @@ fn colorForType(t: grappl.Type) !dvui.Color {
         return color;
     } else {
         var hasher = std.hash.Wyhash.init(0);
-        std.hash.autoHash(&hasher, t);
+        std.hash.autoHashStrat(&hasher, t.name, .Deep);
         const hash = hasher.final();
         const as_f32 = @as(f32, @floatFromInt(hash)) / @as(f32, @floatFromInt(std.math.maxInt(@TypeOf(hash))));
         // TODO: something much more balanced
@@ -799,14 +805,13 @@ fn considerSocketForHover(icon_res: *dvui.ButtonIconResult, socket: Socket) dvui
     const is_dragging = dvui.currentWindow().drag_state != .none;
 
     if (rectContainsMouse(r)) {
-        if (is_dragging and edge_drag_start != null
-        //
-        and socket.kind != edge_drag_start.?.socket.kind
-        // allow selecting self as drag end as a form of deletion
-        //and socket.node_id != edge_drag_start.?.socket.node_id
-        ) {
-            dvui.cursorSet(.crosshair);
-            edge_drag_end = socket;
+        if (is_dragging and edge_drag_start != null and socket.node_id != edge_drag_start.?.socket.node_id) {
+            if (socket.kind != edge_drag_start.?.socket.kind) {
+                dvui.cursorSet(.crosshair);
+                edge_drag_end = socket;
+            } else {
+                dvui.toast(@src(), .{ .message = "Can only connect inputs to outputs", .timeout = 1_000_000 }) catch unreachable;
+            }
         }
 
         // FIXME: make more idiomatic
@@ -1065,13 +1070,11 @@ fn renderNode(
             try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
 
         if (icon_res.clicked) {
-            // FIXME: use graph.removeEdge?
-            std.log.info("clicked", .{});
-            // FIXME: get target
             if (output.*) |o| {
                 const target_node = current_graph.grappl_graph.nodes.map.getPtr(o.link.target);
                 if (target_node) |target| {
-                    target.inputs[o.link.pin_index] = .{ .link = null };
+                    // FIXME: need a function for resetting pins of any type, they probably default to 0
+                    target.inputs[o.link.pin_index] = .{ .value = .{ .int = 0 } };
                 }
             }
             output.* = null;
