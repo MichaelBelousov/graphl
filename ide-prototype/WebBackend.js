@@ -530,7 +530,7 @@ export function Ide(canvasElem, opts) {
     };
 
     Promise.all([
-    frontendWasmPromise()
+    frontendWasmPromise(imports)
     .then((result) => {
         wasmResult = { instance: result };
 
