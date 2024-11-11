@@ -2,6 +2,7 @@
   "name": "graph-lang-ide-prototype-dvui",
   "scripts": {
     "build": "zig build -Doptimize=ReleaseSmall && vite build --mode production",
+    "build:demo": "zig build && vite build -c ./vite.demo.config.ts --mode production",
     "preview": "vite preview",
     "dev": "vite --port 3001",
     "dev:zig": "git ls-files | entr -rc zig build",
