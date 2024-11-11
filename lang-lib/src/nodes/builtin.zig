@@ -330,31 +330,6 @@ pub const primitive_types = struct {
 //     populateLegs(0, &num_type_hierarchy);
 // }
 
-fn resolvePeerType(types: []const Type) Type {
-    _ = types;
-    const Local = struct {
-        fn resolvePair(t: Type, u: Type) Type {
-            _ = t;
-            _ = u;
-        }
-    };
-    _ = Local;
-    //std.meta.window
-    // for (types) |t| {
-
-    // }
-}
-
-test "peer resolve types" {}
-
-// ignoring for now
-pub fn returnType(builtin_node: *const NodeDesc, input_types: []const Type) Type {
-    return switch (*builtin_node) {
-        builtin_nodes.@"+" => resolvePeerType(input_types),
-        builtin_nodes.@"-" => resolvePeerType(input_types),
-    };
-}
-
 pub const BasicNodeDesc = struct {
     name: []const u8,
     hidden: bool = false,
@@ -548,61 +523,61 @@ pub const builtin_nodes = struct {
     pub const @"+": NodeDesc = basicNode(&.{
         .name = "+",
         .inputs = &.{
-            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .outputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
     });
     pub const @"-": NodeDesc = basicNode(&.{
         .name = "-",
         .inputs = &.{
-            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .outputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
     });
     pub const max: NodeDesc = basicNode(&.{
         .name = "max",
         .inputs = &.{
-            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .outputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
     });
     pub const min: NodeDesc = basicNode(&.{
         .name = "min",
         .inputs = &.{
-            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .outputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
     });
     pub const @"*": NodeDesc = basicNode(&.{
         .name = "*",
         .inputs = &.{
-            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .outputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
     });
     pub const @"/": NodeDesc = basicNode(&.{
         .name = "/",
         .inputs = &.{
-            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .outputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
     });
     pub const @"if": NodeDesc = basicNode(&.{
@@ -633,11 +608,11 @@ pub const builtin_nodes = struct {
         .inputs = &.{
             Pin{ .name = "run", .kind = .{ .primitive = .exec } },
             Pin{ .name = "variable", .kind = .{ .primitive = .{ .value = primitive_types.symbol } } },
-            Pin{ .name = "new value", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "new value", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .outputs = &.{
             Pin{ .name = "next", .kind = .{ .primitive = .exec } },
-            Pin{ .name = "value", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "value", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
     });
 

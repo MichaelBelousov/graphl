@@ -772,27 +772,20 @@ pub const GraphBuilder = struct {
             if (self.graph.isJoin(node))
                 return;
 
-            const special_type: enum { none, getter, setter } = if (std.mem.startsWith(u8, node.desc.name(), "#"))
-                if (std.mem.startsWith(u8, node.desc.name(), "#GET#")) .getter else .setter
-            else
-                .none;
+            const special_type = node.desc.special;
 
-            const name =
-                if (special_type != .none)
-                node.desc.name()["#GET#".len..]
-            else
-                node.desc.name();
+            const name = node.desc.name();
 
             var call_sexp = try context.block.addOne();
 
             // FIXME: this must be unified with nodeInputTreeToSexp!
             call_sexp.* =
-                if (special_type == .getter)
+                if (special_type == .get)
                 Sexp{ .value = .{ .symbol = name } }
             else
                 Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
 
-            if (special_type != .getter) {
+            if (special_type != .get) {
                 (try call_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
 
                 // FIXME: doesn't work for variadics
@@ -826,18 +819,11 @@ pub const GraphBuilder = struct {
                     const node = self.graph.nodes.map.getPtr(target) orelse std.debug.panic("couldn't find link target id={}", .{target});
 
                     // TODO: should have a comptime sexp parsing utility, or otherwise terser syntax...
-                    const special_type: enum { none, getter, setter } = if (std.mem.startsWith(u8, node.desc.name(), "#"))
-                        if (std.mem.startsWith(u8, node.desc.name(), "#GET#")) .getter else .setter
-                    else
-                        .none;
+                    const special_type = node.desc.special;
 
-                    const name =
-                        if (special_type != .none)
-                        node.desc.name()["#GET#".len..]
-                    else
-                        node.desc.name();
+                    const name = node.desc.name();
 
-                    if (special_type == .getter)
+                    if (special_type == .get)
                         break :_ Sexp{ .value = .{ .symbol = name } };
 
                     var result = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };

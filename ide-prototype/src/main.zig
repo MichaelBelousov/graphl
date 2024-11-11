@@ -427,7 +427,6 @@ const Socket = struct {
 };
 
 fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket, graph_area: *dvui.ScrollAreaWidget) !void {
-    _ = graph_area;
     var fw2 = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
     defer fw2.deinit();
 
@@ -482,14 +481,13 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket, graph_area: *dv
             };
 
             if ((try dvui.menuItemLabel(@src(), name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
-                // NEXT
                 const mouse_pt = dvui.currentWindow().mouse_pt;
-
+                // FIXME/HACK: make this work for real
                 //const pos = ScrollData.scroll_info.viewport.topLeft().plus(mouse_pt).diff(ScrollData.scroll_info.viewport.scale(0.5).bottomRight());
-                const half_vp_size = ScrollData.scroll_info.viewport.size().scale(0.2);
-                const pos = ScrollData.scroll_info.viewport.topLeft().plus(mouse_pt).diff(dvui.Point{
-                    .x = half_vp_size.w,
-                    .y = half_vp_size.h,
+                //const half_vp_size = ScrollData.scroll_info.viewport.size().scale(0.5);
+                const pos = ScrollData.scroll_info.viewport.topLeft().plus(mouse_pt).plus(dvui.Point{
+                    .x = -350,
+                    .y = -100,
                 }); //.diff(ScrollData.scroll_info.viewport.scale(0.5).bottomRight());
                 //const rs = graph_area.scroll.data().rectScale();
                 //ScrollData.scroll_info.viewport.x -= dps.x / rs.s;
@@ -653,17 +651,9 @@ fn renderGraph(in_graph_area: **dvui.ScrollAreaWidget) !void {
                 const same_edge = edge.source.node_id == edge.target.node_id;
                 const valid_edge = edge.source.kind != edge.target.kind and !same_edge;
                 if (valid_edge) {
-                    // FIXME: why am I assumign edge_drag_start exists?
+                    // FIXME: why am I assuming edge_drag_start exists?
                     // TODO: maybe use unreachable instead of try?
                     try current_graph.addEdge(
-                        edge.source.node_id,
-                        edge.source.index,
-                        edge.target.node_id,
-                        edge.target.index,
-                        0,
-                    );
-                } else if (same_edge) {
-                    try current_graph.removeEdge(
                         edge.source.node_id,
                         edge.source.index,
                         edge.target.node_id,
@@ -802,8 +792,6 @@ fn colorForType(t: grappl.Type) !dvui.Color {
             50,
             100.0,
         );
-        std.log.info("color f32 {}, {}", .{ hash, as_f32 });
-        std.log.info("color of {s} = {}", .{ t.name, color });
         try colors.put(t, color);
         return color;
     }
@@ -918,7 +906,7 @@ fn renderNode(
         const color = if (input_desc.kind == .primitive and input_desc.kind.primitive == .value)
             try colorForType(input_desc.kind.primitive.value)
         else
-            dvui.Color.black;
+            dvui.Color.white;
 
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
@@ -973,7 +961,7 @@ fn renderNode(
                                     else
                                         @floatFromInt(v);
                                 },
-                                else => @panic("unhandled"),
+                                inline else => std.debug.panic("unhandled input type='{s}'", .{@tagName(input.value)}),
                             }
                         }
 
@@ -987,7 +975,7 @@ fn renderNode(
                                 .Float => {
                                     input.* = .{ .value = .{ .float = @floatCast(entry.value.Valid) } };
                                 },
-                                else => @panic("unhandled"),
+                                inline else => std.debug.panic("unhandled input type='{s}'", .{@tagName(input.value)}),
                             }
                         }
 
@@ -1061,7 +1049,7 @@ fn renderNode(
         const color = if (output_desc.kind == .primitive and output_desc.kind.primitive == .value)
             try colorForType(output_desc.kind.primitive.value)
         else
-            dvui.Color.black;
+            dvui.Color.white;
 
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
@@ -1625,7 +1613,7 @@ fn dvui_frame() !void {
                     const node_descs = try gpa.alloc(grappl.helpers.BasicMutNodeDesc, 2);
                     node_descs[0] = grappl.helpers.BasicMutNodeDesc{
                         // FIXME: leaks
-                        .name = try std.fmt.allocPrint(gpa, "get_{s}", .{name}),
+                        .name = name,
                         .special = .get,
                         .inputs = try gpa.dupe(helpers.Pin, &getter_inputs),
                         .outputs = try gpa.dupe(helpers.Pin, &getter_outputs),
@@ -1682,7 +1670,7 @@ fn dvui_frame() !void {
                         // TODO: REPORT ME... allocator doesn't seem to return right slice len
                         // when freeing right before resetting?
                         const old_get_node_name = get_node.name;
-                        get_node.name = try std.fmt.allocPrint(gpa, "get_{s}", .{new_name});
+                        get_node.name = new_name;
                         const old_set_node_name = set_node.name;
                         set_node.name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name});
                         // FIXME: should be able to use removeByPtr here to avoid look up?
