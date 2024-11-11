@@ -41,12 +41,15 @@ export default defineConfig(async ({ mode }) => {
         },
       },
     },
+        // TODO: remove monaco support for other languages
     build: {
+            /*
       lib: {
         entry: path.resolve(__dirname, "./entry.ts"),
         name: "GrapplIdeWeb",
         fileName: "grappl-ide-web",
       },
+            */
       minify: mode === "production" && "esbuild",
       sourcemap: mode === "development",
       rollupOptions: {
@@ -54,7 +57,7 @@ export default defineConfig(async ({ mode }) => {
         // they may not be compatible at all, so be warned
         plugins: [...(mode === "development" ? [rollupVisualizer()] : [])],
         // NOTE: shouldn't be used afaict?
-        external: ["react"],
+        //external: ["react"],
       },
     },
     envPrefix: "GRAPPL_",

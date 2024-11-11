@@ -1,5 +1,7 @@
 ///<reference path="./WebBackend.d.ts">
 
+import frontendWasmPromise from './zig-out/bin/dvui-frontend.wasm?init';
+
 // TODO: remove references to dvui in prod build
 
 /** @param {number} ms */
@@ -528,12 +530,9 @@ export function Ide(canvasElem, opts) {
     };
 
     Promise.all([
-    fetch("zig-out/bin/dvui-frontend.wasm?cache-buster=645b01301f0c87234741b81bbfddfe4db7d66bbe7c88069015cd2038a6ea51c2")
-    .then((response) => response.arrayBuffer())
-    .then((bytes) => WebAssembly.instantiate(bytes, imports))
-    .then(result => {
-
-        wasmResult = result;
+    frontendWasmPromise()
+    .then((result) => {
+        wasmResult = { instance: result };
 
         const MAX_FUNC_NAME = 256;
 
