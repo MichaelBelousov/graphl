@@ -529,6 +529,14 @@ fn renderGraph() !void {
         },
     );
 
+    const scrollRectScale = graph_area.scroll.screenRectScale(.{});
+    _ = scrollRectScale;
+
+    var scaler = try dvui.scale(@src(), ScrollData.scale, .{ .rect = .{ .x = -ScrollData.origin.x, .y = -ScrollData.origin.y } });
+
+    // can use this to convert between data and screen coords
+    const dataRectScale = scaler.screenRectScale(.{});
+
     const ctext = try dvui.context(@src(), .{ .expand = .both });
     context_menu_widget_id = ctext.wd.id;
 
@@ -565,7 +573,7 @@ fn renderGraph() !void {
             // TODO: don't iterate over unneeded keys
             //const node_id = entry.key_ptr.*;
             const node = entry.value_ptr;
-            const node_rect = try renderNode(node, &socket_positions, graph_area);
+            const node_rect = try renderNode(node, &socket_positions, graph_area, dataRectScale);
 
             if (mbbox != null) {
                 mbbox = mbbox.?.unionWith(node_rect);
@@ -845,6 +853,7 @@ fn renderNode(
     node: *grappl.Node,
     socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Point),
     graph_area: *dvui.ScrollAreaWidget,
+    dataRectScale: dvui.RectScale,
 ) !Rect {
     const root_id_extra: usize = @intCast(node.id);
 
@@ -884,7 +893,7 @@ fn renderNode(
     );
     defer box.deinit();
 
-    const result = box.data().rect; // already has origin added (already in scroll coords)
+    const result = box.data().rectScale().r; // already has origin added (already in scroll coords)
 
     switch (node.desc.special) {
         .none => try dvui.label(@src(), "{s}", .{node.desc.name()}, .{ .font_style = .title_3 }),
@@ -1087,7 +1096,7 @@ fn renderNode(
 
     outputs_vbox.deinit();
 
-    // process events to drag the box around
+    // process events to drag the box around before processing graph events
     //if (maybe_viz_data) |viz_data| {
     {
         const evts = dvui.events();
@@ -1100,8 +1109,8 @@ fn renderNode(
                     if (me.action == .press and me.button.pointer()) {
                         e.handled = true;
                         dvui.captureMouse(box.data().id);
-                        const rs = box.data().rectScale();
-                        dvui.dragPreStart(me.p, .{ .offset = rs.pointFromScreen(me.p) });
+                        const offset = me.p.diff(box.data().rectScale().r.topLeft()); // pixel offset from box corner
+                        dvui.dragPreStart(me.p, .{ .offset = offset });
                     } else if (me.action == .release and me.button.pointer()) {
                         if (dvui.captured(box.data().id)) {
                             e.handled = true;
@@ -1111,11 +1120,8 @@ fn renderNode(
                     } else if (me.action == .motion) {
                         if (dvui.captured(box.data().id)) {
                             if (dvui.dragging(me.p)) |_| {
-                                const rs = box.data().rectScale();
-                                const offset = rs.pointFromScreen(me.p).diff(dvui.dragOffset()); // how far mouse is from topleft in box coords
-
-                                viz_data.position_override = ScrollData.scroll2Data(box.data().rect.topLeft().plus(offset));
-
+                                const p = me.p.diff(dvui.dragOffset());
+                                viz_data.position_override = dataRectScale.pointFromScreen(p);
                                 dvui.refresh(null, @src(), graph_area.scroll.data().id);
 
                                 var scrolldrag = dvui.Event{ .evt = .{ .scroll_drag = .{
@@ -1139,14 +1145,7 @@ fn renderNode(
 const ScrollData = struct {
     var scroll_info: dvui.ScrollInfo = .{ .vertical = .given, .horizontal = .given };
     var origin: dvui.Point = .{};
-
-    pub fn data2Scroll(p: dvui.Point) dvui.Point {
-        return p.plus(origin).diff(scroll_info.viewport.topLeft());
-    }
-
-    pub fn scroll2Data(p: dvui.Point) dvui.Point {
-        return p.diff(origin);
-    }
+    var scale: f32 = 1.0;
 };
 
 pub const VisualGraph = struct {
