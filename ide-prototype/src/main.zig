@@ -199,7 +199,7 @@ const Graph = struct {
 
         self.visual_graph = VisualGraph{ .graph = &self.grappl_graph };
 
-        _ = try self.addNode(gpa, "return", true, null, null, .{});
+        _ = try self.addNode(gpa, "return", true, null, null, .{ .x = 500, .y = 500 });
     }
 
     pub fn deinit(self: *@This()) void {
@@ -426,7 +426,7 @@ const Socket = struct {
     index: u16,
 };
 
-fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket, graph_area: *dvui.ScrollAreaWidget) !void {
+fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket) !void {
     var fw2 = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
     defer fw2.deinit();
 
@@ -476,23 +476,17 @@ fn renderAddNodeMenu(pt: dvui.Point, maybe_create_from: ?Socket, graph_area: *dv
             var name_buf: [MAX_FUNC_NAME]u8 = undefined;
             const name = switch (node_desc.special) {
                 .none => try std.fmt.bufPrint(&name_buf, "{s}", .{node_name}),
-                .get => try std.fmt.bufPrint(&name_buf, "Get {s}", .{node_name[4..]}),
+                .get => try std.fmt.bufPrint(&name_buf, "Get {s}", .{node_name}),
                 .set => try std.fmt.bufPrint(&name_buf, "Set {s}", .{node_name[4..]}),
             };
 
             if ((try dvui.menuItemLabel(@src(), name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
                 const mouse_pt = dvui.currentWindow().mouse_pt;
                 // FIXME/HACK: make this work for real
-                //const pos = ScrollData.scroll_info.viewport.topLeft().plus(mouse_pt).diff(ScrollData.scroll_info.viewport.scale(0.5).bottomRight());
-                //const half_vp_size = ScrollData.scroll_info.viewport.size().scale(0.5);
                 const pos = ScrollData.scroll_info.viewport.topLeft().plus(mouse_pt).plus(dvui.Point{
                     .x = -350,
                     .y = -100,
-                }); //.diff(ScrollData.scroll_info.viewport.scale(0.5).bottomRight());
-                //const rs = graph_area.scroll.data().rectScale();
-                //ScrollData.scroll_info.viewport.x -= dps.x / rs.s;
-                //ScrollData.scroll_info.viewport.y -= dps.y / rs.s;
-                //dvui.refresh(null, @src(), graph_area.scroll.data().id);
+                });
 
                 // TODO: use diagnostic
                 const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null, pos);
@@ -888,7 +882,7 @@ fn renderNode(
 
     switch (node.desc.special) {
         .none => try dvui.label(@src(), "{s}", .{node.desc.name()}, .{ .font_style = .title_3 }),
-        .get => try dvui.label(@src(), "Get {s}", .{node.desc.name()[4..]}, .{ .font_style = .title_3 }),
+        .get => try dvui.label(@src(), "Get {s}", .{node.desc.name()}, .{ .font_style = .title_3 }),
         .set => try dvui.label(@src(), "Set {s}", .{node.desc.name()[4..]}, .{ .font_style = .title_3 }),
     }
 
@@ -1565,11 +1559,10 @@ fn dvui_frame() !void {
                     // FIXME: leak
                     // FIXME: obviously this could be faster by keeping track of state
                     const name = try gpa.dupe(u8, for (0..10_000) |j| {
-                        const getter_name = try std.fmt.bufPrint(&name_buf, "get_new{}", .{j});
-                        if (current_graph.env.nodes.contains(getter_name))
+                        const name = try std.fmt.bufPrint(&name_buf, "new{}", .{j});
+                        if (current_graph.env.nodes.contains(name))
                             continue;
-                        const raw_name = try std.fmt.bufPrint(&name_buf, "new{}", .{j});
-                        break raw_name;
+                        break name;
                     } else {
                         return error.MaxItersFindingFreeBindingName;
                     });
@@ -1661,7 +1654,7 @@ fn dvui_frame() !void {
 
                 const text_entry = try dvui.textEntry(text_entry_src, .{}, .{ .id_extra = id_extra });
                 if (text_entry.text_changed) {
-                    const new_name = text_entry.getText();
+                    const new_name = try gpa.dupe(u8, text_entry.getText());
                     binding.name = new_name;
                     if (binding.extra) |extra| {
                         const nodes: *[2]grappl.helpers.BasicMutNodeDesc = @alignCast(@ptrCast(extra));
@@ -1792,14 +1785,14 @@ fn dvui_frame() !void {
         }
     }
 
-    var graph_area: *dvui.ScrollAreaWidget = undefined;
-    try renderGraph(&graph_area);
-
     if (ctext.activePoint()) |cp| {
-        try renderAddNodeMenu(cp, node_menu_filter, graph_area);
+        try renderAddNodeMenu(cp, node_menu_filter);
     } else {
         node_menu_filter = null;
     }
+
+    var graph_area: *dvui.ScrollAreaWidget = undefined;
+    try renderGraph(&graph_area);
 
     // const label = if (dvui.Examples.show_demo_window) "Hide Demo Window" else "Show Demo Window";
     // if (try dvui.button(@src(), label, .{}, .{})) {
