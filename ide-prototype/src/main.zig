@@ -555,7 +555,7 @@ fn renderGraph() !void {
 
     var mbbox: ?Rect = null;
 
-    // set drag end to false, rendering will determine if it should still be set
+    // set drag end to false, rendering nodes will determine if it should still be set
     edge_drag_end = null;
 
     // place nodes
@@ -667,7 +667,6 @@ fn renderGraph() !void {
                 node_menu_filter = if (edge_drag_start != null) edge_drag_start.?.socket else null;
             }
 
-            std.log.info("stopped dragging, set start to null", .{});
             edge_drag_start = null;
         }
 
@@ -804,10 +803,11 @@ fn considerSocketForHover(icon_res: *dvui.ButtonIconResult, socket: Socket) dvui
     const r = icon_res.icon.wd.rectScale().r;
     const socket_center = rectCenter(r);
 
-    const is_dragging = dvui.currentWindow().drag_state != .none;
+    // HACK: make this cleaner
+    const was_dragging = dvui.currentWindow().drag_state != .none or prev_drag_state != null;
 
     if (rectContainsMouse(r)) {
-        if (is_dragging and edge_drag_start != null and socket.node_id != edge_drag_start.?.socket.node_id) {
+        if (was_dragging and edge_drag_start != null and socket.node_id != edge_drag_start.?.socket.node_id) {
             if (socket.kind != edge_drag_start.?.socket.kind) {
                 dvui.cursorSet(.crosshair);
                 edge_drag_end = socket;
@@ -824,7 +824,6 @@ fn considerSocketForHover(icon_res: *dvui.ButtonIconResult, socket: Socket) dvui
             switch (e.evt) {
                 .mouse => |me| {
                     if (me.action == .press and me.button.pointer()) {
-                        std.log.info("pressed, setting new drag start ({})", .{dvui.currentWindow().drag_state});
                         dvui.cursorSet(.crosshair);
                         edge_drag_start = .{
                             .pt = socket_center,
