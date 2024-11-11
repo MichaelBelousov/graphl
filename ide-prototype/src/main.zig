@@ -529,6 +529,14 @@ fn renderGraph() !void {
         },
     );
 
+    // can use this to convert between viewport/virtual_size and screen coords
+    const scrollRectScale = graph_area.scroll.screenRectScale(.{});
+
+    var scaler = try dvui.scale(@src(), ScrollData.scale, .{ .rect = .{ .x = -ScrollData.origin.x, .y = -ScrollData.origin.y } });
+
+    // can use this to convert between data and screen coords
+    const dataRectScale = scaler.screenRectScale(.{});
+
     const ctext = try dvui.context(@src(), .{ .expand = .both });
     context_menu_widget_id = ctext.wd.id;
 
@@ -574,6 +582,10 @@ fn renderGraph() !void {
             }
         }
     }
+
+    var ctrl_down = dvui.dataGet(null, graph_area.data().id, "_ctrl", bool) orelse false;
+    var zoom: f32 = 1;
+    var zoomP: dvui.Point = .{};
 
     // place edges
     {
@@ -681,6 +693,10 @@ fn renderGraph() !void {
     // process scroll area events after nodes so the nodes get first pick (so the button works)
     const scroll_evts = dvui.events();
     for (scroll_evts) |*e| {
+        if (e.evt == .key and e.evt.key.matchBind("ctrl/cmd")) {
+            ctrl_down = (e.evt.key.action == .down or e.evt.key.action == .repeat);
+        }
+
         if (!graph_area.scroll.matchEvent(e))
             continue;
 
@@ -698,45 +714,75 @@ fn renderGraph() !void {
                 } else if (me.action == .motion) {
                     if (dvui.captured(graph_area.scroll.data().id)) {
                         if (dvui.dragging(me.p)) |dps| {
+                            // FIXME: why not mark it as handled?
                             const rs = graph_area.scroll.data().rectScale();
                             ScrollData.scroll_info.viewport.x -= dps.x / rs.s;
                             ScrollData.scroll_info.viewport.y -= dps.y / rs.s;
                             dvui.refresh(null, @src(), graph_area.scroll.data().id);
                         }
+                    } else if (me.action == .wheel_y and ctrl_down) {
+                        e.handled = true;
+                        const base: f32 = 1.01;
+                        const zs = @exp(@log(base) * me.data.wheel_y);
+                        if (zs != 1.0) {
+                            zoom *= zs;
+                            zoomP = me.p;
+                        }
                     }
-                    // TODO: mouse wheel zoom
-                    // } else if (me.action == .wheel_y) {
-                    //     const scroll_factor = 1.0;
-                    //     std.log.info("vp0={}", .{ScrollData.scroll_info.viewport});
-                    //     ScrollData.scroll_info.viewport = ScrollData.scroll_info.viewport.scale(scroll_factor * me.data.wheel_y);
-                    //     std.log.info("wheel={}, sf={}", .{ me.data.wheel_y, scroll_factor });
-                    //     std.log.info("vp={}", .{ScrollData.scroll_info.viewport});
                 }
             },
             else => {},
         }
     }
 
-    // deinit graph area to process events
+    if (zoom != 1.0) {
+        // scale around mouse point
+        // first get data point of mouse
+        const prevP = dataRectScale.pointFromScreen(zoomP);
+
+        // scale
+        var pp = prevP.scale(1 / ScrollData.scale);
+        ScrollData.scale *= zoom;
+        pp = pp.scale(ScrollData.scale);
+
+        // get where the mouse would be now
+        const newP = dataRectScale.pointToScreen(pp);
+
+        // convert both to viewport
+        const diff = scrollRectScale.pointFromScreen(newP).diff(scrollRectScale.pointFromScreen(zoomP));
+        ScrollData.scroll_info.viewport.x += diff.x;
+        ScrollData.scroll_info.viewport.y += diff.y;
+
+        dvui.refresh(null, @src(), graph_area.scroll.data().id);
+    }
+
     ctext.deinit();
+
+    dvui.dataSet(null, graph_area.data().id, "_ctrl", ctrl_down);
+
+    scaler.deinit();
+
+    // deinit graph area to process events
     graph_area.deinit();
 
+    // don't mess with scrolling if we aren't being shown (prevents weirdness
+    // when starting out)
     if (!ScrollData.scroll_info.viewport.empty()) {
         // add current viewport plus padding
         const pad = 10;
         var bbox = ScrollData.scroll_info.viewport.outsetAll(pad);
-        if (mbbox != null) {
-            bbox = bbox.unionWith(mbbox.?);
+        if (mbbox) |bb| {
+            // convert bb from screen space to viewport space
+            const scrollbbox = scrollRectScale.rectFromScreen(bb);
+            bbox = bbox.unionWith(scrollbbox);
         }
-
-        //std.debug.print("bbox {}\n", .{bbox});
 
         // adjust top if needed
         if (bbox.y != 0) {
             const adj = -bbox.y;
             ScrollData.scroll_info.virtual_size.h += adj;
             ScrollData.scroll_info.viewport.y += adj;
-            ScrollData.origin.y += adj;
+            ScrollData.origin.y -= adj;
             dvui.refresh(null, @src(), graph_area.scroll.data().id);
         }
 
@@ -745,7 +791,7 @@ fn renderGraph() !void {
             const adj = -bbox.x;
             ScrollData.scroll_info.virtual_size.w += adj;
             ScrollData.scroll_info.viewport.x += adj;
-            ScrollData.origin.x += adj;
+            ScrollData.origin.x -= adj;
             dvui.refresh(null, @src(), graph_area.scroll.data().id);
         }
 
@@ -884,7 +930,7 @@ fn renderNode(
     );
     defer box.deinit();
 
-    const result = box.data().rect; // already has origin added (already in scroll coords)
+    const result = box.data().rectScale().r; // already has origin added (already in scroll coords)
 
     switch (node.desc.special) {
         .none => try dvui.label(@src(), "{s}", .{node.desc.name()}, .{ .font_style = .title_3 }),
@@ -1139,6 +1185,7 @@ fn renderNode(
 const ScrollData = struct {
     var scroll_info: dvui.ScrollInfo = .{ .vertical = .given, .horizontal = .given };
     var origin: dvui.Point = .{};
+    var scale: f32 = 1.0;
 
     pub fn data2Scroll(p: dvui.Point) dvui.Point {
         return p.plus(origin).diff(scroll_info.viewport.topLeft());
