@@ -1689,10 +1689,11 @@ fn dvui_frame() !void {
                     var k: usize = 0;
                     var type_iter = current_graph.env.types.valueIterator();
                     while (type_iter.next()) |type_entry| : (k += 1) {
-                        if (type_entry.* == binding.type_)
+                        if (type_entry.* == binding.type_) {
                             type_choice = type_entry.*;
-                        type_choice_index = k;
-                        break;
+                            type_choice_index = k;
+                            break;
+                        }
                     }
                 }
 
