@@ -516,7 +516,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
     }
 }
 
-fn renderGraph() !void {
+fn renderGraph(canvas: *dvui.BoxWidget) !void {
     var graph_area = try dvui.scrollArea(
         @src(),
         .{ .scroll_info = &ScrollData.scroll_info },
@@ -530,7 +530,6 @@ fn renderGraph() !void {
     );
 
     const scrollRectScale = graph_area.scroll.screenRectScale(.{});
-    _ = scrollRectScale;
 
     var scaler = try dvui.scale(@src(), ScrollData.scale, .{ .rect = .{ .x = -ScrollData.origin.x, .y = -ScrollData.origin.y } });
 
@@ -686,9 +685,17 @@ fn renderGraph() !void {
         dvui.focusWidget(context_menu_widget_id orelse unreachable, null, null);
     }
 
+    var ctrl_down = dvui.dataGet(null, canvas.data().id, "_ctrl", bool) orelse false;
+    var zoom: f32 = 1;
+    var zoomP: dvui.Point = .{};
+
     // process scroll area events after nodes so the nodes get first pick (so the button works)
     const scroll_evts = dvui.events();
     for (scroll_evts) |*e| {
+        if (e.evt == .key and e.evt.key.matchBind("ctrl/cmd")) {
+            ctrl_down = (e.evt.key.action == .down or e.evt.key.action == .repeat);
+        }
+
         if (!graph_area.scroll.matchEvent(e))
             continue;
 
@@ -697,54 +704,86 @@ fn renderGraph() !void {
                 if (me.action == .press and me.button.pointer()) {
                     e.handled = true;
                     dvui.captureMouse(graph_area.scroll.data().id);
-                    dvui.dragPreStart(me.p, .{ .offset = dvui.Point{} });
+                    dvui.dragPreStart(me.p, .{});
                 } else if (me.action == .release and me.button.pointer()) {
                     if (dvui.captured(graph_area.scroll.data().id)) {
                         e.handled = true;
                         dvui.captureMouse(null);
+                        dvui.dragEnd(); // NOTE: wasn't in original version
                     }
                 } else if (me.action == .motion) {
+                    if (me.button.touch()) {
+                        e.handled = true;
+                    }
                     if (dvui.captured(graph_area.scroll.data().id)) {
                         if (dvui.dragging(me.p)) |dps| {
-                            const rs = graph_area.scroll.data().rectScale();
+                            const rs = scrollRectScale;
                             ScrollData.scroll_info.viewport.x -= dps.x / rs.s;
                             ScrollData.scroll_info.viewport.y -= dps.y / rs.s;
                             dvui.refresh(null, @src(), graph_area.scroll.data().id);
                         }
                     }
                     // TODO: mouse wheel zoom
-                    // } else if (me.action == .wheel_y) {
-                    //     const scroll_factor = 1.0;
-                    //     std.log.info("vp0={}", .{ScrollData.scroll_info.viewport});
-                    //     ScrollData.scroll_info.viewport = ScrollData.scroll_info.viewport.scale(scroll_factor * me.data.wheel_y);
-                    //     std.log.info("wheel={}, sf={}", .{ me.data.wheel_y, scroll_factor });
-                    //     std.log.info("vp={}", .{ScrollData.scroll_info.viewport});
+                } else if (me.action == .wheel_y and ctrl_down) {
+                    e.handled = true;
+                    const base: f32 = 1.01;
+                    const zs = @exp(@log(base) * me.data.wheel_y);
+                    if (zs != 1.0) {
+                        zoom *= zs;
+                        zoomP = me.p;
+                    }
                 }
             },
             else => {},
         }
     }
 
+    if (zoom != 1.0) {
+        // scale around mouse point
+        // first get data point of mouse
+        const prevP = dataRectScale.pointFromScreen(zoomP);
+
+        // scale
+        var pp = prevP.scale(1 / ScrollData.scale);
+        ScrollData.scale *= zoom;
+        pp = pp.scale(ScrollData.scale);
+
+        // get where the mouse would be now
+        const newP = dataRectScale.pointToScreen(pp);
+
+        // convert both to viewport
+        const diff = scrollRectScale.pointFromScreen(newP).diff(scrollRectScale.pointFromScreen(zoomP));
+        ScrollData.scroll_info.viewport.x += diff.x;
+        ScrollData.scroll_info.viewport.y += diff.y;
+
+        dvui.refresh(null, @src(), graph_area.scroll.data().id);
+    }
+
+    dvui.dataSet(null, canvas.data().id, "_ctrl", ctrl_down);
+
     // deinit graph area to process events
     ctext.deinit();
+    scaler.deinit();
     graph_area.deinit();
 
+    // don't mess with scrolling if we aren't being shown (prevents weirdness
+    // when starting out)
     if (!ScrollData.scroll_info.viewport.empty()) {
         // add current viewport plus padding
         const pad = 10;
         var bbox = ScrollData.scroll_info.viewport.outsetAll(pad);
-        if (mbbox != null) {
-            bbox = bbox.unionWith(mbbox.?);
+        if (mbbox) |bb| {
+            // convert bb from screen space to viewport space
+            const scrollbbox = scrollRectScale.rectFromScreen(bb);
+            bbox = bbox.unionWith(scrollbbox);
         }
-
-        //std.debug.print("bbox {}\n", .{bbox});
 
         // adjust top if needed
         if (bbox.y != 0) {
             const adj = -bbox.y;
             ScrollData.scroll_info.virtual_size.h += adj;
             ScrollData.scroll_info.viewport.y += adj;
-            ScrollData.origin.y += adj;
+            ScrollData.origin.y -= adj;
             dvui.refresh(null, @src(), graph_area.scroll.data().id);
         }
 
@@ -753,7 +792,7 @@ fn renderGraph() !void {
             const adj = -bbox.x;
             ScrollData.scroll_info.virtual_size.w += adj;
             ScrollData.scroll_info.viewport.x += adj;
-            ScrollData.origin.x += adj;
+            ScrollData.origin.x -= adj;
             dvui.refresh(null, @src(), graph_area.scroll.data().id);
         }
 
@@ -1784,7 +1823,7 @@ fn dvui_frame() !void {
         }
     }
 
-    try renderGraph();
+    try renderGraph(hbox);
 
     // const label = if (dvui.Examples.show_demo_window) "Hide Demo Window" else "Show Demo Window";
     // if (try dvui.button(@src(), label, .{}, .{})) {

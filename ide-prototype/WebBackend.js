@@ -760,6 +760,10 @@ export function Ide(canvasElem, opts) {
         canvas.addEventListener("wheel", (ev) => {
             wasmResult.instance.exports.add_event(4, 0, 0, ev.deltaY, 0);
             requestRender();
+            // NOTE: future versions of dvui will probably check at the end of the frame
+            // if any events weren't handled by dvui and re-dispatch an appropriate unhandled event
+            // making this unnecessary
+            ev.preventDefault();
         });
 
         let keydown = function(ev) {
