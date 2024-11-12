@@ -44,6 +44,8 @@ export default defineConfig(async ({ mode }) => {
     },
         // TODO: remove monaco support for other languages
     build: {
+      outDir: "demo",
+      emptyOutDir: true,
       minify: mode === "production" && "esbuild",
       sourcemap: mode === "development",
       rollupOptions: {

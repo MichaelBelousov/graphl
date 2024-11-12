@@ -7,6 +7,7 @@ lib
 # vite
 dist
 .vite-inspect
+demo
 
 
 # build generated
