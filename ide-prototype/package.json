@@ -1,14 +1,19 @@
 {
   "name": "grappl-ide-browser",
   "description": "bindings for embedding the Grappl IDE in browsers",
-  "main": "./dist/grappl-ide-web.umd.js",
-  "module": "./dist/grappl-ide-web.mjs",
+  "main": "./dist/grappl-ide-web.es.js",
+  "module": "./dist/grappl-ide-web.es.js",
+  "type": "module",
   "types": "./dist/grappl-ide-web.d.ts",
+  "exports": {
+    ".": "./dist/grappl-ide-web.es.js"
+  },
   "scripts": {
     "build": "zig build -Doptimize=ReleaseSmall && vite build --mode production",
+    "build:debug": "zig build && vite build --mode development",
     "build:demo": "zig build && vite build -c ./vite.demo.config.ts --mode production",
     "preview": "vite preview",
-    "dev": "vite --port 3001",
+    "dev": "vite --port 3001 -c ./vite.demo.config.ts",
     "dev:zig": "git ls-files | entr -rc zig build",
     "test": "mocha --config ./.mocharc.js tests/unit/**/*.test.ts",
     "test:e2e": "playwright test tests/e2e"

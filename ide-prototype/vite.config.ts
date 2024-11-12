@@ -53,7 +53,9 @@ export default defineConfig(async ({ mode }) => {
       lib: {
         entry: path.resolve(__dirname, "./entry.ts"),
         name: "GrapplIdeWeb",
-        fileName: "grappl-ide-web",
+        fileName: (format, _entryName) => {
+          return `grappl-ide-web.${format}.js`
+        },
       },
       minify: mode === "production" && "esbuild",
       sourcemap: mode === "development",
