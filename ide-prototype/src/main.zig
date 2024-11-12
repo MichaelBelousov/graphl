@@ -529,6 +529,7 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
         },
     );
 
+    // can use this to convert between viewport/virtual_size and screen coords
     const scrollRectScale = graph_area.scroll.screenRectScale(.{});
 
     var scaler = try dvui.scale(@src(), ScrollData.scale, .{ .rect = .{ .x = -ScrollData.origin.x, .y = -ScrollData.origin.y } });
@@ -536,17 +537,20 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
     // can use this to convert between data and screen coords
     const dataRectScale = scaler.screenRectScale(.{});
 
+    try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .x = -10 }));
+    try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .x = 10 }));
+    try dvui.pathStroke(false, 1, .none, dvui.Color.black);
+
+    try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .y = -10 }));
+    try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .y = 10 }));
+    try dvui.pathStroke(false, 1, .none, dvui.Color.black);
+
     const ctext = try dvui.context(@src(), .{ .expand = .both });
     context_menu_widget_id = ctext.wd.id;
 
     if (ctext.activePoint()) |cp| {
         const mp = dvui.currentWindow().mouse_pt;
-        const mp_in_graph = graph_area.data().rectScale().pointFromScreen(mp);
-        // FIXME/HACK: make this work for real
-        var rs = dvui.RectScale{ .r = ScrollData.scroll_info.viewport, .s = dvui.windowNaturalScale() };
-        rs.r.x = -ScrollData.origin.x;
-        rs.r.y = -ScrollData.origin.y;
-        const pt_in_graph = rs.pointToScreen(mp_in_graph);
+        const pt_in_graph = scrollRectScale.pointFromScreen(mp);
         try renderAddNodeMenu(cp, pt_in_graph, node_menu_filter);
     } else {
         node_menu_filter = null;
@@ -713,7 +717,7 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
                     }
                 } else if (me.action == .motion) {
                     if (me.button.touch()) {
-                        e.handled = true;
+                        //e.handled = true;
                     }
                     if (dvui.captured(graph_area.scroll.data().id)) {
                         if (dvui.dragging(me.p)) |dps| {
@@ -806,6 +810,18 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
         if (bbox.w != ScrollData.scroll_info.virtual_size.w) {
             ScrollData.scroll_info.virtual_size.w = bbox.w;
             dvui.refresh(null, @src(), graph_area.scroll.data().id);
+        }
+    }
+
+    // Now we are after all widgets that deal with drag name "box_transfer".
+    // Any mouse release during a drag here means the user released the mouse
+    // outside any target widget.
+    if (dvui.currentWindow().drag_state != .none) {
+        for (dvui.events()) |*e| {
+            if (!e.handled and e.evt == .mouse and e.evt.mouse.action == .release) {
+                dvui.dragEnd();
+                dvui.refresh(null, @src(), null);
+            }
         }
     }
 }
@@ -916,8 +932,8 @@ fn renderNode(
         .vertical,
         .{
             .rect = dvui.Rect{
-                .x = ScrollData.origin.x + position.x,
-                .y = ScrollData.origin.y + position.y,
+                .x = position.x,
+                .y = position.y,
             },
             .id_extra = root_id_extra,
             .debug = true,
