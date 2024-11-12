@@ -199,7 +199,7 @@ const Graph = struct {
 
         self.visual_graph = VisualGraph{ .graph = &self.grappl_graph };
 
-        _ = try self.addNode(gpa, "return", true, null, null, .{ .x = 500, .y = 500 });
+        _ = try self.addNode(gpa, "return", true, null, null, .{});
     }
 
     pub fn deinit(self: *@This()) void {
@@ -365,8 +365,8 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
     win.themes.put("Adwaita Light", theme.fontSizeAdd(2)) catch {};
     theme = win.themes.get("Adwaita Dark").?;
     win.themes.put("Adwaita Dark", theme.fontSizeAdd(2)) catch {};
-    //win.theme = win.themes.get("Adwaita Dark").?;
-    win.theme = win.themes.get("Adwaita Light").?;
+    win.theme = win.themes.get("Adwaita Dark").?;
+    //win.theme = win.themes.get("Adwaita Light").?;
 
     WebBackend.win = &win;
 
@@ -550,7 +550,7 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
 
     if (ctext.activePoint()) |cp| {
         const mp = dvui.currentWindow().mouse_pt;
-        const pt_in_graph = scrollRectScale.pointFromScreen(mp);
+        const pt_in_graph = dataRectScale.pointFromScreen(mp);
         try renderAddNodeMenu(cp, pt_in_graph, node_menu_filter);
     } else {
         node_menu_filter = null;
@@ -970,7 +970,7 @@ fn renderNode(
         const color = if (input_desc.kind == .primitive and input_desc.kind.primitive == .value)
             try colorForType(input_desc.kind.primitive.value)
         else
-            dvui.Color.white;
+            dvui.Color.transparent;
 
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
@@ -1113,7 +1113,7 @@ fn renderNode(
         const color = if (output_desc.kind == .primitive and output_desc.kind.primitive == .value)
             try colorForType(output_desc.kind.primitive.value)
         else
-            dvui.Color.white;
+            dvui.Color.transparent;
 
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
@@ -1518,7 +1518,7 @@ fn dvui_frame() !void {
             try postCurrentSexp();
         }
 
-        if (try dvui.button(@src(), "Compile", .{}, .{})) {
+        if (try dvui.button(@src(), "Run", .{}, .{})) {
             const sexp = try current_graph.grappl_graph.compile(gpa, "main");
             defer sexp.deinit(gpa);
 
