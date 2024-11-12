@@ -9,6 +9,15 @@ async function dvui_sleep(ms) {
     await new Promise(r => setTimeout(r, ms));
 }
 
+export const Types = {
+    "i32": 0,
+    "i64": 1,
+    "f32": 2,
+    "f64": 3,
+    "string": 4,
+};
+
+// FIXME: this should return a promise
 /**
  * @param {HTMLCanvasElement} canvasElem
  * @param {import("./WebBackend").Ide.Options} opts
@@ -459,8 +468,11 @@ export function Ide(canvasElem, opts) {
 
             const moduleBytes = wasmOpt.FS.readFile(outputFile, { encoding: "binary" });
 
+            // FIXME: down transpile to ES6
+            const funcsOption = (((((opts || {}).bindings) || {}).jsHost) || {}).functions || {};
+
             const userProvidedEnv = Object.fromEntries(
-                Object.entries(opts.bindings.jsHost.functions)
+                Object.entries(funcsOption)
                     .map(([name, func]) => {
                         return [name, func];
                     })
@@ -873,11 +885,3 @@ export function Ide(canvasElem, opts) {
         })
     };
 }
-
-export const Types = {
-    "i32": 0,
-    "i64": 1,
-    "f32": 2,
-    "f64": 3,
-    "string": 4,
-};

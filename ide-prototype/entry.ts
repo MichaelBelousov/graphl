@@ -1,5 +1,2 @@
-import { Ide } from "./WebBackend.js";
-
-export { Ide };
-
+export { Ide, Types } from "./WebBackend.js";
 

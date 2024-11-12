@@ -1,15 +1,22 @@
 import react from "@vitejs/plugin-react";
 import rollupVisualizer from "rollup-plugin-visualizer";
 import viteInspect from "vite-plugin-inspect";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, PluginOption } from "vite";
 import * as path from "node:path";
 import * as fs from "node:fs";
 
-// TODO: use vite approved way to ship library types
-fs.copyFileSync(
-  path.join(__dirname, "./WebBackend.d.ts"),
-  path.join(__dirname, "./dist/WebBackend.d.ts"),
-);
+const copyTypesPlugin = (): PluginOption => {
+  return {
+    name: 'copy-types',
+    apply: 'build',
+    closeBundle() {
+      void fs.promises.copyFile(
+        path.join(__dirname, "./WebBackend.d.ts"),
+        path.join(__dirname, "./dist/grappl-ide-web.d.ts"),
+      );
+    }
+  };
+};
 
 export default defineConfig(async ({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ""));
@@ -53,7 +60,10 @@ export default defineConfig(async ({ mode }) => {
       rollupOptions: {
         // NOTE: rollup plugins are mostly treated as vite plugins that take place after normal vite-plugins
         // they may not be compatible at all, so be warned
-        plugins: [...(mode === "development" ? [rollupVisualizer()] : [])],
+        plugins: [
+          copyTypesPlugin(),
+          ...(mode === "development" ? [rollupVisualizer()] : [])
+        ],
         // NOTE: shouldn't be used afaict?
         external: ["react"],
       },

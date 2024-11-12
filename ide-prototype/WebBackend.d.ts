@@ -35,10 +35,10 @@ export declare namespace Ide {
      * functions which will always exist for the user,
      * and may be implemented by them
      */
-    knownFunctions: Record<string, {}>,
-    bindings: {
-      jsHost: {
-        functions: Record<string, JsFunctionBinding>;
+    knownFunctions?: Record<string, {}>,
+    bindings?: {
+      jsHost?: {
+        functions?: Record<string, JsFunctionBinding>;
       }
     }
   }

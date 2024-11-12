@@ -1,5 +1,9 @@
 {
-  "name": "graph-lang-ide-prototype-dvui",
+  "name": "grappl-ide-browser",
+  "description": "bindings for embedding the Grappl IDE in browsers",
+  "main": "./dist/grappl-ide-web.umd.js",
+  "module": "./dist/grappl-ide-web.mjs",
+  "types": "./dist/grappl-ide-web.d.ts",
   "scripts": {
     "build": "zig build -Doptimize=ReleaseSmall && vite build --mode production",
     "build:demo": "zig build && vite build -c ./vite.demo.config.ts --mode production",
