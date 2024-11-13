@@ -749,16 +749,19 @@ const Compilation = struct {
         return prev_global_data_ptr;
     }
 
+    const ExprContext = struct {
+        type: ?Type = null,
+        local_names: []const []const u8,
+        local_types: []const Type,
+        param_names: []const []const u8,
+        param_types: []const Type,
+    };
+
     // TODO: take a diagnostic
     fn compileExpr(
         self: *@This(),
         code_sexp: *const Sexp,
-        context: *const struct {
-            local_names: []const []const u8,
-            local_types: []const Type,
-            param_names: []const []const u8,
-            param_types: []const Type,
-        },
+        context: *const ExprContext,
     ) !Fragment {
         const alloc = self.arena.allocator();
         switch (code_sexp.value) {
@@ -770,6 +773,24 @@ const Compilation = struct {
                 var result = Fragment{
                     .code = std.ArrayList(Sexp).init(alloc),
                     .resolved_type = builtin.empty_type,
+                };
+
+                if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
+                    // FIXME:
+                    try result.code.ensureUnusedCapacity(v.items.len - 1);
+                    for (v.items[1..]) |*return_expr| {
+                        var compiled = try self.compileExpr(return_expr, context);
+                        result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, &compiled);
+                        try result.code.appendSlice(try compiled.code.toOwnedSlice());
+                    }
+
+                    return result;
+                }
+
+                // call host functions
+                const func_node_desc = self.env.nodes.get(func.value.symbol) orelse {
+                    std.log.err("undefined symbol1: '{}'\n", .{func});
+                    return error.UndefinedSymbol;
                 };
 
                 // HACK: super terrible starting macro impl wowowWWW
@@ -807,24 +828,29 @@ const Compilation = struct {
                 }
 
                 const arg_fragments = try alloc.alloc(Fragment, v.items.len - 1);
-                // FIXME: don't deinit!
+                // FIXME: maybe remove all deinits? This one is a bug and it's all in an arena anyway...
                 //defer for (arg_fragments) |*frag| frag.deinit(alloc);
                 defer alloc.free(arg_fragments);
 
-                for (v.items[1..], arg_fragments) |arg_src, *arg_fragment| {
-                    arg_fragment.* = try self.compileExpr(&arg_src, context);
-                }
-
-                if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
-                    // FIXME:
-                    try result.code.ensureUnusedCapacity(v.items.len - 1);
-                    for (v.items[1..]) |*return_expr| {
-                        var compiled = try self.compileExpr(return_expr, context);
-                        result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, &compiled);
-                        try result.code.appendSlice(try compiled.code.toOwnedSlice());
+                // FIXME: gross to ignore the first exec occasionally, need to better distinguish between non/pure nodes
+                const input_descs = _: {
+                    if (func_node_desc.getInputs().len > 0 and func_node_desc.getInputs()[0].asPrimitivePin() == .exec) {
+                        break :_ func_node_desc.getInputs()[1..];
+                    } else {
+                        break :_ func_node_desc.getInputs();
                     }
+                };
 
-                    return result;
+                for (v.items[1..], arg_fragments, input_descs) |arg_src, *arg_fragment, input_desc| {
+                    std.debug.assert(input_desc.asPrimitivePin() == .value);
+                    const subcontext = ExprContext{
+                        .type = input_desc.asPrimitivePin().value,
+                        .local_names = context.local_names,
+                        .local_types = context.local_types,
+                        .param_names = context.param_names,
+                        .param_types = context.param_types,
+                    };
+                    arg_fragment.* = try self.compileExpr(&arg_src, &subcontext);
                 }
 
                 if (func.value.symbol.ptr == syms.@"set!".value.symbol.ptr) {
@@ -974,11 +1000,6 @@ const Compilation = struct {
                 }
 
                 // call host functions
-                const func_node_desc = self.env.nodes.get(func.value.symbol) orelse {
-                    std.log.err("undefined symbol1: '{}'\n", .{func});
-                    return error.UndefinedSymbol;
-                };
-
                 {
                     const outputs = func_node_desc.getOutputs();
                     result.resolved_type = if (outputs.len >= 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .value)
