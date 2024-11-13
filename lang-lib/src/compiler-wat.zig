@@ -732,6 +732,8 @@ const Compilation = struct {
         try writeWasmMemoryString(std.mem.asBytes(&data.len), data_str.writer());
         try writeWasmMemoryString(data, data_str.writer());
 
+        const data_str_len = data_str.items.len;
+
         data_form.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{
             .ownedString = try data_str.toOwnedSlice(),
         } };
@@ -741,7 +743,7 @@ const Compilation = struct {
         offset_spec.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
         offset_spec.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(self.next_global_data_ptr) } };
         const prev_global_data_ptr = self.next_global_data_ptr;
-        self.next_global_data_ptr += data.len;
+        self.next_global_data_ptr += data_str_len;
         errdefer self.next_global_data_ptr = prev_global_data_ptr;
 
         return prev_global_data_ptr;
@@ -776,8 +778,14 @@ const Compilation = struct {
 
                     var bytes = std.ArrayList(u8).init(alloc);
                     defer bytes.deinit();
+
                     // TODO: json shenanigans
-                    try bytes.writer().print("{}", .{v.items[1]});
+                    //try bytes.writer().print("{}", .{v.items[1]});
+
+                    // FIXME: unnecessary, just write it directly
+                    const json_value = try v.items[1].jsonValue(alloc);
+                    var jws = std.json.writeStream(bytes.writer(), .{ .escape_unicode = true });
+                    try json_value.jsonStringify(&jws);
 
                     const data_offset = try self.addReadonlyData(bytes.items);
 
@@ -1126,6 +1134,7 @@ const Compilation = struct {
         {
             var host_callbacks_prologue = try SexpParser.parse(alloc,
                 \\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_JSON_R_JSON") (param i32) (param i32) (param i32) (result i32) (result i32))
+                \\(func $callUserFunc_code_R_void (import "env" "callUserFunc_code_R_void") (param i32) (param i32) (param i32))
                 \\(func $callUserFunc_R_void (import "env" "callUserFunc_R_void") (param i32))
                 \\(func $callUserFunc_i32_R_void (import "env" "callUserFunc_i32_R_void") (param i32) (param i32))
                 \\(func $callUserFunc_i32_R_i32 (import "env" "callUserFunc_i32_R_i32") (param i32) (param i32) (result i32))
@@ -1134,28 +1143,29 @@ const Compilation = struct {
             try self.module_body.appendSlice(try host_callbacks_prologue.value.module.toOwnedSlice());
         }
 
-        {
-            const memory = self.module_body.addOneAssumeCapacity();
-            memory.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
-            try memory.value.list.ensureTotalCapacityPrecise(3);
-            memory.value.list.addOneAssumeCapacity().* = wat_syms.memory;
-            memory.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
-            memory.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 0 } };
-        }
+        // FIXME: memory is already created and exported by the intrinsics
+        // {
+        //     const memory = self.module_body.addOneAssumeCapacity();
+        //     memory.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
+        //     try memory.value.list.ensureTotalCapacityPrecise(3);
+        //     memory.value.list.addOneAssumeCapacity().* = wat_syms.memory;
+        //     memory.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
+        //     memory.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 1 } }; // require at least 1 page of memory
+        // }
 
-        {
-            // TODO: export helper
-            const memory_export = self.module_body.addOneAssumeCapacity();
-            memory_export.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
-            try memory_export.value.list.ensureTotalCapacityPrecise(3);
-            memory_export.value.list.addOneAssumeCapacity().* = wat_syms.@"export";
-            memory_export.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .borrowedString = "memory" } };
-            const memory_export_val = memory_export.value.list.addOneAssumeCapacity();
-            memory_export_val.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
-            try memory_export_val.value.list.ensureTotalCapacityPrecise(2);
-            memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.memory;
-            memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
-        }
+        // {
+        //     // TODO: export helper
+        //     const memory_export = self.module_body.addOneAssumeCapacity();
+        //     memory_export.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
+        //     try memory_export.value.list.ensureTotalCapacityPrecise(3);
+        //     memory_export.value.list.addOneAssumeCapacity().* = wat_syms.@"export";
+        //     memory_export.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .borrowedString = "memory" } };
+        //     const memory_export_val = memory_export.value.list.addOneAssumeCapacity();
+        //     memory_export_val.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
+        //     try memory_export_val.value.list.ensureTotalCapacityPrecise(2);
+        //     memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.memory;
+        //     memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
+        // }
 
         // thunks for user provided functions
         {
@@ -1178,6 +1188,28 @@ const Compilation = struct {
                     var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     defer user_func_thunk.deinit(alloc);
                     try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
+                } else if (user_func.data.inputs.len == 2
+                //
+                and user_func.data.inputs[1].kind == .primitive
+                //
+                and user_func.data.inputs[1].kind.primitive == .value
+                //
+                and user_func.data.inputs[1].kind.primitive.value == primitive_types.code
+                //
+                and user_func.data.outputs.len == 1
+                //
+                ) {
+                    // TODO: create dedicated function for this kind of substitution
+                    const user_func_thunk_src = try std.fmt.allocPrint(alloc,
+                        \\(func ${s}
+                        \\      (param $in_len i32)
+                        \\      (param $in_ptr i32)
+                        \\      (call $callUserFunc_code_R_void (i32.const {}) (local.get $in_len) (local.get $in_ptr))
+                        \\)
+                    , .{ user_func.data.name, @intFromPtr(&user_func.data) });
+                    var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
+                    defer user_func_thunk.deinit(alloc);
+                    try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
                     // } else if (user_func.data.inputs.len == 2
                     // //
                     // and user_func.data.inputs[1].kind == .primitive
@@ -1188,15 +1220,13 @@ const Compilation = struct {
                     //     // TODO: create dedicated function for this kind of substitution
                     //     const user_func_thunk_src = try std.fmt.allocPrint(alloc,
                     //         \\(func ${s}
-                    //         \\      (param $in_ptr i32)
                     //         \\      (param $in_len i32)
-                    //         \\      (result $in_ptr i32)
-                    //         \\      (result $in_len i32)
-                    //         \\      (local $out_ptr i32)
-                    //         \\      (local $out_len i32)
+                    //         \\      (param $in_ptr i32)
+                    //         \\      (result $out_len i32)
+                    //         \\      (result $out_ptr i32)
                     //         \\      (call $callUserFunc_JSON_R_JSON (i32.const {}) (local.get $in_ptr) (local.get $in_len))
-                    //         \\      (local.set $out_ptr)
                     //         \\      (local.set $out_len)
+                    //         \\      (local.set $out_ptr)
                     //         \\)
                     //     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
                     //     var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
@@ -1304,6 +1334,7 @@ test "parse" {
     //     \\(define (++ x) (+ x 1))
 
     var user_funcs = std.SinglyLinkedList(builtin.BasicMutNodeDesc){};
+
     const user_func_1 = try t.allocator.create(std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node);
     user_func_1.* = std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node{
         .data = .{
@@ -1325,6 +1356,27 @@ test "parse" {
     defer t.allocator.free(user_func_1.data.outputs);
     user_funcs.prepend(user_func_1);
 
+    const user_func_2 = try t.allocator.create(std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node);
+    user_func_2.* = std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node{
+        .data = .{
+            .name = "sql",
+            .inputs = try t.allocator.dupe(builtin.Pin, &.{
+                builtin.Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
+                builtin.Pin{
+                    .name = "code",
+                    .kind = .{ .primitive = .{ .value = primitive_types.code } },
+                },
+            }),
+            .outputs = try t.allocator.dupe(builtin.Pin, &.{
+                builtin.Pin{ .name = "", .kind = .{ .primitive = .exec } },
+            }),
+        },
+    };
+    defer t.allocator.destroy(user_func_2);
+    defer t.allocator.free(user_func_2.data.inputs);
+    defer t.allocator.free(user_func_2.data.outputs);
+    user_funcs.prepend(user_func_2);
+
     var parsed = try SexpParser.parse(t.allocator,
         \\;;; comment
         \\(typeof g i64)
@@ -1336,8 +1388,8 @@ test "parse" {
         \\  (begin
         \\    (typeof a i64)
         \\    (define a 2)
-        \\    (quote (+ f 1))
-        \\    (quote (- f (* 2 3)))
+        \\    (sql (quote (- f (* 2 3))))
+        \\    (sql (quote 4))
         \\    (set! a 1)
         \\    (Confetti 100)
         \\    (return (max x a))))
@@ -1362,6 +1414,12 @@ test "parse" {
         \\      (param i32)
         \\      (result i32)
         \\      (result i32))
+        \\(func $callUserFunc_code_R_void
+        \\      (import "env"
+        \\              "callUserFunc_code_R_void")
+        \\      (param i32)
+        \\      (param i32)
+        \\      (param i32))
         \\(func $callUserFunc_R_void
         \\      (import "env"
         \\              "callUserFunc_R_void")
@@ -1384,10 +1442,15 @@ test "parse" {
         \\      (param i32)
         \\      (param i32)
         \\      (result i32))
-        \\(memory $0
-        \\        0)
-        \\(export "memory"
-        \\        (memory $0))
+        \\(func $sql
+        \\      (param $in_len
+        \\             i32)
+        \\      (param $in_ptr
+        \\             i32)
+        \\      (call $callUserFunc_code_R_void
+        \\            (i32.const {})
+        \\            (local.get $in_len)
+        \\            (local.get $in_ptr)))
         \\(func $Confetti
         \\      (param $param_1
         \\             i32)
@@ -1405,8 +1468,10 @@ test "parse" {
         \\      (result i32)
         \\      (local $local_a
         \\             i64)
-        \\      (i32.const 0)
-        \\      (i32.const 10)
+        \\      (call $sql
+        \\            (i32.const 0))
+        \\      (call $sql
+        \\            (i32.const 74))
         \\      (local.set $local_a
         \\                 (i64.extend_i32_s (i32.const 1)))
         \\      (call $Confetti
@@ -1415,9 +1480,9 @@ test "parse" {
         \\            (local.get $param_x)
         \\            (local.get $local_a)))
         \\(data (i32.const 0)
-        \\      "\0a\00\00\00\00\00\00\00(+ f\0a   1)")
-        \\(data (i32.const 10)
-        \\      "\16\00\00\00\00\00\00\00(- f\0a   (* 2\0a      3))")
+        \\      "4\00\00\00\00\00\00\00[{{"symbol":"-"}},{{"symbol":"f"}},[{{"symbol":"*"}},2,3]]")
+        \\(data (i32.const 74)
+        \\      "\01\00\00\00\00\00\00\004")
         \\(export "deep"
         \\        (func $deep))
         \\(type $typeof_deep
@@ -1437,7 +1502,7 @@ test "parse" {
         \\)
         // TODO: clearly instead of embedding the pointer we should have a global variable
         // so the host can set that
-    , .{ intrinsics_code, @intFromPtr(&user_func_1.data) });
+    , .{ intrinsics_code, @intFromPtr(&user_func_2.data), @intFromPtr(&user_func_1.data) });
     defer t.allocator.free(expected);
 
     var diagnostic = Diagnostic.init();

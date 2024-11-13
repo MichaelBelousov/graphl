@@ -468,18 +468,16 @@ export function Ide(canvasElem, opts) {
 
             const moduleBytes = wasmOpt.FS.readFile(outputFile, { encoding: "binary" });
 
-            // FIXME: down transpile to ES6
-            const funcsOption = (((((opts || {}).bindings) || {}).jsHost) || {}).functions || {};
-
-            const userProvidedEnv = Object.fromEntries(
-                Object.entries(funcsOption)
-                    .map(([name, func]) => {
-                        return [name, func];
-                    })
-            );
-
-            const imports = {
+            const scriptImports = {
                 env: {
+                    callUserFunc_JSON_R_JSON(func_id, json1) {
+                        const funcInfo = userFuncs.get(func_id);
+
+                        throw Error(`json not yet supported`)
+
+                        return funcInfo.func.impl(json1);
+                    },
+
                     callUserFunc_R_void(func_id) {
                         const funcInfo = userFuncs.get(func_id);
 
@@ -532,7 +530,7 @@ export function Ide(canvasElem, opts) {
                 },
             };
 
-            const compiled = await WebAssembly.instantiate(moduleBytes, imports);
+            const compiled = await WebAssembly.instantiate(moduleBytes, scriptImports);
             lastCompiled = compiled;
             const result = compiled.instance.exports["main"]();
 
@@ -548,7 +546,11 @@ export function Ide(canvasElem, opts) {
 
         const MAX_FUNC_NAME = 256;
 
-        for (const [funcName, func] of Object.entries(opts.bindings.jsHost.functions)) {
+
+        // FIXME: down transpile to ES6
+        const funcsOption = (((((opts || {}).bindings) || {}).jsHost) || {}).functions || {};
+
+        for (const [funcName, func] of Object.entries(funcsOption)) {
             if (funcName.length > MAX_FUNC_NAME)
                 throw Error(`function name '${funcName}' is too long to be bound`);
 
