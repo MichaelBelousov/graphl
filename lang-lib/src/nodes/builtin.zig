@@ -699,6 +699,37 @@ pub const builtin_nodes = struct {
             Pin{ .name = "otherwise", .kind = .{ .primitive = .exec } },
         },
     });
+
+    pub const string_equal: NodeDesc = basicNode(&.{
+        .name = "string-equal",
+        .inputs = &.{
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "equal", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+    });
+
+    pub const string_indexof: NodeDesc = basicNode(&.{
+        .name = "index-of",
+        .inputs = &.{
+            Pin{ .name = "string", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "index", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+    });
+
+    pub const string_length: NodeDesc = basicNode(&.{
+        .name = "length",
+        .inputs = &.{
+            Pin{ .name = "string", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "length", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+    });
     // TODO: function...
     // pub const sequence: NodeDesc = basicNode(&.{
     //     .name = "sequence",

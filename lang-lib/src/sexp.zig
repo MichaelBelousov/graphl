@@ -244,6 +244,9 @@ pub const syms = struct {
     pub const @"/" = Sexp{ .value = .{ .symbol = builtin_nodes.@"/".name() } };
     pub const min = Sexp{ .value = .{ .symbol = builtin_nodes.min.name() } };
     pub const max = Sexp{ .value = .{ .symbol = builtin_nodes.max.name() } };
+    pub const string_indexof = Sexp{ .value = .{ .symbol = builtin_nodes.string_indexof.name() } };
+    pub const string_length = Sexp{ .value = .{ .symbol = builtin_nodes.string_length.name() } };
+    pub const string_equal = Sexp{ .value = .{ .symbol = builtin_nodes.string_equal.name() } };
     pub const @"if" = Sexp{ .value = .{ .symbol = builtin_nodes.@"if".name() } };
     pub const @"set!" = Sexp{ .value = .{ .symbol = builtin_nodes.@"set!".name() } };
 

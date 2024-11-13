@@ -25,7 +25,7 @@ export fn __grappl_string_len(str: GrapplString) u32 {
     return str.len;
 }
 
-export fn __grappl_string_eql(a: GrapplString, b: GrapplString) GrapplBool {
+export fn __grappl_string_equal(a: GrapplString, b: GrapplString) GrapplBool {
     if (a.len != b.len)
         return 0;
 

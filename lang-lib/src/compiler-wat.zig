@@ -361,19 +361,23 @@ const Compilation = struct {
         pub const intrinsics = struct {
             pub const max = .{
                 .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_max" } },
-                .node = builtin.builtin_nodes.max,
+                .node_desc = builtin.builtin_nodes.max,
             };
             pub const min = .{
                 .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_min" } },
-                .node = builtin.builtin_nodes.min,
+                .node_desc = builtin.builtin_nodes.min,
             };
-            pub const string_index_of = .{
+            pub const string_indexof = .{
                 .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_string_indexof" } },
-                .node = builtin.builtin_nodes.string_index_of,
+                .node_desc = builtin.builtin_nodes.string_indexof,
             };
             pub const string_len = .{
                 .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_string_len" } },
-                .node = builtin.builtin_nodes.string_length,
+                .node_desc = builtin.builtin_nodes.string_length,
+            };
+            pub const string_equal = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_string_equal" } },
+                .node_desc = builtin.builtin_nodes.string_equal,
             };
         };
     };
@@ -765,24 +769,23 @@ const Compilation = struct {
                 }
 
                 // builtins with intrinsics
-                inline for (&.{
-                    .{ .sym = syms.min, .intrinsic = wat_syms.intrinsics.min },
-                    .{ .sym = syms.max, .intrinsic = wat_syms.intrinsics.max },
-                }) |builtin_func| {
-                    const node_desc: *const builtin.BasicNodeDesc = @alignCast(@ptrCast(builtin_func.intrinsic.node.context));
-                    std.debug.assert(node_desc.outputs.len == 1);
-                    std.debug.assert(node_desc.outputs[0].kind == .primitive);
-                    std.debug.assert(node_desc.outputs[0].kind.primitive == .value);
-                    result.resolved_type = node_desc.outputs[0].kind.primitive.value;
+                inline for (comptime std.meta.declarations(wat_syms.intrinsics)) |intrinsic_decl| {
+                    const intrinsic = @field(wat_syms.intrinsics, intrinsic_decl.name);
+                    const node_desc = intrinsic.node_desc;
+                    const outputs = node_desc.getOutputs();
+                    std.debug.assert(outputs.len == 1);
+                    std.debug.assert(outputs[0].kind == .primitive);
+                    std.debug.assert(outputs[0].kind.primitive == .value);
+                    result.resolved_type = outputs[0].kind.primitive.value;
 
-                    if (func.value.symbol.ptr == builtin_func.sym.value.symbol.ptr) {
+                    if (func.value.symbol.ptr == node_desc.name().ptr) {
                         try result.code.ensureTotalCapacityPrecise(1);
                         const wasm_call = result.code.addOneAssumeCapacity();
                         wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                         try wasm_call.value.list.ensureTotalCapacityPrecise(2 + arg_fragments.len);
                         // FIXME: use types to determine
                         wasm_call.value.list.addOneAssumeCapacity().* = wat_syms.call;
-                        wasm_call.value.list.addOneAssumeCapacity().* = builtin_func.intrinsic.wasm_sym;
+                        wasm_call.value.list.addOneAssumeCapacity().* = intrinsic.wasm_sym;
 
                         for (arg_fragments) |arg_fragment| {
                             std.debug.assert(arg_fragment.code.items.len == 1);
@@ -1175,7 +1178,7 @@ test "parse" {
         \\    (define a 2)
         \\    (set! a 1)
         \\    (Confetti 100)
-        \\    (return (+ x a))))
+        \\    (return (max x a))))
         \\
         \\;;; comment
         \\(typeof (deep f32 f32) f32)
@@ -1233,19 +1236,20 @@ test "parse" {
         \\        (func $++))
         \\(type $typeof_++
         \\      (func (param i64)
-        \\            (result i64)))
+        \\            (result i32)))
         \\(func $++
         \\      (param $param_x
         \\             i64)
-        \\      (result i64)
+        \\      (result i32)
         \\      (local $local_a
         \\             i64)
         \\      (local.set $local_a
         \\                 (i64.extend_i32_s (i32.const 1)))
         \\      (call $Confetti
         \\            (i32.const 100))
-        \\      (i64.add (local.get $param_x)
-        \\               (local.get $local_a)))
+        \\      (call __grappl_max
+        \\            (local.get $param_x)
+        \\            (local.get $local_a)))
         \\(export "deep"
         \\        (func $deep))
         \\(type $typeof_deep
