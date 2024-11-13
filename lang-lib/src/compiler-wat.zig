@@ -310,10 +310,29 @@ const Compilation = struct {
                 pub const mul = Sexp{ .value = .{ .symbol = "i32.mul" } };
                 pub const div = Sexp{ .value = .{ .symbol = "i32.div" } };
                 pub const rem = Sexp{ .value = .{ .symbol = "i32.rem" } };
+                pub const gt = Sexp{ .value = .{ .symbol = "i32.gt_s" } };
+                pub const ge = Sexp{ .value = .{ .symbol = "i32.ge_s" } };
+                pub const lt = Sexp{ .value = .{ .symbol = "i32.lt_s" } };
+                pub const le = Sexp{ .value = .{ .symbol = "i32.le_s" } };
+                pub const ne = Sexp{ .value = .{ .symbol = "i32.ne" } };
+                pub const eq = Sexp{ .value = .{ .symbol = "i32.eq" } };
                 pub const @"const" = Sexp{ .value = .{ .symbol = "i32.const" } };
             };
 
-            pub const u32_ = i32_;
+            pub const u32_ = struct {
+                pub const add = Sexp{ .value = .{ .symbol = "i32.add" } };
+                pub const sub = Sexp{ .value = .{ .symbol = "i32.sub" } };
+                pub const mul = Sexp{ .value = .{ .symbol = "i32.mul" } };
+                pub const div = Sexp{ .value = .{ .symbol = "i32.div" } };
+                pub const rem = Sexp{ .value = .{ .symbol = "i32.rem" } };
+                pub const gt = Sexp{ .value = .{ .symbol = "i32.gt_u" } };
+                pub const ge = Sexp{ .value = .{ .symbol = "i32.ge_u" } };
+                pub const lt = Sexp{ .value = .{ .symbol = "i32.lt_u" } };
+                pub const le = Sexp{ .value = .{ .symbol = "i32.le_u" } };
+                pub const ne = Sexp{ .value = .{ .symbol = "i32.ne" } };
+                pub const eq = Sexp{ .value = .{ .symbol = "i32.eq" } };
+                pub const @"const" = Sexp{ .value = .{ .symbol = "i32.const" } };
+            };
 
             pub const i64_ = struct {
                 pub const add = Sexp{ .value = .{ .symbol = "i64.add" } };
@@ -321,6 +340,30 @@ const Compilation = struct {
                 pub const mul = Sexp{ .value = .{ .symbol = "i64.mul" } };
                 pub const div = Sexp{ .value = .{ .symbol = "i64.div" } };
                 pub const rem = Sexp{ .value = .{ .symbol = "i64.rem" } };
+                pub const gt = Sexp{ .value = .{ .symbol = "i64.gt_s" } };
+                pub const ge = Sexp{ .value = .{ .symbol = "i64.ge_s" } };
+                pub const lt = Sexp{ .value = .{ .symbol = "i64.lt_s" } };
+                pub const le = Sexp{ .value = .{ .symbol = "i64.le_s" } };
+                pub const ne = Sexp{ .value = .{ .symbol = "i64.ne" } };
+                pub const eq = Sexp{ .value = .{ .symbol = "i64.eq" } };
+                pub const @"const" = Sexp{ .value = .{ .symbol = "i64.const" } };
+
+                pub const extend_i32_s = Sexp{ .value = .{ .symbol = "i64.extend_i32_s" } };
+                pub const extend_i32_u = Sexp{ .value = .{ .symbol = "i64.extend_i32_u" } };
+            };
+
+            pub const u64_ = struct {
+                pub const add = Sexp{ .value = .{ .symbol = "i64.add" } };
+                pub const sub = Sexp{ .value = .{ .symbol = "i64.sub" } };
+                pub const mul = Sexp{ .value = .{ .symbol = "i64.mul" } };
+                pub const div = Sexp{ .value = .{ .symbol = "i64.div" } };
+                pub const rem = Sexp{ .value = .{ .symbol = "i64.rem" } };
+                pub const gt = Sexp{ .value = .{ .symbol = "i64.gt_u" } };
+                pub const ge = Sexp{ .value = .{ .symbol = "i64.ge_u" } };
+                pub const lt = Sexp{ .value = .{ .symbol = "i64.lt_u" } };
+                pub const le = Sexp{ .value = .{ .symbol = "i64.le_u" } };
+                pub const ne = Sexp{ .value = .{ .symbol = "i64.ne" } };
+                pub const eq = Sexp{ .value = .{ .symbol = "i64.eq" } };
                 pub const @"const" = Sexp{ .value = .{ .symbol = "i64.const" } };
 
                 pub const extend_i32_s = Sexp{ .value = .{ .symbol = "i64.extend_i32_s" } };
@@ -333,6 +376,12 @@ const Compilation = struct {
                 pub const mul = Sexp{ .value = .{ .symbol = "f32.mul" } };
                 pub const div = Sexp{ .value = .{ .symbol = "f32.div" } };
                 pub const rem = Sexp{ .value = .{ .symbol = "f32.rem" } };
+                pub const gt = Sexp{ .value = .{ .symbol = "f32.gt" } };
+                pub const ge = Sexp{ .value = .{ .symbol = "f32.ge" } };
+                pub const lt = Sexp{ .value = .{ .symbol = "f32.lt" } };
+                pub const le = Sexp{ .value = .{ .symbol = "f32.le" } };
+                pub const ne = Sexp{ .value = .{ .symbol = "f32.ne" } };
+                pub const eq = Sexp{ .value = .{ .symbol = "f32.eq" } };
                 pub const @"const" = Sexp{ .value = .{ .symbol = "f32.const" } };
 
                 pub const convert_i32_s = Sexp{ .value = .{ .symbol = "f32.convert_i32_s" } };
@@ -347,6 +396,12 @@ const Compilation = struct {
                 pub const mul = Sexp{ .value = .{ .symbol = "f64.mul" } };
                 pub const div = Sexp{ .value = .{ .symbol = "f64.div" } };
                 pub const rem = Sexp{ .value = .{ .symbol = "f64.rem" } };
+                pub const gt = Sexp{ .value = .{ .symbol = "f64.gt" } };
+                pub const ge = Sexp{ .value = .{ .symbol = "f64.ge" } };
+                pub const lt = Sexp{ .value = .{ .symbol = "f64.lt" } };
+                pub const le = Sexp{ .value = .{ .symbol = "f64.le" } };
+                pub const ne = Sexp{ .value = .{ .symbol = "f64.ne" } };
+                pub const eq = Sexp{ .value = .{ .symbol = "f64.eq" } };
                 pub const @"const" = Sexp{ .value = .{ .symbol = "f64.const" } };
 
                 pub const convert_i32_s = Sexp{ .value = .{ .symbol = "f64.convert_i32_s" } };
@@ -358,25 +413,26 @@ const Compilation = struct {
             };
         };
 
+        // TODO: can I run a test that the names match the exports of intrinsics.zig?
         pub const intrinsics = struct {
             pub const max = .{
-                .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_max" } },
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_max" } },
                 .node_desc = builtin.builtin_nodes.max,
             };
             pub const min = .{
-                .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_min" } },
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_min" } },
                 .node_desc = builtin.builtin_nodes.min,
             };
             pub const string_indexof = .{
-                .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_string_indexof" } },
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_string_indexof" } },
                 .node_desc = builtin.builtin_nodes.string_indexof,
             };
             pub const string_len = .{
-                .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_string_len" } },
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_string_len" } },
                 .node_desc = builtin.builtin_nodes.string_length,
             };
             pub const string_equal = .{
-                .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_string_equal" } },
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_string_equal" } },
                 .node_desc = builtin.builtin_nodes.string_equal,
             };
         };
@@ -633,6 +689,8 @@ const Compilation = struct {
         return resolved_type;
     }
 
+    fn addGlobalData() void {}
+
     // TODO: take a diagnostic
     fn compileExpr(
         self: *@This(),
@@ -711,6 +769,29 @@ const Compilation = struct {
                     return result;
                 }
 
+                // HACK: super terrible starting macro impl wowowWWW
+                if (func.value.symbol.ptr == syms.json_quote.value.symbol.ptr) {
+                    try result.code.ensureTotalCapacityPrecise(1);
+                    const wasm_op = result.code.addOneAssumeCapacity();
+                    wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                    try wasm_op.value.list.ensureTotalCapacityPrecise(3);
+                    const op_name = wasm_op.value.list.addOneAssumeCapacity();
+
+                    std.debug.assert(arg_fragments.len == 2);
+                    for (arg_fragments) |*arg_fragment| {
+                        result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, arg_fragment);
+                        std.debug.assert(arg_fragment.code.items.len == 1);
+                        // resolve peer types could have mutated it
+                        (try wasm_op.value.list.addOne()).* = arg_fragment.code.items[0];
+                        // TODO: more idiomatic move out data
+                        arg_fragment.code.items[0] = Sexp{ .value = .void };
+                    }
+
+                    op_name.* = wat_syms.ops.i32_.add;
+
+                    return result;
+                }
+
                 // arithmetic builtins
                 inline for (&.{
                     .{
@@ -728,6 +809,31 @@ const Compilation = struct {
                     .{
                         .sym = syms.@"/",
                         .wasm_name = "div",
+                    },
+                    // FIXME: need to support unsigned and signed!
+                    .{
+                        .sym = syms.@"==",
+                        .wasm_name = "eq",
+                    },
+                    .{
+                        .sym = syms.@"!=",
+                        .wasm_name = "ne",
+                    },
+                    .{
+                        .sym = syms.@"<",
+                        .wasm_name = "lt",
+                    },
+                    .{
+                        .sym = syms.@"<=",
+                        .wasm_name = "le",
+                    },
+                    .{
+                        .sym = syms.@">",
+                        .wasm_name = "gt",
+                    },
+                    .{
+                        .sym = syms.@">=",
+                        .wasm_name = "ge",
                     },
                 }) |builtin_op| {
                     if (func.value.symbol.ptr == builtin_op.sym.value.symbol.ptr) {
@@ -1247,7 +1353,7 @@ test "parse" {
         \\                 (i64.extend_i32_s (i32.const 1)))
         \\      (call $Confetti
         \\            (i32.const 100))
-        \\      (call __grappl_max
+        \\      (call $__grappl_max
         \\            (local.get $param_x)
         \\            (local.get $local_a)))
         \\(export "deep"

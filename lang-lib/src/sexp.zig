@@ -242,16 +242,26 @@ pub const syms = struct {
     pub const @"-" = Sexp{ .value = .{ .symbol = builtin_nodes.@"-".name() } };
     pub const @"*" = Sexp{ .value = .{ .symbol = builtin_nodes.@"*".name() } };
     pub const @"/" = Sexp{ .value = .{ .symbol = builtin_nodes.@"/".name() } };
+    pub const @"==" = Sexp{ .value = .{ .symbol = builtin_nodes.@"==".name() } };
+    pub const @"!=" = Sexp{ .value = .{ .symbol = builtin_nodes.@"!=".name() } };
+    pub const @"<=" = Sexp{ .value = .{ .symbol = builtin_nodes.@"<=".name() } };
+    pub const @"<" = Sexp{ .value = .{ .symbol = builtin_nodes.@"<".name() } };
+    pub const @">" = Sexp{ .value = .{ .symbol = builtin_nodes.@">".name() } };
+    pub const @">=" = Sexp{ .value = .{ .symbol = builtin_nodes.@">=".name() } };
+    pub const not = Sexp{ .value = .{ .symbol = builtin_nodes.not.name() } };
+    pub const @"and" = Sexp{ .value = .{ .symbol = builtin_nodes.@"and".name() } };
+    pub const @"or" = Sexp{ .value = .{ .symbol = builtin_nodes.@"or".name() } };
+
+    pub const @"if" = Sexp{ .value = .{ .symbol = builtin_nodes.@"if".name() } };
+    pub const @"set!" = Sexp{ .value = .{ .symbol = builtin_nodes.@"set!".name() } };
+
     pub const min = Sexp{ .value = .{ .symbol = builtin_nodes.min.name() } };
     pub const max = Sexp{ .value = .{ .symbol = builtin_nodes.max.name() } };
     pub const string_indexof = Sexp{ .value = .{ .symbol = builtin_nodes.string_indexof.name() } };
     pub const string_length = Sexp{ .value = .{ .symbol = builtin_nodes.string_length.name() } };
     pub const string_equal = Sexp{ .value = .{ .symbol = builtin_nodes.string_equal.name() } };
-    pub const @"if" = Sexp{ .value = .{ .symbol = builtin_nodes.@"if".name() } };
-    pub const @"set!" = Sexp{ .value = .{ .symbol = builtin_nodes.@"set!".name() } };
 
-    //pub const string_index_of = Sexp{ .value = .{ .symbol = builtin_nodes.join_strings.name() } };
-    //pub const join_strings = Sexp{ .value = .{ .symbol = builtin_nodes.join_strings.name() } };
+    pub const json_quote = Sexp{ .value = .{ .symbol = builtin_nodes.json_quote.name() } };
 };
 
 pub const primitive_type_syms = struct {

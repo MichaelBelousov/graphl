@@ -20,10 +20,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("./src/intrinsics.zig"),
         .target = web_target,
         .optimize = optimize,
-        .strip = switch (optimize) {
-            .ReleaseFast, .ReleaseSmall => true,
-            else => false,
-        },
+        .strip = false, // required by current usage of intrinsics
     });
     intrinsics.entry = .disabled;
     intrinsics.rdynamic = true;
