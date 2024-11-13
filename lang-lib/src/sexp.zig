@@ -111,8 +111,10 @@ pub const Sexp = struct {
                 break :_ .{ .depth = syms.void.value.symbol.len };
             },
             .ownedString, .borrowedString => |v| _: {
-                // FIXME: this obviously doesn't handle characters that need escaping
-                try writer.print("\"{s}\"", .{v});
+                // FIXME: doing this for now to make wat data encoding easier, but need to be
+                // able to specify via formating params
+                //try json.encodeJsonString(v, .{}, writer);
+                _ = try writer.print("\"{s}\"", .{v});
                 break :_ .{ .depth = v.len + 2 };
             },
             .symbol => |v| _: {

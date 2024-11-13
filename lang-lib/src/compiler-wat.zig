@@ -1,3 +1,4 @@
+const zig_builtin = @import("builtin");
 const std = @import("std");
 const Sexp = @import("./sexp.zig").Sexp;
 const syms = @import("./sexp.zig").syms;
@@ -46,6 +47,25 @@ const DeferredFuncTypeInfo = struct {
 
 var empty_user_funcs = std.SinglyLinkedList(builtin.BasicMutNodeDesc){};
 
+fn writeWasmMemoryString(data: []const u8, writer: anytype) !void {
+    for (data) |char| {
+        switch (char) {
+            '\\' => {
+                try writer.writeAll("\\\\");
+            },
+            // printable ascii not including backslash
+            ' '...'[', ']'...127 => {
+                try writer.writeByte(char);
+            },
+            // FIXME: use ascii bit magic here, I'm too lazy and time pressed
+            else => {
+                try writer.writeByte('\\');
+                try std.fmt.formatInt(char, 16, .lower, .{ .width = 2, .fill = '0' }, writer);
+            },
+        }
+    }
+}
+
 const Compilation = struct {
     env: Env,
     // TODO: have a first pass just figure out types?
@@ -65,6 +85,8 @@ const Compilation = struct {
         funcs: *std.SinglyLinkedList(builtin.BasicMutNodeDesc),
     },
     diag: *Diagnostic,
+
+    next_global_data_ptr: usize = 0,
 
     pub fn init(
         alloc: std.mem.Allocator,
@@ -299,6 +321,7 @@ const Compilation = struct {
         pub const local = Sexp{ .value = .{ .symbol = "local" } };
         pub const memory = Sexp{ .value = .{ .symbol = "memory" } };
         pub const @"$0" = Sexp{ .value = .{ .symbol = "$0" } };
+        pub const data = Sexp{ .value = .{ .symbol = "data" } };
 
         pub const ops = struct {
             pub const @"local.get" = Sexp{ .value = .{ .symbol = "local.get" } };
@@ -689,7 +712,40 @@ const Compilation = struct {
         return resolved_type;
     }
 
-    fn addGlobalData() void {}
+    /// adds global data, returns a unique name
+    fn addReadonlyData(self: *@This(), data: []const u8) !usize {
+        const alloc = self.arena.allocator();
+        //(data $.rodata (i32.const 1048576) "\04\00\10\00hello\00"))
+        const mod_forms = &self.wat.value.module.items[0].value.list;
+        const data_form = try mod_forms.addOne();
+        data_form.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+        try data_form.value.list.ensureTotalCapacityPrecise(3);
+
+        data_form.value.list.addOneAssumeCapacity().* = wat_syms.data;
+        const offset_spec = data_form.value.list.addOneAssumeCapacity();
+
+        var data_str = std.ArrayList(u8).init(alloc);
+        defer data_str.deinit();
+        // maximum, as if every byte were replaced with '\00'
+        try data_str.ensureTotalCapacity(data.len * 3);
+        std.debug.assert(zig_builtin.cpu.arch.endian() == .little);
+        try writeWasmMemoryString(std.mem.asBytes(&data.len), data_str.writer());
+        try writeWasmMemoryString(data, data_str.writer());
+
+        data_form.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{
+            .ownedString = try data_str.toOwnedSlice(),
+        } };
+
+        offset_spec.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+        try offset_spec.value.list.ensureTotalCapacityPrecise(2);
+        offset_spec.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+        offset_spec.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(self.next_global_data_ptr) } };
+        const prev_global_data_ptr = self.next_global_data_ptr;
+        self.next_global_data_ptr += data.len;
+        errdefer self.next_global_data_ptr = prev_global_data_ptr;
+
+        return prev_global_data_ptr;
+    }
 
     // TODO: take a diagnostic
     fn compileExpr(
@@ -706,13 +762,34 @@ const Compilation = struct {
         switch (code_sexp.value) {
             .list => |v| {
                 std.debug.assert(v.items.len >= 1);
-                const func = v.items[0];
+                const func = &v.items[0];
                 std.debug.assert(func.value == .symbol);
 
                 var result = Fragment{
                     .code = std.ArrayList(Sexp).init(alloc),
                     .resolved_type = builtin.empty_type,
                 };
+
+                // HACK: super terrible starting macro impl wowowWWW
+                if (func.value.symbol.ptr == syms.json_quote.value.symbol.ptr) {
+                    std.debug.assert(v.items.len == 2);
+
+                    var bytes = std.ArrayList(u8).init(alloc);
+                    defer bytes.deinit();
+                    // TODO: json shenanigans
+                    try bytes.writer().print("{}", .{v.items[1]});
+
+                    const data_offset = try self.addReadonlyData(bytes.items);
+
+                    try result.code.ensureTotalCapacityPrecise(1);
+                    const wasm_op = result.code.addOneAssumeCapacity();
+                    wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                    try wasm_op.value.list.ensureTotalCapacityPrecise(2);
+                    wasm_op.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+                    wasm_op.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(data_offset) } };
+
+                    return result;
+                }
 
                 const arg_fragments = try alloc.alloc(Fragment, v.items.len - 1);
                 // FIXME: don't deinit!
@@ -765,29 +842,6 @@ const Compilation = struct {
                     wasm_op.value.list.addOneAssumeCapacity().* = set_val;
                     // TODO: more idiomatic move out data
                     arg_fragments[1].code.items[0] = Sexp{ .value = .void };
-
-                    return result;
-                }
-
-                // HACK: super terrible starting macro impl wowowWWW
-                if (func.value.symbol.ptr == syms.json_quote.value.symbol.ptr) {
-                    try result.code.ensureTotalCapacityPrecise(1);
-                    const wasm_op = result.code.addOneAssumeCapacity();
-                    wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                    try wasm_op.value.list.ensureTotalCapacityPrecise(3);
-                    const op_name = wasm_op.value.list.addOneAssumeCapacity();
-
-                    std.debug.assert(arg_fragments.len == 2);
-                    for (arg_fragments) |*arg_fragment| {
-                        result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, arg_fragment);
-                        std.debug.assert(arg_fragment.code.items.len == 1);
-                        // resolve peer types could have mutated it
-                        (try wasm_op.value.list.addOne()).* = arg_fragment.code.items[0];
-                        // TODO: more idiomatic move out data
-                        arg_fragment.code.items[0] = Sexp{ .value = .void };
-                    }
-
-                    op_name.* = wat_syms.ops.i32_.add;
 
                     return result;
                 }
@@ -1282,6 +1336,8 @@ test "parse" {
         \\  (begin
         \\    (typeof a i64)
         \\    (define a 2)
+        \\    (quote (+ f 1))
+        \\    (quote (- f (* 2 3)))
         \\    (set! a 1)
         \\    (Confetti 100)
         \\    (return (max x a))))
@@ -1349,6 +1405,8 @@ test "parse" {
         \\      (result i32)
         \\      (local $local_a
         \\             i64)
+        \\      (i32.const 0)
+        \\      (i32.const 10)
         \\      (local.set $local_a
         \\                 (i64.extend_i32_s (i32.const 1)))
         \\      (call $Confetti
@@ -1356,6 +1414,10 @@ test "parse" {
         \\      (call $__grappl_max
         \\            (local.get $param_x)
         \\            (local.get $local_a)))
+        \\(data (i32.const 0)
+        \\      "\0a\00\00\00\00\00\00\00(+ f\0a   1)")
+        \\(data (i32.const 10)
+        \\      "\16\00\00\00\00\00\00\00(- f\0a   (* 2\0a      3))")
         \\(export "deep"
         \\        (func $deep))
         \\(type $typeof_deep
