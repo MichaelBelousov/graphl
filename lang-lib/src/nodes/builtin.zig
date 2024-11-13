@@ -265,11 +265,15 @@ pub const primitive_types = struct {
 
     pub const byte: Type = &TypeInfo{ .name = "byte", .wasm_primitive = "u8" };
     pub const bool_: Type = &TypeInfo{ .name = "bool", .wasm_primitive = "u8" };
-    pub const rune: Type = &TypeInfo{ .name = "rune", .wasm_primitive = "i32" };
+    pub const char_: Type = &TypeInfo{ .name = "char", .wasm_primitive = "u32" };
     pub const symbol: Type = &TypeInfo{ .name = "symbol", .wasm_primitive = "i32" };
     pub const @"void": Type = &TypeInfo{ .name = "void" };
 
     pub const string: Type = &TypeInfo{ .name = "string" };
+
+    // FIXME: replace when we think out the macro system
+    pub const code: Type = &TypeInfo{ .name = "code" };
+
     // pub const vec3: Type = &TypeInfo{
     //     .name = "vec3",
     //     .field_names = &.{ "x", "y", "z" },
@@ -520,6 +524,17 @@ pub fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !N
 }
 
 pub const builtin_nodes = struct {
+    // FIXME: replace with real macro system that isn't JSON hack
+    pub const json_quote: NodeDesc = basicNode(&.{
+        .name = "quote",
+        .inputs = &.{
+            Pin{ .name = "code", .kind = .{ .primitive = .{ .value = primitive_types.code } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "data", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+        },
+    });
+
     pub const @"+": NodeDesc = basicNode(&.{
         .name = "+",
         .inputs = &.{
@@ -964,7 +979,7 @@ fn expectEqualTypes(actual: Type, expected: Type) !void {
 test "node types" {
     try std.testing.expectEqual(
         builtin_nodes.@"+".getOutputs()[0].kind.primitive.value,
-        primitive_types.f64_,
+        primitive_types.i32_,
     );
     try std.testing.expect(builtin_nodes.func_start.getOutputs()[0].kind.primitive == .exec);
     //try expectEqualTypes(temp_ue.nodes.break_hit_result.getOutputs()[2].kind.primitive.value, primitive_types.vec3);

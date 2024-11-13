@@ -9,6 +9,34 @@ pub fn build(b: *std.Build) void {
 
     //const binaryen_dep = b.dependency("binaryen-zig", .{});
 
+    const web_target_query = CrossTarget.parse(.{
+        .arch_os_abi = "wasm32-freestanding",
+        .cpu_features = "mvp+atomics+bulk_memory",
+    }) catch unreachable;
+    const web_target = b.resolveTargetQuery(web_target_query);
+
+    const intrinsics = b.addExecutable(.{
+        .name = "grappl_intrinsics",
+        .root_source_file = b.path("./src/intrinsics.zig"),
+        .target = web_target,
+        .optimize = optimize,
+        .strip = switch (optimize) {
+            .ReleaseFast, .ReleaseSmall => true,
+            else => false,
+        },
+    });
+    intrinsics.entry = .disabled;
+    intrinsics.rdynamic = true;
+
+    // NOTE: in the future may be able to use .getEmittedAsm to get the wasm output from zig and drop
+    // wasm2wat system dep, but atm it doesn't work that way
+    // FIXME: build wasm2wat as a dep
+    const intrinsics_to_wat_step = b.addSystemCommand(&.{"wasm2wat"});
+    intrinsics_to_wat_step.addFileArg(intrinsics.getEmittedBin());
+    intrinsics_to_wat_step.addArg("-o");
+    const intrinsics_wat_file = intrinsics_to_wat_step.addOutputFileArg("grappl-intrinsics.wat");
+    intrinsics_to_wat_step.step.dependOn(&intrinsics.step);
+
     // TODO: reuse this in lib
     const grappl_core_mod = b.addModule("grappl_core", .{
         .root_source_file = b.path("src/main.zig"),
@@ -16,22 +44,35 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .pic = true,
     });
-    _ = grappl_core_mod;
+    grappl_core_mod.addAnonymousImport("grappl_intrinsics", .{
+        .root_source_file = intrinsics_wat_file,
+        .optimize = optimize,
+        .target = web_target,
+    });
 
     const lib = b.addStaticLibrary(.{
         .name = "graph-lang",
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = null,
         .optimize = optimize,
         .target = target,
         .pic = true,
     });
+    lib.root_module.addImport("core", grappl_core_mod);
+    lib.step.dependOn(&intrinsics_to_wat_step.step);
+
     b.installArtifact(lib);
 
     const main_tests = b.addTest(.{
         .name = "main-tests",
-        .root_source_file = b.path("./src/main.zig"),
+        .root_source_file = b.path("./src//main.zig"),
         .target = target,
         .optimize = optimize,
+    });
+    main_tests.step.dependOn(&intrinsics_to_wat_step.step);
+    main_tests.root_module.addAnonymousImport("grappl_intrinsics", .{
+        .root_source_file = intrinsics_wat_file,
+        .optimize = optimize,
+        .target = web_target,
     });
 
     // inline for (.{ &lib.root_module, &main_tests.root_module, grappl_core_mod }) |m| {
@@ -42,12 +83,6 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests_run.step);
-
-    const web_target_query = CrossTarget.parse(.{
-        .arch_os_abi = "wasm32-freestanding",
-        .cpu_features = "mvp+atomics+bulk_memory",
-    }) catch unreachable;
-    const web_target = b.resolveTargetQuery(web_target_query);
 
     const web_step = b.step("web", "Build for web");
     const web_lib = b.addExecutable(.{

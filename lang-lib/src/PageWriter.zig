@@ -1,3 +1,5 @@
+// TODO: replace all usage of this with std.ArrayList(u8)
+
 const std = @import("std");
 const page_size = std.mem.page_size;
 

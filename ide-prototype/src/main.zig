@@ -1,3 +1,6 @@
+//! Copyright 2024, Michael Belousov
+//!
+
 const std = @import("std");
 const builtin = @import("builtin");
 const WebBackend = @import("WebBackend");
@@ -362,9 +365,9 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
 
     // small fonts look bad on the web, so bump the default theme up
     var theme = win.themes.get("Adwaita Light").?;
-    win.themes.put("Adwaita Light", theme.fontSizeAdd(2)) catch {};
+    //win.themes.put("Adwaita Light", theme.fontSizeAdd(2)) catch {};
     theme = win.themes.get("Adwaita Dark").?;
-    win.themes.put("Adwaita Dark", theme.fontSizeAdd(2)) catch {};
+    //win.themes.put("Adwaita Dark", theme.fontSizeAdd(2)) catch {};
     win.theme = win.themes.get("Adwaita Dark").?;
     //win.theme = win.themes.get("Adwaita Light").?;
 
@@ -970,7 +973,7 @@ fn renderNode(
         const color = if (input_desc.kind == .primitive and input_desc.kind.primitive == .value)
             try colorForType(input_desc.kind.primitive.value)
         else
-            dvui.Color.transparent;
+            dvui.Color{ .a = 0 };
 
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
@@ -1113,7 +1116,7 @@ fn renderNode(
         const color = if (output_desc.kind == .primitive and output_desc.kind.primitive == .value)
             try colorForType(output_desc.kind.primitive.value)
         else
-            dvui.Color.transparent;
+            dvui.Color{ .a = 0 };
 
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },

@@ -6,8 +6,10 @@ const builtin = @import("./nodes/builtin.zig");
 const primitive_types = @import("./nodes/builtin.zig").primitive_types;
 const Env = @import("./nodes//builtin.zig").Env;
 const TypeInfo = @import("./nodes//builtin.zig").TypeInfo;
-const Type = @import("./nodes//builtin.zig").Type;
-const PageWriter = @import(".//PageWriter.zig").PageWriter;
+const Type = @import("./nodes/builtin.zig").Type;
+
+const intrinsics_raw = @embedFile("grappl_intrinsics");
+const intrinsics_code = intrinsics_raw["(module $grappl_intrinsics.wasm\n".len .. intrinsics_raw.len - 2];
 
 pub const Diagnostic = struct {
     err: Error = .None,
@@ -358,12 +360,20 @@ const Compilation = struct {
 
         pub const intrinsics = struct {
             pub const max = .{
-                .wasm_sym = Sexp{ .value = .{ .symbol = "__$$max" } },
+                .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_max" } },
                 .node = builtin.builtin_nodes.max,
             };
             pub const min = .{
-                .wasm_sym = Sexp{ .value = .{ .symbol = "__$$min" } },
+                .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_min" } },
                 .node = builtin.builtin_nodes.min,
+            };
+            pub const string_index_of = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_string_indexof" } },
+                .node = builtin.builtin_nodes.string_index_of,
+            };
+            pub const string_len = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "__grappl_string_len" } },
+                .node = builtin.builtin_nodes.string_length,
             };
         };
     };
@@ -485,8 +495,8 @@ const Compilation = struct {
                 result_type_sexp2.* = result_type_sexp.*;
                 std.debug.assert(func_type.result_types.len == 1);
                 if (body_fragment.resolved_type != func_type.result_types[0]) {
-                    std.log.err("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = body_fragment.code } }});
-                    std.log.err("type: '{s}' doesn't match '{s}'", .{ body_fragment.resolved_type.name, func_type.result_types[0].name });
+                    std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = body_fragment.code } }});
+                    std.log.warn("type: '{s}' doesn't match '{s}'", .{ body_fragment.resolved_type.name, func_type.result_types[0].name });
                     // FIXME/HACK: re-enable but disabling now to allow for type promotion
                     //return error.ReturnTypeMismatch;
                 }
@@ -952,8 +962,8 @@ const Compilation = struct {
         // imports
         {
             var host_callbacks_prologue = try SexpParser.parse(alloc,
+                \\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_JSON_R_JSON") (param i32) (param i32) (param i32) (result i32) (result i32))
                 \\(func $callUserFunc_R_void (import "env" "callUserFunc_R_void") (param i32))
-                \\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_R_void") (param i32) (param i32) (result i32) (result i32))
                 \\(func $callUserFunc_i32_R_void (import "env" "callUserFunc_i32_R_void") (param i32) (param i32))
                 \\(func $callUserFunc_i32_R_i32 (import "env" "callUserFunc_i32_R_i32") (param i32) (param i32) (result i32))
                 \\(func $callUserFunc_i32_i32_R_i32 (import "env" "callUserFunc_i32_i32_R_i32") (param i32) (param i32) (param i32) (result i32))
@@ -1075,11 +1085,35 @@ const Compilation = struct {
             }
         }
 
-        var page_writer = try PageWriter.init(self.arena.allocator());
-        _ = try self.wat.write(page_writer.writer());
+        var bytes = std.ArrayList(u8).init(self.arena.allocator());
+        defer bytes.deinit();
+        const buffer_writer = bytes.writer();
+
+        // FIXME: performantly parse the wat at compile time or use wasm merge
+        // I don't trust my parser yet
+        try bytes.appendSlice("(module\n");
+        // FIXME: HACK: merge these properly...
+        const without_mod_wrapper = intrinsics_code;
+        try bytes.appendSlice(without_mod_wrapper);
+        try bytes.appendSlice("\n");
+        // FIXME: come up with a way to just say assert(self.wat.like("(module"))
+        std.debug.assert(self.wat.value == .module);
+        std.debug.assert(self.wat.value.module.items.len == 1);
+        std.debug.assert(self.wat.value.module.items[0].value == .list);
+        std.debug.assert(self.wat.value.module.items[0].value.list.items.len >= 1);
+        std.debug.assert(self.wat.value.module.items[0].value.list.items[0].value == .symbol);
+        std.debug.assert(self.wat.value.module.items[0].value.list.items[0].value.symbol.ptr == wat_syms.module.value.symbol.ptr);
+        const module_contents = self.wat.value.module.items[0].value.list.items[1..];
+
+        for (module_contents) |toplevel| {
+            _ = try toplevel.write(buffer_writer);
+            try bytes.appendSlice("\n");
+        }
+        try bytes.appendSlice(")");
+
         // use arena parent so that when the arena deinit's, this remains,
         // and the caller can own the memory
-        return page_writer.concat(self.arena.child_allocator);
+        return try self.arena.child_allocator.dupe(u8, bytes.items);
     }
 };
 
@@ -1153,74 +1187,85 @@ test "parse" {
     defer parsed.deinit(t.allocator);
 
     const expected = try std.fmt.allocPrint(t.allocator,
-        \\(module (func $callUserFunc_R_void
-        \\              (import "env"
-        \\                      "callUserFunc_R_void")
-        \\              (param i32))
-        \\        (func $callUserFunc_i32_R_void
-        \\              (import "env"
-        \\                      "callUserFunc_i32_R_void")
-        \\              (param i32)
-        \\              (param i32))
-        \\        (func $callUserFunc_i32_R_i32
-        \\              (import "env"
-        \\                      "callUserFunc_i32_R_i32")
-        \\              (param i32)
-        \\              (param i32)
-        \\              (result i32))
-        \\        (func $callUserFunc_i32_i32_R_i32
-        \\              (import "env"
-        \\                      "callUserFunc_i32_i32_R_i32")
-        \\              (param i32)
-        \\              (param i32)
-        \\              (param i32)
-        \\              (result i32))
-        \\        (memory $0
-        \\                0)
-        \\        (export "memory"
-        \\                (memory $0))
-        \\        (func $Confetti
-        \\              (param $param_1
-        \\                     i32)
-        \\              (call $callUserFunc_i32_R_void
-        \\                    (i32.const {})
-        \\                    (local.get $param_1)))
-        \\        (export "++"
-        \\                (func $++))
-        \\        (type $typeof_++
-        \\              (func (param i64)
-        \\                    (result i64)))
-        \\        (func $++
-        \\              (param $param_x
-        \\                     i64)
-        \\              (result i64)
-        \\              (local $local_a
-        \\                     i64)
-        \\              (local.set $local_a
-        \\                         (i64.extend_i32_s (i32.const 1)))
-        \\              (call $Confetti
-        \\                    (i32.const 100))
-        \\              (i64.add (local.get $param_x)
-        \\                       (local.get $local_a)))
-        \\        (export "deep"
-        \\                (func $deep))
-        \\        (type $typeof_deep
-        \\              (func (param f32)
-        \\                    (param f32)
-        \\                    (result f32)))
-        \\        (func $deep
-        \\              (param $param_a
-        \\                     f32)
-        \\              (param $param_b
-        \\                     f32)
-        \\              (result f32)
-        \\              (f32.add (f32.div (local.get $param_a)
-        \\                                (f32.convert_i64_s (i64.extend_i32_s (i32.const 10))))
-        \\                       (f32.mul (local.get $param_a)
-        \\                                (local.get $param_b)))))
+        \\(module
+        \\{s}
+        \\(func $callUserFunc_JSON_R_JSON
+        \\      (import "env"
+        \\              "callUserFunc_JSON_R_JSON")
+        \\      (param i32)
+        \\      (param i32)
+        \\      (param i32)
+        \\      (result i32)
+        \\      (result i32))
+        \\(func $callUserFunc_R_void
+        \\      (import "env"
+        \\              "callUserFunc_R_void")
+        \\      (param i32))
+        \\(func $callUserFunc_i32_R_void
+        \\      (import "env"
+        \\              "callUserFunc_i32_R_void")
+        \\      (param i32)
+        \\      (param i32))
+        \\(func $callUserFunc_i32_R_i32
+        \\      (import "env"
+        \\              "callUserFunc_i32_R_i32")
+        \\      (param i32)
+        \\      (param i32)
+        \\      (result i32))
+        \\(func $callUserFunc_i32_i32_R_i32
+        \\      (import "env"
+        \\              "callUserFunc_i32_i32_R_i32")
+        \\      (param i32)
+        \\      (param i32)
+        \\      (param i32)
+        \\      (result i32))
+        \\(memory $0
+        \\        0)
+        \\(export "memory"
+        \\        (memory $0))
+        \\(func $Confetti
+        \\      (param $param_1
+        \\             i32)
+        \\      (call $callUserFunc_i32_R_void
+        \\            (i32.const {})
+        \\            (local.get $param_1)))
+        \\(export "++"
+        \\        (func $++))
+        \\(type $typeof_++
+        \\      (func (param i64)
+        \\            (result i64)))
+        \\(func $++
+        \\      (param $param_x
+        \\             i64)
+        \\      (result i64)
+        \\      (local $local_a
+        \\             i64)
+        \\      (local.set $local_a
+        \\                 (i64.extend_i32_s (i32.const 1)))
+        \\      (call $Confetti
+        \\            (i32.const 100))
+        \\      (i64.add (local.get $param_x)
+        \\               (local.get $local_a)))
+        \\(export "deep"
+        \\        (func $deep))
+        \\(type $typeof_deep
+        \\      (func (param f32)
+        \\            (param f32)
+        \\            (result f32)))
+        \\(func $deep
+        \\      (param $param_a
+        \\             f32)
+        \\      (param $param_b
+        \\             f32)
+        \\      (result f32)
+        \\      (f32.add (f32.div (local.get $param_a)
+        \\                        (f32.convert_i64_s (i64.extend_i32_s (i32.const 10))))
+        \\               (f32.mul (local.get $param_a)
+        \\                        (local.get $param_b))))
+        \\)
         // TODO: clearly instead of embedding the pointer we should have a global variable
         // so the host can set that
-    , .{@intFromPtr(&user_func_1.data)});
+    , .{ intrinsics_code, @intFromPtr(&user_func_1.data) });
     defer t.allocator.free(expected);
 
     var diagnostic = Diagnostic.init();
