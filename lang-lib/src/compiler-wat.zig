@@ -53,8 +53,8 @@ fn writeWasmMemoryString(data: []const u8, writer: anytype) !void {
             '\\' => {
                 try writer.writeAll("\\\\");
             },
-            // printable ascii not including backslash
-            ' '...'[', ']'...127 => {
+            // printable ascii not including '\\' or '"'
+            ' '...'"' - 1, '"' + 1...'\\' - 1, '\\' + 1...127 => {
                 try writer.writeByte(char);
             },
             // FIXME: use ascii bit magic here, I'm too lazy and time pressed
@@ -789,12 +789,19 @@ const Compilation = struct {
 
                     const data_offset = try self.addReadonlyData(bytes.items);
 
-                    try result.code.ensureTotalCapacityPrecise(1);
-                    const wasm_op = result.code.addOneAssumeCapacity();
-                    wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                    try wasm_op.value.list.ensureTotalCapacityPrecise(2);
-                    wasm_op.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                    wasm_op.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(data_offset) } };
+                    try result.code.ensureTotalCapacityPrecise(2);
+                    const len = result.code.addOneAssumeCapacity();
+                    const ptr = result.code.addOneAssumeCapacity();
+
+                    len.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                    try len.value.list.ensureTotalCapacityPrecise(2);
+                    len.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+                    len.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(bytes.items.len) } };
+
+                    ptr.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                    try ptr.value.list.ensureTotalCapacityPrecise(2);
+                    ptr.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+                    ptr.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
 
                     return result;
                 }
@@ -966,7 +973,7 @@ const Compilation = struct {
                     }
                 }
 
-                // call (host?) functions
+                // call host functions
                 const func_node_desc = self.env.nodes.get(func.value.symbol) orelse {
                     std.log.err("undefined symbol1: '{}'\n", .{func});
                     return error.UndefinedSymbol;
@@ -990,10 +997,11 @@ const Compilation = struct {
                     wasm_call.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{func.value.symbol}) } };
 
                     for (arg_fragments) |arg_fragment| {
-                        std.debug.assert(arg_fragment.code.items.len == 1);
-                        wasm_call.value.list.addOneAssumeCapacity().* = arg_fragment.code.items[0];
-                        // move out
-                        arg_fragment.code.items[0] = Sexp{ .value = .void };
+                        for (arg_fragment.code.items) |*fragment_part| {
+                            (try wasm_call.value.list.addOne()).* = fragment_part.*;
+                            // move out
+                            fragment_part.* = Sexp{ .value = .void };
+                        }
                     }
 
                     return result;
@@ -1130,16 +1138,21 @@ const Compilation = struct {
             }
         }
 
+        const imports_src =
+            //\\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_JSON_R_JSON") (param i32) (param i32) (param i32) (result i32) (result i32))
+            \\(func $callUserFunc_code_R_void (import "env" "callUserFunc_code_R_void") (param i32) (param i32) (param i32))
+            \\(func $callUserFunc_R_void (import "env" "callUserFunc_R_void") (param i32))
+            \\(func $callUserFunc_i32_R_void (import "env" "callUserFunc_i32_R_void") (param i32) (param i32))
+            \\(func $callUserFunc_i32_R_i32 (import "env" "callUserFunc_i32_R_i32") (param i32) (param i32) (result i32))
+            \\(func $callUserFunc_i32_i32_R_i32 (import "env" "callUserFunc_i32_i32_R_i32") (param i32) (param i32) (param i32) (result i32))
+        ;
+
+        // TODO: parse them at comptime and get the count that way
+        const import_count = comptime std.mem.count(u8, imports_src, "\n") + 1;
+
         // imports
         {
-            var host_callbacks_prologue = try SexpParser.parse(alloc,
-                \\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_JSON_R_JSON") (param i32) (param i32) (param i32) (result i32) (result i32))
-                \\(func $callUserFunc_code_R_void (import "env" "callUserFunc_code_R_void") (param i32) (param i32) (param i32))
-                \\(func $callUserFunc_R_void (import "env" "callUserFunc_R_void") (param i32))
-                \\(func $callUserFunc_i32_R_void (import "env" "callUserFunc_i32_R_void") (param i32) (param i32))
-                \\(func $callUserFunc_i32_R_i32 (import "env" "callUserFunc_i32_R_i32") (param i32) (param i32) (result i32))
-                \\(func $callUserFunc_i32_i32_R_i32 (import "env" "callUserFunc_i32_i32_R_i32") (param i32) (param i32) (param i32) (result i32))
-            , null);
+            var host_callbacks_prologue = try SexpParser.parse(alloc, imports_src, null);
             try self.module_body.appendSlice(try host_callbacks_prologue.value.module.toOwnedSlice());
         }
 
@@ -1292,9 +1305,9 @@ const Compilation = struct {
         // FIXME: performantly parse the wat at compile time or use wasm merge
         // I don't trust my parser yet
         const module_contents = self.wat.value.module.items[0].value.list.items[1..];
-        std.debug.assert(module_contents.len >= 6); // there are currently 6 added imports (the callUserFunc_*)
-        const imports = module_contents[0..6];
-        const module_defs = module_contents[6..];
+        std.debug.assert(module_contents.len >= import_count);
+        const imports = module_contents[0..import_count];
+        const module_defs = module_contents[import_count..];
 
         try bytes.appendSlice("(module\n");
 
@@ -1394,11 +1407,11 @@ test "parse" {
         \\(define g 10)
         \\
         \\;;; comment
-        \\(typeof (++ i64) i64)
+        \\(typeof (++ i32) i32)
         \\(define (++ x)
         \\  (begin
-        \\    (typeof a i64)
-        \\    (define a 2)
+        \\    (typeof a i32)
+        \\    (define a 2) ;; FIXME: make i64 to test type promotion
         \\    (sql (quote (- f (* 2 3))))
         \\    (sql (quote 4))
         \\    (set! a 1)
@@ -1416,14 +1429,6 @@ test "parse" {
 
     const expected = try std.fmt.allocPrint(t.allocator,
         \\(module
-        \\(func $callUserFunc_JSON_R_JSON
-        \\      (import "env"
-        \\              "callUserFunc_JSON_R_JSON")
-        \\      (param i32)
-        \\      (param i32)
-        \\      (param i32)
-        \\      (result i32)
-        \\      (result i32))
         \\(func $callUserFunc_code_R_void
         \\      (import "env"
         \\              "callUserFunc_code_R_void")
@@ -1473,28 +1478,30 @@ test "parse" {
         \\(export "++"
         \\        (func $++))
         \\(type $typeof_++
-        \\      (func (param i64)
+        \\      (func (param i32)
         \\            (result i32)))
         \\(func $++
         \\      (param $param_x
-        \\             i64)
+        \\             i32)
         \\      (result i32)
         \\      (local $local_a
-        \\             i64)
+        \\             i32)
         \\      (call $sql
-        \\            (i32.const 0))
+        \\            (i32.const 52)
+        \\            (i32.const 8))
         \\      (call $sql
-        \\            (i32.const 74))
+        \\            (i32.const 1)
+        \\            (i32.const 106))
         \\      (local.set $local_a
-        \\                 (i64.extend_i32_s (i32.const 1)))
+        \\                 (i32.const 1))
         \\      (call $Confetti
         \\            (i32.const 100))
         \\      (call $__grappl_max
         \\            (local.get $param_x)
         \\            (local.get $local_a)))
         \\(data (i32.const 0)
-        \\      "4\00\00\00\00\00\00\00[{{"symbol":"-"}},{{"symbol":"f"}},[{{"symbol":"*"}},2,3]]")
-        \\(data (i32.const 74)
+        \\      "4\00\00\00\00\00\00\00[{{\22symbol\22:\22-\22}},{{\22symbol\22:\22f\22}},[{{\22symbol\22:\22*\22}},2,3]]")
+        \\(data (i32.const 98)
         \\      "\01\00\00\00\00\00\00\004")
         \\(export "deep"
         \\        (func $deep))
