@@ -62,7 +62,8 @@
 
           if (func.symbol === "SELECT") {
             handlePrev();
-            sql += sexpToSql(func) + ' ' + sexpToSql(params[1]);
+            params.forEach(p => { if (typeof p !== "string") throw Error("bad SELECT arg"); })
+            sql += sexpToSql(func) + ' ' + params.join(',');
 
           } else if (func.symbol === "WHERE") {
             handlePrev();
@@ -70,7 +71,8 @@
 
           } else if (func.symbol === "FROM") {
             handlePrev();
-            sql += sexpToSql(func) + ' ' + params.map(sexpToSql).join(',');
+            params.forEach(p => { if (typeof p !== "string") throw Error("bad FROM arg"); })
+            sql += sexpToSql(func) + ' ' + params.join(',');
 
             // assume it's a binary operator
           } else {
@@ -116,8 +118,8 @@
                         });
                       }
                     },
-                    "sql": {
-                      parameters: [{ name: "code", type: grappl.Types.code }],
+                    "ECSQL-exec": {
+                      parameters: [{ name: "query", type: grappl.Types.code }],
                       results: [],
                       impl(code) {
                         //console.log('s-exp:', code);
