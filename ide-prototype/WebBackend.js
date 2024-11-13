@@ -15,6 +15,7 @@ export const Types = {
     "f32": 2,
     "f64": 3,
     "string": 4,
+    "code": 5,
 };
 
 // FIXME: this should return a promise
@@ -461,21 +462,49 @@ export function Ide(canvasElem, opts) {
             wasmOpt.FS.writeFile(inputFile, data);
             // TODO: source maps
             // FIXME: consider whether it's worth enabling optimizations
-            const status = wasmOpt.callMain([inputFile, '-o', outputFile, '-g',]);
+            const status = wasmOpt.callMain([inputFile, '-o', outputFile, '-g', "--enable-bulk-memory"]);
 
             if (status !== 0)
                 throw Error(`non-zero return: ${status}`)
 
             const moduleBytes = wasmOpt.FS.readFile(outputFile, { encoding: "binary" });
 
+            let compiled;
+
             const scriptImports = {
                 env: {
                     callUserFunc_JSON_R_JSON(func_id, json1) {
                         const funcInfo = userFuncs.get(func_id);
 
-                        throw Error(`json not yet supported`)
+                        throw Error(`json not yet supported`);
 
                         return funcInfo.func.impl(json1);
+                    },
+
+                    callUserFunc_string_R_string(func_id) {
+                        const funcInfo = userFuncs.get(func_id);
+
+                        if (funcInfo === undefined
+                         || funcInfo.func.parameters.length !== 1
+                         || funcInfo.func.parameters[0].type !== Types.string
+                         || funcInfo.func.results.length !== 0
+                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
+
+                        funcInfo.func.impl();
+                    },
+
+                    callUserFunc_code_R_void(func_id, len, ptr) {
+                        const funcInfo = userFuncs.get(func_id);
+
+                        if (funcInfo === undefined
+                         || funcInfo.func.parameters.length !== 1
+                         || funcInfo.func.parameters[0].type !== Types.code
+                         || funcInfo.func.results.length !== 0
+                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
+
+                        const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr, len));
+
+                        funcInfo.func.impl(str);
                     },
 
                     callUserFunc_R_void(func_id) {
@@ -484,7 +513,7 @@ export function Ide(canvasElem, opts) {
                         if (funcInfo === undefined
                          || funcInfo.func.parameters.length !== 0
                          || funcInfo.func.results.length !== 0
-                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
+                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
                         funcInfo.func.impl();
                     },
@@ -496,7 +525,7 @@ export function Ide(canvasElem, opts) {
                          || funcInfo.func.parameters.length !== 1
                          || funcInfo.func.parameters[0].type !== Types.i32
                          || funcInfo.func.results.length !== 0
-                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
+                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
                         funcInfo.func.impl(i1);
                     },
@@ -530,7 +559,7 @@ export function Ide(canvasElem, opts) {
                 },
             };
 
-            const compiled = await WebAssembly.instantiate(moduleBytes, scriptImports);
+            compiled = await WebAssembly.instantiate(moduleBytes, scriptImports);
             lastCompiled = compiled;
             const result = compiled.instance.exports["main"]();
 

@@ -34,6 +34,7 @@ const UserFuncTypes = enum(u32) {
     f32_ = 2,
     f64_ = 3,
     string = 4,
+    code = 5,
 };
 
 export fn createUserFunc(name_len: u32, input_count: u32, output_count: u32) *const anyopaque {
@@ -84,7 +85,8 @@ fn _addUserFuncInput(func_id: *const helpers.BasicMutNodeDesc, index: u32, name:
         .i64_ => grappl.primitive_types.i64_,
         .f32_ => grappl.primitive_types.f32_,
         .f64_ => grappl.primitive_types.f64_,
-        .string => @panic("string user func type not yet supported"),
+        .string => grappl.primitive_types.string,
+        .code => grappl.primitive_types.code,
     };
 
     // skip the exec index
@@ -100,7 +102,8 @@ fn _addUserFuncOutput(func_id: *const helpers.BasicMutNodeDesc, index: u32, name
         .i64_ => grappl.primitive_types.i64_,
         .f32_ => grappl.primitive_types.f32_,
         .f64_ => grappl.primitive_types.f64_,
-        .string => @panic("string user func type not yet supported"),
+        .string => grappl.primitive_types.string,
+        .code => grappl.primitive_types.code,
     };
 
     // skip the exec index
@@ -453,10 +456,13 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
 
             var valid_socket_index: ?u16 = null;
 
+            // TODO: add an "always" ... or better type resolution/promotion actually
             if (node_desc.hidden)
                 continue;
 
-            if (maybe_create_from_type) |create_from_type| {
+            if (maybe_create_from_type != null and node_name.ptr != helpers.builtin_nodes.json_quote.name().ptr) {
+                const create_from_type = maybe_create_from_type.?;
+
                 const pins = switch (maybe_create_from.?.kind) {
                     .input => node_desc.getOutputs(),
                     .output => node_desc.getInputs(),
@@ -487,7 +493,8 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                 // TODO: use diagnostic
                 const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null, pt_in_graph);
 
-                if (maybe_create_from) |create_from| {
+                if (maybe_create_from != null and node_name.ptr != helpers.builtin_nodes.json_quote.name().ptr) {
+                    const create_from = maybe_create_from.?;
                     switch (create_from.kind) {
                         .input => {
                             // TODO: add it to the first type-compatible socket!

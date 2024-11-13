@@ -57,12 +57,18 @@
                       parameters: [{ name: "particle count", type: grappl.Types.i32 }],
                       results: [],
                       impl(particleCount) {
-                        console.log("test!");
                         confetti({
                           particleCount,
                           spread: 70,
                           origin: { y: 0.6 },
                         });
+                      }
+                    },
+                    "sql": {
+                      parameters: [{ name: "code", type: grappl.Types.code }],
+                      results: [],
+                      impl(code) {
+                        console.log(code);
                       }
                     }
                   }

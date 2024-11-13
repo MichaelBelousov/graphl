@@ -10,6 +10,7 @@ export declare const Types: {
   "f32": 2,
   "f64": 3,
   "string": 4,
+  "code": 5,
 };
 
 export declare type PrimitiveType = typeof Types[keyof typeof Types];

@@ -7,7 +7,7 @@ export default defineConfig(async ({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ""));
 
   return {
-    base: "grappl-demo",
+    base: "/grappl-demo",
     server: {
       port: 3000,
       strictPort: true,
@@ -43,8 +43,9 @@ export default defineConfig(async ({ mode }) => {
       rollupOptions: {
         // NOTE: rollup plugins are mostly treated as vite plugins that take place after normal vite-plugins
         // they may not be compatible at all, so be warned
-        plugins: [...(mode === "development" ? [rollupVisualizer()] : [])],
-        // NOTE: shouldn't be used afaict?
+        plugins: [
+          //...(mode === "development" ? [rollupVisualizer()] : [])
+        ],
       },
     },
     envPrefix: "GRAPPL_",
