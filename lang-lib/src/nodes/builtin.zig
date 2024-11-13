@@ -264,7 +264,8 @@ pub const primitive_types = struct {
     pub const f64_ = &TypeInfo{ .name = "f64", .wasm_primitive = "f64" };
 
     pub const byte: Type = &TypeInfo{ .name = "byte", .wasm_primitive = "u8" };
-    pub const bool_: Type = &TypeInfo{ .name = "bool", .wasm_primitive = "u8" };
+    // FIXME: should I change this to u8?
+    pub const bool_: Type = &TypeInfo{ .name = "bool", .wasm_primitive = "i32" };
     pub const char_: Type = &TypeInfo{ .name = "char", .wasm_primitive = "u32" };
     pub const symbol: Type = &TypeInfo{ .name = "symbol", .wasm_primitive = "i32" };
     pub const @"void": Type = &TypeInfo{ .name = "void" };

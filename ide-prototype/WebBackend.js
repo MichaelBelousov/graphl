@@ -504,8 +504,9 @@ export function Ide(canvasElem, opts) {
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
                         const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr, len));
+                        const code = JSON.parse(str);
 
-                        funcInfo.func.impl(str);
+                        funcInfo.func.impl(code);
                     },
 
                     get callUserFunc_string_R_void() { return this.callUserFunc_code_R_void; },

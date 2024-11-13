@@ -43,6 +43,58 @@
       const showText = "0px 50vw 50vw";
       const noShowText = "0px 100vw 50vw";
 
+      const sexpToSql = (sexp) => {
+        if (Array.isArray(sexp)) {
+          let sql = "";
+
+          const [func, ...params] = sexp;
+
+          const handlePrev = (ignore = false) => {
+            if (!Array.isArray(params[0]))
+              return;
+            const execParam = params.shift();
+            if (!ignore) {
+              const prev = sexpToSql(execParam);
+              sql += prev;
+              sql += '\n';
+            }
+          };
+
+          if (func.symbol === "SELECT") {
+            handlePrev();
+            sql += sexpToSql(func) + ' ' + sexpToSql(params[1]);
+
+          } else if (func.symbol === "WHERE") {
+            handlePrev();
+            sql += sexpToSql(func) + ' ' + params.map(sexpToSql).join(',');
+
+          } else if (func.symbol === "FROM") {
+            handlePrev();
+            sql += sexpToSql(func) + ' ' + params.map(sexpToSql).join(',');
+
+            // assume it's a binary operator
+          } else {
+            handlePrev();
+            sql += `${sexpToSql(params[0])} ${sexpToSql(func)} ${sexpToSql(params[1])}`;
+
+          }
+
+          return sql;
+
+        } else if (typeof sexp === "object" && "symbol" in sexp) {
+          return sexp.symbol;
+
+        } else if (typeof sexp === "string") {
+          return `'${sexp}'`
+
+        } else if (typeof sexp === "number") {
+          return `${sexp}`
+
+        } else {
+          throw Error("unexpected value:", sexp);
+        }
+      };
+
       let ide;
 
       async function main() {
@@ -68,13 +120,15 @@
                       parameters: [{ name: "code", type: grappl.Types.code }],
                       results: [],
                       impl(code) {
-                        console.log(code);
+                        //console.log('s-exp:', code);
+                        console.log('QUERY:', sexpToSql(code));
                       }
                     },
+                    // dummy nodes
                     "SELECT": {
                       parameters: [{ name: "column", type: grappl.Types.string }],
                       results: [],
-                      impl(code) {}
+                      impl(code) {} // TODO: impl should be optional
                     },
                     "WHERE": {
                       parameters: [{ name: "condition", type: grappl.Types.bool }],
