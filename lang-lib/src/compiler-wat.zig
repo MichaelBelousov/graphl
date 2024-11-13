@@ -1282,13 +1282,6 @@ const Compilation = struct {
         defer bytes.deinit();
         const buffer_writer = bytes.writer();
 
-        // FIXME: performantly parse the wat at compile time or use wasm merge
-        // I don't trust my parser yet
-        try bytes.appendSlice("(module\n");
-        // FIXME: HACK: merge these properly...
-        const without_mod_wrapper = intrinsics_code;
-        try bytes.appendSlice(without_mod_wrapper);
-        try bytes.appendSlice("\n");
         // FIXME: come up with a way to just say assert(self.wat.like("(module"))
         std.debug.assert(self.wat.value == .module);
         std.debug.assert(self.wat.value.module.items.len == 1);
@@ -1296,12 +1289,30 @@ const Compilation = struct {
         std.debug.assert(self.wat.value.module.items[0].value.list.items.len >= 1);
         std.debug.assert(self.wat.value.module.items[0].value.list.items[0].value == .symbol);
         std.debug.assert(self.wat.value.module.items[0].value.list.items[0].value.symbol.ptr == wat_syms.module.value.symbol.ptr);
+        // FIXME: performantly parse the wat at compile time or use wasm merge
+        // I don't trust my parser yet
         const module_contents = self.wat.value.module.items[0].value.list.items[1..];
+        std.debug.assert(module_contents.len >= 6); // there are currently 6 added imports (the callUserFunc_*)
+        const imports = module_contents[0..6];
+        const module_defs = module_contents[6..];
 
-        for (module_contents) |toplevel| {
-            _ = try toplevel.write(buffer_writer);
+        try bytes.appendSlice("(module\n");
+
+        for (imports) |import| {
+            _ = try import.write(buffer_writer);
             try bytes.appendSlice("\n");
         }
+
+        // FIXME: HACK: merge these properly...
+        try bytes.appendSlice(";;; BEGIN INTRINSICS\n");
+        try bytes.appendSlice(intrinsics_code);
+        try bytes.appendSlice("\n;;; END INTRINSICS\n");
+
+        for (module_defs) |def| {
+            _ = try def.write(buffer_writer);
+            try bytes.appendSlice("\n");
+        }
+
         try bytes.appendSlice(")");
 
         // use arena parent so that when the arena deinit's, this remains,
@@ -1405,7 +1416,6 @@ test "parse" {
 
     const expected = try std.fmt.allocPrint(t.allocator,
         \\(module
-        \\{s}
         \\(func $callUserFunc_JSON_R_JSON
         \\      (import "env"
         \\              "callUserFunc_JSON_R_JSON")
@@ -1442,6 +1452,9 @@ test "parse" {
         \\      (param i32)
         \\      (param i32)
         \\      (result i32))
+        \\;;; BEGIN INTRINSICS
+        \\{s}
+        \\;;; END INTRINSICS
         \\(func $sql
         \\      (param $in_len
         \\             i32)
