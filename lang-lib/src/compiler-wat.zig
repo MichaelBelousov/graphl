@@ -764,16 +764,45 @@ const Compilation = struct {
         context: *const ExprContext,
     ) !Fragment {
         const alloc = self.arena.allocator();
+
+        var result = Fragment{
+            .code = std.ArrayList(Sexp).init(alloc),
+            .resolved_type = builtin.empty_type,
+        };
+
+        if (context.type != null and context.type.? == primitive_types.code) {
+            var bytes = std.ArrayList(u8).init(alloc);
+            defer bytes.deinit();
+
+            // FIXME: wasteful to translate to an in-memory jsonValue, just write it directly as JSON to the stream
+            const json_value = try code_sexp.jsonValue(alloc);
+            var jws = std.json.writeStream(bytes.writer(), .{ .escape_unicode = true });
+            try json_value.jsonStringify(&jws);
+
+            const data_offset = try self.addReadonlyData(bytes.items);
+
+            try result.code.ensureTotalCapacityPrecise(2);
+            const len = result.code.addOneAssumeCapacity();
+            const ptr = result.code.addOneAssumeCapacity();
+
+            len.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            try len.value.list.ensureTotalCapacityPrecise(2);
+            len.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+            len.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(bytes.items.len) } };
+
+            ptr.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            try ptr.value.list.ensureTotalCapacityPrecise(2);
+            ptr.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+            ptr.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
+
+            return result;
+        }
+
         switch (code_sexp.value) {
             .list => |v| {
                 std.debug.assert(v.items.len >= 1);
                 const func = &v.items[0];
                 std.debug.assert(func.value == .symbol);
-
-                var result = Fragment{
-                    .code = std.ArrayList(Sexp).init(alloc),
-                    .resolved_type = builtin.empty_type,
-                };
 
                 if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
                     // FIXME:
@@ -792,40 +821,6 @@ const Compilation = struct {
                     std.log.err("undefined symbol1: '{}'\n", .{func});
                     return error.UndefinedSymbol;
                 };
-
-                // HACK: super terrible starting macro impl wowowWWW
-                if (func.value.symbol.ptr == syms.json_quote.value.symbol.ptr) {
-                    std.debug.assert(v.items.len == 2);
-
-                    var bytes = std.ArrayList(u8).init(alloc);
-                    defer bytes.deinit();
-
-                    // TODO: json shenanigans
-                    //try bytes.writer().print("{}", .{v.items[1]});
-
-                    // FIXME: unnecessary, just write it directly
-                    const json_value = try v.items[1].jsonValue(alloc);
-                    var jws = std.json.writeStream(bytes.writer(), .{ .escape_unicode = true });
-                    try json_value.jsonStringify(&jws);
-
-                    const data_offset = try self.addReadonlyData(bytes.items);
-
-                    try result.code.ensureTotalCapacityPrecise(2);
-                    const len = result.code.addOneAssumeCapacity();
-                    const ptr = result.code.addOneAssumeCapacity();
-
-                    len.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                    try len.value.list.ensureTotalCapacityPrecise(2);
-                    len.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                    len.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(bytes.items.len) } };
-
-                    ptr.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                    try ptr.value.list.ensureTotalCapacityPrecise(2);
-                    ptr.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                    ptr.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
-
-                    return result;
-                }
 
                 const arg_fragments = try alloc.alloc(Fragment, v.items.len - 1);
                 // FIXME: maybe remove all deinits? This one is a bug and it's all in an arena anyway...
@@ -961,7 +956,7 @@ const Compilation = struct {
 
                         // REPORT ME: try to prefer an else on the above for loop, currently couldn't get it to compile right
                         if (!handled) {
-                            std.log.err("unimplemented type resolution: '{s}'", .{result.resolved_type.name});
+                            std.log.err("unimplemented type resolution: '{s}' for code:\n{s}\n", .{ result.resolved_type.name, code_sexp });
                             std.debug.panic("unimplemented type resolution: '{s}'", .{result.resolved_type.name});
                         }
 
@@ -999,6 +994,8 @@ const Compilation = struct {
                     }
                 }
 
+                // FIXME: handle quote
+
                 // call host functions
                 {
                     const outputs = func_node_desc.getOutputs();
@@ -1034,11 +1031,7 @@ const Compilation = struct {
             },
 
             .int => |v| {
-                var result = Fragment{
-                    .code = std.ArrayList(Sexp).init(alloc),
-                    .resolved_type = builtin.primitive_types.i32_,
-                };
-
+                result.resolved_type = builtin.primitive_types.i32_;
                 try result.code.ensureTotalCapacityPrecise(1);
                 const wasm_const = result.code.addOneAssumeCapacity();
                 wasm_const.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
@@ -1052,11 +1045,7 @@ const Compilation = struct {
             },
 
             .float => |v| {
-                var result = Fragment{
-                    .code = std.ArrayList(Sexp).init(alloc),
-                    .resolved_type = builtin.primitive_types.f64_,
-                };
-
+                result.resolved_type = builtin.primitive_types.f64_;
                 try result.code.ensureTotalCapacityPrecise(1);
                 const wasm_const = result.code.addOneAssumeCapacity();
                 wasm_const.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
@@ -1091,11 +1080,7 @@ const Compilation = struct {
                     return error.UndefinedSymbol;
                 };
 
-                var result = Fragment{
-                    .code = std.ArrayList(Sexp).init(alloc),
-                    .resolved_type = info.resolved_type,
-                };
-
+                result.resolved_type = info.resolved_type;
                 try result.code.ensureTotalCapacityPrecise(1);
                 const wasm_local_get = result.code.addOneAssumeCapacity();
                 wasm_local_get.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
@@ -1433,8 +1418,8 @@ test "parse" {
         \\  (begin
         \\    (typeof a i32)
         \\    (define a 2) ;; FIXME: make i64 to test type promotion
-        \\    (sql (quote (- f (* 2 3))))
-        \\    (sql (quote 4))
+        \\    (sql (- f (* 2 3)))
+        \\    (sql 4)
         \\    (set! a 1)
         \\    (Confetti 100)
         \\    (return (max x a))))
