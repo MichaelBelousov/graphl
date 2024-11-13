@@ -508,6 +508,8 @@ export function Ide(canvasElem, opts) {
                         funcInfo.func.impl(str);
                     },
 
+                    get callUserFunc_string_R_void() { return this.callUserFunc_code_R_void; },
+
                     callUserFunc_R_void(func_id) {
                         const funcInfo = userFuncs.get(func_id);
 
@@ -530,6 +532,8 @@ export function Ide(canvasElem, opts) {
 
                         funcInfo.func.impl(i1);
                     },
+
+                    get callUserFunc_bool_R_void() { return this.callUserFunc_i32_R_void; },
 
                     callUserFunc_i32_R_i32(func_id, i1) {
                         const funcInfo = userFuncs.get(func_id);

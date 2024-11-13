@@ -1147,10 +1147,12 @@ const Compilation = struct {
         const imports_src =
             //\\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_JSON_R_JSON") (param i32) (param i32) (param i32) (result i32) (result i32))
             \\(func $callUserFunc_code_R_void (import "env" "callUserFunc_code_R_void") (param i32) (param i32) (param i32))
+            \\(func $callUserFunc_string_R_void (import "env" "callUserFunc_string_R_void") (param i32) (param i32) (param i32))
             \\(func $callUserFunc_R_void (import "env" "callUserFunc_R_void") (param i32))
             \\(func $callUserFunc_i32_R_void (import "env" "callUserFunc_i32_R_void") (param i32) (param i32))
             \\(func $callUserFunc_i32_R_i32 (import "env" "callUserFunc_i32_R_i32") (param i32) (param i32) (result i32))
             \\(func $callUserFunc_i32_i32_R_i32 (import "env" "callUserFunc_i32_i32_R_i32") (param i32) (param i32) (param i32) (result i32))
+            \\(func $callUserFunc_bool_R_void (import "env" "callUserFunc_code_R_void") (param i32) (param i32))
         ;
 
         // TODO: parse them at comptime and get the count that way
@@ -1203,6 +1205,24 @@ const Compilation = struct {
                         \\(func ${s}
                         \\      (param $param_1 i32)
                         \\      (call $callUserFunc_i32_R_void (i32.const {}) (local.get $param_1)))
+                    , .{ user_func.data.name, @intFromPtr(&user_func.data) });
+                    var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
+                    defer user_func_thunk.deinit(alloc);
+                    try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
+
+                    // FIXME: bool_R_void can probably be same as i32_R_void
+                } else if (user_func.data.inputs.len == 2
+                //
+                and user_func.data.inputs[1].kind == .primitive
+                //
+                and user_func.data.inputs[1].kind.primitive == .value
+                //
+                and user_func.data.inputs[1].kind.primitive.value == primitive_types.bool_) {
+                    // TODO: create dedicated function for this kind of substitution
+                    const user_func_thunk_src = try std.fmt.allocPrint(alloc,
+                        \\(func ${s}
+                        \\      (param $param_1 i32)
+                        \\      (call $callUserFunc_bool_R_void (i32.const {}) (local.get $param_1)))
                     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
                     var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     defer user_func_thunk.deinit(alloc);
@@ -1263,18 +1283,31 @@ const Compilation = struct {
                         \\(func ${s}
                         \\      (param $in_ptr i32)
                         \\      (param $in_len i32)
-                        \\      (result $out_ptr i32)
-                        \\      (result $out_len i32)
-                        \\      (call $callUserFunc_string_R_string (i32.const {}) (local.get $in_ptr) (local.get $in_len))
-                        \\      (local.set $out_ptr)
-                        \\      (local.set $out_len)
+                        \\      (call $callUserFunc_string_R_void (i32.const {}) (local.get $in_ptr) (local.get $in_len))
                         \\)
                     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
                     var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     defer user_func_thunk.deinit(alloc);
                     try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
                 } else {
-                    std.debug.panic("unhandled user_func type: {s}", .{user_func.data.name});
+                    std.log.err("unhandled user func: {s}\n", .{user_func.data.name});
+                    std.log.err("inputs: ({})\n", .{user_func.data.inputs.len});
+                    for (user_func.data.inputs) |inp| {
+                        switch (inp.asPrimitivePin()) {
+                            .exec => std.log.err("{s} | exec", .{inp.name}),
+                            .value => |v| std.log.err("{s} | value,type={s}", .{ inp.name, v.name }),
+                        }
+                    }
+                    std.log.err("outputs: ({})\n", .{user_func.data.outputs.len});
+                    for (user_func.data.outputs) |out| {
+                        switch (out.asPrimitivePin()) {
+                            .exec => std.log.err("{s} | exec", .{out.name}),
+                            .value => |v| std.log.err("{s} | value,type={s}", .{ out.name, v.name }),
+                        }
+                    }
+                    std.debug.panic("unhandled user_func type: {s},", .{
+                        user_func.data.name,
+                    });
                 }
             }
         }
@@ -1441,6 +1474,12 @@ test "parse" {
         \\      (param i32)
         \\      (param i32)
         \\      (param i32))
+        \\(func $callUserFunc_string_R_void
+        \\      (import "env"
+        \\              "callUserFunc_string_R_void")
+        \\      (param i32)
+        \\      (param i32)
+        \\      (param i32))
         \\(func $callUserFunc_R_void
         \\      (import "env"
         \\              "callUserFunc_R_void")
@@ -1463,6 +1502,11 @@ test "parse" {
         \\      (param i32)
         \\      (param i32)
         \\      (result i32))
+        \\(func $callUserFunc_bool_R_void
+        \\      (import "env"
+        \\              "callUserFunc_bool_R_void")
+        \\      (param i32)
+        \\      (param i32))
         \\;;; BEGIN INTRINSICS
         \\{s}
         \\;;; END INTRINSICS

@@ -447,7 +447,13 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
             .output => node.desc.getOutputs(),
             .input => node.desc.getInputs(),
         };
-        break :_ pins[create_from.index].asPrimitivePin();
+        const pin_type = pins[create_from.index].asPrimitivePin();
+
+        // don't filter on a type if we're creating from a code socket, that can take anything
+        if (std.meta.eql(pin_type, grappl.PrimitivePin{ .value = grappl.primitive_types.code }))
+            break :_ null;
+
+        break :_ pin_type;
     } else null;
 
     {
@@ -501,22 +507,20 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                 if (maybe_create_from) |create_from| {
                     switch (create_from.kind) {
                         .input => {
-                            // TODO: add it to the first type-compatible socket!
                             try current_graph.addEdge(
                                 new_node_id,
-                                valid_socket_index orelse unreachable,
+                                valid_socket_index orelse 0,
                                 create_from.node_id,
                                 create_from.index,
                                 0,
                             );
                         },
                         .output => {
-                            // TODO: add it to the first type-compatible socket!
                             try current_graph.addEdge(
                                 create_from.node_id,
                                 create_from.index,
                                 new_node_id,
-                                valid_socket_index orelse unreachable,
+                                valid_socket_index orelse 0,
                                 0,
                             );
                         },
