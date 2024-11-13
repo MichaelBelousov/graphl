@@ -531,7 +531,8 @@ pub const builtin_nodes = struct {
             Pin{ .name = "code", .kind = .{ .primitive = .{ .value = primitive_types.code } } },
         },
         .outputs = &.{
-            Pin{ .name = "data", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+            // TODO: this should output a sexp type
+            Pin{ .name = "data", .kind = .{ .primitive = .{ .value = primitive_types.code } } },
         },
     });
 

@@ -35,6 +35,7 @@ const UserFuncTypes = enum(u32) {
     f64_ = 3,
     string = 4,
     code = 5,
+    bool = 6,
 };
 
 export fn createUserFunc(name_len: u32, input_count: u32, output_count: u32) *const anyopaque {
@@ -87,6 +88,7 @@ fn _addUserFuncInput(func_id: *const helpers.BasicMutNodeDesc, index: u32, name:
         .f64_ => grappl.primitive_types.f64_,
         .string => grappl.primitive_types.string,
         .code => grappl.primitive_types.code,
+        .bool => grappl.primitive_types.bool_,
     };
 
     // skip the exec index
@@ -104,6 +106,7 @@ fn _addUserFuncOutput(func_id: *const helpers.BasicMutNodeDesc, index: u32, name
         .f64_ => grappl.primitive_types.f64_,
         .string => grappl.primitive_types.string,
         .code => grappl.primitive_types.code,
+        .bool => grappl.primitive_types.bool_,
     };
 
     // skip the exec index
@@ -460,9 +463,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
             if (node_desc.hidden)
                 continue;
 
-            if (maybe_create_from_type != null and node_name.ptr != helpers.builtin_nodes.json_quote.name().ptr) {
-                const create_from_type = maybe_create_from_type.?;
-
+            if (maybe_create_from_type) |create_from_type| {
                 const pins = switch (maybe_create_from.?.kind) {
                     .input => node_desc.getOutputs(),
                     .output => node_desc.getInputs(),
@@ -472,7 +473,11 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     return error.TooManyPins;
 
                 for (pins, 0..) |pin_desc, j| {
-                    if (std.meta.eql(pin_desc.asPrimitivePin(), create_from_type)) {
+                    if (std.meta.eql(pin_desc.asPrimitivePin(), create_from_type)
+                    //
+                    or std.meta.eql(pin_desc.asPrimitivePin(), helpers.PrimitivePin{ .value = helpers.primitive_types.code })
+                    //
+                    ) {
                         valid_socket_index = @intCast(j);
                         break;
                     }
@@ -493,8 +498,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                 // TODO: use diagnostic
                 const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null, pt_in_graph);
 
-                if (maybe_create_from != null and node_name.ptr != helpers.builtin_nodes.json_quote.name().ptr) {
-                    const create_from = maybe_create_from.?;
+                if (maybe_create_from) |create_from| {
                     switch (create_from.kind) {
                         .input => {
                             // TODO: add it to the first type-compatible socket!
@@ -993,7 +997,13 @@ fn renderNode(
             .background = true,
         };
 
-        const socket_point: dvui.Point = if (input_desc.kind.primitive == .exec) _: {
+        const socket_point: dvui.Point = if (
+        //
+        input_desc.kind.primitive == .exec
+        //
+        or input_desc.kind.primitive.value == helpers.primitive_types.code
+        //
+        ) _: {
             var icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
             const socket_center = considerSocketForHover(&icon_res, socket);
             if (icon_res.clicked) {
@@ -1095,6 +1105,24 @@ fn renderNode(
                     } else {
                         try dvui.label(@src(), "No locals", .{}, .{ .id_extra = j });
                     }
+                    handled = true;
+                }
+
+                if (input_desc.kind.primitive.value == grappl.primitive_types.string and input.* == .value) {
+                    const empty_str = "";
+                    if (input.* != .value or input.value != .string) {
+                        input.* = .{ .value = .{ .string = empty_str } };
+                    }
+
+                    const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{} } }, .{ .id_extra = j });
+                    defer text_result.deinit();
+                    // TODO: don't dupe this memory! use a dynamic buffer instead
+                    if (text_result.text_changed) {
+                        if (input.value.string.ptr != empty_str.ptr)
+                            gpa.free(input.value.string);
+                        input.value.string = try gpa.dupe(u8, text_result.getText());
+                    }
+
                     handled = true;
                 }
 
