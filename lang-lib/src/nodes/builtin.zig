@@ -713,6 +713,18 @@ pub const builtin_nodes = struct {
         },
     });
 
+    // FIXME: TEMP FOR DEMO
+    pub const like: NodeDesc = basicNode(&.{
+        .name = "like",
+        .inputs = &.{
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "equal", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+    });
+
     pub const string_indexof: NodeDesc = basicNode(&.{
         .name = "index-of",
         .inputs = &.{

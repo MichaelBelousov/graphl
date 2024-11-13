@@ -122,8 +122,14 @@
                       parameters: [{ name: "query", type: grappl.Types.code }],
                       results: [],
                       impl(code) {
-                        //console.log('s-exp:', code);
                         console.log('QUERY:', sexpToSql(code));
+                      }
+                    },
+                    "testme": {
+                      parameters: [{ name: "query", type: grappl.Types.string }],
+                      results: [],
+                      impl(str) {
+                        console.log(str);
                       }
                     },
                     // dummy nodes

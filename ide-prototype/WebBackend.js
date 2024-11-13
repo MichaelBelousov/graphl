@@ -509,7 +509,18 @@ export function Ide(canvasElem, opts) {
                         funcInfo.func.impl(code);
                     },
 
-                    get callUserFunc_string_R_void() { return this.callUserFunc_code_R_void; },
+                    callUserFunc_string_R_void(func_id, len, ptr) {
+                        const funcInfo = userFuncs.get(func_id);
+
+                        if (funcInfo === undefined
+                         || funcInfo.func.parameters.length !== 1
+                         || funcInfo.func.parameters[0].type !== Types.string
+                         || funcInfo.func.results.length !== 0
+                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
+
+                        const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr, len));
+                        funcInfo.func.impl(str);
+                    },
 
                     callUserFunc_R_void(func_id) {
                         const funcInfo = userFuncs.get(func_id);

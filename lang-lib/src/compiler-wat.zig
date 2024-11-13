@@ -1094,6 +1094,26 @@ const Compilation = struct {
                 return result;
             },
 
+            .borrowedString, .ownedString => |v| {
+                const data_offset = try self.addReadonlyData(v);
+
+                try result.code.ensureTotalCapacityPrecise(2);
+                const len = result.code.addOneAssumeCapacity();
+                const ptr = result.code.addOneAssumeCapacity();
+
+                len.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                try len.value.list.ensureTotalCapacityPrecise(2);
+                len.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+                len.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(v.len) } };
+
+                ptr.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                try ptr.value.list.ensureTotalCapacityPrecise(2);
+                ptr.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+                ptr.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
+
+                return result;
+            },
+
             inline else => {
                 std.log.err("unimplemented expr for compilation:\n{}\n", .{code_sexp});
                 std.debug.panic("unimplemented type: '{s}'", .{@tagName(code_sexp.value)});
@@ -1152,7 +1172,7 @@ const Compilation = struct {
             \\(func $callUserFunc_i32_R_void (import "env" "callUserFunc_i32_R_void") (param i32) (param i32))
             \\(func $callUserFunc_i32_R_i32 (import "env" "callUserFunc_i32_R_i32") (param i32) (param i32) (result i32))
             \\(func $callUserFunc_i32_i32_R_i32 (import "env" "callUserFunc_i32_i32_R_i32") (param i32) (param i32) (param i32) (result i32))
-            \\(func $callUserFunc_bool_R_void (import "env" "callUserFunc_code_R_void") (param i32) (param i32))
+            \\(func $callUserFunc_bool_R_void (import "env" "callUserFunc_bool_R_void") (param i32) (param i32))
         ;
 
         // TODO: parse them at comptime and get the count that way
@@ -1249,28 +1269,6 @@ const Compilation = struct {
                     var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     defer user_func_thunk.deinit(alloc);
                     try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
-                    // } else if (user_func.data.inputs.len == 2
-                    // //
-                    // and user_func.data.inputs[1].kind == .primitive
-                    // //
-                    // and user_func.data.inputs[1].kind.primitive == .value
-                    // //
-                    // and user_func.data.inputs[1].kind.primitive.value == primitive_types.i32_) {
-                    //     // TODO: create dedicated function for this kind of substitution
-                    //     const user_func_thunk_src = try std.fmt.allocPrint(alloc,
-                    //         \\(func ${s}
-                    //         \\      (param $in_len i32)
-                    //         \\      (param $in_ptr i32)
-                    //         \\      (result $out_len i32)
-                    //         \\      (result $out_ptr i32)
-                    //         \\      (call $callUserFunc_JSON_R_JSON (i32.const {}) (local.get $in_ptr) (local.get $in_len))
-                    //         \\      (local.set $out_len)
-                    //         \\      (local.set $out_ptr)
-                    //         \\)
-                    //     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
-                    //     var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
-                    //     defer user_func_thunk.deinit(alloc);
-                    //     try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
                 } else if (user_func.data.inputs.len == 2
                 //
                 and user_func.data.inputs[1].kind == .primitive
