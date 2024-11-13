@@ -269,7 +269,7 @@ pub const primitive_types = struct {
     pub const symbol: Type = &TypeInfo{ .name = "symbol", .wasm_primitive = "i32" };
     pub const @"void": Type = &TypeInfo{ .name = "void" };
 
-    // pub const string: Type = &TypeInfo{ .name = "string" };
+    pub const string: Type = &TypeInfo{ .name = "string" };
     // pub const vec3: Type = &TypeInfo{
     //     .name = "vec3",
     //     .field_names = &.{ "x", "y", "z" },
@@ -580,6 +580,99 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
     });
+    pub const @">=": NodeDesc = basicNode(&.{
+        .name = ">=",
+        .inputs = &.{
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+    });
+    pub const @"<=": NodeDesc = basicNode(&.{
+        .name = "<=",
+        .inputs = &.{
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+    });
+    pub const @"<": NodeDesc = basicNode(&.{
+        .name = "<",
+        .inputs = &.{
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+    });
+    pub const @">": NodeDesc = basicNode(&.{
+        .name = ">",
+        .inputs = &.{
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+    });
+    pub const @"==": NodeDesc = basicNode(&.{
+        .name = "==",
+        .inputs = &.{
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+    });
+    pub const @"!=": NodeDesc = basicNode(&.{
+        .name = "!=",
+        .inputs = &.{
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+    });
+
+    pub const not: NodeDesc = basicNode(&.{
+        .name = "not",
+        .inputs = &.{
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+    });
+
+    pub const @"and": NodeDesc = basicNode(&.{
+        .name = "and",
+        .inputs = &.{
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+    });
+
+    pub const @"or": NodeDesc = basicNode(&.{
+        .name = "or",
+        .inputs = &.{
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+    });
+
     pub const @"if": NodeDesc = basicNode(&.{
         .name = "if",
         .inputs = &.{

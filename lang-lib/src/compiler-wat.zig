@@ -953,6 +953,7 @@ const Compilation = struct {
         {
             var host_callbacks_prologue = try SexpParser.parse(alloc,
                 \\(func $callUserFunc_R_void (import "env" "callUserFunc_R_void") (param i32))
+                \\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_R_void") (param i32) (param i32) (result i32) (result i32))
                 \\(func $callUserFunc_i32_R_void (import "env" "callUserFunc_i32_R_void") (param i32) (param i32))
                 \\(func $callUserFunc_i32_R_i32 (import "env" "callUserFunc_i32_R_i32") (param i32) (param i32) (result i32))
                 \\(func $callUserFunc_i32_i32_R_i32 (import "env" "callUserFunc_i32_i32_R_i32") (param i32) (param i32) (param i32) (result i32))
@@ -988,12 +989,64 @@ const Compilation = struct {
             // TODO/NEXT: for each user provided function, build a thunk and append it
             var maybe_user_func = self.user_context.funcs.first;
             while (maybe_user_func) |user_func| : (maybe_user_func = user_func.next) {
-                if (user_func.data.inputs.len == 2 and user_func.data.inputs[1].kind == .primitive and user_func.data.inputs[1].kind.primitive == .value and user_func.data.inputs[1].kind.primitive.value == primitive_types.i32_) {
+                if (user_func.data.inputs.len == 2
+                //
+                and user_func.data.inputs[1].kind == .primitive
+                //
+                and user_func.data.inputs[1].kind.primitive == .value
+                //
+                and user_func.data.inputs[1].kind.primitive.value == primitive_types.i32_) {
                     // TODO: create dedicated function for this kind of substitution
                     const user_func_thunk_src = try std.fmt.allocPrint(alloc,
                         \\(func ${s}
                         \\      (param $param_1 i32)
                         \\      (call $callUserFunc_i32_R_void (i32.const {}) (local.get $param_1)))
+                    , .{ user_func.data.name, @intFromPtr(&user_func.data) });
+                    var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
+                    defer user_func_thunk.deinit(alloc);
+                    try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
+                    // } else if (user_func.data.inputs.len == 2
+                    // //
+                    // and user_func.data.inputs[1].kind == .primitive
+                    // //
+                    // and user_func.data.inputs[1].kind.primitive == .value
+                    // //
+                    // and user_func.data.inputs[1].kind.primitive.value == primitive_types.i32_) {
+                    //     // TODO: create dedicated function for this kind of substitution
+                    //     const user_func_thunk_src = try std.fmt.allocPrint(alloc,
+                    //         \\(func ${s}
+                    //         \\      (param $in_ptr i32)
+                    //         \\      (param $in_len i32)
+                    //         \\      (result $in_ptr i32)
+                    //         \\      (result $in_len i32)
+                    //         \\      (local $out_ptr i32)
+                    //         \\      (local $out_len i32)
+                    //         \\      (call $callUserFunc_JSON_R_JSON (i32.const {}) (local.get $in_ptr) (local.get $in_len))
+                    //         \\      (local.set $out_ptr)
+                    //         \\      (local.set $out_len)
+                    //         \\)
+                    //     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
+                    //     var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
+                    //     defer user_func_thunk.deinit(alloc);
+                    //     try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
+                } else if (user_func.data.inputs.len == 2
+                //
+                and user_func.data.inputs[1].kind == .primitive
+                //
+                and user_func.data.inputs[1].kind.primitive == .value
+                //
+                and user_func.data.inputs[1].kind.primitive.value == primitive_types.string) {
+                    // TODO: create dedicated function for this kind of substitution
+                    const user_func_thunk_src = try std.fmt.allocPrint(alloc,
+                        \\(func ${s}
+                        \\      (param $in_ptr i32)
+                        \\      (param $in_len i32)
+                        \\      (result $out_ptr i32)
+                        \\      (result $out_len i32)
+                        \\      (call $callUserFunc_string_R_string (i32.const {}) (local.get $in_ptr) (local.get $in_len))
+                        \\      (local.set $out_ptr)
+                        \\      (local.set $out_len)
+                        \\)
                     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
                     var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     defer user_func_thunk.deinit(alloc);
