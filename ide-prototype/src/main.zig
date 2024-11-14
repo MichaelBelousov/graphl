@@ -21,8 +21,27 @@ const MAX_FUNC_NAME = 256;
 extern fn recvCurrentSource(ptr: ?[*]const u8, len: usize) void;
 extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
-const grappl_init_buffer: [MAX_FUNC_NAME]u8 = undefined;
-export const grappl_init_start: *const u8 = &grappl_init_buffer[0];
+const grappl_init_buffer: [MAX_FUNC_NAME]u8 = _: {
+    var result = std.mem.zeroes([MAX_FUNC_NAME]u8);
+    result[0] = '\x1B';
+    result[1] = '\x2D';
+    result[MAX_FUNC_NAME - 2] = '\x3E';
+    result[MAX_FUNC_NAME - 1] = '\x4F';
+    break :_ result;
+};
+
+export const grappl_init_start: [*]const u8 = switch (builtin.mode) {
+    //.Debug => &grappl_init_buffer[0],
+    else => @ptrCast(&grappl_init_buffer[0]),
+};
+
+// fuck it just ship this crap, WTF: REPORT ME HACK FIXME
+const init_buff_offset: isize = switch (builtin.mode) {
+    .Debug => 0,
+    else => 3,
+};
+
+const grappl_real_init_buff: *const [MAX_FUNC_NAME]u8 = @ptrCast(grappl_init_start + init_buff_offset);
 
 const UserFuncList = std.SinglyLinkedList(helpers.BasicMutNodeDesc);
 var user_funcs = UserFuncList{};
@@ -39,17 +58,17 @@ const UserFuncTypes = enum(u32) {
 };
 
 export fn createUserFunc(name_len: u32, input_count: u32, output_count: u32) *const anyopaque {
-    const name = grappl_init_buffer[0..name_len];
+    const name = grappl_real_init_buff[0..name_len];
     return _createUserFunc(name, input_count, output_count) catch unreachable;
 }
 
 export fn addUserFuncInput(func_id: *const anyopaque, index: u32, name_len: u32, input_type: u32) void {
-    const name = grappl_init_buffer[0..name_len];
+    const name = grappl_real_init_buff[0..name_len];
     return _addUserFuncInput(@alignCast(@ptrCast(func_id)), index, name, @enumFromInt(input_type)) catch unreachable;
 }
 
 export fn addUserFuncOutput(func_id: *const anyopaque, index: u32, name_len: u32, output_type: u32) void {
-    const name = grappl_init_buffer[0..name_len];
+    const name = grappl_real_init_buff[0..name_len];
     return _addUserFuncOutput(@alignCast(@ptrCast(func_id)), index, name, @enumFromInt(output_type)) catch unreachable;
 }
 
@@ -208,7 +227,7 @@ const Graph = struct {
 
         self.visual_graph = VisualGraph{ .graph = &self.grappl_graph };
 
-        _ = try self.addNode(gpa, "return", true, null, null, .{});
+        _ = try self.addNode(gpa, "return", true, null, null, .{ .x = 500, .y = 500 });
     }
 
     pub fn deinit(self: *@This()) void {
