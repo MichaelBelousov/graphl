@@ -561,13 +561,14 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
     // can use this to convert between data and screen coords
     const dataRectScale = scaler.screenRectScale(.{});
 
-    try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .x = -10 }));
-    try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .x = 10 }));
-    try dvui.pathStroke(false, 1, .none, dvui.Color.black);
+    // origin
+    // try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .x = -10 }));
+    // try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .x = 10 }));
+    // try dvui.pathStroke(false, 1, .none, dvui.Color.black);
 
-    try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .y = -10 }));
-    try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .y = 10 }));
-    try dvui.pathStroke(false, 1, .none, dvui.Color.black);
+    // try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .y = -10 }));
+    // try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .y = 10 }));
+    // try dvui.pathStroke(false, 1, .none, dvui.Color.black);
 
     if (ctext.activePoint()) |cp| {
         const mp = dvui.currentWindow().mouse_pt;
@@ -916,6 +917,8 @@ fn considerSocketForHover(icon_res: *dvui.ButtonIconResult, socket: Socket) dvui
     return socket_center;
 }
 
+const exec_color = dvui.Color{ .r = 0x55, .g = 0x55, .b = 0x55, .a = 0xff };
+
 // TODO: remove need for id, it should be inside the node itself
 fn renderNode(
     node: *grappl.Node,
@@ -983,16 +986,16 @@ fn renderNode(
         const color = if (input_desc.kind == .primitive and input_desc.kind.primitive == .value)
             try colorForType(input_desc.kind.primitive.value)
         else
-            dvui.Color{ .a = 0 };
+            exec_color;
 
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
             .gravity_y = 0.5,
             .id_extra = j,
             .color_fill = .{ .color = color },
+            .color_fill_hover = .{ .color = .{ .r = color.r, .g = color.g, .b = color.b, .a = 0x88 } },
             .debug = true,
-            .border = .{ .x = 1, .y = 1, .w = 1, .h = 1 },
-            .color_border = .{ .color = .{ .b = 0xff, .a = 0xff } },
+            .border = dvui.Rect{},
             .background = true,
         };
 
@@ -1150,7 +1153,7 @@ fn renderNode(
         const color = if (output_desc.kind == .primitive and output_desc.kind.primitive == .value)
             try colorForType(output_desc.kind.primitive.value)
         else
-            dvui.Color{ .a = 0 };
+            dvui.Color{ .a = 0x55 };
 
         const icon_opts = dvui.Options{
             .min_size_content = .{ .h = 20, .w = 20 },
@@ -1158,9 +1161,9 @@ fn renderNode(
             .id_extra = j,
             //
             .debug = true,
-            .border = .{ .x = 1, .y = 1, .w = 1, .h = 1 },
-            .color_border = .{ .color = .{ .g = 0xff, .a = 0xff } },
+            .border = dvui.Rect{},
             .color_fill = .{ .color = color },
+            .color_fill_hover = .{ .color = .{ .r = color.r, .g = color.g, .b = color.b, .a = 0x88 } },
             .background = true,
         };
 
