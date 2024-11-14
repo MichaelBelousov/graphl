@@ -643,7 +643,7 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
                 // FIXME: dedup with below edge drawing
                 try dvui.pathAddPoint(source_pos);
                 try dvui.pathAddPoint(target_pos);
-                const stroke_color = dvui.Color{ .r = 0x22, .g = 0x22, .b = 0x22, .a = 0xff };
+                const stroke_color = dvui.Color{ .r = 0xaa, .g = 0xaa, .b = 0xaa, .a = 0xee };
                 // TODO: need to handle deletion...
                 try dvui.pathStroke(false, 3.0, .none, stroke_color);
             }
