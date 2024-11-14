@@ -707,17 +707,12 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
         dvui.focusWidget(context_menu_widget_id orelse unreachable, null, null);
     }
 
-    var ctrl_down = dvui.dataGet(null, canvas.data().id, "_ctrl", bool) orelse false;
     var zoom: f32 = 1;
     var zoomP: dvui.Point = .{};
 
     // process scroll area events after nodes so the nodes get first pick (so the button works)
     const scroll_evts = dvui.events();
     for (scroll_evts) |*e| {
-        if (e.evt == .key and e.evt.key.matchBind("ctrl/cmd")) {
-            ctrl_down = (e.evt.key.action == .down or e.evt.key.action == .repeat);
-        }
-
         if (!graph_area.scroll.matchEvent(e))
             continue;
 
@@ -746,7 +741,7 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
                         }
                     }
                     // TODO: mouse wheel zoom
-                } else if (me.action == .wheel_y and ctrl_down) {
+                } else if (me.action == .wheel_y) {
                     e.handled = true;
                     const base: f32 = 1.01;
                     const zs = @exp(@log(base) * me.data.wheel_y);
@@ -780,8 +775,6 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
 
         dvui.refresh(null, @src(), graph_area.scroll.data().id);
     }
-
-    dvui.dataSet(null, canvas.data().id, "_ctrl", ctrl_down);
 
     // deinit graph area to process events
     ctext.deinit();
