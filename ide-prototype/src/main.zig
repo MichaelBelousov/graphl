@@ -535,6 +535,12 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
 }
 
 fn renderGraph(canvas: *dvui.BoxWidget) !void {
+    _ = canvas;
+
+    const ctext = try dvui.context(@src(), .{ .expand = .both });
+    context_menu_widget_id = ctext.wd.id;
+    defer ctext.deinit();
+
     var graph_area = try dvui.scrollArea(
         @src(),
         .{ .scroll_info = &ScrollData.scroll_info },
@@ -562,9 +568,6 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
     try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .y = -10 }));
     try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .y = 10 }));
     try dvui.pathStroke(false, 1, .none, dvui.Color.black);
-
-    const ctext = try dvui.context(@src(), .{ .expand = .both });
-    context_menu_widget_id = ctext.wd.id;
 
     if (ctext.activePoint()) |cp| {
         const mp = dvui.currentWindow().mouse_pt;
@@ -777,7 +780,6 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
     }
 
     // deinit graph area to process events
-    ctext.deinit();
     scaler.deinit();
     graph_area.deinit();
 
