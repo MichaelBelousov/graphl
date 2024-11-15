@@ -1016,22 +1016,80 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
     return page_writer.concat(global_alloc);
 }
 
-// test "big graph_to_source" {
-//     const alloc = std.testing.allocator;
-//     const source = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/source.scm");
-//     defer source.free(alloc);
-//     const graph_json = try FileBuffer.fromDirAndPath(alloc, std.fs.cwd(), "./tests/small1/graph.json");
-//     defer graph_json.free(alloc);
+// test "big local built graph" {
+//     const a = testing.allocator;
 
-//     var diagnostic: GraphToSourceDiagnostic = undefined;
-//     const result = graphToSource(alloc, graph_json.buffer, &diagnostic);
-//     if (result) |compiled_source| {
-//         try testing.expectEqualStrings(source.buffer, compiled_source);
-//         alloc.free(compiled_source);
-//     } else |err| {
-//         debug_print("\nDIAGNOSTIC ({}):\n{}\n", .{ err, diagnostic });
-//         return error.FailTest;
-//     }
+//     var env = try Env.initDefault(a);
+//     defer env.deinit(a);
+
+//     _ = try env.addNode(a, helpers.basicNode(&.{
+//         .name = "throw-confetti",
+//         .inputs = &.{
+//             helpers.Pin{ .name = "run", .kind = .{ .primitive = .exec } },
+//             helpers.Pin{ .name = "particle count", .kind = .{ .primitive = .{ .value = helpers.primitive_types.i32_ } } },
+//         },
+//         .outputs = &.{
+//             helpers.Pin{ .name = "", .kind = .{ .primitive = .exec } },
+//         },
+//     }));
+
+//     var diagnostic: GraphBuilder.Diagnostic = .None;
+//     errdefer std.debug.print("DIAGNOSTIC:\n{}\n", .{diagnostic});
+//     var graph = GraphBuilder.init(a, &env) catch |e| {
+//         std.debug.print("\nERROR: {}\n", .{e});
+//         return e;
+//     };
+//     defer graph.deinit(a);
+
+//     try graph.locals.append(a, .{
+//         .name = try a.dupe(u8, "x"),
+//         .type_ = helpers.primitive_types.i32_,
+//     });
+//     defer for (graph.locals.items) |l| a.free(l.name);
+
+//     const return_index = try graph.addNode(a, "return", true, null, null);
+//     const plus_index = try graph.addNode(a, "+", false, null, &diagnostic);
+//     const set_index = try graph.addNode(a, "set!", false, null, &diagnostic);
+//     const confetti_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
+//     const set2_index = try graph.addNode(a, "set!", false, null, &diagnostic);
+
+//     try graph.addLiteralInput(plus_index, 0, 0, .{ .float = 4.0 });
+//     try graph.addLiteralInput(plus_index, 1, 0, .{ .int = 8 });
+//     try graph.addLiteralInput(set_index, 1, 0, .{ .symbol = "x" });
+//     try graph.addLiteralInput(confetti_index, 1, 0, .{ .int = 100 });
+//     try graph.addLiteralInput(set2_index, 1, 0, .{ .symbol = "x" });
+//     try graph.addLiteralInput(set2_index, 2, 0, .{ .int = 10 });
+//     try graph.addEdge(set2_index, 0, confetti_index, 0, 0);
+//     try graph.addEdge(confetti_index, 0, set_index, 0, 0);
+//     try graph.addEdge(plus_index, 0, set_index, 2, 0);
+//     try graph.addEdge(set_index, 0, return_index, 0, 0);
+
+//     const sexp = graph.compile(a, "main") catch |e| {
+//         std.debug.print("\ncompile error: {}\n", .{e});
+//         return e;
+//     };
+//     defer sexp.deinit(a);
+
+//     var text = std.ArrayList(u8).init(a);
+//     defer text.deinit();
+//     _ = try sexp.write(text.writer());
+
+//     try testing.expectEqualStrings(
+//         \\(typeof (main)
+//         \\        i32)
+//         \\(define (main)
+//         \\        (begin (typeof x
+//         \\                       i32)
+//         \\               (define x)
+//         \\               (set! x
+//         \\                     10)
+//         \\               (throw-confetti 100)
+//         \\               (set! x
+//         \\                     (+ 4
+//         \\                        8))
+//         \\               (return 0)))
+//         // TODO: print floating point explicitly
+//     , text.items);
 // }
 
 test "small local built graph" {
@@ -1059,87 +1117,14 @@ test "small local built graph" {
     };
     defer graph.deinit(a);
 
-    try graph.locals.append(a, .{
-        .name = try a.dupe(u8, "x"),
-        .type_ = helpers.primitive_types.i32_,
-    });
-    defer for (graph.locals.items) |l| a.free(l.name);
-
-    const return_index = try graph.addNode(a, "return", true, null, null);
-    const plus_index = try graph.addNode(a, "+", false, null, &diagnostic);
-    const set_index = try graph.addNode(a, "set!", false, null, &diagnostic);
     const confetti_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
-    const set2_index = try graph.addNode(a, "set!", false, null, &diagnostic);
+    // FIXME:
+    const entry_index = 0;
+    const return_index = 1;
 
-    try graph.addLiteralInput(plus_index, 0, 0, .{ .number = 4.0 });
-    try graph.addLiteralInput(plus_index, 1, 0, .{ .number = 8 });
-    try graph.addLiteralInput(set_index, 1, 0, .{ .symbol = "x" });
-    try graph.addLiteralInput(confetti_index, 1, 0, .{ .number = 100 });
-    try graph.addLiteralInput(set2_index, 1, 0, .{ .symbol = "x" });
-    try graph.addLiteralInput(set2_index, 2, 0, .{ .number = 10 });
-    try graph.addEdge(set2_index, 0, confetti_index, 0, 0);
-    try graph.addEdge(confetti_index, 0, set_index, 0, 0);
-    try graph.addEdge(plus_index, 0, set_index, 2, 0);
-    try graph.addEdge(set_index, 0, return_index, 0, 0);
-
-    const sexp = graph.compile(a, "main") catch |e| {
-        std.debug.print("\ncompile error: {}\n", .{e});
-        return e;
-    };
-    defer sexp.deinit(a);
-
-    var text = std.ArrayList(u8).init(a);
-    defer text.deinit();
-    _ = try sexp.write(text.writer());
-
-    try testing.expectEqualStrings(
-        \\(typeof (main)
-        \\        i32)
-        \\(define (main)
-        \\        (begin (typeof x
-        \\                       i32)
-        \\               (define x)
-        \\               (set! x
-        \\                     10)
-        \\               (throw-confetti 100)
-        \\               (set! x
-        \\                     (+ 4
-        \\                        8))
-        \\               (return 0)))
-        // TODO: print floating point explicitly
-    , text.items);
-}
-
-test "small local built graph 2" {
-    const a = testing.allocator;
-
-    var env = try Env.initDefault(a);
-    defer env.deinit(a);
-
-    _ = try env.addNode(a, helpers.basicNode(&.{
-        .name = "throw-confetti",
-        .inputs = &.{
-            helpers.Pin{ .name = "run", .kind = .{ .primitive = .exec } },
-            helpers.Pin{ .name = "particle count", .kind = .{ .primitive = .{ .value = helpers.primitive_types.i32_ } } },
-        },
-        .outputs = &.{
-            helpers.Pin{ .name = "", .kind = .{ .primitive = .exec } },
-        },
-    }));
-
-    var diagnostic: GraphBuilder.Diagnostic = .None;
-    errdefer std.debug.print("DIAGNOSTIC:\n{}\n", .{diagnostic});
-    var graph = GraphBuilder.init(a, &env) catch |e| {
-        std.debug.print("\nERROR: {}\n", .{e});
-        return e;
-    };
-    defer graph.deinit(a);
-
-    const return_index = try graph.addNode(a, "return", true, null, null);
-    const confetti_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
-
-    try graph.addLiteralInput(confetti_index, 1, 0, .{ .number = 100 });
+    try graph.addLiteralInput(confetti_index, 1, 0, .{ .int = 100 });
     try graph.addEdge(confetti_index, 0, return_index, 0, 0);
+    try graph.addEdge(entry_index, 0, confetti_index, 0, 0);
 
     const sexp = graph.compile(a, "main") catch |e| {
         std.debug.print("\ncompile error: {}\n", .{e});
