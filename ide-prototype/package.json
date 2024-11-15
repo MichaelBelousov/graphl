@@ -11,7 +11,7 @@
   "scripts": {
     "build": "zig build -Doptimize=ReleaseSmall && vite build --mode production",
     "build:debug": "zig build && vite build --mode development",
-    "build:demo": "zig build && vite build -c ./vite.demo.config.ts --mode production",
+    "build:demo": "zig build -Doptimize=ReleaseSmall && vite build -c ./vite.demo.config.ts --mode production",
     "preview": "vite preview",
     "dev": "vite --port 3001 -c ./vite.demo.config.ts",
     "dev:zig": "git ls-files | entr -rc zig build",
