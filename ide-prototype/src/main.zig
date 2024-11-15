@@ -2010,6 +2010,7 @@ fn dvui_frame() !void {
 
         inline for (params_results_bindings, 0..) |info, i| {
             var pin_descs = @field(info.node_basic_desc, info.pin_dir);
+            const opposite_dir = if (info.type == .params) "inputs" else "outputs";
 
             {
                 var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal, .id_extra = i });
@@ -2020,8 +2021,11 @@ fn dvui_frame() !void {
                 const add_clicked = (try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i })).clicked;
                 if (add_clicked) {
                     const node_basic_desc = info.node_basic_desc;
-                    @field(node_basic_desc, info.pin_dir) = try gpa.realloc(pin_descs, pin_descs.len + 1);
-                    pin_descs = @field(node_basic_desc, info.pin_dir);
+                    pin_descs = try gpa.realloc(pin_descs, pin_descs.len + 1);
+                    @field(node_basic_desc, info.pin_dir) = pin_descs;
+
+                    // FIXME: update call_desc
+                    @field(current_graph.call_basic_desc, opposite_dir) = pin_descs;
 
                     pin_descs[pin_descs.len - 1] = .{
                         .name = "a",
@@ -2032,24 +2036,41 @@ fn dvui_frame() !void {
                     };
 
                     {
+                        // TODO: nodes should not be guaranteed to have the same amount of links as their
+                        // definition has pins
                         // FIXME: we can avoid a linear scan!
                         for (current_graph.grappl_graph.nodes.map.values()) |*node| {
-                            if (node.desc() != info.node_desc)
+                            // FIXME: we need to run this across ALL graphs, not just the current one
+                            if (node.desc() == info.node_desc) {
+                                const pins = @field(node, info.pin_dir);
+                                @field(node, info.pin_dir) = try gpa.realloc(pins, pins.len + 1);
+                                switch (info.type) {
+                                    .params => {
+                                        pins[pins.len - 1] = null;
+                                    },
+                                    .results => {
+                                        pins[pins.len - 1] = .{
+                                            .value = grappl.Value{ .int = 0 },
+                                        };
+                                    },
+                                    else => unreachable,
+                                }
+                            } else if (node.desc() == current_graph.call_desc) {
+                                const pins = @field(node, opposite_dir);
+                                @field(node, opposite_dir) = try gpa.realloc(pins, pins.len + 1);
+                                switch (info.type) {
+                                    .params => {
+                                        pins[pins.len - 1] = .{
+                                            .value = grappl.Value{ .int = 0 },
+                                        };
+                                    },
+                                    .results => {
+                                        pins[pins.len - 1] = null;
+                                    },
+                                    else => unreachable,
+                                }
+                            } else {
                                 continue;
-                            // TODO: nodes should not be guaranteed to have the same amount of links as their
-                            // definition has pins
-                            const pins = @field(node, info.pin_dir);
-                            @field(node, info.pin_dir) = try gpa.realloc(pins, pins.len + 1);
-                            switch (info.type) {
-                                .params => {
-                                    pins[pins.len - 1] = null;
-                                },
-                                .results => {
-                                    pins[pins.len - 1] = .{
-                                        .value = grappl.Value{ .int = 0 },
-                                    };
-                                },
-                                else => unreachable,
                             }
                         }
                     }
