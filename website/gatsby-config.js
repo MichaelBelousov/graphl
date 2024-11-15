@@ -8,7 +8,7 @@ module.exports = {
     title: constants.companyName,
     description: constants.flagshipProductName,
     author: constants.companyName,
-    siteUrl: `https://grappl.online`,
+    siteUrl: `https://graphl.tech`,
     image: `./src/images/logo2.svg`,
   },
   plugins: [
@@ -25,8 +25,8 @@ module.exports = {
     {
       resolve: `gatsby-plugin-manifest`,
       options: {
-        name: `grappl`,
-        short_name: `grappl.online`,
+        name: `Graphl`,
+        short_name: `graphl`,
         start_url: `/`,
         background_color: `#663399`,
         theme_color: `#663399`,

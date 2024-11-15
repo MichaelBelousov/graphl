@@ -25,7 +25,7 @@ const Homepage = () => {
   const [iframeInteractable, setIframeInteractable] = React.useState(false);
 
   return (
-    <Layout pageTitle="Grappl" pageDesc="The next generation no-coding environment">
+    <Layout pageTitle="Graphl" pageDesc="The next generation no-coding environment">
       <div className={styles.blurbBackground}>
         {/* TODO: wrap this in a component/function to make it readable */}
         <div className={styles.bigText} style={{ fontSize: "2em", textAlign: "center" }}>
@@ -60,7 +60,7 @@ const Homepage = () => {
           <br/>
           <p style={{ textAlign: "center" }}>
             Questions?
-            Reach out to us at <a href={`mailto:me@mikemikeb.com`}>support@grappl.online</a>
+            Reach out to us at <a href={`mailto:me@mikemikeb.com`}>support@graphl.tech</a>
           </p>
         </div>
       </div>
