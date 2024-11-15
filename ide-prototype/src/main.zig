@@ -226,6 +226,19 @@ const Graph = struct {
         @memcpy(self.name_buff[0..in_name.len], in_name);
 
         self.visual_graph = VisualGraph{ .graph = &self.grappl_graph };
+
+        std.debug.assert(self.grappl_graph.nodes.map.getPtr(0).?.id == self.grappl_graph.entry_id);
+        std.debug.assert(self.grappl_graph.nodes.map.getPtr(1) != null);
+
+        try self.visual_graph.node_data.put(gpa, 0, .{
+            .position = dvui.Point{ .x = 200, .y = 200 },
+            .position_override = dvui.Point{ .x = 200, .y = 200 },
+        });
+
+        try self.visual_graph.node_data.put(gpa, 1, .{
+            .position = dvui.Point{ .x = 400, .y = 200 },
+            .position_override = dvui.Point{ .x = 400, .y = 200 },
+        });
     }
 
     pub fn deinit(self: *@This()) void {
@@ -553,7 +566,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     defer subfw.deinit();
 
                     for (bindings.items, 0..) |binding, j| {
-                        const id_extra = (j << 8) & i;
+                        const id_extra = (j << 8) | i;
 
                         if (maybe_create_from_type != null and !std.meta.eql(maybe_create_from_type.?, grappl.PrimitivePin{ .value = binding.type_ })) {
                             continue;
@@ -575,7 +588,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                 defer subfw.deinit();
 
                 for (bindings.items, 0..) |binding, j| {
-                    const id_extra = (j << 8) & i;
+                    const id_extra = (j << 8) | i;
                     var buf: [MAX_FUNC_NAME]u8 = undefined;
                     const name = try std.fmt.bufPrint(&buf, "set_{s}", .{binding.name});
                     const node_desc = current_graph.env.nodes.get(binding.name) orelse unreachable;
@@ -1734,8 +1747,7 @@ fn dvui_frame() !void {
         const bindings_infos = &.{
             //.{ .binding_group = &current_graph.grappl_graph.imports, .name = "Imports" },
             .{ .data = &current_graph.grappl_graph.locals, .name = "Locals", .type = .locals },
-            .{ .data = &current_graph.grappl_graph.params, .name = "Parameters", .type = .params },
-            //.{ .data = &current_graph.grappl_graph.results, .name = "Results" },
+            //.{ .data = &current_graph.grappl_graph.params, .name = "Parameters", .type = .params },
         };
 
         inline for (bindings_infos, 0..) |bindings_info, i| {
@@ -1906,19 +1918,39 @@ fn dvui_frame() !void {
             }
         }
 
-        // results
-        {
+        const params_results_bindings = &.{
+            .{
+                .node_desc = current_graph.grappl_graph.result_node,
+                .node_basic_desc = current_graph.grappl_graph.result_node_basic_desc,
+                .name = "Results",
+                .pin_dir = "inputs",
+                .type = .results,
+            },
+            .{
+                .node_desc = current_graph.grappl_graph.entry_node,
+                .node_basic_desc = current_graph.grappl_graph.entry_node_basic_desc,
+                .name = "Parameters",
+                .pin_dir = "outputs",
+                .type = .params,
+            },
+        };
+
+        inline for (params_results_bindings, 0..) |info, i| {
+            var pin_descs = @field(info.node_basic_desc, info.pin_dir);
+
             {
-                var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal });
+                var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal, .id_extra = i });
                 defer box.deinit();
 
-                _ = try dvui.label(@src(), "Results", .{}, .{ .font_style = .heading });
+                _ = try dvui.label(@src(), info.name, .{}, .{ .font_style = .heading, .id_extra = i });
 
-                const add_clicked = (try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{})).clicked;
+                const add_clicked = (try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i })).clicked;
                 if (add_clicked) {
-                    const node_desc = current_graph.grappl_graph.result_node_basic_desc;
-                    node_desc.inputs = try gpa.realloc(node_desc.inputs, node_desc.inputs.len + 1);
-                    node_desc.inputs[node_desc.inputs.len - 1] = .{
+                    const node_basic_desc = info.node_basic_desc;
+                    @field(node_basic_desc, info.pin_dir) = try gpa.realloc(pin_descs, pin_descs.len + 1);
+                    pin_descs = @field(node_basic_desc, info.pin_dir);
+
+                    pin_descs[pin_descs.len - 1] = .{
                         .name = "a",
                         // i32 is default param for now
                         .kind = .{ .primitive = .{
@@ -1929,39 +1961,49 @@ fn dvui_frame() !void {
                     {
                         // FIXME: we can avoid a linear scan!
                         for (current_graph.grappl_graph.nodes.map.values()) |*node| {
-                            if (node.desc() != current_graph.grappl_graph.result_node)
+                            if (node.desc() != info.node_desc)
                                 continue;
                             // TODO: nodes should not be guaranteed to have the same amount of links as their
                             // definition has pins
-                            node.inputs = try gpa.realloc(node.inputs, node.inputs.len + 1);
-                            node.inputs[node.inputs.len - 1] = .{
-                                .value = grappl.Value{ .int = 0 },
-                            };
+                            const pins = @field(node, info.pin_dir);
+                            @field(node, info.pin_dir) = try gpa.realloc(pins, pins.len + 1);
+                            switch (info.type) {
+                                .params => {
+                                    pins[pins.len - 1] = null;
+                                },
+                                .results => {
+                                    pins[pins.len - 1] = .{
+                                        .value = grappl.Value{ .int = 0 },
+                                    };
+                                },
+                                else => unreachable,
+                            }
                         }
                     }
                 }
             }
 
-            for (current_graph.grappl_graph.result_node_basic_desc.inputs, 0..) |*binding, j| {
-                var box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
+            for (pin_descs, 0..) |*pin_desc, j| {
+                const id_extra = (j << 8) | i;
+                var box = try dvui.box(@src(), .horizontal, .{ .id_extra = id_extra });
                 defer box.deinit();
 
                 const text_entry_src = @src();
-                const text_entry_id = dvui.parentGet().extendId(text_entry_src, j);
+                const text_entry_id = dvui.parentGet().extendId(text_entry_src, id_extra);
                 const first_render = !(dvui.dataGet(null, text_entry_id, "_not_first_render", bool) orelse false);
                 dvui.dataSet(null, text_entry_id, "_not_first_render", true);
 
-                const text_entry = try dvui.textEntry(text_entry_src, .{}, .{ .id_extra = j });
+                const text_entry = try dvui.textEntry(text_entry_src, .{}, .{ .id_extra = id_extra });
                 if (text_entry.text_changed) {
-                    binding.name = text_entry.getText();
+                    pin_desc.name = text_entry.getText();
                 }
                 // must occur after text_changed check or this operation will set it
                 if (first_render) {
-                    text_entry.textTyped(binding.name);
+                    text_entry.textTyped(pin_desc.name);
                 }
                 text_entry.deinit();
 
-                if (binding.kind != .primitive or binding.kind.primitive == .exec)
+                if (pin_desc.kind != .primitive or pin_desc.kind.primitive == .exec)
                     continue;
 
                 // FIXME: this is slow to run every frame!
@@ -1972,11 +2014,11 @@ fn dvui_frame() !void {
                     var k: usize = 0;
                     var type_iter = current_graph.env.types.valueIterator();
                     while (type_iter.next()) |type_entry| : (k += 1) {
-                        if (binding.kind != .primitive)
+                        if (pin_desc.kind != .primitive)
                             continue;
-                        if (binding.kind.primitive != .value)
+                        if (pin_desc.kind.primitive != .value)
                             continue;
-                        if (type_entry.* == binding.kind.primitive.value) {
+                        if (type_entry.* == pin_desc.kind.primitive.value) {
                             type_choice = type_entry.*;
                             type_choice_index = k;
                             break;
@@ -1984,10 +2026,13 @@ fn dvui_frame() !void {
                     }
                 }
 
-                const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice_index, .{ .id_extra = j, .color_text = .{ .color = try colorForType(type_choice) } });
+                const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice_index, .{
+                    .id_extra = id_extra,
+                    .color_text = .{ .color = try colorForType(type_choice) },
+                });
                 if (option_clicked) {
                     const selected_name = type_options[type_choice_index];
-                    binding.kind.primitive = .{ .value = current_graph.grappl_graph.env.types.get(selected_name) orelse unreachable };
+                    pin_desc.kind.primitive = .{ .value = current_graph.grappl_graph.env.types.get(selected_name) orelse unreachable };
                 }
             }
         }

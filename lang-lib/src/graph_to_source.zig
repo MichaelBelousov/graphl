@@ -66,12 +66,14 @@ pub const GraphBuilder = struct {
     // FIXME: who owns these?
     imports: std.ArrayListUnmanaged(Sexp) = .{},
     locals: std.ArrayListUnmanaged(Binding) = .{},
+    // FIXME: remove!
     params: std.ArrayListUnmanaged(Binding) = .{},
 
     // FIXME: consolidate input nodes with types and structs
     result_node_basic_desc: *BasicMutNodeDesc,
     result_node: *const NodeDesc,
     entry_node_basic_desc: *BasicMutNodeDesc,
+    // FIXME: rename to NodeDesc
     entry_node: *const NodeDesc,
 
     const Self = @This();
