@@ -175,6 +175,7 @@ var win: dvui.Window = undefined;
 var backend: WebBackend = undefined;
 var touchPoints: [2]?dvui.Point = [_]?dvui.Point{null} ** 2;
 var orig_content_scale: f32 = 1.0;
+var shared_env: grappl.Env = undefined;
 
 const Graph = struct {
     index: u16,
@@ -182,18 +183,21 @@ const Graph = struct {
     name_buff: [MAX_FUNC_NAME]u8 = undefined,
     name_len: usize = 0,
 
+    call_basic_desc: grappl.helpers.BasicMutNodeDesc,
+    call_desc: *grappl.NodeDesc,
+
     grappl_graph: grappl.GraphBuilder,
     // FIXME: merge with visual graph
     visual_graph: VisualGraph,
 
-    env: grappl.Env,
+    env: *grappl.Env,
 
     pub fn name(self: *@This()) []u8 {
         return self.name_buff[0..self.name_len];
     }
 
     pub fn env(self: @This()) *const grappl.Env {
-        return &self.grappl_graph.env;
+        return self.grappl_graph.env;
     }
 
     pub fn init(index: u16, in_name: []const u8) !@This() {
@@ -203,7 +207,7 @@ const Graph = struct {
     }
 
     pub fn initInPlace(self: *@This(), index: u16, in_name: []const u8) !void {
-        self.env = try grappl.Env.initDefault(gpa);
+        self.env = &shared_env;
 
         {
             var maybe_cursor = user_funcs.first;
@@ -212,7 +216,7 @@ const Graph = struct {
             }
         }
 
-        const grappl_graph = try grappl.GraphBuilder.init(gpa, &self.env);
+        const grappl_graph = try grappl.GraphBuilder.init(gpa, self.env);
 
         // NOTE: does this only work because of return value optimization?
         self.* = @This(){
@@ -220,7 +224,21 @@ const Graph = struct {
             .grappl_graph = grappl_graph,
             .visual_graph = undefined,
             .env = self.env,
+            .call_basic_desc = undefined,
+            .call_desc = undefined,
         };
+
+        self.call_basic_desc = helpers.BasicMutNodeDesc{
+            .name = in_name,
+            .inputs = grappl_graph.entry_node_basic_desc.outputs,
+            .outputs = grappl_graph.result_node_basic_desc.inputs,
+        };
+
+        // FIXME: remove node on err
+        self.call_desc = try shared_env.addNode(
+            gpa,
+            helpers.basicMutableNode(&self.call_basic_desc),
+        );
 
         std.debug.assert(in_name.len <= MAX_FUNC_NAME);
         @memcpy(self.name_buff[0..in_name.len], in_name);
@@ -356,6 +374,7 @@ const AppInitErrorCodes = enum(i32) {
     BackendInitFailed = 0,
     WindowInitFailed = 1,
     GrapplInitFailed = 2,
+    EnvInitFailed = 3,
 };
 
 export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
@@ -373,6 +392,11 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
     };
 
     {
+        shared_env = grappl.Env.initDefault(gpa) catch {
+            std.log.err("Grappl env failed to init", .{});
+            return @intFromEnum(AppInitErrorCodes.EnvInitFailed);
+        };
+
         const first_graph = addGraph("main", true) catch {
             std.log.err("Grappl Graph failed to init", .{});
             return @intFromEnum(AppInitErrorCodes.GrapplInitFailed);
