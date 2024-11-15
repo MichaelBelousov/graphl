@@ -62,7 +62,7 @@ pub const JsonNode = struct {
     data: struct { isEntry: bool = false, comment: ?[]const u8 = null },
 
     pub fn toEmptyNode(self: @This(), a: std.mem.Allocator, env: Env, index: usize) !IndexedNode {
-        var node = (try env.makeNode(a, index, self.type)) orelse {
+        var node = (try env.spawnNodeOfKind(a, index, self.type)) orelse {
             if (false and builtin.mode == .Debug) {
                 var iter = env.nodes.iterator();
                 std.debug.print("existing nodes:\n", .{});

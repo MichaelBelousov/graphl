@@ -60,11 +60,13 @@ pub const GraphBuilder = struct {
     // FIXME: does this need to be in topological order? Is that advantageous?
     /// map of json node ids to its real node,
     nodes: JsonIntArrayHashMap(NodeId, IndexedNode, 10) = .{},
+
     // FIXME: fill the analysis context instead of keeping this in the graph metadata itself
     branch_joiner_map: std.AutoHashMapUnmanaged(*const IndexedNode, *const IndexedNode) = .{},
     is_join_set: std.DynamicBitSetUnmanaged,
+
     entry_id: ?NodeId = null,
-    return_node_id: ?NodeId = null,
+
     branch_count: u32 = 0,
     next_node_index: usize = 0,
 
@@ -72,10 +74,12 @@ pub const GraphBuilder = struct {
     imports: std.ArrayListUnmanaged(Sexp) = .{},
     locals: std.ArrayListUnmanaged(Binding) = .{},
     params: std.ArrayListUnmanaged(Binding) = .{},
+
     // FIXME: consolidate input nodes with types and structs
-    result_node: *const NodeDesc,
-    // FIXME: remove need for this?
     result_node_basic_desc: *BasicMutNodeDesc,
+    result_node: *const NodeDesc,
+    entry_node_basic_desc: *BasicMutNodeDesc,
+    entry_node: *const NodeDesc,
 
     const Self = @This();
     const Types = GraphTypes;
@@ -91,29 +95,62 @@ pub const GraphBuilder = struct {
 
     // FIXME: remove buildFromJson and just do it all in init?
     pub fn init(alloc: std.mem.Allocator, env: *Env) !Self {
-        const result_node_basic_desc = try alloc.create(BasicMutNodeDesc);
+        const result_node_basic_desc = _: {
+            const result = try alloc.create(BasicMutNodeDesc);
 
-        const inputs = try alloc.alloc(Pin, 2);
-        inputs[0] = Pin{ .name = "exit", .kind = .{ .primitive = .exec } };
-        inputs[1] = Pin{ .name = "result", .kind = .{ .primitive = .{ .value = helpers.primitive_types.i32_ } } };
+            const inputs = try alloc.alloc(Pin, 2);
+            inputs[0] = Pin{ .name = "exit", .kind = .{ .primitive = .exec } };
+            inputs[1] = Pin{ .name = "result", .kind = .{ .primitive = .{ .value = helpers.primitive_types.i32_ } } };
 
-        const outputs = try alloc.alloc(Pin, 0);
+            const outputs = try alloc.alloc(Pin, 0);
 
-        result_node_basic_desc.* = .{
-            .name = "return",
-            .hidden = false,
-            .inputs = inputs,
-            .outputs = outputs,
+            result.* = .{
+                .name = "return",
+                .hidden = false,
+                .inputs = inputs,
+                .outputs = outputs,
+            };
+
+            break :_ result;
         };
 
         const result_node = try env.addNode(alloc, helpers.basicMutableNode(result_node_basic_desc));
 
-        return Self{
+        const entry_node_basic_desc = _: {
+            const result = try alloc.create(BasicMutNodeDesc);
+
+            const inputs = try alloc.alloc(Pin, 0);
+
+            const outputs = try alloc.alloc(Pin, 1);
+            outputs[0] = Pin{ .name = "start", .kind = .{ .primitive = .exec } };
+
+            result.* = .{
+                .name = "enter",
+                .hidden = false,
+                .inputs = inputs,
+                .outputs = outputs,
+            };
+
+            break :_ result;
+        };
+
+        // FIXME: this breaks without layered envs!
+        const entry_node = try env.addNode(alloc, helpers.basicMutableNode(entry_node_basic_desc));
+
+        const self = Self{
             .env = env,
             .is_join_set = try std.DynamicBitSetUnmanaged.initEmpty(alloc, 0),
             .result_node = result_node,
             .result_node_basic_desc = result_node_basic_desc,
+            .entry_node = entry_node,
+            .entry_node_basic_desc = entry_node_basic_desc,
         };
+
+        const entry_id = self.addNode(alloc, entry_node_basic_desc.name, true, null, null);
+        const return_id = self.addNode(alloc, result_node_basic_desc.name, true, null, null);
+        self.addEdge(entry_id, 0, return_id, 0, 0);
+
+        return self;
     }
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
@@ -160,7 +197,7 @@ pub const GraphBuilder = struct {
     pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?NodeId, diag: ?*Diagnostic) !NodeId {
         const node_id: NodeId = force_node_id orelse @intCast(self.next_node_index);
         const putResult = try self.nodes.map.getOrPut(alloc, node_id);
-        putResult.value_ptr.* = try self.env.makeNode(alloc, node_id, kind) orelse unreachable;
+        putResult.value_ptr.* = try self.env.spawnNodeOfKind(alloc, node_id, kind) orelse unreachable;
         const node = putResult.value_ptr;
 
         self.next_node_index += 1;

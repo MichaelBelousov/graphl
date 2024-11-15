@@ -1013,14 +1013,6 @@ pub const temp_ue = struct {
     };
 };
 
-fn expectEqualTypes(actual: Type, expected: Type) !void {
-    if (actual != expected) {
-        // TODO: implement format for types
-        std.debug.print("Expected '{s}'<{*}> but got '{s}'<{*}>\n", .{ actual.name, actual, expected.name, expected });
-        return error.TestFail;
-    }
-}
-
 test "node types" {
     try std.testing.expectEqual(
         builtin_nodes.@"+".getOutputs()[0].kind.primitive.value,
@@ -1031,18 +1023,37 @@ test "node types" {
 }
 
 pub const Env = struct {
+    parentEnv: ?*Env = null,
     types: std.StringHashMapUnmanaged(Type) = .{},
+
     // could be macro, function, operator
-    nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
+    _nodes: union(enum) {
+        dynamic: std.StringHashMapUnmanaged(*const NodeDesc),
+        static: std.StaticStringMap(*const NodeDesc),
+    },
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-        self.types.clearAndFree(alloc);
-        self.nodes.clearAndFree(alloc);
         // FIXME: destroy all created slots
+        self.types.clearAndFree(alloc);
+        switch (self._nodes) {
+            .dynamic => |v| v.clearAndFree(alloc),
+            .static => {},
+        }
+    }
+
+    pub fn init(parent: *Env) @This() {
+        return @This(){
+            .parentEnv = parent,
+            ._nodes = .{ .dynamic = .{} },
+        };
     }
 
     pub fn initDefault(alloc: std.mem.Allocator) !@This() {
-        var env = @This(){};
+        var env = @This(){
+            ._nodes = .{
+                .static = std.StaticStringMap(*const NodeDesc).initComptime(),
+            },
+        };
 
         inline for (&.{ primitive_types, temp_ue.types }) |types| {
             //const types_decls = comptime std.meta.declList(types, TypeInfo);
@@ -1068,7 +1079,7 @@ pub const Env = struct {
         return env;
     }
 
-    pub fn makeNode(self: *const @This(), a: std.mem.Allocator, id: GraphTypes.NodeId, kind: []const u8) !?GraphTypes.Node {
+    pub fn spawnNodeOfKind(self: *const @This(), a: std.mem.Allocator, id: GraphTypes.NodeId, kind: []const u8) !?GraphTypes.Node {
         return if (self.nodes.get(kind)) |desc|
             try GraphTypes.Node.initEmptyPins(a, .{ .id = id, .desc = desc })
         else
