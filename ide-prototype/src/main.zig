@@ -226,8 +226,6 @@ const Graph = struct {
         @memcpy(self.name_buff[0..in_name.len], in_name);
 
         self.visual_graph = VisualGraph{ .graph = &self.grappl_graph };
-
-        _ = try self.addNode(gpa, "return", true, null, null, .{ .x = 500, .y = 500 });
     }
 
     pub fn deinit(self: *@This()) void {
@@ -528,8 +526,8 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
     const maybe_create_from_type: ?grappl.PrimitivePin = if (maybe_create_from) |create_from| _: {
         const node = current_graph.grappl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
         const pins = switch (create_from.kind) {
-            .output => node.desc.getOutputs(),
-            .input => node.desc.getInputs(),
+            .output => node.desc().getOutputs(),
+            .input => node.desc().getInputs(),
         };
         const pin_type = pins[create_from.index].asPrimitivePin();
 
@@ -764,7 +762,7 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
             // FIXME: dedup with above edge drawing
             try dvui.pathAddPoint(drag_start);
             try dvui.pathAddPoint(drag_end);
-            const stroke_color = dvui.Color{ .r = 0x22, .g = 0x22, .b = 0x22, .a = 0xff };
+            const stroke_color = dvui.Color{ .r = 0xaa, .g = 0xaa, .b = 0xaa, .a = 0x88 };
             try dvui.pathStroke(false, 3.0, .none, stroke_color);
         }
 
@@ -1066,10 +1064,10 @@ fn renderNode(
 
     const result = box.data().rectScale().r; // already has origin added (already in scroll coords)
 
-    switch (node.desc.special) {
-        .none => try dvui.label(@src(), "{s}", .{node.desc.name()}, .{ .font_style = .title_3 }),
-        .get => try dvui.label(@src(), "Get {s}", .{node.desc.name()}, .{ .font_style = .title_3 }),
-        .set => try dvui.label(@src(), "Set {s}", .{node.desc.name()[4..]}, .{ .font_style = .title_3 }),
+    switch (node.kind) {
+        .desc => |desc| try dvui.label(@src(), "{s}", .{desc.name()}, .{ .font_style = .title_3 }),
+        .get => |v| try dvui.label(@src(), "Get {s}", .{v.binding.name}, .{ .font_style = .title_3 }),
+        .set => |v| try dvui.label(@src(), "Set {s}", .{v.binding.name}, .{ .font_style = .title_3 }),
     }
 
     var hbox = try dvui.box(@src(), .horizontal, .{});
@@ -1077,7 +1075,7 @@ fn renderNode(
 
     var inputs_vbox = try dvui.box(@src(), .vertical, .{});
 
-    for (node.desc.getInputs(), node.inputs, 0..) |*input_desc, *input, j| {
+    for (node.desc().getInputs(), node.inputs, 0..) |*input_desc, *input, j| {
         var input_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
         defer input_box.deinit();
 
@@ -1133,6 +1131,8 @@ fn renderNode(
                     const primitive_type = @field(grappl.primitive_types, @typeName(T) ++ "_");
                     if (input_desc.kind.primitive.value == primitive_type) {
                         var value: T = undefined;
+                        // FIXME: why even do this if we're about to overwrite it
+                        // with the entry info?
                         if (input.* == .value) {
                             switch (input.value) {
                                 .float => |v| {
@@ -1147,7 +1147,7 @@ fn renderNode(
                                     else
                                         @floatFromInt(v);
                                 },
-                                inline else => std.debug.panic("unhandled input type='{s}'", .{@tagName(input.value)}),
+                                else => value = 0,
                             }
                         }
 
@@ -1244,7 +1244,7 @@ fn renderNode(
 
     var outputs_vbox = try dvui.box(@src(), .vertical, .{});
 
-    for (node.desc.getOutputs(), node.outputs, 0..) |output_desc, *output, j| {
+    for (node.desc().getOutputs(), node.outputs, 0..) |output_desc, *output, j| {
         var output_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
         defer output_box.deinit();
 

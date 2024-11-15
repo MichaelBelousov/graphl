@@ -45,14 +45,7 @@ pub const ImportBinding = struct {
 // FIXME: deprecate, access this directly
 pub const NodeId = GraphTypes.NodeId;
 
-pub const Binding = struct {
-    name: []u8,
-    type_: Type,
-    comment: ?[]u8 = null,
-    default: ?Sexp = null,
-    // FIXME: gross, used currently for custom associated data
-    extra: ?*anyopaque = null,
-};
+pub const Binding = helpers.Binding;
 
 /// all APIs taking an allocator must use the same allocator
 pub const GraphBuilder = struct {
@@ -137,7 +130,7 @@ pub const GraphBuilder = struct {
         // FIXME: this breaks without layered envs!
         const entry_node = try env.addNode(alloc, helpers.basicMutableNode(entry_node_basic_desc));
 
-        const self = Self{
+        var self = Self{
             .env = env,
             .is_join_set = try std.DynamicBitSetUnmanaged.initEmpty(alloc, 0),
             .result_node = result_node,
@@ -146,9 +139,9 @@ pub const GraphBuilder = struct {
             .entry_node_basic_desc = entry_node_basic_desc,
         };
 
-        const entry_id = self.addNode(alloc, entry_node_basic_desc.name, true, null, null);
-        const return_id = self.addNode(alloc, result_node_basic_desc.name, true, null, null);
-        self.addEdge(entry_id, 0, return_id, 0, 0);
+        const entry_id = self.addNode(alloc, entry_node_basic_desc.name, true, null, null) catch unreachable;
+        const return_id = self.addNode(alloc, result_node_basic_desc.name, true, null, null) catch unreachable;
+        self.addEdge(entry_id, 0, return_id, 0, 0) catch unreachable;
 
         return self;
     }
@@ -178,7 +171,7 @@ pub const GraphBuilder = struct {
         for (in_entry.outputs, 0..) |output, i| {
             if (output == null)
                 continue;
-            const out_type = in_entry.desc.getOutputs()[i];
+            const out_type = in_entry.desc().getOutputs()[i];
             if (out_type.kind == .primitive and out_type.kind.primitive == .exec) {
                 if (entry_exec != error.EntryNodeNoConnectedExecPins) {
                     return error.ExecNodeMultiExecPin;
@@ -219,7 +212,8 @@ pub const GraphBuilder = struct {
         }
 
         // FIXME: a more sophisticated check for if it's a branch, including macro expansion
-        const is_branch = node.desc == &helpers.builtin_nodes.@"if";
+        // FIXME: gross comparison
+        const is_branch = node.desc() == &helpers.builtin_nodes.@"if";
 
         if (is_branch)
             self.branch_count += 1;
@@ -606,7 +600,7 @@ pub const GraphBuilder = struct {
 
         analysis_ctx.node_data.items(.visited)[node.id] = 1;
 
-        const is_branch = std.mem.eql(u8, node.desc.name, "if");
+        const is_branch = std.mem.eql(u8, node.desc().name, "if");
 
         if (is_branch)
             _ = try self.analyzeBranch(node, analysis_ctx);
@@ -657,7 +651,7 @@ pub const GraphBuilder = struct {
             var new_collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const IndexedNode, {});
 
             for (collapsed_node_layer.items()) |collapsed_node| {
-                const is_branch = std.mem.eql(u8, collapsed_node.desc.name, "if");
+                const is_branch = std.mem.eql(u8, collapsed_node.desc().name, "if");
 
                 if (is_branch) {
                     const joiner = try self.analyzeBranch(collapsed_node, analysis_ctx);
@@ -746,7 +740,7 @@ pub const GraphBuilder = struct {
 
             context.node_data.items(.visited)[node_id] = 1;
 
-            return if (node.desc.isSimpleBranch())
+            return if (node.desc().isSimpleBranch())
                 @call(debug_tail_call, onBranchNode, .{ self, alloc, node, context })
             else
                 @call(debug_tail_call, onFunctionCallNode, .{ self, alloc, node, context });
@@ -756,7 +750,7 @@ pub const GraphBuilder = struct {
         // traverse backwards
         // FIXME: refactor to find joins during this?
         pub fn onBranchNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, context: *Context) !void {
-            std.debug.assert(node.desc.isSimpleBranch());
+            std.debug.assert(node.desc().isSimpleBranch());
 
             var consequence_sexp: Sexp = undefined;
             var alternative_sexp: Sexp = undefined;
@@ -789,7 +783,7 @@ pub const GraphBuilder = struct {
             branch_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
 
             // (if
-            (try branch_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc.name() } };
+            (try branch_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc().name() } };
 
             // condition
             const condition_sexp = try self.nodeInputTreeToSexp(alloc, node.inputs[1]);
@@ -809,9 +803,9 @@ pub const GraphBuilder = struct {
             if (self.graph.isJoin(node))
                 return;
 
-            const special_type = node.desc.special;
+            const special_type = node.kind;
 
-            const name = node.desc.name();
+            const name = node.desc().name();
 
             var call_sexp = try context.block.addOne();
 
@@ -826,7 +820,7 @@ pub const GraphBuilder = struct {
                 (try call_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
 
                 // FIXME: doesn't work for variadics
-                for (node.inputs, node.desc.getInputs()) |input, input_desc| {
+                for (node.inputs, node.desc().getInputs()) |input, input_desc| {
                     std.debug.assert(input_desc.kind == .primitive);
                     switch (input_desc.kind.primitive) {
                         .exec => {
@@ -855,10 +849,9 @@ pub const GraphBuilder = struct {
                     const target = if (v) |_v| _v.target else return Sexp{ .value = .void };
                     const node = self.graph.nodes.map.getPtr(target) orelse std.debug.panic("couldn't find link target id={}", .{target});
 
-                    // TODO: should have a comptime sexp parsing utility, or otherwise terser syntax...
-                    const special_type = node.desc.special;
+                    const special_type = node.kind;
 
-                    const name = node.desc.name();
+                    const name = node.desc().name();
 
                     if (special_type == .get)
                         break :_ Sexp{ .value = .{ .symbol = name } };

@@ -1,6 +1,7 @@
 //! builtin nodes
 
 const std = @import("std");
+const Sexp = @import("../sexp.zig").Sexp;
 
 const failing_allocator = std.testing.failing_allocator;
 
@@ -147,6 +148,15 @@ pub const Point = struct {
     y: f32 = 0,
 };
 
+pub const Binding = struct {
+    name: []u8,
+    type_: Type,
+    comment: ?[]u8 = null,
+    default: ?Sexp = null,
+    // FIXME: gross, used currently for custom associated data
+    extra: ?*anyopaque = null,
+};
+
 pub const GraphTypes = struct {
     pub const NodeId = u32;
 
@@ -168,42 +178,35 @@ pub const GraphTypes = struct {
     const empty_inputs: []Input = &.{};
     const empty_outputs: []?Output = &.{};
 
+    pub const NodeDescKind = union(enum) {
+        desc: *const NodeDesc,
+        get: struct {
+            binding: *Binding,
+            desc: *const NodeDesc,
+            basic_desc: *BasicMutNodeDesc,
+        },
+        set: struct {
+            binding: *Binding,
+            desc: *const NodeDesc,
+            basic_desc: *BasicMutNodeDesc,
+        },
+    };
+
     pub const Node = struct {
         id: NodeId,
-        desc: *const NodeDesc,
+        kind: NodeDescKind,
         position: Point = .{},
         comment: ?[]const u8 = null,
         // FIMXE: how do we handle default inputs?
         inputs: []Input = empty_inputs,
         outputs: []?Output = empty_outputs,
 
-        // FIXME: replace this, each node belongs to a well defined flow control archetype
-        const OutExecIterator = struct {
-            index: usize = 0,
-            node: *const Node,
-
-            pub fn next(self: *@This()) ??Link {
-                while (self.index < self.node.outputs.len) : (self.index += 1) {
-                    const output_desc = self.node.desc.getOutputs()[self.index];
-                    const is_exec = output_desc == .primitive and output_desc.primitive == .exec;
-                    if (!is_exec) continue;
-
-                    const output = self.node.outputs[self.index];
-
-                    self.index += 1;
-                    return if (output) |o| o.link else null;
-                }
-
-                return null;
-            }
-
-            pub fn hasNext(self: @This()) bool {
-                return self.index < self.node.outputs.len;
-            }
-        };
-
-        fn iter_out_execs(self: @This()) OutExecIterator {
-            return OutExecIterator{ .node = self };
+        pub fn desc(self: *const @This()) *const NodeDesc {
+            return switch (self.kind) {
+                .desc => |v| v,
+                .get => |v| v.desc,
+                .set => |v| v.desc,
+            };
         }
 
         pub fn initEmptyPins(
@@ -216,7 +219,7 @@ pub const GraphTypes = struct {
         ) !@This() {
             const result = @This(){
                 .id = args.id,
-                .desc = args.desc,
+                .kind = .{ .desc = args.desc },
                 .comment = args.comment,
                 // TODO: default to zero literal
                 // TODO: handle variadic
@@ -338,6 +341,7 @@ pub const primitive_types = struct {
 pub const BasicNodeDesc = struct {
     name: []const u8,
     hidden: bool = false,
+    // FIXME: remove in favor of nodes directly referencing whether they are a getter/setter
     special: NodeSpecialInfo = .none,
     inputs: []const Pin = &.{},
     outputs: []const Pin = &.{},
@@ -1023,37 +1027,21 @@ test "node types" {
 }
 
 pub const Env = struct {
+    // NOTE: probably will eventually want a "parentEnv"?
     parentEnv: ?*Env = null,
-    types: std.StringHashMapUnmanaged(Type) = .{},
 
+    types: std.StringHashMapUnmanaged(Type) = .{},
     // could be macro, function, operator
-    _nodes: union(enum) {
-        dynamic: std.StringHashMapUnmanaged(*const NodeDesc),
-        static: std.StaticStringMap(*const NodeDesc),
-    },
+    nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-        // FIXME: destroy all created slots
         self.types.clearAndFree(alloc);
-        switch (self._nodes) {
-            .dynamic => |v| v.clearAndFree(alloc),
-            .static => {},
-        }
-    }
-
-    pub fn init(parent: *Env) @This() {
-        return @This(){
-            .parentEnv = parent,
-            ._nodes = .{ .dynamic = .{} },
-        };
+        self.nodes.clearAndFree(alloc);
+        // FIXME: destroy all created slots
     }
 
     pub fn initDefault(alloc: std.mem.Allocator) !@This() {
-        var env = @This(){
-            ._nodes = .{
-                .static = std.StaticStringMap(*const NodeDesc).initComptime(),
-            },
-        };
+        var env = @This(){};
 
         inline for (&.{ primitive_types, temp_ue.types }) |types| {
             //const types_decls = comptime std.meta.declList(types, TypeInfo);
