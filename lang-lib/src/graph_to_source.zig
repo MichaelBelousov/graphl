@@ -711,19 +711,6 @@ pub const GraphBuilder = struct {
             defer ctx.deinit(alloc);
             try ctx.node_data.resize(alloc, self.graph.nodes.map.count());
             try self.onNode(alloc, node_id, &ctx);
-            // FIXME/HACK: process them in reverse rather than this temp hack
-            // reverse
-            var left: usize = 0;
-            var right: usize = if (ctx.block.items.len > 0) ctx.block.items.len - 1 else 0;
-            while (left < right) : ({
-                left += 1;
-                right -= 1;
-            }) {
-                // TODO: do this in the loop
-                const tmp = ctx.block.items[left];
-                ctx.block.items[left] = ctx.block.items[right];
-                ctx.block.items[right] = tmp;
-            }
             // FIXME: move instead of clone!
             return Sexp{ .value = .{ .list = try ctx.block.clone() } };
             //return ctx.block.items[0];
@@ -749,8 +736,6 @@ pub const GraphBuilder = struct {
                 @call(debug_tail_call, onFunctionCallNode, .{ self, alloc, node, context });
         }
 
-        // FIXME: probably totally broken after refactoring onFunctionCallNode to
-        // traverse backwards
         // FIXME: refactor to find joins during this?
         pub fn onBranchNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, context: *Context) !void {
             std.debug.assert(node.desc().isSimpleBranch());
@@ -819,30 +804,27 @@ pub const GraphBuilder = struct {
             else
                 Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
 
-            if (special_type != .get) {
-                (try call_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
+            (try call_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
 
-                // FIXME: doesn't work for variadics
-                for (node.inputs, node.desc().getInputs()) |input, input_desc| {
-                    std.debug.assert(input_desc.kind == .primitive);
-                    switch (input_desc.kind.primitive) {
-                        .exec => {
-                            if (input == .link and input.link != null) {
-                                try self.onNode(alloc, input.link.?.target, context);
-                            }
-                        },
-                        .value => {
-                            const input_tree = try self.nodeInputTreeToSexp(alloc, input);
-                            (try call_sexp.value.list.addOne()).* = input_tree;
-                        },
-                    }
+            // FIXME: doesn't work for variadics
+            for (node.inputs, node.desc().getInputs()) |input, input_desc| {
+                std.debug.assert(input_desc.kind == .primitive);
+                switch (input_desc.kind.primitive) {
+                    .exec => {},
+                    .value => {
+                        const input_tree = try self.nodeInputTreeToSexp(alloc, input);
+                        (try call_sexp.value.list.addOne()).* = input_tree;
+                    },
                 }
             }
 
-            // TODO: tail call on the next node again?
-            // if (node.outputs.len >= 1 and node.outputs[0] != null) {
-            //     return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
-            // }
+            for (node.outputs, node.desc().getOutputs()) |output, output_desc| {
+                // FIXME: tail call where possible?
+                //return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
+                if (output != null and output_desc.kind.primitive == .exec) {
+                    try self.onNode(alloc, output.?.link.target, context);
+                }
+            }
         }
 
         fn nodeInputTreeToSexp(self: @This(), alloc: std.mem.Allocator, in_link: GraphTypes.Input) !Sexp {
@@ -887,10 +869,17 @@ pub const GraphBuilder = struct {
     };
 
     fn rootToSexp(self: *@This(), alloc: std.mem.Allocator) !Sexp {
-        return if (self.entry_id) |entry_id|
-            try (ToSexp{ .graph = self }).toSexp(alloc, entry_id)
-        else
-            error.NoEntryOrNotYetSet;
+        if (self.entry_id == null) {
+            return error.NoEntryOrNotYetSet;
+        }
+
+        std.debug.assert(self.entry().?.desc().getOutputs()[0].isExec());
+
+        if (self.entry().?.outputs[0] == null)
+            return Sexp{ .value = .void };
+
+        const after_entry_id = self.entry().?.outputs[0].?.link.target;
+        return (ToSexp{ .graph = self }).toSexp(alloc, after_entry_id);
     }
 };
 
