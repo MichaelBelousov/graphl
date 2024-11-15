@@ -26,7 +26,8 @@ const Homepage = () => {
 
   return (
     <Layout pageTitle="Graphl" pageDesc="The next generation no-coding environment">
-      <div className={styles.blurbBackground}>
+      <div style={{position: "relative"}}>
+        <div className={styles.blurbBackground} />
         {/* TODO: wrap this in a component/function to make it readable */}
         <div className={styles.bigText} style={{ fontSize: "2em", textAlign: "center" }}>
           <ShinyLogo className={styles["fadeInText_0"]} style={{ marginBottom: "0.5em" }} />
@@ -39,16 +40,24 @@ const Homepage = () => {
         <div>
           <br/>
           {/* TODO: need an image! */}
-          <p style={mediumText} className={styles["fadeInText_2"]}>
+          <p style={mediumText} {...classNames(styles["fadeInText_2"])}>
             Throw away 60 years of text editing baggage and write code
             <br/>
             <em> without writing code</em>
           </p>
 
+          {/*
           <p style={mediumText} className={styles["fadeInText_3"]}>
             Want to understand what your AI generated?
             <br/>
             <em> Debug visually </em>
+          </p>
+          */}
+
+          <p style={mediumText} className={styles["fadeInText_3"]}>
+            Compile to WebAssembly and run anywhere,
+            <br/>
+            <em> even in your browser </em>
           </p>
 
           <p style={mediumText} className={styles["fadeInText_4"]}>

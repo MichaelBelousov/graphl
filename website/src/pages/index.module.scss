@@ -4,8 +4,8 @@
   @for $i from 0 through $base {
     .fadeInText_#{$i} {
       display: inline-block;
-      animation: move-in-#{$i} 70ms ease-out forwards;
-      animation-delay: $i * 40ms;
+      animation: move-in-#{$i} 100ms ease-out forwards;
+      animation-delay: ($i * 200ms);
 
       // initial state
       transform: translateY(1.5em);
@@ -77,10 +77,30 @@
   filter: drop-shadow(0 0 1px var(--color-one));
 }
 
+@keyframes pulsate {
+  0% {
+    transform: scale(1.0);
+  }
+
+
+  50% {
+    transform: scale(1.2);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
 .blurbBackground {
+  position: absolute;
+  height: 100%;
+  width: 100%;
+
   --color-one: hsl(15 90% 55%);
   --color-two: hsl(40 95% 55%);
-  // TODO: idle animation for background
+  animation: pulsate 3s ease-in-out infinite;
+
   background: radial-gradient(
     //ellipse at top,
     circle at center,
