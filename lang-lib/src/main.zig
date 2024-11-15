@@ -13,6 +13,7 @@ pub const Node = @import("./common.zig").GraphTypes.Node;
 pub const Link = @import("./common.zig").GraphTypes.Link;
 pub const Env = @import("./nodes/builtin.zig").Env;
 pub const Point = @import("./nodes/builtin.zig").Point;
+pub const Pin = @import("./nodes/builtin.zig").Pin;
 pub const PrimitivePin = @import("./nodes/builtin.zig").PrimitivePin;
 pub const primitive_types = @import("./nodes/builtin.zig").primitive_types;
 pub const Type = @import("./nodes/builtin.zig").Type;
