@@ -1917,7 +1917,6 @@ fn dvui_frame() !void {
                 const add_clicked = (try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{})).clicked;
                 if (add_clicked) {
                     const node_desc = current_graph.grappl_graph.result_node_basic_desc;
-                    const return_node = current_graph.grappl_graph.nodes.map.getPtr(current_graph.grappl_graph.entry_id.?).?;
                     node_desc.inputs = try gpa.realloc(node_desc.inputs, node_desc.inputs.len + 1);
                     node_desc.inputs[node_desc.inputs.len - 1] = .{
                         .name = "a",
@@ -1927,12 +1926,19 @@ fn dvui_frame() !void {
                         } },
                     };
 
-                    // TODO: nodes should not be guaranteed to have the same amount of links as their
-                    // definition has pins
-                    return_node.inputs = try gpa.realloc(return_node.inputs, return_node.inputs.len + 1);
-                    return_node.inputs[return_node.inputs.len - 1] = .{
-                        .value = grappl.Value{ .int = 0 },
-                    };
+                    {
+                        // FIXME: we can avoid a linear scan!
+                        for (current_graph.grappl_graph.nodes.map.values()) |*node| {
+                            if (node.desc() != current_graph.grappl_graph.result_node)
+                                continue;
+                            // TODO: nodes should not be guaranteed to have the same amount of links as their
+                            // definition has pins
+                            node.inputs = try gpa.realloc(node.inputs, node.inputs.len + 1);
+                            node.inputs[node.inputs.len - 1] = .{
+                                .value = grappl.Value{ .int = 0 },
+                            };
+                        }
+                    }
                 }
             }
 

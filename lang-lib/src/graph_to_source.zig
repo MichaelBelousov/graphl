@@ -140,7 +140,7 @@ pub const GraphBuilder = struct {
         };
 
         const entry_id = self.addNode(alloc, entry_node_basic_desc.name, true, null, null) catch unreachable;
-        const return_id = self.addNode(alloc, result_node_basic_desc.name, true, null, null) catch unreachable;
+        const return_id = self.addNode(alloc, result_node_basic_desc.name, false, null, null) catch unreachable;
         self.addEdge(entry_id, 0, return_id, 0, 0) catch unreachable;
 
         return self;
