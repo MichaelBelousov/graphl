@@ -66,8 +66,6 @@ pub const GraphBuilder = struct {
     // FIXME: who owns these?
     imports: std.ArrayListUnmanaged(Sexp) = .{},
     locals: std.ArrayListUnmanaged(Binding) = .{},
-    // FIXME: remove!
-    params: std.ArrayListUnmanaged(Binding) = .{},
 
     // FIXME: consolidate input nodes with types and structs
     result_node_basic_desc: *BasicMutNodeDesc,
@@ -344,6 +342,8 @@ pub const GraphBuilder = struct {
         const type_def = module.value.module.addOneAssumeCapacity();
         const func_def = module.value.module.addOneAssumeCapacity();
 
+        const params = self.entry_node_basic_desc.outputs[1..];
+
         {
             type_def.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) }, .comment = "comment!" };
             try type_def.value.list.ensureTotalCapacityPrecise(3);
@@ -352,11 +352,12 @@ pub const GraphBuilder = struct {
             const result_type = type_def.value.list.addOneAssumeCapacity();
 
             param_bindings.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-            try param_bindings.value.list.ensureTotalCapacityPrecise(1 + self.params.items.len);
+            try param_bindings.value.list.ensureTotalCapacityPrecise(1 + params.len);
             // FIXME: dupe this?
             param_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
-            for (self.params.items) |param| {
-                param_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param.type_.name } };
+            for (params) |param| {
+                std.debug.assert(param.asPrimitivePin() == .value);
+                param_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param.asPrimitivePin().value.name } };
             }
 
             std.debug.assert(self.result_node_basic_desc.inputs.len >= 2);
@@ -406,10 +407,10 @@ pub const GraphBuilder = struct {
 
             // FIXME: also emit imports and definitions!
             func_bindings.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-            try func_bindings.value.list.ensureTotalCapacityPrecise(1 + self.params.items.len);
+            try func_bindings.value.list.ensureTotalCapacityPrecise(1 + params.len);
             // FIXME: dupe this?
             func_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
-            for (self.params.items) |param| {
+            for (params) |param| {
                 func_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param.name } };
             }
         }

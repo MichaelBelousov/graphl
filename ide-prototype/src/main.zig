@@ -552,7 +552,6 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
     } else null;
 
     const bindings_infos = &.{
-        .{ .data = &current_graph.grappl_graph.params, .display = "Params" },
         .{ .data = &current_graph.grappl_graph.locals, .display = "Locals" },
     };
 
@@ -607,6 +606,56 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                         _ = try Local.addNode(name, maybe_create_from, pt_in_graph, valid_socket_index);
                         subfw.close();
                     }
+                }
+            }
+        }
+    }
+
+    if (current_graph.grappl_graph.entry_node_basic_desc.outputs.len > 1) {
+        if (maybe_create_from == null or maybe_create_from.?.kind == .input) {
+            if (try dvui.menuItemLabel(@src(), "Get Params >", .{ .submenu = true }, .{ .expand = .horizontal })) |r| {
+                var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
+                defer subfw.deinit();
+
+                for (current_graph.grappl_graph.entry_node_basic_desc.outputs, 0..) |binding, j| {
+                    std.debug.assert(binding.asPrimitivePin() == .value);
+                    if (maybe_create_from_type != null and !std.meta.eql(maybe_create_from_type.?, binding.asPrimitivePin())) {
+                        continue;
+                    }
+
+                    var label_buf: [MAX_FUNC_NAME]u8 = undefined;
+                    const label = try std.fmt.bufPrint(&label_buf, "Get {s}", .{binding.name});
+
+                    if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = j }) != null) {
+                        _ = try Local.addNode(binding.name, maybe_create_from, pt_in_graph, 0);
+                        subfw.close();
+                    }
+                }
+            }
+        }
+
+        if (try dvui.menuItemLabel(@src(), "Set Params >", .{ .submenu = true }, .{ .expand = .horizontal })) |r| {
+            var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
+            defer subfw.deinit();
+
+            for (current_graph.grappl_graph.entry_node_basic_desc.outputs, 0..) |binding, j| {
+                var buf: [MAX_FUNC_NAME]u8 = undefined;
+                const name = try std.fmt.bufPrint(&buf, "set_{s}", .{binding.name});
+                const node_desc = current_graph.env.nodes.get(binding.name) orelse unreachable;
+
+                var valid_socket_index: ?u16 = null;
+                if (maybe_create_from_type) |create_from_type| {
+                    valid_socket_index = try Local.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
+                    if (valid_socket_index == null)
+                        continue;
+                }
+
+                var label_buf: [MAX_FUNC_NAME]u8 = undefined;
+                const label = try std.fmt.bufPrint(&label_buf, "Set {s}", .{binding.name});
+
+                if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = j }) != null) {
+                    _ = try Local.addNode(name, maybe_create_from, pt_in_graph, valid_socket_index);
+                    subfw.close();
                 }
             }
         }
@@ -1983,7 +2032,7 @@ fn dvui_frame() !void {
                 }
             }
 
-            for (pin_descs, 0..) |*pin_desc, j| {
+            for (pin_descs[1..], 1..) |*pin_desc, j| {
                 const id_extra = (j << 8) | i;
                 var box = try dvui.box(@src(), .horizontal, .{ .id_extra = id_extra });
                 defer box.deinit();
