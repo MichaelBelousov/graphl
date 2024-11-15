@@ -455,10 +455,75 @@ const Socket = struct {
 };
 
 fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from: ?Socket) !void {
-    var fw2 = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
-    defer fw2.deinit();
+    var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
+    defer fw.deinit();
 
     // TODO: handle defocus event
+    const Local = struct {
+        pub fn validSocketIndex(
+            node_desc: *const grappl.NodeDesc,
+            create_from_socket: Socket,
+            create_from_type: grappl.PrimitivePin,
+        ) !?u16 {
+            var valid_socket_index: ?u16 = null;
+
+            const pins = switch (create_from_socket.kind) {
+                .input => node_desc.getOutputs(),
+                .output => node_desc.getInputs(),
+            };
+
+            if (pins.len > std.math.maxInt(u16))
+                return error.TooManyPins;
+
+            for (pins, 0..) |pin_desc, j| {
+                if (std.meta.eql(pin_desc.asPrimitivePin(), create_from_type)
+                //
+                or std.meta.eql(pin_desc.asPrimitivePin(), helpers.PrimitivePin{ .value = helpers.primitive_types.code })
+                //
+                ) {
+                    valid_socket_index = @intCast(j);
+                    break;
+                }
+            }
+
+            return valid_socket_index;
+        }
+
+        pub fn addNode(
+            node_name: []const u8,
+            _maybe_create_from: ?Socket,
+            _pt_in_graph: dvui.Point,
+            valid_socket_index: ?u16,
+        ) !u32 {
+            // TODO: use diagnostic
+            const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null, _pt_in_graph);
+
+            if (_maybe_create_from) |create_from| {
+                switch (create_from.kind) {
+                    .input => {
+                        try current_graph.addEdge(
+                            new_node_id,
+                            valid_socket_index orelse 0,
+                            create_from.node_id,
+                            create_from.index,
+                            0,
+                        );
+                    },
+                    .output => {
+                        try current_graph.addEdge(
+                            create_from.node_id,
+                            create_from.index,
+                            new_node_id,
+                            valid_socket_index orelse 0,
+                            0,
+                        );
+                    },
+                }
+            }
+
+            return new_node_id;
+        }
+    };
 
     const maybe_create_from_type: ?grappl.PrimitivePin = if (maybe_create_from) |create_from| _: {
         const node = current_graph.grappl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
@@ -475,78 +540,94 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
         break :_ pin_type;
     } else null;
 
+    const bindings_infos = &.{
+        .{ .data = &current_graph.grappl_graph.params, .display = "Params" },
+        .{ .data = &current_graph.grappl_graph.locals, .display = "Locals" },
+    };
+
+    inline for (bindings_infos, 0..) |bindings_info, i| {
+        const bindings = bindings_info.data;
+
+        if (bindings.items.len > 0) {
+            if (maybe_create_from == null or maybe_create_from.?.kind == .input) {
+                if (try dvui.menuItemLabel(@src(), "Get " ++ bindings_info.display ++ " >", .{ .submenu = true }, .{ .expand = .horizontal, .id_extra = i })) |r| {
+                    var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
+                    defer subfw.deinit();
+
+                    for (bindings.items, 0..) |binding, j| {
+                        const id_extra = (j << 8) & i;
+
+                        if (maybe_create_from_type != null and !std.meta.eql(maybe_create_from_type.?, grappl.PrimitivePin{ .value = binding.type_ })) {
+                            continue;
+                        }
+
+                        var label_buf: [MAX_FUNC_NAME]u8 = undefined;
+                        const label = try std.fmt.bufPrint(&label_buf, "Get {s}", .{binding.name});
+
+                        if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = id_extra }) != null) {
+                            _ = try Local.addNode(binding.name, maybe_create_from, pt_in_graph, 0);
+                            subfw.close();
+                        }
+                    }
+                }
+            }
+
+            if (try dvui.menuItemLabel(@src(), "Set " ++ bindings_info.display ++ " >", .{ .submenu = true }, .{ .expand = .horizontal, .id_extra = i })) |r| {
+                var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
+                defer subfw.deinit();
+
+                for (bindings.items, 0..) |binding, j| {
+                    const id_extra = (j << 8) & i;
+                    var buf: [MAX_FUNC_NAME]u8 = undefined;
+                    const name = try std.fmt.bufPrint(&buf, "set_{s}", .{binding.name});
+                    const node_desc = current_graph.env.nodes.get(binding.name) orelse unreachable;
+
+                    var valid_socket_index: ?u16 = null;
+                    if (maybe_create_from_type) |create_from_type| {
+                        valid_socket_index = try Local.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
+                        if (valid_socket_index == null)
+                            continue;
+                    }
+
+                    var label_buf: [MAX_FUNC_NAME]u8 = undefined;
+                    const label = try std.fmt.bufPrint(&label_buf, "Set {s}", .{binding.name});
+
+                    if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = id_extra }) != null) {
+                        _ = try Local.addNode(name, maybe_create_from, pt_in_graph, valid_socket_index);
+                        subfw.close();
+                    }
+                }
+            }
+        }
+    }
+
     {
-        var iter = current_graph.env.nodes.valueIterator();
+        var node_iter = current_graph.env.nodes.valueIterator();
         var i: u32 = 0;
-        while (iter.next()) |node| {
+        while (node_iter.next()) |node| {
             const node_desc = node.*;
             const node_name = node_desc.name();
 
-            var valid_socket_index: ?u16 = null;
+            switch (node_desc.special) {
+                .none => {},
+                .get, .set => continue, // handled separately above
+            }
 
             // TODO: add an "always" ... or better type resolution/promotion actually
             if (node_desc.hidden)
                 continue;
 
+            var valid_socket_index: ?u16 = null;
+
             if (maybe_create_from_type) |create_from_type| {
-                const pins = switch (maybe_create_from.?.kind) {
-                    .input => node_desc.getOutputs(),
-                    .output => node_desc.getInputs(),
-                };
-
-                if (pins.len > std.math.maxInt(u16))
-                    return error.TooManyPins;
-
-                for (pins, 0..) |pin_desc, j| {
-                    if (std.meta.eql(pin_desc.asPrimitivePin(), create_from_type)
-                    //
-                    or std.meta.eql(pin_desc.asPrimitivePin(), helpers.PrimitivePin{ .value = helpers.primitive_types.code })
-                    //
-                    ) {
-                        valid_socket_index = @intCast(j);
-                        break;
-                    }
-                }
-
+                valid_socket_index = try Local.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
                 if (valid_socket_index == null)
                     continue;
             }
 
-            var name_buf: [MAX_FUNC_NAME]u8 = undefined;
-            const name = switch (node_desc.special) {
-                .none => try std.fmt.bufPrint(&name_buf, "{s}", .{node_name}),
-                .get => try std.fmt.bufPrint(&name_buf, "Get {s}", .{node_name}),
-                .set => try std.fmt.bufPrint(&name_buf, "Set {s}", .{node_name[4..]}),
-            };
-
-            if ((try dvui.menuItemLabel(@src(), name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
-                // TODO: use diagnostic
-                const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null, pt_in_graph);
-
-                if (maybe_create_from) |create_from| {
-                    switch (create_from.kind) {
-                        .input => {
-                            try current_graph.addEdge(
-                                new_node_id,
-                                valid_socket_index orelse 0,
-                                create_from.node_id,
-                                create_from.index,
-                                0,
-                            );
-                        },
-                        .output => {
-                            try current_graph.addEdge(
-                                create_from.node_id,
-                                create_from.index,
-                                new_node_id,
-                                valid_socket_index orelse 0,
-                                0,
-                            );
-                        },
-                    }
-                }
-
-                fw2.close();
+            if ((try dvui.menuItemLabel(@src(), node_name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
+                _ = try Local.addNode(node_name, maybe_create_from, pt_in_graph, valid_socket_index);
+                fw.close();
             }
             i += 1;
         }
