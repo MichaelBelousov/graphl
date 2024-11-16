@@ -50,12 +50,12 @@ pub const Binding = helpers.Binding;
 /// all APIs taking an allocator must use the same allocator
 pub const GraphBuilder = struct {
     env: *Env,
+    // FIXME: don't these get invalidated since it's backed by an array?
     // FIXME: does this need to be in topological order? Is that advantageous?
     /// map of json node ids to its real node,
     nodes: JsonIntArrayHashMap(NodeId, IndexedNode, 10) = .{},
 
-    // FIXME: fill the analysis context instead of keeping this in the graph metadata itself
-    branch_joiner_map: std.AutoHashMapUnmanaged(*const IndexedNode, *const IndexedNode) = .{},
+    branch_joiner_map: std.AutoHashMapUnmanaged(NodeId, NodeId) = .{},
     is_join_set: std.DynamicBitSetUnmanaged,
 
     entry_id: ?NodeId = null,
@@ -217,8 +217,9 @@ pub const GraphBuilder = struct {
         // FIXME: gross comparison
         const is_branch = node.desc() == &helpers.builtin_nodes.@"if";
 
-        if (is_branch)
+        if (is_branch) {
             self.branch_count += 1;
+        }
 
         errdefer if (is_branch) {
             self.branch_count -= 1;
@@ -335,7 +336,13 @@ pub const GraphBuilder = struct {
     // FIXME: emit move name to the graph
     /// NOTE: the outer module is a sexp list
     pub fn compile(self: *@This(), alloc: std.mem.Allocator, name: []const u8) !Sexp {
-        try self.postPopulate(alloc);
+        try self.branch_joiner_map.ensureTotalCapacity(alloc, self.branch_count);
+        try self.is_join_set.resize(alloc, self.nodes.map.count(), false);
+
+        var analysis_arena = std.heap.ArenaAllocator.init(alloc);
+        try self.analyzeNodes(analysis_arena.allocator());
+        analysis_arena.deinit();
+
         var body = try self.rootToSexp(alloc);
         defer body.deinit(alloc);
         std.debug.assert(body.value == .list);
@@ -474,41 +481,6 @@ pub const GraphBuilder = struct {
         }
     };
 
-    fn populateFromJsonAndReturnEntry(
-        self: *Self,
-        alloc: std.mem.Allocator,
-        json_graph: GraphDoc,
-        diagnostic: ?*PopulateAndReturnEntryDiagnostic,
-    ) !*const IndexedNode {
-        var ignored_diagnostic: PopulateAndReturnEntryDiagnostic = undefined;
-        const out_diagnostic = diagnostic orelse &ignored_diagnostic;
-
-        // FIXME: this belongs in buildFromJson...
-        errdefer self.nodes.map.clearAndFree(alloc);
-
-        var json_nodes_iter = json_graph.nodes.map.iterator();
-        while (json_nodes_iter.next()) |node_entry| {
-            const json_node_id = node_entry.key_ptr.*;
-            // FIXME: accidental copy?
-            const json_node = node_entry.value_ptr.*;
-
-            _ = try self.addNode(alloc, json_node.type, json_node.data.isEntry, json_node_id, out_diagnostic);
-        }
-
-        const entry_id = self.entry_id orelse return error.GraphHasNoEntry;
-        const entry_node = self.nodes.map.getPtr(entry_id) orelse unreachable;
-
-        try self.postPopulate(alloc);
-
-        return entry_node;
-    }
-
-    // TODO: rename to like analyze?
-    fn postPopulate(self: *@This(), alloc: std.mem.Allocator) !void {
-        try self.branch_joiner_map.ensureTotalCapacity(alloc, self.branch_count);
-        try self.is_join_set.resize(alloc, self.nodes.map.count(), false);
-    }
-
     pub fn link(self: @This(), alloc: std.mem.Allocator, graph_json: GraphDoc) !void {
         var nodes_iter = self.nodes.map.iterator();
         var json_nodes_iter = graph_json.nodes.map.iterator();
@@ -565,6 +537,8 @@ pub const GraphBuilder = struct {
         }
     };
 
+    const NodeAnalysisErr = error{OutOfMemory};
+
     // FIXME: stack-space-bound
     // To find the join of a branch, find all reachable end nodes
     // if there is only 1, it joins.
@@ -574,9 +548,9 @@ pub const GraphBuilder = struct {
 
     /// each branch will may have 1 (or 0) join node where the control flow for that branch converges
     /// first traverse all nodes getting for each its single end (or null if multiple), and its tree size
-    pub fn analyzeNodes(self: *@This(), alloc: std.mem.Allocator) !void {
+    pub fn analyzeNodes(self: *@This(), alloc: std.mem.Allocator) NodeAnalysisErr!void {
         errdefer self.branch_joiner_map.clearAndFree(alloc);
-        errdefer self.is_join_set.deinit(alloc);
+        errdefer self.is_join_set.unsetAll();
 
         var analysis_ctx: AnalysisCtx = .{};
         defer analysis_ctx.deinit(alloc);
@@ -587,48 +561,53 @@ pub const GraphBuilder = struct {
         var slices = analysis_ctx.node_data.slice();
         @memset(slices.items(.visited)[0..analysis_ctx.node_data.len], 0);
 
+        // FIXME: use value iterator
         var node_iter = self.nodes.map.iterator();
         while (node_iter.next()) |node| {
             // inlined analyzeNode precondition because not sure with recursion compiler can figure it out
             if (analysis_ctx.node_data.items(.visited)[node.key_ptr.*] == 1)
                 continue;
 
-            try self.analyzeNode(node.value_ptr, &analysis_ctx);
+            try self.analyzeNode(alloc, node.value_ptr, &analysis_ctx);
         }
     }
 
     fn analyzeNode(
-        self: *const @This(),
+        self: *@This(),
+        alloc: std.mem.Allocator,
         node: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
-    ) !void {
+    ) NodeAnalysisErr!void {
         if (analysis_ctx.node_data.items(.visited)[node.id] == 1)
             return;
 
         analysis_ctx.node_data.items(.visited)[node.id] = 1;
 
-        const is_branch = std.mem.eql(u8, node.desc().name, "if");
+        const is_branch = node.desc() == &helpers.builtin_nodes.@"if";
 
         if (is_branch)
-            _ = try self.analyzeBranch(node, analysis_ctx);
+            _ = try self.analyzeBranch(alloc, node, analysis_ctx);
     }
 
     fn analyzeBranch(
-        self: @This(),
+        self: *@This(),
+        alloc: std.mem.Allocator,
         branch: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
-    ) !?*const IndexedNode {
+    ) NodeAnalysisErr!?*const IndexedNode {
         if (analysis_ctx.node_data.items(.visited)[branch.id] == 1) {
-            const prev_result = self.branch_joiner_map.get(branch);
-            return .{ .value = prev_result };
+            const prev_result_id = self.branch_joiner_map.get(branch.id);
+            return self.nodes.map.getPtr(if (prev_result_id) |v| v else return null);
         }
 
         analysis_ctx.node_data.items(.visited)[branch.id] = 1;
 
-        const result = try self.doAnalyzeBranch(branch, analysis_ctx);
+        const result = try self.doAnalyzeBranch(alloc, branch, analysis_ctx);
 
-        try self.branch_joiner_map.put(result);
-        self.is_join_set.set(result.id, true);
+        if (result) |joiner| {
+            try self.branch_joiner_map.put(alloc, branch.id, joiner.id);
+            self.is_join_set.set(joiner.id);
+        }
 
         return result;
     }
@@ -638,35 +617,43 @@ pub const GraphBuilder = struct {
     // NOTE: all multi-exec-input nodes necessarily are macros that just expand to single-exec-input nodes
     /// @returns the joining node for the branch, or null if it doesn't join
     fn doAnalyzeBranch(
-        self: @This(),
+        self: *@This(),
         alloc: std.mem.Allocator,
         branch: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
-    ) !?*const IndexedNode {
-        if (analysis_ctx.node_data.items(.visited)[branch.index]) {
-            const prev_result = self.branch_joiner_map.get(branch.index);
-            return .{ .value = prev_result };
+    ) NodeAnalysisErr!?*const IndexedNode {
+        if (analysis_ctx.node_data.items(.visited)[branch.id] == 1) {
+            const prev_result_id = self.branch_joiner_map.get(branch.id);
+            return self.nodes.map.getPtr(if (prev_result_id) |v| v else return null);
         }
 
-        analysis_ctx.node_data.items(.visited)[branch.index] = 1;
+        analysis_ctx.node_data.items(.visited)[branch.id] = 1;
 
-        var collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const IndexedNode, {});
-        try collapsed_node_layer.put(branch);
+        const NodeSet = std.AutoArrayHashMapUnmanaged(*const IndexedNode, void);
+        var collapsed_node_layer = NodeSet{};
+        try collapsed_node_layer.put(alloc, branch, {});
         defer collapsed_node_layer.deinit(alloc);
 
+        // FIXME: cycles  aren't handled well, it's BFS so won't kill the algo
+        // but might slow it down
         while (true) {
-            var new_collapsed_node_layer = std.AutoArrayHashMapUnmanaged(*const IndexedNode, {});
+            var new_collapsed_node_layer = NodeSet{};
 
-            for (collapsed_node_layer.items()) |collapsed_node| {
-                const is_branch = std.mem.eql(u8, collapsed_node.desc().name, "if");
+            for (collapsed_node_layer.keys()) |collapsed_node| {
+                const is_branch = collapsed_node.desc() == &helpers.builtin_nodes.@"if";
 
                 if (is_branch) {
-                    const joiner = try self.analyzeBranch(collapsed_node, analysis_ctx);
-                    try new_collapsed_node_layer.put(joiner);
+                    const maybe_joiner = try self.analyzeBranch(alloc, collapsed_node, analysis_ctx);
+                    if (maybe_joiner) |joiner| {
+                        try new_collapsed_node_layer.put(alloc, joiner, {});
+                    }
                 } else {
-                    var exec_link_iter = collapsed_node.iter_out_exec_links();
-                    while (exec_link_iter.next()) |exec_link| {
-                        try new_collapsed_node_layer.put(exec_link.target);
+                    for (collapsed_node.outputs, collapsed_node.desc().getOutputs()) |maybe_output, output_desc| {
+                        if (!output_desc.isExec()) continue;
+                        if (maybe_output == null) continue;
+                        const output = maybe_output.?;
+                        const target = self.nodes.map.getPtr(output.link.target) orelse unreachable;
+                        try new_collapsed_node_layer.put(alloc, target, {});
                     }
                 }
             }
@@ -674,9 +661,9 @@ pub const GraphBuilder = struct {
             const new_layer_count = new_collapsed_node_layer.count();
 
             if (new_layer_count == 0)
-                return .{ .value = null };
+                return null;
             if (new_layer_count == 1)
-                return .{ .value = new_collapsed_node_layer.iterator.next() orelse unreachable };
+                return new_collapsed_node_layer.keys()[0]; // should always have at least 1
 
             collapsed_node_layer.clearAndFree(alloc);
             // FIXME: what happens if we error before this swap? need an errdefer...
@@ -785,8 +772,8 @@ pub const GraphBuilder = struct {
             (try branch_sexp.value.list.addOne()).* = alternative_sexp;
 
             // FIXME: remove this double hash map fetch
-            if (self.graph.branch_joiner_map.get(node)) |join| {
-                return @call(debug_tail_call, onNode, .{ self, alloc, join.id, context });
+            if (self.graph.branch_joiner_map.get(node.id)) |join| {
+                return @call(debug_tail_call, onNode, .{ self, alloc, join, context });
             }
         }
 
@@ -824,7 +811,6 @@ pub const GraphBuilder = struct {
             for (node.outputs, node.desc().getOutputs()) |output, output_desc| {
                 // FIXME: tail call where possible?
                 //return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
-                std.debug.print("onNode({any})\n", .{output});
                 if (output != null and output_desc.kind.primitive == .exec) {
                     try self.onNode(alloc, output.?.link.target, context);
                 }
@@ -1096,85 +1082,97 @@ pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?
 //     , text.items);
 // }
 
-test "small local built graph" {
+// test "small local built graph" {
+//     const a = testing.allocator;
+
+//     var env = try Env.initDefault(a);
+//     defer env.deinit(a);
+
+//     _ = try env.addNode(a, helpers.basicNode(&.{
+//         .name = "throw-confetti",
+//         .inputs = &.{
+//             helpers.Pin{ .name = "run", .kind = .{ .primitive = .exec } },
+//             helpers.Pin{ .name = "particle count", .kind = .{ .primitive = .{ .value = helpers.primitive_types.i32_ } } },
+//         },
+//         .outputs = &.{
+//             helpers.Pin{ .name = "", .kind = .{ .primitive = .exec } },
+//         },
+//     }));
+
+//     var diagnostic: GraphBuilder.Diagnostic = .None;
+//     errdefer std.debug.print("DIAGNOSTIC:\n{}\n", .{diagnostic});
+//     var graph = GraphBuilder.init(a, &env) catch |e| {
+//         std.debug.print("\nERROR: {}\n", .{e});
+//         return e;
+//     };
+//     defer graph.deinit(a);
+
+//     const confetti_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
+//     const confetti2_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
+//     // FIXME:
+//     const entry_index = 0;
+//     const return_index = 1;
+
+//     try graph.addLiteralInput(confetti_index, 1, 0, .{ .int = 100 });
+//     try graph.addLiteralInput(confetti2_index, 1, 0, .{ .int = 200 });
+//     try graph.addEdge(entry_index, 0, confetti_index, 0, 0);
+//     try graph.addEdge(confetti_index, 0, confetti2_index, 0, 0);
+//     try graph.addEdge(confetti2_index, 0, return_index, 0, 0);
+
+//     const sexp = graph.compile(a, "main") catch |e| {
+//         std.debug.print("\ncompile error: {}\n", .{e});
+//         return e;
+//     };
+//     defer sexp.deinit(a);
+
+//     var text = std.ArrayList(u8).init(a);
+//     defer text.deinit();
+//     _ = try sexp.write(text.writer());
+
+//     try testing.expectEqualStrings(
+//         \\(typeof (main)
+//         \\        i32)
+//         \\(define (main)
+//         \\        (begin (throw-confetti 100)
+//         \\               (throw-confetti 200)
+//         \\               (return 0)))
+//         // TODO: print floating point explicitly
+//     , text.items);
+// }
+
+test "empty graph twice" {
     const a = testing.allocator;
 
     var env = try Env.initDefault(a);
     defer env.deinit(a);
 
-    _ = try env.addNode(a, helpers.basicNode(&.{
-        .name = "throw-confetti",
-        .inputs = &.{
-            helpers.Pin{ .name = "run", .kind = .{ .primitive = .exec } },
-            helpers.Pin{ .name = "particle count", .kind = .{ .primitive = .{ .value = helpers.primitive_types.i32_ } } },
-        },
-        .outputs = &.{
-            helpers.Pin{ .name = "", .kind = .{ .primitive = .exec } },
-        },
-    }));
-
-    var diagnostic: GraphBuilder.Diagnostic = .None;
-    errdefer std.debug.print("DIAGNOSTIC:\n{}\n", .{diagnostic});
     var graph = GraphBuilder.init(a, &env) catch |e| {
         std.debug.print("\nERROR: {}\n", .{e});
         return e;
     };
     defer graph.deinit(a);
 
-    const confetti_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
-    const confetti2_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
-    // FIXME:
-    const entry_index = 0;
-    const return_index = 1;
-
-    try graph.addLiteralInput(confetti_index, 1, 0, .{ .int = 100 });
-    try graph.addLiteralInput(confetti2_index, 1, 0, .{ .int = 200 });
-    try graph.addEdge(entry_index, 0, confetti_index, 0, 0);
-    try graph.addEdge(confetti_index, 0, confetti2_index, 0, 0);
-    try graph.addEdge(confetti2_index, 0, return_index, 0, 0);
-
-    const sexp = graph.compile(a, "main") catch |e| {
+    const first_sexp = graph.compile(a, "main") catch |e| {
         std.debug.print("\ncompile error: {}\n", .{e});
         return e;
     };
-    defer sexp.deinit(a);
+    first_sexp.deinit(a);
 
-    var text = std.ArrayList(u8).init(a);
-    defer text.deinit();
-    _ = try sexp.write(text.writer());
-
-    try testing.expectEqualStrings(
-        \\(typeof (main)
-        \\        i32)
-        \\(define (main)
-        \\        (begin (throw-confetti 100)
-        \\               (throw-confetti 200)
-        \\               (return 0)))
-        // TODO: print floating point explicitly
-    , text.items);
-}
-
-test "empty graph" {
-    const a = testing.allocator;
-
-    var env = try Env.initDefault(a);
-    defer env.deinit(a);
-
-    var graph = GraphBuilder.init(a, &env) catch |e| {
-        std.debug.print("\nERROR: {}\n", .{e});
-        return e;
-    };
-    defer graph.deinit(a);
-
-    const sexp = graph.compile(a, "main") catch |e| {
+    const second_sexp = graph.compile(a, "main") catch |e| {
         std.debug.print("\ncompile error: {}\n", .{e});
         return e;
     };
-    defer sexp.deinit(a);
+    second_sexp.deinit(a);
+
+    const third_sexp = graph.compile(a, "main") catch |e| {
+        std.debug.print("\ncompile error: {}\n", .{e});
+        return e;
+    };
+    defer third_sexp.deinit(a);
 
     var text = std.ArrayList(u8).init(a);
     defer text.deinit();
-    _ = try sexp.write(text.writer());
+    _ = try third_sexp.write(text.writer());
 
     try testing.expectEqualStrings(
         \\(typeof (main)

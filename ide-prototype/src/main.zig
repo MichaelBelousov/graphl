@@ -1748,13 +1748,11 @@ fn dvui_frame() !void {
             const sexp = try current_graph.grappl_graph.compile(gpa, "main");
             defer sexp.deinit(gpa);
 
-            var bytes = std.ArrayList(u8).init(gpa);
-            defer bytes.deinit();
-
             if (builtin.mode == .Debug) {
+                var bytes = std.ArrayList(u8).init(gpa);
+                defer bytes.deinit();
                 _ = try sexp.write(bytes.writer());
                 std.log.info("sexp:\n{s}", .{bytes.items});
-                bytes.clearRetainingCapacity();
             }
 
             var diagnostic = compiler.Diagnostic.init();
