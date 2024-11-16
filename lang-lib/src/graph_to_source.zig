@@ -88,6 +88,7 @@ pub const GraphBuilder = struct {
 
     // FIXME: remove buildFromJson and just do it all in init?
     pub fn init(alloc: std.mem.Allocator, env: *Env) !Self {
+        // FIXME: pins leak
         const result_node_basic_desc = _: {
             const result = try alloc.create(BasicMutNodeDesc);
 
@@ -109,6 +110,7 @@ pub const GraphBuilder = struct {
 
         const result_node = try env.addNode(alloc, helpers.basicMutableNode(result_node_basic_desc));
 
+        // FIXME: pins leak
         const entry_node_basic_desc = _: {
             const result = try alloc.create(BasicMutNodeDesc);
 
@@ -335,6 +337,7 @@ pub const GraphBuilder = struct {
     pub fn compile(self: *@This(), alloc: std.mem.Allocator, name: []const u8) !Sexp {
         try self.postPopulate(alloc);
         var body = try self.rootToSexp(alloc);
+        defer body.deinit(alloc);
         std.debug.assert(body.value == .list);
 
         var module = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(alloc) } };
@@ -403,7 +406,8 @@ pub const GraphBuilder = struct {
                 if (local.default) |default|
                     local_def.value.list.addOneAssumeCapacity().* = default;
             }
-            body_begin.value.list.appendSliceAssumeCapacity(try body.value.list.toOwnedSlice());
+            body_begin.value.list.appendSliceAssumeCapacity(body.value.list.items);
+            body.value.list.clearAndFree();
 
             // FIXME: also emit imports and definitions!
             func_bindings.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
@@ -700,6 +704,7 @@ pub const GraphBuilder = struct {
 
             pub fn deinit(self: *@This(), a: std.mem.Allocator) void {
                 self.node_data.deinit(a);
+                for (self.block.items) |member| member.deinit(a);
                 self.block.deinit();
             }
         };
@@ -711,9 +716,7 @@ pub const GraphBuilder = struct {
             defer ctx.deinit(alloc);
             try ctx.node_data.resize(alloc, self.graph.nodes.map.count());
             try self.onNode(alloc, node_id, &ctx);
-            // FIXME: move instead of clone!
-            return Sexp{ .value = .{ .list = try ctx.block.clone() } };
-            //return ctx.block.items[0];
+            return Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try ctx.block.toOwnedSlice()) } };
         }
 
         const Error = error{
@@ -821,6 +824,7 @@ pub const GraphBuilder = struct {
             for (node.outputs, node.desc().getOutputs()) |output, output_desc| {
                 // FIXME: tail call where possible?
                 //return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
+                std.debug.print("onNode({any})\n", .{output});
                 if (output != null and output_desc.kind.primitive == .exec) {
                     try self.onNode(alloc, output.?.link.target, context);
                 }
@@ -1118,13 +1122,16 @@ test "small local built graph" {
     defer graph.deinit(a);
 
     const confetti_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
+    const confetti2_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
     // FIXME:
     const entry_index = 0;
     const return_index = 1;
 
     try graph.addLiteralInput(confetti_index, 1, 0, .{ .int = 100 });
-    try graph.addEdge(confetti_index, 0, return_index, 0, 0);
+    try graph.addLiteralInput(confetti2_index, 1, 0, .{ .int = 200 });
     try graph.addEdge(entry_index, 0, confetti_index, 0, 0);
+    try graph.addEdge(confetti_index, 0, confetti2_index, 0, 0);
+    try graph.addEdge(confetti2_index, 0, return_index, 0, 0);
 
     const sexp = graph.compile(a, "main") catch |e| {
         std.debug.print("\ncompile error: {}\n", .{e});
@@ -1141,7 +1148,39 @@ test "small local built graph" {
         \\        i32)
         \\(define (main)
         \\        (begin (throw-confetti 100)
+        \\               (throw-confetti 200)
         \\               (return 0)))
+        // TODO: print floating point explicitly
+    , text.items);
+}
+
+test "empty graph" {
+    const a = testing.allocator;
+
+    var env = try Env.initDefault(a);
+    defer env.deinit(a);
+
+    var graph = GraphBuilder.init(a, &env) catch |e| {
+        std.debug.print("\nERROR: {}\n", .{e});
+        return e;
+    };
+    defer graph.deinit(a);
+
+    const sexp = graph.compile(a, "main") catch |e| {
+        std.debug.print("\ncompile error: {}\n", .{e});
+        return e;
+    };
+    defer sexp.deinit(a);
+
+    var text = std.ArrayList(u8).init(a);
+    defer text.deinit();
+    _ = try sexp.write(text.writer());
+
+    try testing.expectEqualStrings(
+        \\(typeof (main)
+        \\        i32)
+        \\(define (main)
+        \\        (begin (return 0)))
         // TODO: print floating point explicitly
     , text.items);
 }
