@@ -88,36 +88,12 @@ pub const GraphBuilder = struct {
 
     // FIXME: remove buildFromJson and just do it all in init?
     pub fn init(alloc: std.mem.Allocator, env: *Env) !Self {
-        // FIXME: pins leak
-        const result_node_basic_desc = _: {
-            const result = try alloc.create(BasicMutNodeDesc);
-
-            const inputs = try alloc.alloc(Pin, 2);
-            inputs[0] = Pin{ .name = "exit", .kind = .{ .primitive = .exec } };
-            inputs[1] = Pin{ .name = "result", .kind = .{ .primitive = .{ .value = helpers.primitive_types.i32_ } } };
-
-            const outputs = try alloc.alloc(Pin, 0);
-
-            result.* = .{
-                .name = "return",
-                .hidden = false,
-                .inputs = inputs,
-                .outputs = outputs,
-            };
-
-            break :_ result;
-        };
-
-        const result_node = try env.addNode(alloc, helpers.basicMutableNode(result_node_basic_desc));
-
-        // FIXME: pins leak
         const entry_node_basic_desc = _: {
-            const result = try alloc.create(BasicMutNodeDesc);
-
             const inputs = try alloc.alloc(Pin, 0);
-
             const outputs = try alloc.alloc(Pin, 1);
             outputs[0] = Pin{ .name = "start", .kind = .{ .primitive = .exec } };
+
+            const result = try alloc.create(BasicMutNodeDesc);
 
             result.* = .{
                 .name = "enter",
@@ -132,23 +108,52 @@ pub const GraphBuilder = struct {
         // FIXME: this breaks without layered envs!
         const entry_node = try env.addNode(alloc, helpers.basicMutableNode(entry_node_basic_desc));
 
+        const result_node_basic_desc = _: {
+            const inputs = try alloc.alloc(Pin, 2);
+            inputs[0] = Pin{ .name = "exit", .kind = .{ .primitive = .exec } };
+            inputs[1] = Pin{ .name = "result", .kind = .{ .primitive = .{ .value = helpers.primitive_types.i32_ } } };
+
+            const outputs = try alloc.alloc(Pin, 0);
+
+            const result = try alloc.create(BasicMutNodeDesc);
+
+            result.* = .{
+                .name = "return",
+                .hidden = false,
+                .inputs = inputs,
+                .outputs = outputs,
+            };
+
+            break :_ result;
+        };
+
+        const result_node = try env.addNode(alloc, helpers.basicMutableNode(result_node_basic_desc));
+
         var self = Self{
             .env = env,
             .is_join_set = try std.DynamicBitSetUnmanaged.initEmpty(alloc, 0),
+            // initialized below
             .result_node = result_node,
             .result_node_basic_desc = result_node_basic_desc,
             .entry_node = entry_node,
             .entry_node_basic_desc = entry_node_basic_desc,
         };
 
-        const entry_id = self.addNode(alloc, entry_node_basic_desc.name, true, null, null) catch unreachable;
-        const return_id = self.addNode(alloc, result_node_basic_desc.name, false, null, null) catch unreachable;
+        const entry_id = self.addNode(alloc, self.entry_node_basic_desc.name, true, null, null) catch unreachable;
+        const return_id = self.addNode(alloc, self.result_node_basic_desc.name, false, null, null) catch unreachable;
         self.addEdge(entry_id, 0, return_id, 0, 0) catch unreachable;
 
         return self;
     }
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+        alloc.free(self.entry_node_basic_desc.outputs);
+        alloc.free(self.entry_node_basic_desc.inputs);
+        alloc.destroy(self.entry_node_basic_desc);
+        alloc.free(self.result_node_basic_desc.outputs);
+        alloc.free(self.result_node_basic_desc.inputs);
+        alloc.destroy(self.result_node_basic_desc);
+
         self.is_join_set.deinit(alloc);
         {
             var node_iter = self.nodes.map.iterator();
@@ -157,9 +162,6 @@ pub const GraphBuilder = struct {
             }
         }
         self.nodes.deinit(alloc);
-        alloc.free(self.result_node_basic_desc.inputs);
-        alloc.free(self.result_node_basic_desc.outputs);
-        alloc.destroy(self.result_node_basic_desc);
     }
 
     const GetSingleExecFromEntryError = error{
@@ -429,18 +431,18 @@ pub const GraphBuilder = struct {
         return module;
     }
 
-    // FIXME: this should return a separate object
-    pub fn buildFromJson(
-        self: *Self,
-        alloc: std.mem.Allocator,
-        json_graph: GraphDoc,
-        diagnostic: ?*BuildFromJsonDiagnostic,
-    ) !Sexp {
-        const entry_node = try self.populateFromJsonAndReturnEntry(alloc, json_graph, diagnostic);
-        self.entry_id = entry_node.id;
-        try self.link(alloc, json_graph);
-        return self.rootToSexp(alloc);
-    }
+    // // FIXME: this should return a separate object
+    // pub fn buildFromJson(
+    //     self: *Self,
+    //     alloc: std.mem.Allocator,
+    //     json_graph: GraphDoc,
+    //     diagnostic: ?*BuildFromJsonDiagnostic,
+    // ) !Sexp {
+    //     const entry_node = try self.populateFromJsonAndReturnEntry(alloc, json_graph, diagnostic);
+    //     self.entry_id = entry_node.id;
+    //     try self.link(alloc, json_graph);
+    //     return self.rootToSexp(alloc);
+    // }
 
     // TODO: make errors stable somehow
     const PopulateAndReturnEntryDiagnostic = union(enum(u16)) {
@@ -929,82 +931,82 @@ pub const GraphToSourceDiagnostic = GraphToSourceErr;
 
 // TODO: use cap'n proto instead of JSON
 
-/// caller must free result with the given allocator
-pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?*GraphToSourceDiagnostic) ![]const u8 {
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    const arena_alloc = arena.allocator();
+// caller must free result with the given allocator
+// pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?*GraphToSourceDiagnostic) ![]const u8 {
+//     var arena = std.heap.ArenaAllocator.init(a);
+//     defer arena.deinit();
+//     const arena_alloc = arena.allocator();
 
-    const env = try Env.initDefault(arena_alloc);
+//     const env = try Env.initDefault(arena_alloc);
 
-    var json_diagnostics = json.Diagnostics{};
-    var graph_json_reader = json.Scanner.initCompleteInput(arena_alloc, graph_json);
-    graph_json_reader.enableDiagnostics(&json_diagnostics);
-    const graph = json.parseFromTokenSourceLeaky(GraphDoc, arena_alloc, &graph_json_reader, .{
-        .ignore_unknown_fields = true,
-    }) catch |e| {
-        if (diagnostic) |d| d.* = GraphToSourceDiagnostic{ .Read = json_diagnostics };
-        return e;
-    };
+//     var json_diagnostics = json.Diagnostics{};
+//     var graph_json_reader = json.Scanner.initCompleteInput(arena_alloc, graph_json);
+//     graph_json_reader.enableDiagnostics(&json_diagnostics);
+//     const graph = json.parseFromTokenSourceLeaky(GraphDoc, arena_alloc, &graph_json_reader, .{
+//         .ignore_unknown_fields = true,
+//     }) catch |e| {
+//         if (diagnostic) |d| d.* = GraphToSourceDiagnostic{ .Read = json_diagnostics };
+//         return e;
+//     };
 
-    var page_writer = try PageWriter.init(arena_alloc);
-    defer page_writer.deinit();
+//     var page_writer = try PageWriter.init(arena_alloc);
+//     defer page_writer.deinit();
 
-    var import_exprs = std.ArrayList(Sexp).init(arena_alloc);
-    defer import_exprs.deinit();
-    try import_exprs.ensureTotalCapacityPrecise(graph.imports.map.count());
+//     var import_exprs = std.ArrayList(Sexp).init(arena_alloc);
+//     defer import_exprs.deinit();
+//     try import_exprs.ensureTotalCapacityPrecise(graph.imports.map.count());
 
-    var builder = try GraphBuilder.init(arena_alloc, env);
-    defer builder.deinit(arena_alloc);
+//     var builder = try GraphBuilder.init(arena_alloc, env);
+//     defer builder.deinit(arena_alloc);
 
-    // TODO: refactor blocks into functions
-    {
-        {
-            // TODO: errdefer delete all added imports
-            var imports_iter = graph.imports.map.iterator();
-            while (imports_iter.next()) |json_import_entry| {
-                const json_import_name = json_import_entry.key_ptr.*;
-                const json_import_bindings = json_import_entry.value_ptr.*;
+//     // TODO: refactor blocks into functions
+//     {
+//         {
+//             // TODO: errdefer delete all added imports
+//             var imports_iter = graph.imports.map.iterator();
+//             while (imports_iter.next()) |json_import_entry| {
+//                 const json_import_name = json_import_entry.key_ptr.*;
+//                 const json_import_bindings = json_import_entry.value_ptr.*;
 
-                const bindings = try arena_alloc.alloc(ImportBinding, json_import_bindings.len);
-                defer arena_alloc.free(bindings);
+//                 const bindings = try arena_alloc.alloc(ImportBinding, json_import_bindings.len);
+//                 defer arena_alloc.free(bindings);
 
-                for (json_import_bindings, bindings) |json_imported_binding, *binding| {
-                    const ref = json_imported_binding.ref;
-                    binding.* = .{
-                        .binding = ref,
-                        .alias = json_imported_binding.alias,
-                    };
-                }
+//                 for (json_import_bindings, bindings) |json_imported_binding, *binding| {
+//                     const ref = json_imported_binding.ref;
+//                     binding.* = .{
+//                         .binding = ref,
+//                         .alias = json_imported_binding.alias,
+//                     };
+//                 }
 
-                try builder.addImport(arena_alloc, json_import_name, bindings);
-            }
-        }
+//                 try builder.addImport(arena_alloc, json_import_name, bindings);
+//             }
+//         }
 
-        for (import_exprs.items) |import| {
-            _ = import.write(page_writer.writer()) catch |e| return {
-                if (diagnostic) |d| d.* = .{ .IoErr = e };
-                return e;
-            };
-            _ = try page_writer.writer().write("\n");
-        }
-    }
+//         for (import_exprs.items) |import| {
+//             _ = import.write(page_writer.writer()) catch |e| return {
+//                 if (diagnostic) |d| d.* = .{ .IoErr = e };
+//                 return e;
+//             };
+//             _ = try page_writer.writer().write("\n");
+//         }
+//     }
 
-    const sexp = try builder.buildFromJson(
-        arena_alloc,
-        graph,
-        if (diagnostic) |d| _: {
-            d.* = .{ .Compile = .None };
-            break :_ &d.Compile;
-        } else null,
-    );
+//     const sexp = try builder.buildFromJson(
+//         arena_alloc,
+//         graph,
+//         if (diagnostic) |d| _: {
+//             d.* = .{ .Compile = .None };
+//             break :_ &d.Compile;
+//         } else null,
+//     );
 
-    _ = try sexp.write(page_writer.writer());
-    _ = try page_writer.writer().write("\n");
+//     _ = try sexp.write(page_writer.writer());
+//     _ = try page_writer.writer().write("\n");
 
-    // FIXME: provide API to free this
-    return page_writer.concat(global_alloc);
-}
+//     // FIXME: provide API to free this
+//     return page_writer.concat(global_alloc);
+// }
 
 // test "big local built graph" {
 //     const a = testing.allocator;
@@ -1181,4 +1183,10 @@ test "empty graph twice" {
         \\        (begin (return 0)))
         // TODO: print floating point explicitly
     , text.items);
+
+    const compiler = @import("./compiler-wat.zig");
+    var compile_diag = compiler.Diagnostic.init();
+    defer std.debug.print("compilation error: {}", .{compile_diag});
+    const compile_result = try compiler.compile(a, &third_sexp, null, &compile_diag);
+    a.free(compile_result);
 }

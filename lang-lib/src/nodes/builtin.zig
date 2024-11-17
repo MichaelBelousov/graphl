@@ -1034,9 +1034,14 @@ pub const Env = struct {
     // could be macro, function, operator
     nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
 
+    created_types: std.SinglyLinkedList(TypeInfo) = .{},
+    created_nodes: std.SinglyLinkedList(NodeDesc) = .{},
+
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         self.types.clearAndFree(alloc);
         self.nodes.clearAndFree(alloc);
+        while (self.created_nodes.popFirst()) |popped| alloc.destroy(popped);
+        while (self.created_types.popFirst()) |popped| alloc.destroy(popped);
         // FIXME: destroy all created slots
     }
 
@@ -1079,11 +1084,11 @@ pub const Env = struct {
         const result = try self.types.getOrPut(a, type_info.name);
         // FIXME: allow types to be overriden within scopes?
         if (result.found_existing) return error.EnvAlreadyExists;
-        // FIXME: leak
-        const slot = try a.create(TypeInfo);
-        slot.* = type_info;
-        result.value_ptr.* = slot;
-        return slot;
+        const slot = try a.create(std.SinglyLinkedList(TypeInfo).Node);
+        self.created_types.prepend(slot);
+        slot.data = type_info;
+        result.value_ptr.* = &slot.data;
+        return &slot.data;
     }
 
     pub fn addNode(self: *@This(), a: std.mem.Allocator, node_desc: NodeDesc) !*NodeDesc {
@@ -1091,12 +1096,11 @@ pub const Env = struct {
         const result = try self.nodes.getOrPut(a, node_desc.name());
         // FIXME: allow types to be overriden within scopes?
         if (result.found_existing) return error.EnvAlreadyExists;
-        // FIXME: leak
-        const slot = try a.create(NodeDesc);
-        slot.* = node_desc;
-        result.value_ptr.* = slot;
-
-        return slot;
+        const slot = try a.create(std.SinglyLinkedList(NodeDesc).Node);
+        self.created_nodes.prepend(slot);
+        slot.data = node_desc;
+        result.value_ptr.* = &slot.data;
+        return &slot.data;
     }
 };
 
