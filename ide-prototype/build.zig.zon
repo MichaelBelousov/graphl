@@ -24,8 +24,9 @@
     // internet connectivity.
     .dependencies = .{
         .dvui = .{
-            .url = "https://github.com/MichaelBelousov/dvui/archive/05e1c85df71993948a5c6a54bb6cac236bf2ee1c.zip",
-            .hash = "12209a94b7959c71e5e49099d2f617f920cccb4b153fd5898dead387c3ad81ddc46b",
+            //.url = "https://github.com/MichaelBelousov/dvui/archive/05e1c85df71993948a5c6a54bb6cac236bf2ee1c.zip",
+            //.hash = "12209a94b7959c71e5e49099d2f617f920cccb4b153fd5898dead387c3ad81ddc46b",
+            .path = "../../dvui",
         },
         .@"binaryen-zig" = .{
             //.url = "https://github.com/MichaelBelousov/binaryen-zig/archive/7ae386348c28d80b7c8db18d18e64eb14a7ba4e4.zip",

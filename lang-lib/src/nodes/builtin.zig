@@ -733,6 +733,7 @@ pub const builtin_nodes = struct {
         .name = "index-of",
         .inputs = &.{
             Pin{ .name = "string", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+            Pin{ .name = "char", .kind = .{ .primitive = .{ .value = primitive_types.char_ } } },
         },
         .outputs = &.{
             Pin{ .name = "index", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
@@ -1085,8 +1086,11 @@ pub const Env = struct {
         // FIXME: allow types to be overriden within scopes?
         if (result.found_existing) return error.EnvAlreadyExists;
         const slot = try a.create(std.SinglyLinkedList(TypeInfo).Node);
+        slot.* = .{
+            .data = type_info,
+            .next = null,
+        };
         self.created_types.prepend(slot);
-        slot.data = type_info;
         result.value_ptr.* = &slot.data;
         return &slot.data;
     }
@@ -1097,8 +1101,11 @@ pub const Env = struct {
         // FIXME: allow types to be overriden within scopes?
         if (result.found_existing) return error.EnvAlreadyExists;
         const slot = try a.create(std.SinglyLinkedList(NodeDesc).Node);
+        slot.* = .{
+            .data = node_desc,
+            .next = null,
+        };
         self.created_nodes.prepend(slot);
-        slot.data = node_desc;
         result.value_ptr.* = &slot.data;
         return &slot.data;
     }

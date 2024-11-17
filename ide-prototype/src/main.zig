@@ -344,7 +344,7 @@ fn addGraph(name: []const u8, set_as_current: bool) !*Graph {
     if (graphs.first == null) {
         graphs.prepend(new_graph);
     } else {
-        // FIXME: use reverse list?
+        // FIXME: why not prepend?
         var maybe_cursor = graphs.first;
         while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
             if (cursor.next == null) {
@@ -1303,6 +1303,24 @@ fn renderNode(
                     }
 
                     const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{} } }, .{ .id_extra = j });
+                    defer text_result.deinit();
+                    // TODO: don't dupe this memory! use a dynamic buffer instead
+                    if (text_result.text_changed) {
+                        if (input.value.string.ptr != empty_str.ptr)
+                            gpa.free(input.value.string);
+                        input.value.string = try gpa.dupe(u8, text_result.getText());
+                    }
+
+                    handled = true;
+                }
+
+                if (input_desc.kind.primitive.value == grappl.primitive_types.char_ and input.* == .value) {
+                    const empty_str = "";
+                    if (input.* != .value or input.value != .string) {
+                        input.* = .{ .value = .{ .string = empty_str } };
+                    }
+
+                    const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{ .limit = 1 } } }, .{ .id_extra = j });
                     defer text_result.deinit();
                     // TODO: don't dupe this memory! use a dynamic buffer instead
                     if (text_result.text_changed) {

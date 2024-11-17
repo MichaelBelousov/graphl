@@ -341,9 +341,9 @@ pub const GraphBuilder = struct {
         try self.branch_joiner_map.ensureTotalCapacity(alloc, self.branch_count);
         try self.is_join_set.resize(alloc, self.nodes.map.count(), false);
 
-        var analysis_arena = std.heap.ArenaAllocator.init(alloc);
-        try self.analyzeNodes(analysis_arena.allocator());
-        analysis_arena.deinit();
+        //var analysis_arena = std.heap.ArenaAllocator.init(alloc);
+        try self.analyzeNodes(alloc);
+        //analysis_arena.deinit();
 
         var body = try self.rootToSexp(alloc);
         defer body.deinit(alloc);
