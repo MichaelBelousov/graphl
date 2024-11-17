@@ -100,17 +100,46 @@ pub fn build(b: *std.Build) void {
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(binaryen_dep.path("binaryen/bin/wasm-opt.js"), .bin, "wasm-opt.js").step);
     b.getInstallStep().dependOn(&install_exe.step);
 
-    const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/web.zig"),
-        .target = native_target,
-        .optimize = optimize,
-    });
+    {
+        const exe_unit_tests = b.addTest(.{
+            .root_source_file = b.path("src/web.zig"),
+            .target = native_target,
+            .optimize = optimize,
+        });
 
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
+        const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
-    // Similar to creating the run step earlier, this exposes a `test` step to
-    // the `zig build --help` menu, providing a way for the user to request
-    // running the unit tests.
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_exe_unit_tests.step);
+        // Similar to creating the run step earlier, this exposes a `test` step to
+        // the `zig build --help` menu, providing a way for the user to request
+        // running the unit tests.
+        const test_step = b.step("test", "Run unit tests");
+        test_step.dependOn(&run_exe_unit_tests.step);
+    }
+
+    {
+        const native_exe = b.addExecutable(.{
+            .name = "dvui-frontend-native",
+            .root_source_file = b.path("src/web.zig"),
+            .target = native_target,
+            .optimize = optimize,
+            .strip = switch (optimize) {
+                .ReleaseFast, .ReleaseSmall => true,
+                else => false,
+            },
+        });
+
+        native_exe.linkLibC();
+
+        native_exe.import_symbols = true;
+        native_exe.rdynamic = true; // https://github.com/ziglang/zig/issues/14139
+        native_exe.entry = .disabled;
+
+        native_exe.root_module.addImport("dvui", dvui_dep.module("dvui_raylib"));
+        native_exe.root_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
+
+        const native_install = b.addInstallArtifact(native_exe, .{});
+
+        const build_native_step = b.step("native", "Build for native");
+        build_native_step.dependOn(&native_install.step);
+    }
 }
