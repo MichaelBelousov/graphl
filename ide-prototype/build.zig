@@ -44,7 +44,7 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "dvui-frontend",
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/web.zig"),
         .target = web_target,
         .optimize = optimize,
         .strip = switch (optimize) {
@@ -101,7 +101,7 @@ pub fn build(b: *std.Build) void {
     b.getInstallStep().dependOn(&install_exe.step);
 
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/web.zig"),
         .target = native_target,
         .optimize = optimize,
     });
