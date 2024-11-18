@@ -97,7 +97,7 @@ pub const GraphBuilder = struct {
 
             result.* = .{
                 .name = "enter",
-                .hidden = false,
+                .hidden = true,
                 .inputs = inputs,
                 .outputs = outputs,
             };

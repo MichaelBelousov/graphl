@@ -119,7 +119,7 @@ pub fn build(b: *std.Build) void {
     {
         const native_exe = b.addExecutable(.{
             .name = "dvui-frontend-native",
-            .root_source_file = b.path("src/web.zig"),
+            .root_source_file = b.path("./src/native.zig"),
             .target = native_target,
             .optimize = optimize,
             .strip = switch (optimize) {
