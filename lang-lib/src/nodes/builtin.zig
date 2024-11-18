@@ -1043,7 +1043,7 @@ pub const Env = struct {
 
     types: std.StringHashMapUnmanaged(Type) = .{},
     // could be macro, function, operator
-    nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
+    _nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
 
     created_types: std.SinglyLinkedList(TypeInfo) = .{},
     created_nodes: std.SinglyLinkedList(NodeDesc) = .{},
@@ -1054,6 +1054,12 @@ pub const Env = struct {
         while (self.created_nodes.popFirst()) |popped| alloc.destroy(popped);
         while (self.created_types.popFirst()) |popped| alloc.destroy(popped);
         // FIXME: destroy all created slots
+    }
+
+    pub fn spawn(self: *@This()) @This() {
+        return @This(){
+            .parentEnv = self,
+        };
     }
 
     pub fn initDefault(alloc: std.mem.Allocator) !@This() {
@@ -1073,10 +1079,10 @@ pub const Env = struct {
             // TODO: select by type so we can make public other types
             //const nodes_decls = std.meta.declList(nodes, NodeDesc);
             const nodes_decls = comptime std.meta.declarations(nodes);
-            try env.nodes.ensureTotalCapacity(alloc, @intCast(nodes_decls.len));
+            try env._nodes.ensureTotalCapacity(alloc, @intCast(nodes_decls.len));
             inline for (nodes_decls) |n| {
                 const node = @field(nodes, n.name);
-                try env.nodes.put(alloc, node.name(), &node);
+                try env._nodes.put(alloc, node.name(), &node);
             }
         }
 
@@ -1084,10 +1090,59 @@ pub const Env = struct {
     }
 
     pub fn spawnNodeOfKind(self: *const @This(), a: std.mem.Allocator, id: GraphTypes.NodeId, kind: []const u8) !?GraphTypes.Node {
-        return if (self.nodes.get(kind)) |desc|
+        return if (self.getNode(kind)) |desc|
             try GraphTypes.Node.initEmptyPins(a, .{ .id = id, .desc = desc })
         else
             null;
+    }
+
+    pub const TypeIterator = struct {
+        parentEnv: ?*Env,
+        iter: std.StringHashMapUnmanaged(Type).ValueIterator,
+
+        pub fn next(self: *@This()) ?Type {
+            var val = self.iter.next();
+            while (val == null and self.parentEnv != null) {
+                self.iter = self.parentEnv.?.types.valueIterator();
+                self.parentEnv = self.parentEnv.?.parentEnv;
+                val = self.iter.next();
+            }
+            return if (val) |v| v.* else null;
+        }
+    };
+
+    pub fn typeIterator(self: *@This()) TypeIterator {
+        return TypeIterator{
+            .parentEnv = self.parentEnv,
+            .iter = self.types.valueIterator(),
+        };
+    }
+
+    pub const NodeIterator = struct {
+        parentEnv: ?*Env,
+        iter: std.StringHashMapUnmanaged(*const NodeDesc).ValueIterator,
+
+        pub fn next(self: *@This()) ?*const NodeDesc {
+            var val = self.iter.next();
+            while (val == null and self.parentEnv != null) {
+                self.iter = self.parentEnv.?._nodes.valueIterator();
+                self.parentEnv = self.parentEnv.?.parentEnv;
+                val = self.iter.next();
+            }
+            return if (val) |v| v.* else null;
+        }
+    };
+
+    pub fn nodeIterator(self: *@This()) NodeIterator {
+        return NodeIterator{
+            .parentEnv = self.parentEnv,
+            .iter = self._nodes.valueIterator(),
+        };
+    }
+
+    // FIXME: use interning for name!
+    pub fn getNode(self: *const @This(), name: []const u8) ?*const NodeDesc {
+        return self._nodes.get(name) orelse if (self.parentEnv) |parent| parent.getNode(name) else null;
     }
 
     pub fn addType(self: *@This(), a: std.mem.Allocator, type_info: TypeInfo) !Type {
@@ -1107,7 +1162,7 @@ pub const Env = struct {
 
     pub fn addNode(self: *@This(), a: std.mem.Allocator, node_desc: NodeDesc) !*NodeDesc {
         // TODO: dupe the key, we need to own the key memory lifetime
-        const result = try self.nodes.getOrPut(a, node_desc.name());
+        const result = try self._nodes.getOrPut(a, node_desc.name());
         // FIXME: allow types to be overriden within scopes?
         if (result.found_existing) return error.EnvAlreadyExists;
         const slot = try a.create(std.SinglyLinkedList(NodeDesc).Node);

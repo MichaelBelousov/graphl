@@ -156,7 +156,7 @@ const Graph = struct {
     // FIXME: merge with visual graph
     visual_graph: VisualGraph,
 
-    env: *grappl.Env,
+    env: grappl.Env,
 
     pub fn name(self: *@This()) []u8 {
         return self.name_buff[0..self.name_len];
@@ -173,9 +173,9 @@ const Graph = struct {
     }
 
     pub fn initInPlace(self: *@This(), index: u16, in_name: []const u8) !void {
-        self.env = &shared_env;
+        self.env = shared_env.spawn();
 
-        const grappl_graph = try grappl.GraphBuilder.init(gpa, self.env);
+        const grappl_graph = try grappl.GraphBuilder.init(gpa, &self.env);
 
         // NOTE: does this only work because of return value optimization?
         self.* = @This(){
@@ -498,7 +498,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     const id_extra = (j << 8) | i;
                     var buf: [MAX_FUNC_NAME]u8 = undefined;
                     const name = try std.fmt.bufPrint(&buf, "set_{s}", .{binding.name});
-                    const node_desc = current_graph.env.nodes.get(binding.name) orelse unreachable;
+                    const node_desc = current_graph.env.getNode(binding.name) orelse unreachable;
 
                     var valid_socket_index: ?u16 = null;
                     if (maybe_create_from_type) |create_from_type| {
@@ -549,7 +549,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
             for (current_graph.grappl_graph.entry_node_basic_desc.outputs, 0..) |binding, j| {
                 var buf: [MAX_FUNC_NAME]u8 = undefined;
                 const name = try std.fmt.bufPrint(&buf, "set_{s}", .{binding.name});
-                const node_desc = current_graph.env.nodes.get(binding.name) orelse unreachable;
+                const node_desc = current_graph.env.getNode(binding.name) orelse unreachable;
 
                 var valid_socket_index: ?u16 = null;
                 if (maybe_create_from_type) |create_from_type| {
@@ -570,10 +570,10 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
     }
 
     {
-        var node_iter = current_graph.env.nodes.valueIterator();
+        // FIXME: replace with node iterator
+        var node_iter = current_graph.env.nodeIterator();
         var i: u32 = 0;
-        while (node_iter.next()) |node| {
-            const node_desc = node.*;
+        while (node_iter.next()) |node_desc| {
             const node_name = node_desc.name();
 
             switch (node_desc.special) {
@@ -1671,7 +1671,7 @@ pub fn frame() !void {
         const type_options = _: {
             const result = try gpa.alloc([]const u8, current_graph.env.types.count());
             var i: usize = 0;
-            var type_iter = current_graph.env.types.valueIterator();
+            var type_iter = current_graph.env.typeIterator();
             while (type_iter.next()) |type_entry| : (i += 1) {
                 result[i] = type_entry.*.name;
             }
@@ -1700,7 +1700,8 @@ pub fn frame() !void {
                     // FIXME: obviously this could be faster by keeping track of state
                     const name = try gpa.dupe(u8, for (0..10_000) |j| {
                         const name = try std.fmt.bufPrint(&name_buf, "new{}", .{j});
-                        if (current_graph.env.nodes.contains(name))
+                        // FIXME: use contains
+                        if (current_graph.env.getNode(name) != null)
                             continue;
                         break name;
                     } else {
@@ -1807,8 +1808,8 @@ pub fn frame() !void {
                         const old_set_node_name = set_node.name;
                         set_node.name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name});
                         // FIXME: should be able to use removeByPtr here to avoid look up?
-                        std.debug.assert(current_graph.env.nodes.remove(old_get_node_name));
-                        std.debug.assert(current_graph.env.nodes.remove(old_set_node_name));
+                        std.debug.assert(current_graph.env._nodes.remove(old_get_node_name));
+                        std.debug.assert(current_graph.env._nodes.remove(old_set_node_name));
                         _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(get_node));
                         _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(set_node));
                         gpa.free(old_get_node_name);
@@ -1827,10 +1828,10 @@ pub fn frame() !void {
                     // FIXME: this is slow to run every frame!
                     // FIXME: assumes iterator is ordered when not mutated
                     var k: usize = 0;
-                    var type_iter = current_graph.env.types.valueIterator();
+                    var type_iter = current_graph.env.typeIterator();
                     while (type_iter.next()) |type_entry| : (k += 1) {
-                        if (type_entry.* == binding.type_) {
-                            type_choice = type_entry.*;
+                        if (type_entry == binding.type_) {
+                            type_choice = type_entry;
                             type_choice_index = k;
                             break;
                         }
@@ -1968,14 +1969,14 @@ pub fn frame() !void {
                 {
                     // FIXME: assumes iterator is ordered when not mutated
                     var k: usize = 0;
-                    var type_iter = current_graph.env.types.valueIterator();
+                    var type_iter = current_graph.env.typeIterator();
                     while (type_iter.next()) |type_entry| : (k += 1) {
                         if (pin_desc.kind != .primitive)
                             continue;
                         if (pin_desc.kind.primitive != .value)
                             continue;
-                        if (type_entry.* == pin_desc.kind.primitive.value) {
-                            type_choice = type_entry.*;
+                        if (type_entry == pin_desc.kind.primitive.value) {
+                            type_choice = type_entry;
                             type_choice_index = k;
                             break;
                         }

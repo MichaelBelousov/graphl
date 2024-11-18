@@ -817,7 +817,7 @@ const Compilation = struct {
                 }
 
                 // call host functions
-                const func_node_desc = self.env.nodes.get(func.value.symbol) orelse {
+                const func_node_desc = self.env.getNode(func.value.symbol) orelse {
                     std.log.err("undefined symbol1: '{}'\n", .{func});
                     return error.UndefinedSymbol;
                 };
@@ -1146,6 +1146,7 @@ const Compilation = struct {
 
         const alloc = self.arena.allocator();
 
+        // FIXME: env should come from the caller?
         // set these since they are inited to undefined
         self.env = try Env.initDefault(self.arena.allocator());
         self.wat = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(self.arena.allocator()) } };
