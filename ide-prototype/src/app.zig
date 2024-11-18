@@ -254,11 +254,7 @@ var current_graph: *Graph = undefined;
 var next_graph_index: u16 = 0;
 
 fn postCurrentSexp() !void {
-    var arena = std.heap.ArenaAllocator.init(gpa);
-    const alloc = arena.allocator();
-    defer arena.deinit();
-
-    var bytes = std.ArrayList(u8).init(alloc);
+    var bytes = std.ArrayList(u8).init(gpa);
     defer bytes.deinit();
 
     var maybe_cursor = graphs.first;
@@ -267,8 +263,8 @@ fn postCurrentSexp() !void {
             try bytes.append('\n');
         maybe_cursor = cursor.next;
     }) {
-        const sexp = try cursor.data.grappl_graph.compile(alloc, cursor.data.name());
-        defer sexp.deinit(alloc);
+        const sexp = try cursor.data.grappl_graph.compile(gpa, cursor.data.name());
+        defer sexp.deinit(gpa);
 
         _ = try sexp.write(bytes.writer());
     }
