@@ -1118,6 +1118,15 @@ pub const Env = struct {
         };
     }
 
+    pub fn typeCount(self: *const @This()) usize {
+        var result: usize = 0;
+        var maybe_cursor: ?*const @This() = self;
+        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.parentEnv) {
+            result += cursor.types.count();
+        }
+        return result;
+    }
+
     pub const NodeIterator = struct {
         parentEnv: ?*Env,
         iter: std.StringHashMapUnmanaged(*const NodeDesc).ValueIterator,

@@ -1669,7 +1669,7 @@ pub fn frame() !void {
         // FIXME: don't allocate!
         // TODO: use a map or keep this sorted?
         const type_options = _: {
-            const result = try gpa.alloc([]const u8, current_graph.env.types.count());
+            const result = try gpa.alloc([]const u8, current_graph.env.typeCount());
             var i: usize = 0;
             var type_iter = current_graph.env.typeIterator();
             while (type_iter.next()) |type_entry| : (i += 1) {
