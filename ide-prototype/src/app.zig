@@ -36,7 +36,7 @@ export const grappl_init_start: [*]const u8 = switch (builtin.mode) {
 // fuck it just ship this crap, WTF: REPORT ME HACK FIXME
 const init_buff_offset: isize = switch (builtin.mode) {
     .Debug => 0,
-    else => 3,
+    else => 0,
 };
 
 const grappl_real_init_buff: *const [MAX_FUNC_NAME]u8 = @ptrCast(grappl_init_start + init_buff_offset);

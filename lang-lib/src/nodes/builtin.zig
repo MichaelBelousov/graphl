@@ -749,6 +749,16 @@ pub const builtin_nodes = struct {
             Pin{ .name = "length", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
     });
+
+    pub const make_symbol: NodeDesc = basicNode(&.{
+        .name = "make-symbol",
+        .inputs = &.{
+            Pin{ .name = "string", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "symbol", .kind = .{ .primitive = .{ .value = primitive_types.symbol } } },
+        },
+    });
     // TODO: function...
     // pub const sequence: NodeDesc = basicNode(&.{
     //     .name = "sequence",
