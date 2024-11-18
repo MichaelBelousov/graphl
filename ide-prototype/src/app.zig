@@ -175,13 +175,6 @@ const Graph = struct {
     pub fn initInPlace(self: *@This(), index: u16, in_name: []const u8) !void {
         self.env = &shared_env;
 
-        {
-            var maybe_cursor = user_funcs.first;
-            while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-                _ = try self.env.addNode(gpa, helpers.basicMutableNode(&cursor.data));
-            }
-        }
-
         const grappl_graph = try grappl.GraphBuilder.init(gpa, self.env);
 
         // NOTE: does this only work because of return value optimization?
@@ -336,6 +329,13 @@ pub fn init() !void {
     shared_env = try grappl.Env.initDefault(gpa);
     const first_graph = try addGraph("main", true);
     _ = first_graph;
+
+    {
+        var maybe_cursor = user_funcs.first;
+        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
+            _ = try shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data));
+        }
+    }
 
     // we know the entry is set by addGraph
     //const entry_index = first_graph.grappl_graph.entry_id orelse unreachable;
