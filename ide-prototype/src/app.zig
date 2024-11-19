@@ -146,8 +146,7 @@ var shared_env: grappl.Env = undefined;
 const Graph = struct {
     index: u16,
 
-    name_buff: [MAX_FUNC_NAME]u8 = undefined,
-    name_len: usize = 0,
+    name: []u8,
 
     call_basic_desc: grappl.helpers.BasicMutNodeDesc,
     call_desc: *grappl.NodeDesc,
@@ -158,27 +157,28 @@ const Graph = struct {
 
     env: grappl.Env,
 
-    pub fn name(self: *@This()) []u8 {
-        return self.name_buff[0..self.name_len];
-    }
-
     pub fn env(self: @This()) *const grappl.Env {
         return self.grappl_graph.env;
     }
 
+    /// NOTE: copies passed in name
     pub fn init(index: u16, in_name: []const u8) !@This() {
         var result: @This() = undefined;
         try result.initInPlace(index, in_name);
         return result;
     }
 
+    /// NOTE: copies passed in name
     pub fn initInPlace(self: *@This(), index: u16, in_name: []const u8) !void {
         self.env = shared_env.spawn();
 
         const grappl_graph = try grappl.GraphBuilder.init(gpa, &self.env);
 
+        const name_copy = try gpa.dupe(u8, in_name);
+
         // NOTE: does this only work because of return value optimization?
         self.* = @This(){
+            .name = name_copy,
             .index = index,
             .grappl_graph = grappl_graph,
             .visual_graph = undefined,
@@ -188,7 +188,7 @@ const Graph = struct {
         };
 
         self.call_basic_desc = helpers.BasicMutNodeDesc{
-            .name = in_name,
+            .name = name_copy,
             .inputs = grappl_graph.entry_node_basic_desc.outputs,
             .outputs = grappl_graph.result_node_basic_desc.inputs,
         };
@@ -198,9 +198,6 @@ const Graph = struct {
             gpa,
             helpers.basicMutableNode(&self.call_basic_desc),
         );
-
-        std.debug.assert(in_name.len <= MAX_FUNC_NAME);
-        @memcpy(self.name_buff[0..in_name.len], in_name);
 
         self.visual_graph = VisualGraph{ .graph = &self.grappl_graph };
 
@@ -256,7 +253,7 @@ fn postCurrentSexp() !void {
             try bytes.append('\n');
         maybe_cursor = cursor.next;
     }) {
-        const sexp = try cursor.data.grappl_graph.compile(gpa, cursor.data.name());
+        const sexp = try cursor.data.grappl_graph.compile(gpa, cursor.data.name);
         defer sexp.deinit(gpa);
 
         _ = try sexp.write(bytes.writer());
@@ -605,6 +602,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
 fn renderGraph(canvas: *dvui.BoxWidget) !void {
     _ = canvas;
 
+    // FIXME: get max size from this from the graph size
     const ctext = try dvui.context(@src(), .{ .expand = .both });
     context_menu_widget_id = ctext.wd.id;
     defer ctext.deinit();
@@ -1639,7 +1637,7 @@ pub fn frame() !void {
 
                 const add_clicked = (try dvui.buttonIcon(@src(), "add-graph", entypo.plus, .{}, .{})).clicked;
                 if (add_clicked) {
-                    _ = try addGraph("new graph", false);
+                    _ = try addGraph("new-func", false);
                 }
             }
 
@@ -1652,10 +1650,30 @@ pub fn frame() !void {
                 var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal, .id_extra = i });
                 defer box.deinit();
 
-                const entry_state = try dvui.textEntry(@src(), .{ .text = .{ .buffer = &cursor.data.name_buff } }, .{ .id_extra = i });
-                cursor.data.name_len = entry_state.getText().len;
+                const entry_state = try dvui.textEntry(@src(), .{}, .{ .id_extra = i });
                 // FIXME: use temporary buff and then commit the name after checking it's valid!
-                //if (entry_state.enter_pressed) {}
+                if (entry_state.text_changed) {
+                    const old_name = cursor.data.name;
+                    defer gpa.free(old_name);
+                    const new_name = try gpa.dupe(u8, entry_state.getText());
+                    cursor.data.name = new_name;
+                    cursor.data.call_basic_desc.name = new_name;
+                    std.debug.assert(shared_env._nodes.remove(old_name));
+                    if (shared_env.addNode(gpa, helpers.basicMutableNode(&current_graph.call_basic_desc))) |result| {
+                        current_graph.call_desc = result;
+                    } else |e| switch (e) {
+                        error.EnvAlreadyExists => {
+                            defer gpa.free(new_name);
+                            cursor.data.name = old_name;
+                            cursor.data.call_basic_desc.name = old_name;
+                            current_graph.call_desc = shared_env.addNode(gpa, helpers.basicMutableNode(&current_graph.call_basic_desc)) catch unreachable;
+                        },
+                        else => return e,
+                    }
+                }
+                if (dvui.firstFrame(entry_state.data().id)) {
+                    entry_state.textTyped(cursor.data.name);
+                }
                 entry_state.deinit();
 
                 //_ = try dvui.label(@src(), "()", .{}, .{ .font_style = .body, .id_extra = i });
@@ -1788,12 +1806,7 @@ pub fn frame() !void {
                 var box = try dvui.box(@src(), .horizontal, .{ .id_extra = id_extra });
                 defer box.deinit();
 
-                const text_entry_src = @src();
-                const text_entry_id = dvui.parentGet().extendId(text_entry_src, id_extra);
-                const first_render = !(dvui.dataGet(null, text_entry_id, "_not_first_render", bool) orelse false);
-                dvui.dataSet(null, text_entry_id, "_not_first_render", true);
-
-                const text_entry = try dvui.textEntry(text_entry_src, .{}, .{ .id_extra = id_extra });
+                const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = id_extra });
                 if (text_entry.text_changed) {
                     const new_name = try gpa.dupe(u8, text_entry.getText());
                     binding.name = new_name;
@@ -1812,12 +1825,13 @@ pub fn frame() !void {
                         std.debug.assert(current_graph.env._nodes.remove(old_set_node_name));
                         _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(get_node));
                         _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(set_node));
+                        // TODO: defer these so they still happen in an error
                         gpa.free(old_get_node_name);
                         gpa.free(old_set_node_name);
                     }
                 }
                 // must occur after text_changed check or this operation will set it
-                if (first_render) {
+                if (dvui.firstFrame(text_entry.data().id)) {
                     text_entry.textTyped(binding.name);
                 }
                 text_entry.deinit();
@@ -1886,8 +1900,6 @@ pub fn frame() !void {
                     const node_basic_desc = info.node_basic_desc;
                     pin_descs = try gpa.realloc(pin_descs, pin_descs.len + 1);
                     @field(node_basic_desc, info.pin_dir) = pin_descs;
-
-                    // FIXME: update call_desc
                     @field(current_graph.call_basic_desc, opposite_dir) = pin_descs;
 
                     pin_descs[pin_descs.len - 1] = .{
@@ -1945,17 +1957,12 @@ pub fn frame() !void {
                 var box = try dvui.box(@src(), .horizontal, .{ .id_extra = id_extra });
                 defer box.deinit();
 
-                const text_entry_src = @src();
-                const text_entry_id = dvui.parentGet().extendId(text_entry_src, id_extra);
-                const first_render = !(dvui.dataGet(null, text_entry_id, "_not_first_render", bool) orelse false);
-                dvui.dataSet(null, text_entry_id, "_not_first_render", true);
-
-                const text_entry = try dvui.textEntry(text_entry_src, .{}, .{ .id_extra = id_extra });
+                const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = id_extra });
                 if (text_entry.text_changed) {
                     pin_desc.name = text_entry.getText();
                 }
                 // must occur after text_changed check or this operation will set it
-                if (first_render) {
+                if (dvui.firstFrame(text_entry.data().id)) {
                     text_entry.textTyped(pin_desc.name);
                 }
                 text_entry.deinit();
