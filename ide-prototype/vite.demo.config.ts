@@ -7,7 +7,7 @@ export default defineConfig(async ({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ""));
 
   return {
-    base: "/grappl-demo",
+    base: "/graphl-demo",
     server: {
       port: 3000,
       strictPort: true,
@@ -48,6 +48,6 @@ export default defineConfig(async ({ mode }) => {
         ],
       },
     },
-    envPrefix: "GRAPPL_",
+    envPrefix: "GRAPHL_",
   };
 });

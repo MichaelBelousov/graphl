@@ -1595,7 +1595,7 @@ pub fn frame() !void {
         defer defines_box.deinit();
 
         var tl = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
-        try tl.addText("Grappl Test Editor", .{});
+        try tl.addText("Graphl Test Editor", .{});
         tl.deinit();
 
         if (try dvui.button(@src(), "Debug", .{}, .{})) {
