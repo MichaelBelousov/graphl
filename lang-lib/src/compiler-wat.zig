@@ -181,7 +181,7 @@ const Compilation = struct {
                 if (local_type.value != .symbol)
                     return error.LocalBindingTypeNotSymbol;
                 // TODO: diagnostic
-                (try local_types.addOne()).* = self.env.types.get(local_type.value.symbol) orelse return error.TypeNotFound;
+                (try local_types.addOne()).* = self.env.getType(local_type.value.symbol) orelse return error.TypeNotFound;
             } else {
                 const local_default = maybe_local_def.value.list.items[2];
                 (try local_defaults.addOne()).* = local_default;
@@ -289,12 +289,12 @@ const Compilation = struct {
         errdefer alloc.free(param_types);
         for (param_type_exprs, param_types) |type_expr, *type_| {
             const param_type = type_expr.value.symbol;
-            type_.* = self.env.types.get(param_type) orelse return error.UnknownType;
+            type_.* = self.env.getType(param_type) orelse return error.UnknownType;
         }
 
         const result_types = try alloc.alloc(Type, 1);
         errdefer alloc.free(result_types);
-        result_types[0] = self.env.types.get(result_type_name) orelse return error.UnknownType;
+        result_types[0] = self.env.getType(result_type_name) orelse return error.UnknownType;
 
         const func_type_desc = DeferredFuncTypeInfo{
             .param_types = param_types,
@@ -322,6 +322,7 @@ const Compilation = struct {
         pub const memory = Sexp{ .value = .{ .symbol = "memory" } };
         pub const @"$0" = Sexp{ .value = .{ .symbol = "$0" } };
         pub const data = Sexp{ .value = .{ .symbol = "data" } };
+        pub const stack_ptr = Sexp{ .value = .{ .symbol = "$__stack_ptr" } };
 
         pub const ops = struct {
             pub const @"local.get" = Sexp{ .value = .{ .symbol = "local.get" } };
@@ -552,6 +553,7 @@ const Compilation = struct {
             try result_sexp.value.list.ensureTotalCapacityPrecise(2);
             result_sexp.value.list.addOneAssumeCapacity().* = wat_syms.result;
 
+            // FIXME: horrible name
             const result_type_sexp2 = result_sexp.value.list.addOneAssumeCapacity();
 
             // NOTE: if these are unmatched, it might mean a typeof for that local is missing
@@ -573,9 +575,13 @@ const Compilation = struct {
                     .param_types = func_type.param_types,
                 });
                 // FIXME: this is a horrible way to do type resolution
-                // FIXME: use known type symbol where possible (e.g. interning!)
-                result_type_sexp.* = Sexp{ .value = .{ .symbol = body_fragment.resolved_type.name } };
+                result_type_sexp.* = if (body_fragment.resolved_type.wasm_primitive) |wasm_prim|
+                    Sexp{ .value = .{ .symbol = wasm_prim } }
+                else
+                    // FIXME: use known type symbol where possible (e.g. interning!)
+                    Sexp{ .value = .{ .symbol = body_fragment.resolved_type.name } };
                 result_type_sexp2.* = result_type_sexp.*;
+
                 std.debug.assert(func_type.result_types.len == 1);
                 if (body_fragment.resolved_type != func_type.result_types[0]) {
                     std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = body_fragment.code } }});
@@ -602,45 +608,13 @@ const Compilation = struct {
     };
 
     fn resolvePeerTypesWithPromotions(self: *@This(), a: *Fragment, b: *Fragment) !Type {
-        // REPORT: zig can't switch on constant pointers
-        // return switch (a.resolved_type) {
-        //     primitive_types.i32_ => switch (b.resolved_type) {
-        //         primitive_types.i32_ => primitive_types.i32_,
-        //         primitive_types.i64_ => primitive_types.i64_,
-        //         primitive_types.f32_ => primitive_types.f32_,
-        //         primitive_types.f64_ => primitive_types.f64_,
-        //         else => @panic("unimplemented peer type resolution"),
-        //     },
-        //     primitive_types.i64_ => switch (b.resolved_type) {
-        //         primitive_types.i32_ => primitive_types.i64_,
-        //         primitive_types.i64_ => primitive_types.i64_,
-        //         primitive_types.f32_ => primitive_types.f32_,
-        //         primitive_types.f64_ => primitive_types.f64_,
-        //         else => @panic("unimplemented peer type resolution"),
-        //     },
-        //     primitive_types.f32_ => switch (b.resolved_type) {
-        //         primitive_types.i32_ => primitive_types.f32_,
-        //         primitive_types.i64_ => primitive_types.f32_,
-        //         primitive_types.f32_ => primitive_types.f32_,
-        //         primitive_types.f64_ => primitive_types.f64_,
-        //         else => @panic("unimplemented peer type resolution"),
-        //     },
-        //     primitive_types.f64_ => switch (b.resolved_type) {
-        //         primitive_types.i32_ => primitive_types.f64_,
-        //         primitive_types.i64_ => primitive_types.f64_,
-        //         primitive_types.f32_ => primitive_types.f64_,
-        //         primitive_types.f64_ => primitive_types.f64_,
-        //         else => @panic("unimplemented peer type resolution"),
-        //     },
-        //     else => @panic("unimplemented peer type resolution"),
-        // };
-
         if (a.resolved_type == builtin.empty_type)
             return b.resolved_type;
 
         if (b.resolved_type == builtin.empty_type)
             return a.resolved_type;
 
+        // REPORT: zig can't switch on constant pointers
         const resolved_type = _: {
             if (a.resolved_type == primitive_types.i32_) {
                 if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.i32_;
@@ -882,6 +856,27 @@ const Compilation = struct {
                     return result;
                 }
 
+                if (func.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
+                    std.debug.assert(arg_fragments.len == 3);
+
+                    result.resolved_type = try self.resolvePeerTypesWithPromotions(&arg_fragments[1], &arg_fragments[2]);
+
+                    try result.code.ensureTotalCapacityPrecise(1);
+                    const wasm_op = result.code.addOneAssumeCapacity();
+                    wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                    try wasm_op.value.list.ensureTotalCapacityPrecise(4);
+                    wasm_op.value.list.addOneAssumeCapacity().* = syms.@"if";
+                    const cond = wasm_op.value.list.addOneAssumeCapacity();
+                    const consequence = wasm_op.value.list.addOneAssumeCapacity();
+                    const alternative = wasm_op.value.list.addOneAssumeCapacity();
+
+                    cond.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try arg_fragments[0].code.toOwnedSlice()) } };
+                    consequence.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try arg_fragments[1].code.toOwnedSlice()) } };
+                    alternative.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try arg_fragments[2].code.toOwnedSlice()) } };
+
+                    return result;
+                }
+
                 // arithmetic builtins
                 inline for (&.{
                     .{
@@ -978,16 +973,23 @@ const Compilation = struct {
                         try result.code.ensureTotalCapacityPrecise(1);
                         const wasm_call = result.code.addOneAssumeCapacity();
                         wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                        try wasm_call.value.list.ensureTotalCapacityPrecise(2 + arg_fragments.len);
+
+                        const total_args = _: {
+                            var total_args_res: usize = 2; // start with 2 for (call $FUNC_NAME ...)
+                            for (arg_fragments) |arg_frag| total_args_res += arg_frag.code.items.len;
+                            break :_ total_args_res;
+                        };
+
+                        try wasm_call.value.list.ensureTotalCapacityPrecise(total_args);
                         // FIXME: use types to determine
                         wasm_call.value.list.addOneAssumeCapacity().* = wat_syms.call;
                         wasm_call.value.list.addOneAssumeCapacity().* = intrinsic.wasm_sym;
 
                         for (arg_fragments) |arg_fragment| {
-                            std.debug.assert(arg_fragment.code.items.len == 1);
-                            wasm_call.value.list.addOneAssumeCapacity().* = arg_fragment.code.items[0];
-                            // move out
-                            arg_fragment.code.items[0] = Sexp{ .value = .void };
+                            for (arg_fragment.code.items) |*subarg| {
+                                wasm_call.value.list.addOneAssumeCapacity().* = subarg.*;
+                                subarg.* = Sexp{ .value = .void };
+                            }
                         }
 
                         return result;
@@ -1094,23 +1096,50 @@ const Compilation = struct {
                 return result;
             },
 
+            // FIXME: implement a shadow stack!
             .borrowedString, .ownedString => |v| {
                 const data_offset = try self.addReadonlyData(v);
 
-                try result.code.ensureTotalCapacityPrecise(2);
+                try result.code.ensureTotalCapacityPrecise(5);
                 const len = result.code.addOneAssumeCapacity();
-                const ptr = result.code.addOneAssumeCapacity();
+                const store_len = result.code.addOneAssumeCapacity();
+                const data_ptr = result.code.addOneAssumeCapacity();
+                const store_data = result.code.addOneAssumeCapacity();
+                const str_ptr = result.code.addOneAssumeCapacity();
 
                 len.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                 try len.value.list.ensureTotalCapacityPrecise(2);
                 len.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
                 len.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(v.len) } };
 
-                ptr.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try ptr.value.list.ensureTotalCapacityPrecise(2);
-                ptr.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                ptr.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
+                // FIXME: comptime parsing
+                store_len.* = SexpParser.parse(alloc, "(i32.store (i32.const 0))", null) catch unreachable;
 
+                data_ptr.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                try data_ptr.value.list.ensureTotalCapacityPrecise(2);
+                data_ptr.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+                data_ptr.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
+
+                store_data.* = SexpParser.parse(alloc, "(i32.store (i32.const 4))", null) catch unreachable;
+
+                str_ptr.* = SexpParser.parse(alloc, "(i32.const 0)", null) catch unreachable;
+
+                result.resolved_type = builtin.primitive_types.string;
+                return result;
+            },
+
+            .bool => |v| {
+                const int_val: i64 = if (v) 1 else 0;
+
+                try result.code.ensureTotalCapacityPrecise(1);
+                const val = result.code.addOneAssumeCapacity();
+
+                val.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                try val.value.list.ensureTotalCapacityPrecise(2);
+                val.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+                val.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = int_val } };
+
+                result.resolved_type = builtin.primitive_types.bool_;
                 return result;
             },
 
@@ -1165,6 +1194,17 @@ const Compilation = struct {
             }
         }
 
+        const prologue_src =
+            \\(global $__grappl_sp i32 (i32.const 10))
+        ;
+
+        // imports
+        {
+            var prologue = try SexpParser.parse(alloc, prologue_src, null);
+            defer prologue.deinit(alloc);
+            try self.module_body.appendSlice(prologue.value.module.items);
+        }
+
         const imports_src =
             //\\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_JSON_R_JSON") (param i32) (param i32) (param i32) (result i32) (result i32))
             \\(func $callUserFunc_code_R_void (import "env" "callUserFunc_code_R_void") (param i32) (param i32) (param i32))
@@ -1182,7 +1222,8 @@ const Compilation = struct {
         // imports
         {
             var host_callbacks_prologue = try SexpParser.parse(alloc, imports_src, null);
-            try self.module_body.appendSlice(try host_callbacks_prologue.value.module.toOwnedSlice());
+            defer host_callbacks_prologue.deinit(alloc);
+            try self.module_body.appendSlice(host_callbacks_prologue.value.module.items);
         }
 
         // FIXME: memory is already created and exported by the intrinsics
@@ -1229,7 +1270,7 @@ const Compilation = struct {
                     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
                     var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     defer user_func_thunk.deinit(alloc);
-                    try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
+                    try self.module_body.appendSlice(user_func_thunk.value.module.items);
 
                     // FIXME: bool_R_void can probably be same as i32_R_void
                 } else if (user_func.data.inputs.len == 2
@@ -1247,7 +1288,7 @@ const Compilation = struct {
                     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
                     var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     defer user_func_thunk.deinit(alloc);
-                    try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
+                    try self.module_body.appendSlice(user_func_thunk.value.module.items);
                 } else if (user_func.data.inputs.len == 2
                 //
                 and user_func.data.inputs[1].kind == .primitive
@@ -1269,7 +1310,7 @@ const Compilation = struct {
                     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
                     var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     defer user_func_thunk.deinit(alloc);
-                    try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
+                    try self.module_body.appendSlice(user_func_thunk.value.module.items);
                 } else if (user_func.data.inputs.len == 2
                 //
                 and user_func.data.inputs[1].kind == .primitive
@@ -1287,7 +1328,7 @@ const Compilation = struct {
                     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
                     var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     defer user_func_thunk.deinit(alloc);
-                    try self.module_body.appendSlice(try user_func_thunk.value.module.toOwnedSlice());
+                    try self.module_body.appendSlice(user_func_thunk.value.module.items);
                 } else {
                     std.log.err("unhandled user func: {s}\n", .{user_func.data.name});
                     std.log.err("inputs: ({})\n", .{user_func.data.inputs.len});

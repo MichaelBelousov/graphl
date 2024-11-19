@@ -1041,7 +1041,7 @@ pub const Env = struct {
     // NOTE: probably will eventually want a "parentEnv"?
     parentEnv: ?*Env = null,
 
-    types: std.StringHashMapUnmanaged(Type) = .{},
+    _types: std.StringHashMapUnmanaged(Type) = .{},
     // could be macro, function, operator
     _nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
 
@@ -1049,7 +1049,7 @@ pub const Env = struct {
     created_nodes: std.SinglyLinkedList(NodeDesc) = .{},
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-        self.types.clearAndFree(alloc);
+        self._types.clearAndFree(alloc);
         self.nodes.clearAndFree(alloc);
         while (self.created_nodes.popFirst()) |popped| alloc.destroy(popped);
         while (self.created_types.popFirst()) |popped| alloc.destroy(popped);
@@ -1068,10 +1068,10 @@ pub const Env = struct {
         inline for (&.{ primitive_types, temp_ue.types }) |types| {
             //const types_decls = comptime std.meta.declList(types, TypeInfo);
             const types_decls = comptime std.meta.declarations(types);
-            try env.types.ensureTotalCapacity(alloc, @intCast(types_decls.len));
+            try env._types.ensureTotalCapacity(alloc, @intCast(types_decls.len));
             inline for (types_decls) |d| {
                 const type_ = @field(types, d.name);
-                try env.types.put(alloc, type_.name, type_);
+                try env._types.put(alloc, type_.name, type_);
             }
         }
 
@@ -1103,7 +1103,7 @@ pub const Env = struct {
         pub fn next(self: *@This()) ?Type {
             var val = self.iter.next();
             while (val == null and self.parentEnv != null) {
-                self.iter = self.parentEnv.?.types.valueIterator();
+                self.iter = self.parentEnv.?._types.valueIterator();
                 self.parentEnv = self.parentEnv.?.parentEnv;
                 val = self.iter.next();
             }
@@ -1114,7 +1114,7 @@ pub const Env = struct {
     pub fn typeIterator(self: *@This()) TypeIterator {
         return TypeIterator{
             .parentEnv = self.parentEnv,
-            .iter = self.types.valueIterator(),
+            .iter = self._types.valueIterator(),
         };
     }
 
@@ -1122,7 +1122,7 @@ pub const Env = struct {
         var result: usize = 0;
         var maybe_cursor: ?*const @This() = self;
         while (maybe_cursor) |cursor| : (maybe_cursor = cursor.parentEnv) {
-            result += cursor.types.count();
+            result += cursor._types.count();
         }
         return result;
     }
@@ -1150,13 +1150,18 @@ pub const Env = struct {
     }
 
     // FIXME: use interning for name!
+    pub fn getType(self: *const @This(), name: []const u8) ?Type {
+        return self._types.get(name) orelse if (self.parentEnv) |parent| parent.getType(name) else null;
+    }
+
+    // FIXME: use interning for name!
     pub fn getNode(self: *const @This(), name: []const u8) ?*const NodeDesc {
         return self._nodes.get(name) orelse if (self.parentEnv) |parent| parent.getNode(name) else null;
     }
 
     pub fn addType(self: *@This(), a: std.mem.Allocator, type_info: TypeInfo) !Type {
         // TODO: dupe the key, we need to own the key memory lifetime
-        const result = try self.types.getOrPut(a, type_info.name);
+        const result = try self._types.getOrPut(a, type_info.name);
         // FIXME: allow types to be overriden within scopes?
         if (result.found_existing) return error.EnvAlreadyExists;
         const slot = try a.create(std.SinglyLinkedList(TypeInfo).Node);
@@ -1188,5 +1193,5 @@ pub const Env = struct {
 test "env" {
     var env = try Env.initDefault(std.testing.allocator);
     defer env.deinit(std.testing.allocator);
-    try std.testing.expect(env.types.contains("u32"));
+    try std.testing.expect(env._types.contains("u32"));
 }

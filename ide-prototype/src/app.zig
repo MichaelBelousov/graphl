@@ -1913,7 +1913,7 @@ pub fn frame() !void {
                 const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice_index, .{ .id_extra = j, .color_text = .{ .color = try colorForType(type_choice) } });
                 if (option_clicked) {
                     const selected_name = type_options[type_choice_index];
-                    binding.type_ = current_graph.grappl_graph.env.types.get(selected_name) orelse unreachable;
+                    binding.type_ = current_graph.grappl_graph.env.getType(selected_name) orelse unreachable;
                     if (binding.extra) |extra| {
                         const nodes: *[2]grappl.helpers.BasicMutNodeDesc = @alignCast(@ptrCast(extra));
                         const get_node = &nodes[0];
@@ -2054,7 +2054,7 @@ pub fn frame() !void {
                 });
                 if (option_clicked) {
                     const selected_name = type_options[type_choice_index];
-                    pin_desc.kind.primitive = .{ .value = current_graph.grappl_graph.env.types.get(selected_name) orelse unreachable };
+                    pin_desc.kind.primitive = .{ .value = current_graph.grappl_graph.env.getType(selected_name) orelse unreachable };
                 }
             }
         }
