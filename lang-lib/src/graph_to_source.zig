@@ -363,6 +363,7 @@ pub const GraphBuilder = struct {
         //analysis_arena.deinit();
 
         var body = try self.rootToSexp(alloc);
+        // FIXME: doesn't this invalidate the moved slice below? e.g. this only works cuz there are no owned strings?
         defer body.deinit(alloc);
         std.debug.assert(body.value == .list);
 

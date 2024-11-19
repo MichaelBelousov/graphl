@@ -9,6 +9,7 @@ const Env = @import("./nodes//builtin.zig").Env;
 const TypeInfo = @import("./nodes//builtin.zig").TypeInfo;
 const Type = @import("./nodes/builtin.zig").Type;
 
+const intrinsics = @import("./intrinsics.zig");
 const intrinsics_raw = @embedFile("grappl_intrinsics");
 const intrinsics_code = intrinsics_raw["(module $grappl_intrinsics.wasm\n".len .. intrinsics_raw.len - 2];
 
@@ -496,7 +497,7 @@ const Compilation = struct {
             export_val_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{complete_func_type_desc.name}) } };
         }
 
-        const result_type_sexp = _: {
+        const func_type_result_sexp = _: {
             const type_sexp = try self.module_body.addOne();
             // FIXME: would be really nice to just have comptime sexp parsing...
             // or: Sexp.fromFormat("(+ {} 3)", .{sexp});
@@ -536,7 +537,7 @@ const Compilation = struct {
             impl_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
             // TODO: static sexp pointers here
             (try impl_sexp.value.list.addOne()).* = wat_syms.func;
-            // FIXME: this leaks! symbols are assumed to be borrowed!
+            // FIXME: this leaks! (except not really cuz arena) symbols are assumed to be borrowed!
             (try impl_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{complete_func_type_desc.name}) } };
 
             for (func_decl.param_names, complete_func_type_desc.func_type.?.param_types) |param_name, param_type| {
@@ -554,7 +555,7 @@ const Compilation = struct {
             result_sexp.value.list.addOneAssumeCapacity().* = wat_syms.result;
 
             // FIXME: horrible name
-            const result_type_sexp2 = result_sexp.value.list.addOneAssumeCapacity();
+            const func_result_sexp = result_sexp.value.list.addOneAssumeCapacity();
 
             // NOTE: if these are unmatched, it might mean a typeof for that local is missing
             for (func_decl.local_names, complete_func_type_desc.func_type.?.local_types) |local_name, local_type| {
@@ -568,19 +569,22 @@ const Compilation = struct {
 
             std.debug.assert(func_decl.return_exprs.len >= 1);
             for (func_decl.return_exprs) |return_expr| {
-                const body_fragment = try self.compileExpr(&return_expr, &.{
+                var expr_ctx = ExprContext{
                     .local_names = func_decl.local_names,
                     .local_types = func_decl.local_types,
                     .param_names = func_decl.param_names,
                     .param_types = func_type.param_types,
-                });
+                    .frame = .{},
+                };
+                const body_fragment = try self.compileExpr(&return_expr, &expr_ctx);
                 // FIXME: this is a horrible way to do type resolution
-                result_type_sexp.* = if (body_fragment.resolved_type.wasm_primitive) |wasm_prim|
+                func_type_result_sexp.* = if (body_fragment.resolved_type.wasm_primitive) |wasm_prim|
                     Sexp{ .value = .{ .symbol = wasm_prim } }
                 else
                     // FIXME: use known type symbol where possible (e.g. interning!)
                     Sexp{ .value = .{ .symbol = body_fragment.resolved_type.name } };
-                result_type_sexp2.* = result_type_sexp.*;
+
+                func_result_sexp.* = func_type_result_sexp.*;
 
                 std.debug.assert(func_type.result_types.len == 1);
                 if (body_fragment.resolved_type != func_type.result_types[0]) {
@@ -599,6 +603,8 @@ const Compilation = struct {
     /// A fragment of compiled code and the type of its final variable
     const Fragment = struct {
         code: std.ArrayList(Sexp),
+        /// offset in the stack frame for the value in this fragment
+        frame_offset: u32 = 0,
         resolved_type: Type,
 
         pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
@@ -723,19 +729,25 @@ const Compilation = struct {
         return prev_global_data_ptr;
     }
 
+    const StackFrame = struct {
+        byte_size: usize = 0,
+    };
+
     const ExprContext = struct {
         type: ?Type = null,
         local_names: []const []const u8,
         local_types: []const Type,
         param_names: []const []const u8,
         param_types: []const Type,
+        frame: StackFrame,
     };
 
     // TODO: take a diagnostic
     fn compileExpr(
         self: *@This(),
         code_sexp: *const Sexp,
-        context: *const ExprContext,
+        /// not const because we may be expanding the frame to include this value
+        context: *ExprContext,
     ) !Fragment {
         const alloc = self.arena.allocator();
 
@@ -812,12 +824,13 @@ const Compilation = struct {
 
                 for (v.items[1..], arg_fragments, input_descs) |arg_src, *arg_fragment, input_desc| {
                     std.debug.assert(input_desc.asPrimitivePin() == .value);
-                    const subcontext = ExprContext{
+                    var subcontext = ExprContext{
                         .type = input_desc.asPrimitivePin().value,
                         .local_names = context.local_names,
                         .local_types = context.local_types,
                         .param_names = context.param_names,
                         .param_types = context.param_types,
+                        .frame = context.frame,
                     };
                     arg_fragment.* = try self.compileExpr(&arg_src, &subcontext);
                 }
@@ -1096,35 +1109,42 @@ const Compilation = struct {
                 return result;
             },
 
-            // FIXME: implement a shadow stack!
             .borrowedString, .ownedString => |v| {
                 const data_offset = try self.addReadonlyData(v);
 
-                try result.code.ensureTotalCapacityPrecise(5);
-                const len = result.code.addOneAssumeCapacity();
-                const store_len = result.code.addOneAssumeCapacity();
-                const data_ptr = result.code.addOneAssumeCapacity();
-                const store_data = result.code.addOneAssumeCapacity();
-                const str_ptr = result.code.addOneAssumeCapacity();
-
-                len.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try len.value.list.ensureTotalCapacityPrecise(2);
-                len.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                len.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(v.len) } };
+                result.frame_offset += @sizeOf(intrinsics.GrapplString);
+                result.resolved_type = builtin.primitive_types.string;
 
                 // FIXME: comptime parsing
-                store_len.* = SexpParser.parse(alloc, "(i32.store (i32.const 0))", null) catch unreachable;
+                var code = SexpParser.parse(alloc,
+                    \\(i32.store (memory $__grappl_stk)
+                    \\           (i32.const #void)
+                    \\           (i32.add (global.get $__grappl_stkp)
+                    \\                    (i32.const #void)))
+                    \\(i32.store (memory $__grappl_stk)
+                    \\           (i32.const #void)
+                    \\           (i32.add (global.get $__grappl_stkp)
+                    \\                    (i32.const #void)))
+                    \\(global.get $__grappl_stkp) ;; store the value stack pointer on the wasm stack
+                    \\(global.set $__grappl_stkp
+                    \\            (global.get $__grappl_stkp
+                    \\                        (i32.add $__grappl_stkp
+                    \\                                 (i32.const #void))))
+                , null) catch unreachable;
 
-                data_ptr.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try data_ptr.value.list.ensureTotalCapacityPrecise(2);
-                data_ptr.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                data_ptr.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
+                code.value.module.items[0].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = context.frame.byte_size } };
+                code.value.module.items[0].value.list.items[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(v.len) } };
+                // FIXME: can do this dynamically for intrinsics by enumerating fields
+                context.frame.byte_size += @sizeOf(std.meta.fields(intrinsics.GrapplString)[0].type);
 
-                store_data.* = SexpParser.parse(alloc, "(i32.store (i32.const 4))", null) catch unreachable;
+                code.value.module.items[1].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = context.frame.byte_size } };
+                code.value.module.items[1].value.list.items[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
+                context.frame.byte_size += @sizeOf(std.meta.fields(intrinsics.GrapplString)[1].type);
 
-                str_ptr.* = SexpParser.parse(alloc, "(i32.const 0)", null) catch unreachable;
+                code.value.module.items[3].value.list.items[2].value.list.items[2].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @sizeOf(intrinsics.GrapplString) } };
 
-                result.resolved_type = builtin.primitive_types.string;
+                result.code = std.ArrayList(Sexp).fromOwnedSlice(alloc, try code.value.module.toOwnedSlice());
+
                 return result;
             },
 
@@ -1175,7 +1195,7 @@ const Compilation = struct {
 
         const alloc = self.arena.allocator();
 
-        // FIXME: env should come from the caller?
+        // FIXME: env should come from the caller
         // set these since they are inited to undefined
         self.env = try Env.initDefault(self.arena.allocator());
         self.wat = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(self.arena.allocator()) } };
@@ -1186,6 +1206,7 @@ const Compilation = struct {
         try self.module_body.ensureTotalCapacity(5);
         self.module_body.addOneAssumeCapacity().* = wat_syms.module;
 
+        // FIXME: instead just take an env
         // add user funcs to env
         {
             var maybe_cursor = self.user_context.funcs.first;
@@ -1195,10 +1216,12 @@ const Compilation = struct {
         }
 
         const prologue_src =
-            \\(global $__grappl_sp i32 (i32.const 10))
+            // stack is 2 wasm page (FIXME: plus deadzone?)
+            \\(memory $__grappl_stk 1)
+            \\(global $__grappl_stkp i32 (i32.const 0))
         ;
 
-        // imports
+        // prologue
         {
             var prologue = try SexpParser.parse(alloc, prologue_src, null);
             defer prologue.deinit(alloc);
@@ -1407,7 +1430,8 @@ const Compilation = struct {
 
         try bytes.appendSlice(")");
 
-        // use arena parent so that when the arena deinit's, this remains,
+        // FIXME: make the arena in this function not the caller
+        // NOTE: use arena parent so that when the arena deinit's, this remains,
         // and the caller can own the memory
         return try self.arena.child_allocator.dupe(u8, bytes.items);
     }
