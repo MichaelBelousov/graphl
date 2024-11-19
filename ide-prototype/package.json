@@ -1,6 +1,6 @@
 {
-  "name": "grappl-ide-browser",
-  "description": "bindings for embedding the Grappl IDE in browsers",
+  "name": "@graphl/ide-browser",
+  "description": "Grappl IDE in browsers",
   "main": "./dist/grappl-ide-web.es.js",
   "module": "./dist/grappl-ide-web.es.js",
   "type": "module",
