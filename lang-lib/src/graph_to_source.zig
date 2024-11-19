@@ -230,6 +230,23 @@ pub const GraphBuilder = struct {
         return node_id;
     }
 
+    /// returns true if the node existed (and therefore was removed)
+    pub fn removeNode(self: *@This(), id: NodeId) !bool {
+        if (id == self.entry_id) return error.CantRemoveEntry;
+
+        const node = self.nodes.map.getPtr(id) orelse return false;
+
+        const is_branch = node.desc() == &helpers.builtin_nodes.@"if";
+        if (is_branch) {
+            self.branch_count -= 1;
+        }
+        errdefer if (is_branch) {
+            self.branch_count += 1;
+        };
+
+        return self.nodes.map.swapRemove(id);
+    }
+
     pub fn addImport(self: *@This(), alloc: std.mem.Allocator, path: []const u8, bindings: []const ImportBinding) !void {
         const new_import = try self.imports.addOne(alloc);
 

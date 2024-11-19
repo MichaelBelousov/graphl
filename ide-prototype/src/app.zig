@@ -225,6 +225,10 @@ const Graph = struct {
         return self.visual_graph.addNode(alloc, kind, is_entry, force_node_id, diag, pos);
     }
 
+    pub fn removeNode(self: *@This(), node_id: grappl.NodeId) !bool {
+        return self.visual_graph.removeNode(node_id);
+    }
+
     pub fn addEdge(self: *@This(), start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
         return self.visual_graph.addEdge(start_id, start_index, end_id, end_index, end_subindex);
     }
@@ -1178,22 +1182,34 @@ fn renderNode(
                     handled = true;
                 }
 
-                if (input_desc.kind.primitive.value == grappl.primitive_types.string and input.* == .value) {
-                    const empty_str = "";
-                    if (input.* != .value or input.value != .string) {
-                        input.* = .{ .value = .{ .string = empty_str } };
-                    }
+                inline for (.{
+                    .{
+                        .type = grappl.primitive_types.string,
+                        .tag = .string,
+                    },
+                    .{
+                        .type = grappl.primitive_types.symbol,
+                        .tag = .symbol,
+                    },
+                }, 0..) |info, k| {
+                    const id_extra = (j << 1) | k;
+                    if (input_desc.kind.primitive.value == info.type and input.* == .value) {
+                        const empty = "";
+                        if (input.* != .value or input.value != info.tag) {
+                            input.* = .{ .value = @unionInit(grappl.Value, @tagName(info.tag), empty) };
+                        }
 
-                    const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{} } }, .{ .id_extra = j });
-                    defer text_result.deinit();
-                    // TODO: don't dupe this memory! use a dynamic buffer instead
-                    if (text_result.text_changed) {
-                        if (input.value.string.ptr != empty_str.ptr)
-                            gpa.free(input.value.string);
-                        input.value.string = try gpa.dupe(u8, text_result.getText());
-                    }
+                        const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{} } }, .{ .id_extra = id_extra });
+                        defer text_result.deinit();
+                        // TODO: don't dupe this memory! use a dynamic buffer instead
+                        if (text_result.text_changed) {
+                            if (@field(input.value, @tagName(info.tag)).ptr != empty.ptr)
+                                gpa.free(@field(input.value, @tagName(info.tag)));
+                            @field(input.value, @tagName(info.tag)) = try gpa.dupe(u8, text_result.getText());
+                        }
 
-                    handled = true;
+                        handled = true;
+                    }
                 }
 
                 if (input_desc.kind.primitive.value == grappl.primitive_types.char_ and input.* == .value) {
@@ -1277,11 +1293,17 @@ fn renderNode(
 
     outputs_vbox.deinit();
 
+    var ctrl_down = dvui.dataGet(null, box.data().id, "_ctrl", bool) orelse false;
+
     // process events to drag the box around before processing graph events
     //if (maybe_viz_data) |viz_data| {
     {
         const evts = dvui.events();
         for (evts) |*e| {
+            if (e.evt == .key and e.evt.key.matchBind("ctrl/cmd")) {
+                ctrl_down = (e.evt.key.action == .down or e.evt.key.action == .repeat);
+            }
+
             if (!box.matchEvent(e))
                 continue;
 
@@ -1293,7 +1315,14 @@ fn renderNode(
                         const offset = me.p.diff(box.data().rectScale().r.topLeft()); // pixel offset from box corner
                         dvui.dragPreStart(me.p, .{ .offset = offset });
                     } else if (me.action == .release and me.button.pointer()) {
-                        if (dvui.captured(box.data().id)) {
+                        if (ctrl_down) {
+                            if (current_graph.removeNode(node.id)) |removed| {
+                                std.debug.assert(removed);
+                            } else |err| switch (err) {
+                                error.CantRemoveEntry => {},
+                                else => return err,
+                            }
+                        } else if (dvui.captured(box.data().id)) {
                             e.handled = true;
                             dvui.captureMouse(null);
                             dvui.dragEnd();
@@ -1319,6 +1348,8 @@ fn renderNode(
             }
         }
     }
+
+    dvui.dataSet(null, box.data().id, "_ctrl", ctrl_down);
 
     return result;
 }
@@ -1362,6 +1393,13 @@ pub const VisualGraph = struct {
         // FIXME: re-enable after demo
         //try self.formatGraphNaive(gpa); // FIXME: do this iteratively! don't reformat the whole thing...
         return result;
+    }
+
+    pub fn removeNode(self: *@This(), node_id: grappl.NodeId) !bool {
+        if (node_id != self.graph.entry_id) {
+            _ = self.node_data.remove(node_id);
+        }
+        return self.graph.removeNode(node_id);
     }
 
     pub fn addEdge(self: *@This(), start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
@@ -1598,33 +1636,53 @@ pub fn frame() !void {
         try tl.addText("Graphl Test Editor", .{});
         tl.deinit();
 
-        if (try dvui.button(@src(), "Debug", .{}, .{})) {
-            dvui.currentWindow().debug_window_show = true;
-        }
+        {
+            var btns_box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal, .background = true });
+            defer btns_box.deinit();
 
-        if (try dvui.button(@src(), "Sync", .{}, .{})) {
-            try postCurrentSexp();
-        }
-
-        if (try dvui.button(@src(), "Run", .{}, .{})) {
-            const sexp = try current_graph.grappl_graph.compile(gpa, "main");
-            defer sexp.deinit(gpa);
-
-            if (builtin.mode == .Debug) {
-                var bytes = std.ArrayList(u8).init(gpa);
-                defer bytes.deinit();
-                _ = try sexp.write(bytes.writer());
-                std.log.info("sexp:\n{s}", .{bytes.items});
+            if (try dvui.button(@src(), "Guide", .{}, .{})) {
+                try dvui.dialog(@src(), .{ .modal = false, .title = "Guide", .max_size = .{ .w = 600, .h = 600 }, .message = 
+                \\Welcome to Graphl
+                \\
+                \\Left click and drag from a socket to create a contextually applicable node
+                \\from it and automatically connect the new node.
+                \\Or right click to create a free node.
+                \\
+                \\Click on a socket to delete any link/edge connected to it.
+                \\Hold Control/Cmd and left-click on any node to delete it.
+                \\
+                \\
+                });
             }
 
-            var diagnostic = compiler.Diagnostic.init();
+            if (try dvui.button(@src(), "Debug", .{}, .{})) {
+                dvui.currentWindow().debug_window_show = true;
+            }
 
-            if (compiler.compile(gpa, &sexp, &user_funcs, &diagnostic)) |module| {
-                std.log.info("compile_result:\n{s}", .{module});
-                runCurrentWat(module.ptr, module.len);
-                gpa.free(module);
-            } else |err| {
-                std.log.err("compile_error={any}", .{err});
+            if (try dvui.button(@src(), "Sync", .{}, .{})) {
+                try postCurrentSexp();
+            }
+
+            if (try dvui.button(@src(), "Run", .{}, .{})) {
+                const sexp = try current_graph.grappl_graph.compile(gpa, "main");
+                defer sexp.deinit(gpa);
+
+                if (builtin.mode == .Debug) {
+                    var bytes = std.ArrayList(u8).init(gpa);
+                    defer bytes.deinit();
+                    _ = try sexp.write(bytes.writer());
+                    std.log.info("sexp:\n{s}", .{bytes.items});
+                }
+
+                var diagnostic = compiler.Diagnostic.init();
+
+                if (compiler.compile(gpa, &sexp, &user_funcs, &diagnostic)) |module| {
+                    std.log.info("compile_result:\n{s}", .{module});
+                    runCurrentWat(module.ptr, module.len);
+                    gpa.free(module);
+                } else |err| {
+                    std.log.err("compile_error={any}", .{err});
+                }
             }
         }
 
