@@ -463,7 +463,15 @@ export function Ide(canvasElem, opts) {
             wasmOpt.FS.writeFile(inputFile, data);
             // TODO: source maps
             // FIXME: consider whether it's worth enabling optimizations
-            const status = wasmOpt.callMain([inputFile, '-o', outputFile, '-g', "--enable-bulk-memory"]);
+                const status = wasmOpt.callMain([
+                    inputFile,
+                    '-o',
+                    outputFile,
+                    '-g',
+                    // NOTE: multimemory not supported by safari
+                    "--enable-bulk-memory",
+                    "--enable-multivalue",
+                ]);
 
             if (status !== 0)
                 throw Error(`non-zero return: ${status}`)

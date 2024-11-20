@@ -8,8 +8,14 @@ const json = std.json;
 
 // FIXME: don't include in non-debug builds
 
-export fn _print_sexp(sexp: *const Sexp) void {
+fn _print_sexp(sexp: *const Sexp) void {
     std.debug.print("{}\n", .{sexp});
+}
+
+comptime {
+    if (builtin.target.cpu.arch != .wasm32) {
+        @export(_print_sexp, .{ .name = "_print_sexp", .linkage = .Strong });
+    }
 }
 
 pub const Sexp = struct {
