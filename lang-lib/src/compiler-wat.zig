@@ -644,22 +644,32 @@ const Compilation = struct {
 
         // REPORT: zig can't switch on constant pointers
         const resolved_type = _: {
-            if (a.resolved_type == primitive_types.i32_) {
+            if (a.resolved_type == primitive_types.bool_) {
+                if (b.resolved_type == primitive_types.bool_) break :_ primitive_types.bool_;
+                if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.i32_;
+                if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.i64_;
+                if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f32_;
+                if (b.resolved_type == primitive_types.f64_) break :_ primitive_types.f64_;
+            } else if (a.resolved_type == primitive_types.i32_) {
+                if (b.resolved_type == primitive_types.bool_) break :_ primitive_types.i32_;
                 if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.i32_;
                 if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.i64_;
                 if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f32_;
                 if (b.resolved_type == primitive_types.f64_) break :_ primitive_types.f64_;
             } else if (a.resolved_type == primitive_types.i64_) {
+                if (b.resolved_type == primitive_types.bool_) break :_ primitive_types.i64_;
                 if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.i64_;
                 if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.i64_;
                 if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f32_;
                 if (b.resolved_type == primitive_types.f64_) break :_ primitive_types.f64_;
             } else if (a.resolved_type == primitive_types.f32_) {
+                if (b.resolved_type == primitive_types.bool_) break :_ primitive_types.f32_;
                 if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.f32_;
                 if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.f32_;
                 if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f32_;
                 if (b.resolved_type == primitive_types.f64_) break :_ primitive_types.f64_;
             } else if (a.resolved_type == primitive_types.f64_) {
+                if (b.resolved_type == primitive_types.bool_) break :_ primitive_types.f64_;
                 if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.f64_;
                 if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.f64_;
                 if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f64_;
@@ -680,6 +690,11 @@ const Compilation = struct {
                 }
 
                 std.debug.assert(fragment.values.items.len == 1);
+
+                if (fragment.resolved_type == primitive_types.bool_) {
+                    fragment.resolved_type = primitive_types.i32_;
+                    continue;
+                }
 
                 const prev = fragment.values.items[0];
                 fragment.values.items[0] = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
