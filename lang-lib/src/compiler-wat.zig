@@ -1161,22 +1161,33 @@ const Compilation = struct {
                 result.frame_offset += @sizeOf(intrinsics.GrapplString);
                 result.resolved_type = builtin.primitive_types.string;
 
-                const mut_code_src =
-                    \\(i32.store (memory $__grappl_vstk)
-                    \\           (i32.const #void)
-                    \\           (i32.add (global.get $__grappl_vstkp)
-                    \\                    (i32.const #void)))
-                    \\(i32.store (memory $__grappl_vstk)
-                    \\           (i32.const #void)
-                    \\           (i32.add (global.get $__grappl_vstkp)
-                    \\                    (i32.const #void)))
-                    \\(local.set #void (global.get $__grappl_vstkp)) ;; store the value stack pointer
+                const local_ptr_sym = try context.addLocal(alloc, primitive_types.string);
+
+                // FIXME: parse this and insert substitutions at comptime!
+                const mut_code_src = try std.fmt.allocPrint(alloc,
+                    \\;; store length
+                    \\(i32.store (global.get $__grappl_vstkp)
+                    \\           (i32.const {0}))
+                    \\
+                    \\;; store data
+                    \\(i32.store (i32.add (global.get $__grappl_vstkp)
+                    \\                    (i32.const {1}))
+                    \\           (i32.const {2}))
+                    \\
+                    \\;; store the stack pointer (cuz it points to the string)
+                    \\(local.set {3} (global.get $__grappl_vstkp))
+                    \\
+                    \\;; now increment the stack pointer so no one overwrites this
                     \\(global.set $__grappl_vstkp
-                    \\            (global.get $__grappl_vstkp
-                    \\                        (i32.add $__grappl_vstkp
-                    \\                                 (i32.const #void))))
-                ;
-                // FIXME: comptime parsing
+                    \\            (i32.add (global.get $__grappl_vstkp)
+                    \\                     (i32.const {4})))
+                , .{
+                    v.len,
+                    @sizeOf(std.meta.fields(intrinsics.GrapplString)[0].type),
+                    data_offset + @sizeOf(usize),
+                    local_ptr_sym,
+                    @sizeOf(intrinsics.GrapplString),
+                });
                 var diag = SexpParser.Diagnostic{ .source = mut_code_src };
                 var mut_code = SexpParser.parse(alloc, mut_code_src, &diag) catch {
                     std.log.err("diag={}", .{diag});
@@ -1184,21 +1195,7 @@ const Compilation = struct {
                 };
                 errdefer mut_code.deinit(alloc);
 
-                const store_len = mut_code.value.module.items[0].value.list.items;
-                store_len[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
-                store_len[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(v.len) } };
-                // FIXME: can do this dynamically for intrinsics by enumerating fields
-                context.frame.byte_size += @sizeOf(std.meta.fields(intrinsics.GrapplString)[0].type);
-
-                const store_data = mut_code.value.module.items[1].value.list.items;
-                store_data[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
-                store_data[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
-                context.frame.byte_size += @sizeOf(std.meta.fields(intrinsics.GrapplString)[1].type);
-
-                const local_ptr_sym = try context.addLocal(alloc, primitive_types.string);
-                mut_code.value.module.items[2].value.list.items[1] = local_ptr_sym;
-
-                mut_code.value.module.items[3].value.list.items[2].value.list.items[2].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @sizeOf(intrinsics.GrapplString) } };
+                context.frame.byte_size += @sizeOf(intrinsics.GrapplString);
 
                 var vals_code = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                 errdefer vals_code.deinit(alloc);
@@ -1300,9 +1297,12 @@ const Compilation = struct {
         }
 
         const stack_src =
-            // stack is 2 wasm page (FIXME: plus deadzone?)
-            \\(memory $__grappl_vstk 1)
-            \\(global $__grappl_vstkp i32 (i32.const 0))
+            // NOTE: safari doesn't support multimemory so the value stack is
+            // at a specific offset in the main memory
+            //\\(memory $__grappl_vstk 1)
+            // FIXME: really need to figure out how to customize the intrinsics output
+            // compiled by zig... or accept writing it manually?
+            \\(global $__grappl_vstkp (mut i32) (i32.const 1024))
         ;
 
         // prologue
@@ -1645,11 +1645,9 @@ test "parse" {
         \\              "callUserFunc_bool_R_void")
         \\      (param i32)
         \\      (param i32))
-        \\(memory $__grappl_vstk
-        \\        1)
         \\(global $__grappl_vstkp
-        \\        i32
-        \\        (i32.const 0))
+        \\        (mut i32)
+        \\        (i32.const 1024))
         \\;;; BEGIN INTRINSICS
         \\{s}
         \\;;; END INTRINSICS
@@ -1723,20 +1721,16 @@ test "parse" {
         \\      (result i32)
         \\      (local $__lc0
         \\             i32)
-        \\      (i32.store (memory $__grappl_vstk)
-        \\                 (i32.const 0)
-        \\                 (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const 5)))
-        \\      (i32.store (memory $__grappl_vstk)
-        \\                 (i32.const 4)
-        \\                 (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const 131)))
+        \\      (i32.store (global.get $__grappl_vstkp)
+        \\                 (i32.const 5))
+        \\      (i32.store (i32.add (global.get $__grappl_vstkp)
+        \\                          (i32.const 4))
+        \\                 (i32.const 131))
         \\      (local.set $__lc0
         \\                 (global.get $__grappl_vstkp))
         \\      (global.set $__grappl_vstkp
-        \\                  (global.get $__grappl_vstkp
-        \\                              (i32.add $__grappl_vstkp
-        \\                                       (i32.const 16))))
+        \\                  (i32.add (global.get $__grappl_vstkp)
+        \\                           (i32.const 16)))
         \\      (call $__grappl_string_equal
         \\            (local.get $__lc0)
         \\            (local.get $param_x)))
