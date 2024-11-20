@@ -595,13 +595,9 @@ const Compilation = struct {
                     .frame = .{},
                 };
                 const body_fragment = try self.compileExpr(&return_expr, &expr_ctx);
-                // FIXME: this is a horrible way to do type resolution
-                func_type_result_sexp.* = if (body_fragment.resolved_type.wasm_type) |wasm_prim|
-                    Sexp{ .value = .{ .symbol = wasm_prim } }
-                else
-                    // FIXME: use known type symbol where possible (e.g. interning!)
-                    Sexp{ .value = .{ .symbol = body_fragment.resolved_type.name } };
 
+                // FIXME: this is a horrible way to do type resolution
+                func_type_result_sexp.* = body_fragment.resolved_type.wasm_type.?;
                 func_result_sexp.* = func_type_result_sexp.*;
 
                 std.debug.assert(func_type.result_types.len == 1);
@@ -613,7 +609,10 @@ const Compilation = struct {
                 }
 
                 // FIXME: what about the rest of the code?
-                (try impl_sexp.value.list.addOne()).* = body_fragment.values.items[0];
+                try impl_sexp.value.list.addSlice(body_fragment.mut_code.items);
+                body_fragment.values.clearAndFree();
+                try impl_sexp.value.list.addSlice(body_fragment.values.items);
+                body_fragment.values.clearAndFree();
             }
         }
     }
@@ -813,12 +812,14 @@ const Compilation = struct {
                 std.debug.assert(func.value == .symbol);
 
                 if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
-                    // FIXME:
                     try result.values.ensureUnusedCapacity(v.items.len - 1);
                     for (v.items[1..]) |*return_expr| {
                         var compiled = try self.compileExpr(return_expr, context);
                         result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, &compiled);
-                        try result.values.appendSlice(try compiled.values.toOwnedSlice());
+                        try result.values.appendSlice(compiled.mut_code.items);
+                        try result.values.appendSlice(compiled.values.items);
+                        compiled.mut_code.clearAndFree();
+                        compiled.values.clearAndFree();
                     }
 
                     return result;
@@ -887,6 +888,11 @@ const Compilation = struct {
                     wasm_op.value.list.addOneAssumeCapacity().* = set_val;
                     // TODO: more idiomatic move out data
                     arg_fragments[1].values.items[0] = Sexp{ .value = .void };
+
+                    for (arg_fragments) |arg_frag| {
+                        result.mut_code.appendSlice(arg_frag.mut_code);
+                        result.mut_code.clearAndFree(arg_frag.mut_code);
+                    }
 
                     return result;
                 }
