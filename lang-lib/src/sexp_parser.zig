@@ -85,7 +85,14 @@ pub const Parser = struct {
                         \\    {}^
                     , .{ loc, try loc.containing_line(self.source), SpacePrint.init(loc.col - 1) });
                 },
-                .unknownToken => |v| try writer.print("Fatal: unknownToken at {}", .{v}),
+                .unknownToken => |loc| {
+                    return try writer.print(
+                        \\Unknown token:
+                        \\ at {}
+                        \\  | {s}
+                        \\    {}^
+                    , .{ loc, try loc.containing_line(self.source), SpacePrint.init(loc.col - 1) });
+                },
                 .OutOfMemory => _ = try writer.write("Fatal: System out of memory"),
                 .badInteger => _ = try writer.write("Fatal: parser thought this token was an integer: '{s}'"),
             };
@@ -118,7 +125,8 @@ pub const Parser = struct {
             float_fraction_start,
             bool,
             char,
-            bool_or_char,
+            bool_or_char_or_void,
+            void,
             string,
             string_escaped_quote,
             between,
@@ -178,7 +186,7 @@ pub const Parser = struct {
                     },
                     '#' => {
                         self.tok_start = self.loc.index;
-                        self.state = .bool_or_char;
+                        self.state = .bool_or_char_or_void;
                     },
                     ';' => {
                         self.tok_start = self.loc.index;
@@ -290,15 +298,28 @@ pub const Parser = struct {
                     },
                 },
                 .float => algo_state.unimplemented("float literals"),
-                .bool_or_char => switch (c) {
+                .bool_or_char_or_void => switch (c) {
                     't', 'f' => algo_state.state = .bool,
+                    'v' => algo_state.state = .void,
                     '\\' => algo_state.state = .char,
                     else => {
                         out_diag.*.result = .{ .unknownToken = algo_state.loc };
                         return Error.UnknownToken;
                     },
                 },
+                .void => {
+                    if (std.mem.startsWith(u8, src[algo_state.loc.index..], "oid")) {
+                        const top = peek(&algo_state.stack) orelse unreachable;
+                        const last = try top.value.list.addOne();
+                        last.* = sexp.syms.void;
+                        try algo_state.onNextCharAfterTok(out_diag);
+                    } else {
+                        out_diag.*.result = .{ .unknownToken = algo_state.loc };
+                        return Error.UnknownToken;
+                    }
+                },
                 .bool => switch (c) {
+                    // FIXME: wtf?
                     ' ', '\n', '\t', '(', ')' => {
                         const top = peek(&algo_state.stack) orelse unreachable;
                         const last = try top.value.list.addOne();
@@ -335,15 +356,23 @@ test "parse 1" {
     (try expected.value.module.items[3].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "-" } };
     (try expected.value.module.items[3].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 210 } };
     (try expected.value.module.items[3].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 5 } };
+    (try expected.value.module.addOne()).* = syms.void;
     defer expected.deinit(t.allocator);
 
-    var actual = try Parser.parse(t.allocator,
+    const source =
         \\0
         \\2
         \\"hel\"lo
         \\world" ;; comment
         \\(+ 3(- 210 5))
-    , null);
+        \\#void
+    ;
+
+    var diag = Parser.Diagnostic{ .source = source };
+    defer if (diag.result != .none) {
+        std.debug.print("diag={}", .{diag});
+    };
+    var actual = try Parser.parse(t.allocator, source, &diag);
     defer actual.deinit(t.allocator);
 
     const result = expected.recursive_eq(actual);
