@@ -1,3 +1,11 @@
+//!
+//! NOTE:
+//! - probably would be better long term to use binaryen directly, it will have
+//!   a more performant in-memory IR
+//! - functions starting with ";" will cause a multiline comment, which is an example
+//!   of small problems with this code not conforming to WAT precisely
+//!
+
 const zig_builtin = @import("builtin");
 const std = @import("std");
 const Sexp = @import("./sexp.zig").Sexp;
@@ -323,7 +331,6 @@ const Compilation = struct {
         pub const memory = Sexp{ .value = .{ .symbol = "memory" } };
         pub const @"$0" = Sexp{ .value = .{ .symbol = "$0" } };
         pub const data = Sexp{ .value = .{ .symbol = "data" } };
-        pub const stack_ptr = Sexp{ .value = .{ .symbol = "$__stack_ptr" } };
 
         pub const ops = struct {
             pub const @"local.get" = Sexp{ .value = .{ .symbol = "local.get" } };
@@ -518,7 +525,7 @@ const Compilation = struct {
                 param_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                 try param_sexp.value.list.ensureTotalCapacityPrecise(2);
                 param_sexp.value.list.addOneAssumeCapacity().* = wat_syms.param;
-                param_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param_type.name } };
+                param_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param_type.wasm_type.? } };
             }
 
             const result_sexp = func_type_sexp.value.list.addOneAssumeCapacity();
@@ -546,7 +553,7 @@ const Compilation = struct {
                 try param_sexp.value.list.ensureTotalCapacityPrecise(3);
                 (try param_sexp.value.list.addOne()).* = wat_syms.param;
                 (try param_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{s}", .{param_name}) } };
-                (try param_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = param_type.name } };
+                (try param_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = param_type.wasm_type.? } };
             }
 
             const result_sexp = try impl_sexp.value.list.addOne();
@@ -564,7 +571,18 @@ const Compilation = struct {
                 try local_sexp.value.list.ensureTotalCapacityPrecise(3);
                 (try local_sexp.value.list.addOne()).* = wat_syms.local;
                 (try local_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$local_{s}", .{local_name}) } };
-                (try local_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = local_type.name } };
+                (try local_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = local_type.wasm_type.? } };
+            }
+
+            // transfer locals for stack objects
+            // FIXME: dynamically add locals as necessary
+            for (0..2) |i| {
+                const local_sexp = try impl_sexp.value.list.addOne();
+                local_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                try local_sexp.value.list.ensureTotalCapacityPrecise(3);
+                (try local_sexp.value.list.addOne()).* = wat_syms.local;
+                (try local_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$__l{}", .{i}) } };
+                (try local_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = "i32" } };
             }
 
             std.debug.assert(func_decl.return_exprs.len >= 1);
@@ -578,7 +596,7 @@ const Compilation = struct {
                 };
                 const body_fragment = try self.compileExpr(&return_expr, &expr_ctx);
                 // FIXME: this is a horrible way to do type resolution
-                func_type_result_sexp.* = if (body_fragment.resolved_type.wasm_primitive) |wasm_prim|
+                func_type_result_sexp.* = if (body_fragment.resolved_type.wasm_type) |wasm_prim|
                     Sexp{ .value = .{ .symbol = wasm_prim } }
                 else
                     // FIXME: use known type symbol where possible (e.g. interning!)
@@ -588,28 +606,31 @@ const Compilation = struct {
 
                 std.debug.assert(func_type.result_types.len == 1);
                 if (body_fragment.resolved_type != func_type.result_types[0]) {
-                    std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = body_fragment.code } }});
+                    std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = body_fragment.values } }});
                     std.log.warn("type: '{s}' doesn't match '{s}'", .{ body_fragment.resolved_type.name, func_type.result_types[0].name });
                     // FIXME/HACK: re-enable but disabling now to allow for type promotion
                     //return error.ReturnTypeMismatch;
                 }
 
                 // FIXME: what about the rest of the code?
-                (try impl_sexp.value.list.addOne()).* = body_fragment.code.items[0];
+                (try impl_sexp.value.list.addOne()).* = body_fragment.values.items[0];
             }
         }
     }
 
     /// A fragment of compiled code and the type of its final variable
     const Fragment = struct {
-        code: std.ArrayList(Sexp),
+        /// any free code that must be run to set up this fragment, e.g. stack manipulation
+        mut_code: std.ArrayList(Sexp),
+        /// values used to reference this fragment
+        values: std.ArrayList(Sexp),
         /// offset in the stack frame for the value in this fragment
         frame_offset: u32 = 0,
         resolved_type: Type,
 
         pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
             _ = alloc;
-            self.code.deinit();
+            self.values.deinit();
         }
     };
 
@@ -657,13 +678,13 @@ const Compilation = struct {
                     std.debug.panic("max iters resolving types: {s} -> {s}", .{ fragment.resolved_type.name, resolved_type.name });
                 }
 
-                std.debug.assert(fragment.code.items.len == 1);
+                std.debug.assert(fragment.values.items.len == 1);
 
-                const prev = fragment.code.items[0];
-                fragment.code.items[0] = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try fragment.code.items[0].value.list.ensureTotalCapacityPrecise(2);
-                const converter = fragment.code.items[0].value.list.addOneAssumeCapacity();
-                fragment.code.items[0].value.list.addOneAssumeCapacity().* = prev;
+                const prev = fragment.values.items[0];
+                fragment.values.items[0] = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                try fragment.values.items[0].value.list.ensureTotalCapacityPrecise(2);
+                const converter = fragment.values.items[0].value.list.addOneAssumeCapacity();
+                fragment.values.items[0].value.list.addOneAssumeCapacity().* = prev;
 
                 if (fragment.resolved_type == primitive_types.i32_) {
                     converter.* = wat_syms.ops.i64_.extend_i32_s;
@@ -752,7 +773,8 @@ const Compilation = struct {
         const alloc = self.arena.allocator();
 
         var result = Fragment{
-            .code = std.ArrayList(Sexp).init(alloc),
+            .mut_code = std.ArrayList(Sexp).init(alloc),
+            .values = std.ArrayList(Sexp).init(alloc),
             .resolved_type = builtin.empty_type,
         };
 
@@ -767,9 +789,9 @@ const Compilation = struct {
 
             const data_offset = try self.addReadonlyData(bytes.items);
 
-            try result.code.ensureTotalCapacityPrecise(2);
-            const len = result.code.addOneAssumeCapacity();
-            const ptr = result.code.addOneAssumeCapacity();
+            try result.values.ensureTotalCapacityPrecise(2);
+            const len = result.values.addOneAssumeCapacity();
+            const ptr = result.values.addOneAssumeCapacity();
 
             len.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
             try len.value.list.ensureTotalCapacityPrecise(2);
@@ -792,11 +814,11 @@ const Compilation = struct {
 
                 if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
                     // FIXME:
-                    try result.code.ensureUnusedCapacity(v.items.len - 1);
+                    try result.values.ensureUnusedCapacity(v.items.len - 1);
                     for (v.items[1..]) |*return_expr| {
                         var compiled = try self.compileExpr(return_expr, context);
                         result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, &compiled);
-                        try result.code.appendSlice(try compiled.code.toOwnedSlice());
+                        try result.values.appendSlice(try compiled.values.toOwnedSlice());
                     }
 
                     return result;
@@ -838,33 +860,33 @@ const Compilation = struct {
                 if (func.value.symbol.ptr == syms.@"set!".value.symbol.ptr) {
                     std.debug.assert(arg_fragments.len == 2);
 
-                    std.debug.assert(arg_fragments[0].code.items.len == 1);
-                    std.debug.assert(arg_fragments[0].code.items[0].value == .list);
-                    std.debug.assert(arg_fragments[0].code.items[0].value.list.items.len == 2);
-                    std.debug.assert(arg_fragments[0].code.items[0].value.list.items[0].value == .symbol);
-                    std.debug.assert(arg_fragments[0].code.items[0].value.list.items[1].value == .symbol);
+                    std.debug.assert(arg_fragments[0].values.items.len == 1);
+                    std.debug.assert(arg_fragments[0].values.items[0].value == .list);
+                    std.debug.assert(arg_fragments[0].values.items[0].value.list.items.len == 2);
+                    std.debug.assert(arg_fragments[0].values.items[0].value.list.items[0].value == .symbol);
+                    std.debug.assert(arg_fragments[0].values.items[0].value.list.items[1].value == .symbol);
 
                     result.resolved_type = try self.resolvePeerTypesWithPromotions(&arg_fragments[0], &arg_fragments[1]);
 
                     // FIXME: leak
-                    const set_sym = arg_fragments[0].code.items[0].value.list.items[1];
+                    const set_sym = arg_fragments[0].values.items[0].value.list.items[1];
 
-                    std.debug.assert(arg_fragments[1].code.items.len == 1);
-                    const set_val = arg_fragments[1].code.items[0];
+                    std.debug.assert(arg_fragments[1].values.items.len == 1);
+                    const set_val = arg_fragments[1].values.items[0];
 
-                    try result.code.ensureTotalCapacityPrecise(1);
-                    const wasm_op = result.code.addOneAssumeCapacity();
+                    try result.values.ensureTotalCapacityPrecise(1);
+                    const wasm_op = result.values.addOneAssumeCapacity();
                     wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                     try wasm_op.value.list.ensureTotalCapacityPrecise(3);
                     wasm_op.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.set";
 
                     wasm_op.value.list.addOneAssumeCapacity().* = set_sym;
                     // TODO: more idiomatic move out data
-                    arg_fragments[0].code.items[0] = Sexp{ .value = .void };
+                    arg_fragments[0].values.items[0] = Sexp{ .value = .void };
 
                     wasm_op.value.list.addOneAssumeCapacity().* = set_val;
                     // TODO: more idiomatic move out data
-                    arg_fragments[1].code.items[0] = Sexp{ .value = .void };
+                    arg_fragments[1].values.items[0] = Sexp{ .value = .void };
 
                     return result;
                 }
@@ -874,8 +896,8 @@ const Compilation = struct {
 
                     result.resolved_type = try self.resolvePeerTypesWithPromotions(&arg_fragments[1], &arg_fragments[2]);
 
-                    try result.code.ensureTotalCapacityPrecise(1);
-                    const wasm_op = result.code.addOneAssumeCapacity();
+                    try result.values.ensureTotalCapacityPrecise(1);
+                    const wasm_op = result.values.addOneAssumeCapacity();
                     wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                     try wasm_op.value.list.ensureTotalCapacityPrecise(4);
                     wasm_op.value.list.addOneAssumeCapacity().* = syms.@"if";
@@ -883,9 +905,9 @@ const Compilation = struct {
                     const consequence = wasm_op.value.list.addOneAssumeCapacity();
                     const alternative = wasm_op.value.list.addOneAssumeCapacity();
 
-                    cond.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try arg_fragments[0].code.toOwnedSlice()) } };
-                    consequence.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try arg_fragments[1].code.toOwnedSlice()) } };
-                    alternative.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try arg_fragments[2].code.toOwnedSlice()) } };
+                    cond.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try arg_fragments[0].values.toOwnedSlice()) } };
+                    consequence.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try arg_fragments[1].values.toOwnedSlice()) } };
+                    alternative.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try arg_fragments[2].values.toOwnedSlice()) } };
 
                     return result;
                 }
@@ -935,8 +957,8 @@ const Compilation = struct {
                     },
                 }) |builtin_op| {
                     if (func.value.symbol.ptr == builtin_op.sym.value.symbol.ptr) {
-                        try result.code.ensureTotalCapacityPrecise(1);
-                        const wasm_op = result.code.addOneAssumeCapacity();
+                        try result.values.ensureTotalCapacityPrecise(1);
+                        const wasm_op = result.values.addOneAssumeCapacity();
                         wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                         try wasm_op.value.list.ensureTotalCapacityPrecise(3);
                         const op_name = wasm_op.value.list.addOneAssumeCapacity();
@@ -944,11 +966,11 @@ const Compilation = struct {
                         std.debug.assert(arg_fragments.len == 2);
                         for (arg_fragments) |*arg_fragment| {
                             result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, arg_fragment);
-                            std.debug.assert(arg_fragment.code.items.len == 1);
+                            std.debug.assert(arg_fragment.values.items.len == 1);
                             // resolve peer types could have mutated it
-                            (try wasm_op.value.list.addOne()).* = arg_fragment.code.items[0];
+                            (try wasm_op.value.list.addOne()).* = arg_fragment.values.items[0];
                             // TODO: more idiomatic move out data
-                            arg_fragment.code.items[0] = Sexp{ .value = .void };
+                            arg_fragment.values.items[0] = Sexp{ .value = .void };
                         }
 
                         var handled = false;
@@ -983,13 +1005,13 @@ const Compilation = struct {
                     result.resolved_type = outputs[0].kind.primitive.value;
 
                     if (func.value.symbol.ptr == node_desc.name().ptr) {
-                        try result.code.ensureTotalCapacityPrecise(1);
-                        const wasm_call = result.code.addOneAssumeCapacity();
+                        try result.values.ensureTotalCapacityPrecise(1);
+                        const wasm_call = result.values.addOneAssumeCapacity();
                         wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
 
                         const total_args = _: {
                             var total_args_res: usize = 2; // start with 2 for (call $FUNC_NAME ...)
-                            for (arg_fragments) |arg_frag| total_args_res += arg_frag.code.items.len;
+                            for (arg_fragments) |arg_frag| total_args_res += arg_frag.values.items.len;
                             break :_ total_args_res;
                         };
 
@@ -999,7 +1021,7 @@ const Compilation = struct {
                         wasm_call.value.list.addOneAssumeCapacity().* = intrinsic.wasm_sym;
 
                         for (arg_fragments) |arg_fragment| {
-                            for (arg_fragment.code.items) |*subarg| {
+                            for (arg_fragment.values.items) |*subarg| {
                                 wasm_call.value.list.addOneAssumeCapacity().* = subarg.*;
                                 subarg.* = Sexp{ .value = .void };
                             }
@@ -1020,8 +1042,8 @@ const Compilation = struct {
                     else
                         primitive_types.i32_;
 
-                    try result.code.ensureTotalCapacityPrecise(1);
-                    const wasm_call = result.code.addOneAssumeCapacity();
+                    try result.values.ensureTotalCapacityPrecise(1);
+                    const wasm_call = result.values.addOneAssumeCapacity();
                     wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                     try wasm_call.value.list.ensureTotalCapacityPrecise(2 + arg_fragments.len);
                     // FIXME: use types to determine
@@ -1030,7 +1052,7 @@ const Compilation = struct {
                     wasm_call.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{func.value.symbol}) } };
 
                     for (arg_fragments) |arg_fragment| {
-                        for (arg_fragment.code.items) |*fragment_part| {
+                        for (arg_fragment.values.items) |*fragment_part| {
                             (try wasm_call.value.list.addOne()).* = fragment_part.*;
                             // move out
                             fragment_part.* = Sexp{ .value = .void };
@@ -1047,8 +1069,8 @@ const Compilation = struct {
 
             .int => |v| {
                 result.resolved_type = builtin.primitive_types.i32_;
-                try result.code.ensureTotalCapacityPrecise(1);
-                const wasm_const = result.code.addOneAssumeCapacity();
+                try result.values.ensureTotalCapacityPrecise(1);
+                const wasm_const = result.values.addOneAssumeCapacity();
                 wasm_const.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                 try wasm_const.value.list.ensureTotalCapacityPrecise(2);
 
@@ -1061,8 +1083,8 @@ const Compilation = struct {
 
             .float => |v| {
                 result.resolved_type = builtin.primitive_types.f64_;
-                try result.code.ensureTotalCapacityPrecise(1);
-                const wasm_const = result.code.addOneAssumeCapacity();
+                try result.values.ensureTotalCapacityPrecise(1);
+                const wasm_const = result.values.addOneAssumeCapacity();
                 wasm_const.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                 try wasm_const.value.list.ensureTotalCapacityPrecise(2);
                 wasm_const.value.list.addOneAssumeCapacity().* = wat_syms.ops.f64_.@"const";
@@ -1096,8 +1118,8 @@ const Compilation = struct {
                 };
 
                 result.resolved_type = info.resolved_type;
-                try result.code.ensureTotalCapacityPrecise(1);
-                const wasm_local_get = result.code.addOneAssumeCapacity();
+                try result.values.ensureTotalCapacityPrecise(1);
+                const wasm_local_get = result.values.addOneAssumeCapacity();
                 wasm_local_get.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                 try wasm_local_get.value.list.ensureTotalCapacityPrecise(2);
                 wasm_local_get.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.get";
@@ -1115,37 +1137,51 @@ const Compilation = struct {
                 result.frame_offset += @sizeOf(intrinsics.GrapplString);
                 result.resolved_type = builtin.primitive_types.string;
 
-                // FIXME: comptime parsing
-                var code = SexpParser.parse(alloc,
-                    \\(i32.store (memory $__grappl_stk)
+                const mut_code_src =
+                    \\(i32.store (memory $__grappl_vstk)
                     \\           (i32.const #void)
-                    \\           (i32.add (global.get $__grappl_stkp)
+                    \\           (i32.add (global.get $__grappl_vstkp)
                     \\                    (i32.const #void)))
-                    \\(i32.store (memory $__grappl_stk)
+                    \\(i32.store (memory $__grappl_vstk)
                     \\           (i32.const #void)
-                    \\           (i32.add (global.get $__grappl_stkp)
+                    \\           (i32.add (global.get $__grappl_vstkp)
                     \\                    (i32.const #void)))
-                    \\(global.get $__grappl_stkp) ;; store the value stack pointer on the wasm stack
-                    \\(global.set $__grappl_stkp
-                    \\            (global.get $__grappl_stkp
-                    \\                        (i32.add $__grappl_stkp
+                    \\(local.set $__l0 (global.get $__grappl_vstkp)) ;; store the value stack pointer
+                    \\(global.set $__grappl_vstkp
+                    \\            (global.get $__grappl_vstkp
+                    \\                        (i32.add $__grappl_vstkp
                     \\                                 (i32.const #void))))
-                , null) catch unreachable;
+                ;
+                // FIXME: comptime parsing
+                var diag = SexpParser.Diagnostic{ .source = mut_code_src };
+                var mut_code = SexpParser.parse(alloc, mut_code_src, &diag) catch {
+                    std.log.err("diag={}", .{diag});
+                    @panic("failed to parse temp non-comptime mut_code_src");
+                };
 
-                code.value.module.items[0].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
-                code.value.module.items[0].value.list.items[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(v.len) } };
+                mut_code.value.module.items[0].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
+                mut_code.value.module.items[0].value.list.items[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(v.len) } };
                 // FIXME: can do this dynamically for intrinsics by enumerating fields
                 context.frame.byte_size += @sizeOf(std.meta.fields(intrinsics.GrapplString)[0].type);
 
-                code.value.module.items[1].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
-                code.value.module.items[1].value.list.items[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
+                mut_code.value.module.items[1].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
+                mut_code.value.module.items[1].value.list.items[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
                 context.frame.byte_size += @sizeOf(std.meta.fields(intrinsics.GrapplString)[1].type);
 
-                code.value.module.items[3].value.list.items[2].value.list.items[2].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @sizeOf(intrinsics.GrapplString) } };
+                mut_code.value.module.items[3].value.list.items[2].value.list.items[2].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @sizeOf(intrinsics.GrapplString) } };
 
-                result.code = std.ArrayList(Sexp).fromOwnedSlice(alloc, try code.value.module.toOwnedSlice());
+                const vals_src =
+                    \\(local.get $__l0)
+                ;
 
-                std.debug.print("result=\n{}\n", .{result.code});
+                // FIXME: comptime parsing
+                var vals_code = SexpParser.parse(alloc, vals_src, &diag) catch {
+                    std.log.err("diag={}", .{diag});
+                    @panic("failed to parse temp non-comptime mut_code_src");
+                };
+
+                result.values = std.ArrayList(Sexp).fromOwnedSlice(alloc, try vals_code.value.module.toOwnedSlice());
+                result.mut_code = std.ArrayList(Sexp).fromOwnedSlice(alloc, try mut_code.value.module.toOwnedSlice());
 
                 return result;
             },
@@ -1153,8 +1189,8 @@ const Compilation = struct {
             .bool => |v| {
                 const int_val: i64 = if (v) 1 else 0;
 
-                try result.code.ensureTotalCapacityPrecise(1);
-                const val = result.code.addOneAssumeCapacity();
+                try result.values.ensureTotalCapacityPrecise(1);
+                const val = result.values.addOneAssumeCapacity();
 
                 val.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                 try val.value.list.ensureTotalCapacityPrecise(2);
@@ -1217,21 +1253,6 @@ const Compilation = struct {
             }
         }
 
-        const stack_src =
-            // stack is 2 wasm page (FIXME: plus deadzone?)
-            \\(memory $__grappl_stk 1)
-            \\(global $__grappl_stkp i32 (i32.const 0))
-        ;
-
-        // prologue
-        {
-            const stack_code = try SexpParser.parse(alloc, stack_src, null);
-            try self.module_body.appendSlice(stack_code.value.module.items);
-        }
-
-        // TODO: parse them at comptime and get the count that way
-        const stack_code_count = comptime std.mem.count(u8, stack_src, "\n") + 1;
-
         const imports_src =
             //\\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_JSON_R_JSON") (param i32) (param i32) (param i32) (result i32) (result i32))
             \\(func $callUserFunc_code_R_void (import "env" "callUserFunc_code_R_void") (param i32) (param i32) (param i32))
@@ -1251,6 +1272,21 @@ const Compilation = struct {
             const host_callbacks_prologue = try SexpParser.parse(alloc, imports_src, null);
             try self.module_body.appendSlice(host_callbacks_prologue.value.module.items);
         }
+
+        const stack_src =
+            // stack is 2 wasm page (FIXME: plus deadzone?)
+            \\(memory $__grappl_vstk 1)
+            \\(global $__grappl_vstkp i32 (i32.const 0))
+        ;
+
+        // prologue
+        {
+            const stack_code = try SexpParser.parse(alloc, stack_src, null);
+            try self.module_body.appendSlice(stack_code.value.module.items);
+        }
+
+        // TODO: parse them at comptime and get the count that way
+        const stack_code_count = comptime std.mem.count(u8, stack_src, "\n") + 1;
 
         // FIXME: memory is already created and exported by the intrinsics
         // {
@@ -1406,20 +1442,21 @@ const Compilation = struct {
         // FIXME: performantly parse the wat at compile time or use wasm merge
         // I don't trust my parser yet
         const module_contents = self.wat.value.module.items[0].value.list.items[1..];
-        std.debug.assert(module_contents.len >= stack_code_count + imports_count);
-        const stack_code = module_contents[0..stack_code_count];
-        const imports = module_contents[stack_code_count .. stack_code_count + imports_count];
-        const module_defs = module_contents[stack_code_count + imports_count ..];
+        std.debug.assert(module_contents.len >= imports_count + stack_code_count);
+        const imports = module_contents[0..imports_count];
+        const stack_code = module_contents[imports_count .. imports_count + stack_code_count];
+        const module_defs = module_contents[imports_count + stack_code_count ..];
 
         try bytes.appendSlice("(module\n");
 
-        for (stack_code) |code| {
-            _ = try code.write(buffer_writer);
+        // imports must be first in wat!
+        for (imports) |import| {
+            _ = try import.write(buffer_writer);
             try bytes.appendSlice("\n");
         }
 
-        for (imports) |import| {
-            _ = try import.write(buffer_writer);
+        for (stack_code) |code| {
+            _ = try code.write(buffer_writer);
             try bytes.appendSlice("\n");
         }
 
@@ -1531,17 +1568,18 @@ test "parse" {
         \\(define (deep a b)
         \\  (begin
         \\    (return (+ (/ a 10) (* a b)))))
+        \\
+        \\;;; comment
+        \\(typeof (strings-stuff string) bool)
+        \\(define (strings-stuff x)
+        \\  (begin
+        \\    (return (string-equal "hello" x))))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
 
     const expected = try std.fmt.allocPrint(t.allocator,
         \\(module
-        \\(memory $__grappl_stk
-        \\        1)
-        \\(global $__grappl_stkp
-        \\        i32
-        \\        (i32.const 0))
         \\(func $callUserFunc_code_R_void
         \\      (import "env"
         \\              "callUserFunc_code_R_void")
@@ -1581,6 +1619,11 @@ test "parse" {
         \\              "callUserFunc_bool_R_void")
         \\      (param i32)
         \\      (param i32))
+        \\(memory $__grappl_vstk
+        \\        1)
+        \\(global $__grappl_vstkp
+        \\        i32
+        \\        (i32.const 0))
         \\;;; BEGIN INTRINSICS
         \\{s}
         \\;;; END INTRINSICS
@@ -1609,6 +1652,10 @@ test "parse" {
         \\             i32)
         \\      (result i32)
         \\      (local $local_a
+        \\             i32)
+        \\      (local $__l0
+        \\             i32)
+        \\      (local $__l1
         \\             i32)
         \\      (call $sql
         \\            (i32.const 52)
@@ -1639,10 +1686,45 @@ test "parse" {
         \\      (param $param_b
         \\             f32)
         \\      (result f32)
+        \\      (local $__l0
+        \\             i32)
+        \\      (local $__l1
+        \\             i32)
         \\      (f32.add (f32.div (local.get $param_a)
         \\                        (f32.convert_i64_s (i64.extend_i32_s (i32.const 10))))
         \\               (f32.mul (local.get $param_a)
         \\                        (local.get $param_b))))
+        \\(export "strings-stuff"
+        \\        (func $strings-stuff))
+        \\(type $typeof_strings-stuff
+        \\      (func (param i32)
+        \\            (result i32)))
+        \\(func $strings-stuff
+        \\      (param $param_x
+        \\             i32)
+        \\      (result i32)
+        \\      (local $__l0
+        \\             i32)
+        \\      (local $__l1
+        \\             i32)
+        \\      (i32.store (memory $__grappl_vstk)
+        \\                 (i32.const #void)
+        \\                 (i32.add (global.get $__grappl_vstkp)
+        \\                          (i32.const #void)))
+        \\      (i32.store (memory $__grappl_vstk)
+        \\                 (i32.const #void)
+        \\                 (i32.add (global.get $__grappl_vstkp)
+        \\                          (i32.const #void)))
+        \\      (local.set $__l0 (global.get $__grappl_vstkp)) ;; store the value stack pointer
+        \\      (global.set $__grappl_vstkp
+        \\                  (global.get $__grappl_vstkp
+        \\                              (i32.add $__grappl_vstkp
+        \\                                       (i32.const #void))))
+        \\      (call $__grappl_string_equal
+        \\            (local.get $__l0)
+        \\            (local.get $param_x)))
+        \\(data (i32.const 123)
+        \\      "\05\00\00\00\00\00\00\00hello")
         \\)
         // TODO: clearly instead of embedding the pointer we should have a global variable
         // so the host can set that
@@ -1652,6 +1734,16 @@ test "parse" {
     var diagnostic = Diagnostic.init();
     if (compile(t.allocator, &parsed, &user_funcs, &diagnostic)) |wat| {
         try t.expectEqualStrings(expected, wat);
+
+        // FIXME: convenience
+        var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
+        defer tmp_dir.close();
+
+        var dbg_file = try tmp_dir.createFile("compiler-test.wat", .{});
+        defer dbg_file.close();
+
+        try dbg_file.writeAll(wat);
+
         t.allocator.free(wat);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });

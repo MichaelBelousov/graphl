@@ -22,7 +22,7 @@ pub const TypeInfo = struct {
     // FIXME: use a union
     func_type: ?FuncType = null,
     // the wasm primitive associated with this type, if it is a primitive
-    wasm_primitive: ?[]const u8 = null,
+    wasm_type: ?[]const u8 = null,
 };
 
 pub const Type = *const TypeInfo;
@@ -259,21 +259,23 @@ pub const empty_type: Type = &TypeInfo{ .name = "EMPTY_TYPE" };
 
 pub const primitive_types = struct {
     // nums
-    pub const i32_: Type = &TypeInfo{ .name = "i32", .wasm_primitive = "i32" };
-    pub const i64_: Type = &TypeInfo{ .name = "i64", .wasm_primitive = "i64" };
-    pub const u32_: Type = &TypeInfo{ .name = "u32", .wasm_primitive = "i32" };
-    pub const u64_: Type = &TypeInfo{ .name = "u64", .wasm_primitive = "i64" };
-    pub const f32_: Type = &TypeInfo{ .name = "f32", .wasm_primitive = "f32" };
-    pub const f64_ = &TypeInfo{ .name = "f64", .wasm_primitive = "f64" };
+    pub const i32_: Type = &TypeInfo{ .name = "i32", .wasm_type = "i32" };
+    pub const i64_: Type = &TypeInfo{ .name = "i64", .wasm_type = "i64" };
+    pub const u32_: Type = &TypeInfo{ .name = "u32", .wasm_type = "i32" };
+    pub const u64_: Type = &TypeInfo{ .name = "u64", .wasm_type = "i64" };
+    pub const f32_: Type = &TypeInfo{ .name = "f32", .wasm_type = "f32" };
+    pub const f64_ = &TypeInfo{ .name = "f64", .wasm_type = "f64" };
 
-    pub const byte: Type = &TypeInfo{ .name = "byte", .wasm_primitive = "u8" };
+    pub const byte: Type = &TypeInfo{ .name = "byte", .wasm_type = "u8" };
     // FIXME: should I change this to u8?
-    pub const bool_: Type = &TypeInfo{ .name = "bool", .wasm_primitive = "i32" };
-    pub const char_: Type = &TypeInfo{ .name = "char", .wasm_primitive = "u32" };
-    pub const symbol: Type = &TypeInfo{ .name = "symbol", .wasm_primitive = "i32" };
+    pub const bool_: Type = &TypeInfo{ .name = "bool", .wasm_type = "i32" };
+    pub const char_: Type = &TypeInfo{ .name = "char", .wasm_type = "u32" };
+    pub const symbol: Type = &TypeInfo{ .name = "symbol", .wasm_type = "i32" };
     pub const @"void": Type = &TypeInfo{ .name = "void" };
 
-    pub const string: Type = &TypeInfo{ .name = "string" };
+    // FIXME: this is basically a pointer, but should consider writing a comptime function
+    // for converting from instrinsics type to wasm type
+    pub const string: Type = &TypeInfo{ .name = "string", .wasm_type = "i32" };
 
     // FIXME: replace when we think out the macro system
     pub const code: Type = &TypeInfo{ .name = "code" };

@@ -7,6 +7,8 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
+    const test_step = b.step("test", "Run library tests");
+
     //const binaryen_dep = b.dependency("binaryen-zig", .{});
 
     const web_target_query = CrossTarget.parse(.{
@@ -15,11 +17,13 @@ pub fn build(b: *std.Build) void {
     }) catch unreachable;
     const web_target = b.resolveTargetQuery(web_target_query);
 
+    const small_intrinsics = b.option(bool, "small-intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse false;
+
     const intrinsics = b.addExecutable(.{
         .name = "grappl_intrinsics",
         .root_source_file = b.path("./src/intrinsics.zig"),
         .target = web_target,
-        .optimize = optimize,
+        .optimize = if (small_intrinsics) .ReleaseSmall else optimize,
         .strip = false, // required by current usage of intrinsics
     });
     intrinsics.entry = .disabled;
@@ -78,7 +82,6 @@ pub fn build(b: *std.Build) void {
 
     const main_tests_run = b.addRunArtifact(main_tests);
 
-    const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests_run.step);
 
     const web_step = b.step("web", "Build for web");
