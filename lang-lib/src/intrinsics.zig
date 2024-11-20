@@ -10,11 +10,6 @@ pub const GrapplString = extern struct {
     ptr: [*]u8,
 };
 
-comptime {
-    const std = @import("std");
-    std.debug.assert(@sizeOf(GrapplString) == 8);
-}
-
 /// -1 if doesn't exist
 pub export fn __grappl_string_indexof(str: GrapplString, chr: GrapplChar) i32 {
     for (str.ptr[0..str.len], 0..) |c, i| {

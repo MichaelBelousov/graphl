@@ -1132,18 +1132,20 @@ const Compilation = struct {
                     \\                                 (i32.const #void))))
                 , null) catch unreachable;
 
-                code.value.module.items[0].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = context.frame.byte_size } };
+                code.value.module.items[0].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
                 code.value.module.items[0].value.list.items[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(v.len) } };
                 // FIXME: can do this dynamically for intrinsics by enumerating fields
                 context.frame.byte_size += @sizeOf(std.meta.fields(intrinsics.GrapplString)[0].type);
 
-                code.value.module.items[1].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = context.frame.byte_size } };
+                code.value.module.items[1].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
                 code.value.module.items[1].value.list.items[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
                 context.frame.byte_size += @sizeOf(std.meta.fields(intrinsics.GrapplString)[1].type);
 
                 code.value.module.items[3].value.list.items[2].value.list.items[2].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @sizeOf(intrinsics.GrapplString) } };
 
                 result.code = std.ArrayList(Sexp).fromOwnedSlice(alloc, try code.value.module.toOwnedSlice());
+
+                std.debug.print("result=\n{}\n", .{result.code});
 
                 return result;
             },
@@ -1215,7 +1217,7 @@ const Compilation = struct {
             }
         }
 
-        const prologue_src =
+        const stack_src =
             // stack is 2 wasm page (FIXME: plus deadzone?)
             \\(memory $__grappl_stk 1)
             \\(global $__grappl_stkp i32 (i32.const 0))
@@ -1223,10 +1225,12 @@ const Compilation = struct {
 
         // prologue
         {
-            var prologue = try SexpParser.parse(alloc, prologue_src, null);
-            defer prologue.deinit(alloc);
-            try self.module_body.appendSlice(prologue.value.module.items);
+            const stack_code = try SexpParser.parse(alloc, stack_src, null);
+            try self.module_body.appendSlice(stack_code.value.module.items);
         }
+
+        // TODO: parse them at comptime and get the count that way
+        const stack_code_count = comptime std.mem.count(u8, stack_src, "\n") + 1;
 
         const imports_src =
             //\\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_JSON_R_JSON") (param i32) (param i32) (param i32) (result i32) (result i32))
@@ -1240,12 +1244,11 @@ const Compilation = struct {
         ;
 
         // TODO: parse them at comptime and get the count that way
-        const import_count = comptime std.mem.count(u8, imports_src, "\n") + 1;
+        const imports_count = comptime std.mem.count(u8, imports_src, "\n") + 1;
 
         // imports
         {
-            var host_callbacks_prologue = try SexpParser.parse(alloc, imports_src, null);
-            defer host_callbacks_prologue.deinit(alloc);
+            const host_callbacks_prologue = try SexpParser.parse(alloc, imports_src, null);
             try self.module_body.appendSlice(host_callbacks_prologue.value.module.items);
         }
 
@@ -1291,8 +1294,7 @@ const Compilation = struct {
                         \\      (param $param_1 i32)
                         \\      (call $callUserFunc_i32_R_void (i32.const {}) (local.get $param_1)))
                     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
-                    var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
-                    defer user_func_thunk.deinit(alloc);
+                    const user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     try self.module_body.appendSlice(user_func_thunk.value.module.items);
 
                     // FIXME: bool_R_void can probably be same as i32_R_void
@@ -1309,8 +1311,7 @@ const Compilation = struct {
                         \\      (param $param_1 i32)
                         \\      (call $callUserFunc_bool_R_void (i32.const {}) (local.get $param_1)))
                     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
-                    var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
-                    defer user_func_thunk.deinit(alloc);
+                    const user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     try self.module_body.appendSlice(user_func_thunk.value.module.items);
                 } else if (user_func.data.inputs.len == 2
                 //
@@ -1331,8 +1332,7 @@ const Compilation = struct {
                         \\      (call $callUserFunc_code_R_void (i32.const {}) (local.get $in_len) (local.get $in_ptr))
                         \\)
                     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
-                    var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
-                    defer user_func_thunk.deinit(alloc);
+                    const user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     try self.module_body.appendSlice(user_func_thunk.value.module.items);
                 } else if (user_func.data.inputs.len == 2
                 //
@@ -1349,8 +1349,7 @@ const Compilation = struct {
                         \\      (call $callUserFunc_string_R_void (i32.const {}) (local.get $in_ptr) (local.get $in_len))
                         \\)
                     , .{ user_func.data.name, @intFromPtr(&user_func.data) });
-                    var user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
-                    defer user_func_thunk.deinit(alloc);
+                    const user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
                     try self.module_body.appendSlice(user_func_thunk.value.module.items);
                 } else {
                     std.log.err("unhandled user func: {s}\n", .{user_func.data.name});
@@ -1407,11 +1406,17 @@ const Compilation = struct {
         // FIXME: performantly parse the wat at compile time or use wasm merge
         // I don't trust my parser yet
         const module_contents = self.wat.value.module.items[0].value.list.items[1..];
-        std.debug.assert(module_contents.len >= import_count);
-        const imports = module_contents[0..import_count];
-        const module_defs = module_contents[import_count..];
+        std.debug.assert(module_contents.len >= stack_code_count + imports_count);
+        const stack_code = module_contents[0..stack_code_count];
+        const imports = module_contents[stack_code_count .. stack_code_count + imports_count];
+        const module_defs = module_contents[stack_code_count + imports_count ..];
 
         try bytes.appendSlice("(module\n");
+
+        for (stack_code) |code| {
+            _ = try code.write(buffer_writer);
+            try bytes.appendSlice("\n");
+        }
 
         for (imports) |import| {
             _ = try import.write(buffer_writer);
@@ -1532,6 +1537,11 @@ test "parse" {
 
     const expected = try std.fmt.allocPrint(t.allocator,
         \\(module
+        \\(memory $__grappl_stk
+        \\        1)
+        \\(global $__grappl_stkp
+        \\        i32
+        \\        (i32.const 0))
         \\(func $callUserFunc_code_R_void
         \\      (import "env"
         \\              "callUserFunc_code_R_void")

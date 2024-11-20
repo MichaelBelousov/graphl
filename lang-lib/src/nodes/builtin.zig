@@ -1050,7 +1050,7 @@ pub const Env = struct {
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         self._types.clearAndFree(alloc);
-        self.nodes.clearAndFree(alloc);
+        self._nodes.clearAndFree(alloc);
         while (self.created_nodes.popFirst()) |popped| alloc.destroy(popped);
         while (self.created_types.popFirst()) |popped| alloc.destroy(popped);
         // FIXME: destroy all created slots

@@ -28,7 +28,7 @@ pub const compiler = @import("./compiler-wat.zig");
 
 test {
     // FIXME:
-    //std.testing.refAllDeclsRecursive(compiler);
-    std.testing.refAllDeclsRecursive(@import("./graph_to_source.zig"));
+    std.testing.refAllDeclsRecursive(compiler);
+    //std.testing.refAllDeclsRecursive(@import("./graph_to_source.zig"));
     //std.testing.refAllDeclsRecursive(@This());
 }

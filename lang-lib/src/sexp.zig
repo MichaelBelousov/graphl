@@ -6,6 +6,12 @@ const io = std.io;
 const testing = std.testing;
 const json = std.json;
 
+// FIXME: don't include in non-debug builds
+
+export fn _print_sexp(sexp: *const Sexp) void {
+    std.debug.print("{}\n", .{sexp});
+}
+
 pub const Sexp = struct {
     comment: ?[]const u8 = null,
     value: union(enum) {
