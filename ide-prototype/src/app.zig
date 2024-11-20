@@ -247,6 +247,25 @@ var graphs = std.SinglyLinkedList(Graph){};
 var current_graph: *Graph = undefined;
 var next_graph_index: u16 = 0;
 
+/// uses gpa, deinit the result with gpa
+fn combineGraphs() !Sexp {
+    // FIXME: use an arena!
+    // not currently possible because grappl_graph.compile allocates permanent memory
+    // for incremental compilation... the graph should take a separate allocator for
+    // such memory, or use its own system allocator
+    var result = Sexp.newModule(gpa);
+    try result.value.module.ensureTotalCapacity(@intCast(next_graph_index * 2));
+
+    var maybe_cursor = graphs.first;
+    while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
+        var graph_sexp = try cursor.data.grappl_graph.compile(gpa, cursor.data.name);
+        std.debug.assert(graph_sexp.value == .module);
+        try result.value.module.appendSlice(try graph_sexp.toOwnedSlice());
+    }
+
+    return result;
+}
+
 fn postCurrentSexp() !void {
     var bytes = std.ArrayList(u8).init(gpa);
     defer bytes.deinit();
@@ -1664,19 +1683,19 @@ pub fn frame() !void {
             }
 
             if (try dvui.button(@src(), "Run", .{}, .{})) {
-                const sexp = try current_graph.grappl_graph.compile(gpa, "main");
+                const sexp = try combineGraphs();
                 defer sexp.deinit(gpa);
 
                 if (builtin.mode == .Debug) {
                     var bytes = std.ArrayList(u8).init(gpa);
                     defer bytes.deinit();
                     _ = try sexp.write(bytes.writer());
-                    std.log.info("sexp:\n{s}", .{bytes.items});
+                    std.log.info("graph '{s}':\n{s}", .{ current_graph.name, bytes.items });
                 }
 
                 var diagnostic = compiler.Diagnostic.init();
 
-                if (compiler.compile(gpa, &sexp, &user_funcs, &diagnostic)) |module| {
+                if (compiler.compile(gpa, &sexp, &shared_env, &user_funcs, &diagnostic)) |module| {
                     std.log.info("compile_result:\n{s}", .{module});
                     runCurrentWat(module.ptr, module.len);
                     gpa.free(module);
@@ -1717,14 +1736,14 @@ pub fn frame() !void {
                     cursor.data.name = new_name;
                     cursor.data.call_basic_desc.name = new_name;
                     std.debug.assert(shared_env._nodes.remove(old_name));
-                    if (shared_env.addNode(gpa, helpers.basicMutableNode(&current_graph.call_basic_desc))) |result| {
-                        current_graph.call_desc = result;
+                    if (shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data.call_basic_desc))) |result| {
+                        cursor.data.call_desc = result;
                     } else |e| switch (e) {
                         error.EnvAlreadyExists => {
                             defer gpa.free(new_name);
                             cursor.data.name = old_name;
                             cursor.data.call_basic_desc.name = old_name;
-                            current_graph.call_desc = shared_env.addNode(gpa, helpers.basicMutableNode(&current_graph.call_basic_desc)) catch unreachable;
+                            cursor.data.call_desc = shared_env.addNode(gpa, helpers.basicMutableNode(&current_graph.call_basic_desc)) catch unreachable;
                         },
                         else => return e,
                     }

@@ -49,8 +49,14 @@ pub const Sexp = struct {
         }
     }
 
+    /// returns an empty Sexp list
     pub fn newList(alloc: std.mem.Allocator) Sexp {
         return Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+    }
+
+    /// returns an empty Sexp module
+    pub fn newModule(alloc: std.mem.Allocator) Sexp {
+        return Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(alloc) } };
     }
 
     pub fn toOwnedSlice(self: *Self) ![]Sexp {

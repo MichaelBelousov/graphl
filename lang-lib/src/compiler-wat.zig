@@ -76,7 +76,7 @@ fn writeWasmMemoryString(data: []const u8, writer: anytype) !void {
 }
 
 const Compilation = struct {
-    env: Env,
+    env: *const Env,
     // TODO: have a first pass just figure out types?
     /// a list of forms that are incompletely compiled
     deferred: struct {
@@ -99,15 +99,16 @@ const Compilation = struct {
 
     pub fn init(
         alloc: std.mem.Allocator,
+        env: *const Env,
         user_funcs: ?*std.SinglyLinkedList(builtin.BasicMutNodeDesc),
         in_diag: *Diagnostic,
     ) !@This() {
         const result = @This(){
             .arena = std.heap.ArenaAllocator.init(alloc),
             .diag = in_diag,
+            .env = env,
             // FIXME: these are set in the main public entry, once we know
             // the caller has settled on where they are putting this object
-            .env = undefined,
             .wat = undefined,
             .module_body = undefined,
             .user_context = .{
@@ -484,9 +485,6 @@ const Compilation = struct {
                 .result_types = func_type.result_types,
             },
         };
-
-        const func_type_in_env = try self.env.addType(alloc, complete_func_type_desc);
-        _ = func_type_in_env;
 
         {
             const export_sexp = try self.module_body.addOne();
@@ -1277,9 +1275,6 @@ const Compilation = struct {
 
         const alloc = self.arena.allocator();
 
-        // FIXME: env should come from the caller
-        // set these since they are inited to undefined
-        self.env = try Env.initDefault(self.arena.allocator());
         self.wat = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(self.arena.allocator()) } };
         try self.wat.value.module.ensureTotalCapacityPrecise(1);
         const module_body = self.wat.value.module.addOneAssumeCapacity();
@@ -1287,15 +1282,6 @@ const Compilation = struct {
         self.module_body = &module_body.value.list;
         try self.module_body.ensureTotalCapacity(5);
         self.module_body.addOneAssumeCapacity().* = wat_syms.module;
-
-        // FIXME: instead just take an env
-        // add user funcs to env
-        {
-            var maybe_cursor = self.user_context.funcs.first;
-            while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-                _ = try self.env.addNode(alloc, builtin.basicMutableNode(&cursor.data));
-            }
-        }
 
         const imports_src =
             //\\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_JSON_R_JSON") (param i32) (param i32) (param i32) (result i32) (result i32))
@@ -1532,6 +1518,7 @@ const Compilation = struct {
 pub fn compile(
     a: std.mem.Allocator,
     sexp: *const Sexp,
+    env: *const Env,
     user_funcs: ?*std.SinglyLinkedList(builtin.BasicMutNodeDesc),
     _in_diagnostic: ?*Diagnostic,
 ) ![]const u8 {
@@ -1539,7 +1526,7 @@ pub fn compile(
     const diag = if (_in_diagnostic) |d| d else &ignored_diagnostic;
     diag.module = sexp;
 
-    var unit = try Compilation.init(a, user_funcs, diag);
+    var unit = try Compilation.init(a, env, user_funcs, diag);
     defer unit.deinit();
 
     return unit.compileModule(sexp);
@@ -1595,6 +1582,16 @@ test "parse" {
     defer t.allocator.free(user_func_2.data.inputs);
     defer t.allocator.free(user_func_2.data.outputs);
     user_funcs.prepend(user_func_2);
+
+    var env = try Env.initDefault(t.allocator);
+    defer env.deinit(t.allocator);
+
+    {
+        var maybe_cursor = user_funcs.first;
+        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
+            _ = try env.addNode(t.allocator, builtin.basicMutableNode(&cursor.data));
+        }
+    }
 
     var parsed = try SexpParser.parse(t.allocator,
         \\;;; comment
@@ -1778,7 +1775,7 @@ test "parse" {
     defer t.allocator.free(expected);
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &user_funcs, &diagnostic)) |wat| {
+    if (compile(t.allocator, &parsed, &env, &user_funcs, &diagnostic)) |wat| {
         // FIXME: convenience
         var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
         defer tmp_dir.close();
