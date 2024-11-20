@@ -3,6 +3,11 @@ import { graphql } from 'gatsby'
 import Layout from '../components/layout'
 import * as styles from './blog.module.scss'
 
+// blogposts TODO:
+// - why visual nodes
+// - visual macros
+// - wny not open source
+
 export default function(props: any) {
   const perYear = React.useMemo(
     () =>

@@ -12,6 +12,9 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0(react@18.3.1)
     devDependencies:
+      '@graphl/ide-browser':
+        specifier: ../ide-prototype
+        version: link:../ide-prototype
       '@types/react':
         specifier: ^18.2.14
         version: 18.3.3

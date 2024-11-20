@@ -5,6 +5,7 @@ import * as styles from "./index.module.scss";
 import { MailLink } from '../components/MailLink';
 import * as constants from "../constants";
 import { classNames } from '../react-utils';
+//import * as graphl from "@graphl/ide-browser";
 
 const ShinyLogo = (divProps: React.HTMLProps<HTMLDivElement>) => {
   const {className, ...rest} = divProps;
@@ -15,6 +16,8 @@ const ShinyLogo = (divProps: React.HTMLProps<HTMLDivElement>) => {
   );
 };
 
+//const customNodes: Record<string, graphl.JsFunctionBinding> = {};
+
 const Homepage = () => {
   const mediumText: React.CSSProperties = {
     fontSize: "1.5em",
@@ -22,7 +25,51 @@ const Homepage = () => {
     width: "100%",
   };
 
-  const [iframeInteractable, setIframeInteractable] = React.useState(false);
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  React.useLayoutEffect(() => {
+    if (canvasRef.current === null)
+      throw Error("bad canvas elem");
+
+    /*
+    const _ide = new graphl.Ide(canvasRef.current, {
+      bindings: {
+        jsHost: {
+          functions: customNodes,
+        }
+      },
+      preferences: {
+        definitionsPanel:  {
+          visible: false,
+        },
+      },
+      initState: {
+        graphs: {
+          "main": {
+            notRemovable: true,
+            nodes: [
+              {
+                id: 1,
+                type: "return",
+                inputs: {
+                  0: { node: 2, outPin: 0 },
+                },
+              },
+              {
+                id: 2,
+                type: "+",
+                inputs: {
+                  0: { float: 1.0 },
+                  1: { float: 2.0 },
+                },
+              },
+            ],
+          }
+        },
+      }
+    });
+    */
+  }, []);
 
   return (
     <Layout pageTitle="Graphl" pageDesc="The next generation no-coding environment">
@@ -74,18 +121,14 @@ const Homepage = () => {
         </div>
       </div>
 
-      <iframe
-        id="app-iframe"
-        src={process.env.NODE_ENV === "development"
-          // TODO: serve from same origin
-          ? "http://localhost:3001"
-          : "/app/?demo&noTutorial&noHeaderLogo"}
+      <canvas
+        ref={canvasRef}
         style={{
           width: "100%",
           height: "auto",
           border: 0,
-          margin: "30px 0"
-          //pointerEvents: iframeInteractable ? undefined : "none",
+          margin: "30px 0",
+          pointerEvents: "none",
         }}
       />
 
