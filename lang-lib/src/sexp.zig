@@ -43,6 +43,10 @@ pub const Sexp = struct {
         }
     }
 
+    pub fn newList(alloc: std.mem.Allocator) Sexp {
+        return Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+    }
+
     pub fn toOwnedSlice(self: *Self) ![]Sexp {
         return switch (self.value) {
             .list, .module => |*v| v.toOwnedSlice(),

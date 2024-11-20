@@ -312,9 +312,15 @@ pub const Parser = struct {
                         const top = peek(&algo_state.stack) orelse unreachable;
                         const last = try top.value.list.addOne();
                         last.* = sexp.syms.void;
-                        // TODO: can this be less awkward?
-                        // skip "oid"
-                        for (0..3) |_| algo_state.loc.increment(src[algo_state.loc.index]);
+
+                        {
+                            // TODO: can this be less awkward?
+                            // skip "oid"
+                            for (0..3) |_| algo_state.loc.increment(src[algo_state.loc.index]);
+                            if (algo_state.loc.index >= src.len)
+                                break;
+                        }
+
                         try algo_state.onNextCharAfterTok(out_diag);
                     } else {
                         out_diag.*.result = .{ .unknownToken = algo_state.loc };

@@ -767,12 +767,21 @@ const Compilation = struct {
         /// sometimes, e.g. when creating a vstack slot, we need a local to
         /// hold the pointer to it
         /// @returns a Sexp{.value = .symbol}
-        pub fn addLocal(self: *@This(), alloc: std.mem.Allocator) !Sexp {
+        pub fn addLocal(self: *@This(), alloc: std.mem.Allocator, type_: Type) !Sexp {
             const name = try std.fmt.allocPrint(alloc, "$__lc{}", .{self.next_local});
-            self.next_local += 1;
-            errdefer comptime unreachable;
-            // FIXME: symbols should be ownable!
+            // lol?
+            defer self.next_local += 1;
+            errdefer self.next_local -= 1;
+
+            // FIXME: symbols should be ownable! (doesn't matter tho cuz arena)
             const sym = Sexp{ .value = .{ .symbol = name } };
+
+            const local_sexp = try self.locals_sexp.addOne();
+            local_sexp.* = Sexp.newList(alloc);
+            try local_sexp.value.list.ensureTotalCapacityPrecise(3);
+            local_sexp.value.list.addOneAssumeCapacity().* = wat_syms.local;
+            local_sexp.value.list.addOneAssumeCapacity().* = sym;
+            local_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = type_.wasm_type.? } };
 
             return sym;
         }
@@ -1176,8 +1185,8 @@ const Compilation = struct {
                 errdefer mut_code.deinit(alloc);
 
                 const store_len = mut_code.value.module.items[0].value.list.items;
-                store_len[0].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
-                store_len[0].value.list.items[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(v.len) } };
+                store_len[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
+                store_len[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(v.len) } };
                 // FIXME: can do this dynamically for intrinsics by enumerating fields
                 context.frame.byte_size += @sizeOf(std.meta.fields(intrinsics.GrapplString)[0].type);
 
@@ -1186,23 +1195,18 @@ const Compilation = struct {
                 store_data[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
                 context.frame.byte_size += @sizeOf(std.meta.fields(intrinsics.GrapplString)[1].type);
 
-                mut_code.value.module.items[2].value.list.items[1] = try context.addLocal(alloc);
+                const local_ptr_sym = try context.addLocal(alloc, primitive_types.string);
+                mut_code.value.module.items[2].value.list.items[1] = local_ptr_sym;
 
                 mut_code.value.module.items[3].value.list.items[2].value.list.items[2].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @sizeOf(intrinsics.GrapplString) } };
 
-                std.debug.print("MUT_CODE:\n{}\n", .{mut_code});
+                var vals_code = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                errdefer vals_code.deinit(alloc);
+                try vals_code.value.list.ensureTotalCapacityPrecise(2);
+                vals_code.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.get";
+                vals_code.value.list.addOneAssumeCapacity().* = local_ptr_sym;
 
-                const vals_src =
-                    \\(local.get $__l0)
-                ;
-
-                // FIXME: comptime parsing
-                var vals_code = SexpParser.parse(alloc, vals_src, &diag) catch {
-                    std.log.err("diag={}", .{diag});
-                    @panic("failed to parse temp non-comptime mut_code_src");
-                };
-
-                result.values = std.ArrayList(Sexp).fromOwnedSlice(alloc, try vals_code.value.module.toOwnedSlice());
+                (try result.values.addOne()).* = vals_code;
                 try context.prologue.appendSlice(try mut_code.toOwnedSlice());
 
                 return result;
@@ -1675,10 +1679,6 @@ test "parse" {
         \\      (result i32)
         \\      (local $local_a
         \\             i32)
-        \\      (local $__l0
-        \\             i32)
-        \\      (local $__l1
-        \\             i32)
         \\      (call $sql
         \\            (i32.const 52)
         \\            (i32.const 8))
@@ -1708,10 +1708,6 @@ test "parse" {
         \\      (param $param_b
         \\             f32)
         \\      (result f32)
-        \\      (local $__l0
-        \\             i32)
-        \\      (local $__l1
-        \\             i32)
         \\      (f32.add (f32.div (local.get $param_a)
         \\                        (f32.convert_i64_s (i64.extend_i32_s (i32.const 10))))
         \\               (f32.mul (local.get $param_a)
@@ -1725,25 +1721,24 @@ test "parse" {
         \\      (param $param_x
         \\             i32)
         \\      (result i32)
-        \\      (local $__l0
-        \\             i32)
-        \\      (local $__l1
+        \\      (local $__lc0
         \\             i32)
         \\      (i32.store (memory $__grappl_vstk)
-        \\                 (i32.const #void)
+        \\                 (i32.const 0)
         \\                 (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const #void)))
+        \\                          (i32.const 5)))
         \\      (i32.store (memory $__grappl_vstk)
-        \\                 (i32.const #void)
+        \\                 (i32.const 4)
         \\                 (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const #void)))
-        \\      (local.set $__l0 (global.get $__grappl_vstkp)) ;; store the value stack pointer
+        \\                          (i32.const 131)))
+        \\      (local.set $__lc0
+        \\                 (global.get $__grappl_vstkp))
         \\      (global.set $__grappl_vstkp
         \\                  (global.get $__grappl_vstkp
         \\                              (i32.add $__grappl_vstkp
-        \\                                       (i32.const #void))))
+        \\                                       (i32.const 16))))
         \\      (call $__grappl_string_equal
-        \\            (local.get $__l0)
+        \\            (local.get $__lc0)
         \\            (local.get $param_x)))
         \\(data (i32.const 123)
         \\      "\05\00\00\00\00\00\00\00hello")
@@ -1755,8 +1750,6 @@ test "parse" {
 
     var diagnostic = Diagnostic.init();
     if (compile(t.allocator, &parsed, &user_funcs, &diagnostic)) |wat| {
-        try t.expectEqualStrings(expected, wat);
-
         // FIXME: convenience
         var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
         defer tmp_dir.close();
@@ -1765,6 +1758,8 @@ test "parse" {
         defer dbg_file.close();
 
         try dbg_file.writeAll(wat);
+
+        try t.expectEqualStrings(expected, wat);
 
         t.allocator.free(wat);
     } else |err| {
