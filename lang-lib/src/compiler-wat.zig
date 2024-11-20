@@ -46,7 +46,7 @@ const DeferredFuncDeclInfo = struct {
     local_types: []const Type,
     local_defaults: []const Sexp,
     result_names: []const []const u8,
-    return_exprs: []const Sexp,
+    body_exprs: []const Sexp,
 };
 
 const DeferredFuncTypeInfo = struct {
@@ -223,7 +223,7 @@ const Compilation = struct {
             .local_types = try local_types.toOwnedSlice(),
             .local_defaults = try local_defaults.toOwnedSlice(),
             .result_names = &.{},
-            .return_exprs = return_exprs,
+            .body_exprs = return_exprs,
         };
 
         if (self.deferred.func_types.get(func_name)) |func_type| {
@@ -569,35 +569,33 @@ const Compilation = struct {
                 const local_sexp = try impl_sexp.value.list.addOne();
                 local_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                 try local_sexp.value.list.ensureTotalCapacityPrecise(3);
-                (try local_sexp.value.list.addOne()).* = wat_syms.local;
-                (try local_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$local_{s}", .{local_name}) } };
-                (try local_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = local_type.wasm_type.? } };
+                local_sexp.value.list.addOneAssumeCapacity().* = wat_syms.local;
+                local_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$local_{s}", .{local_name}) } };
+                local_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = local_type.wasm_type.? } };
             }
 
-            // transfer locals for stack objects
-            // FIXME: dynamically add locals as necessary
-            for (0..2) |i| {
-                const local_sexp = try impl_sexp.value.list.addOne();
-                local_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try local_sexp.value.list.ensureTotalCapacityPrecise(3);
-                (try local_sexp.value.list.addOne()).* = wat_syms.local;
-                (try local_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$__l{}", .{i}) } };
-                (try local_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = "i32" } };
-            }
+            const additional_locals_index = impl_sexp.value.list.items.len;
 
-            std.debug.assert(func_decl.return_exprs.len >= 1);
-            for (func_decl.return_exprs) |return_expr| {
+            std.debug.assert(func_decl.body_exprs.len >= 1);
+            for (func_decl.body_exprs) |body_expr| {
+                var prologue = std.ArrayList(Sexp).init(alloc);
+                defer prologue.deinit();
+                var post_analysis_locals = std.ArrayList(Sexp).init(alloc);
+                defer post_analysis_locals.deinit();
+
                 var expr_ctx = ExprContext{
+                    .locals_sexp = &post_analysis_locals,
                     .local_names = func_decl.local_names,
                     .local_types = func_decl.local_types,
                     .param_names = func_decl.param_names,
                     .param_types = func_type.param_types,
+                    .prologue = &prologue,
                     .frame = .{},
                 };
-                const body_fragment = try self.compileExpr(&return_expr, &expr_ctx);
+                var body_fragment = try self.compileExpr(&body_expr, &expr_ctx);
+                errdefer body_fragment.deinit(alloc);
 
-                // FIXME: this is a horrible way to do type resolution
-                func_type_result_sexp.* = body_fragment.resolved_type.wasm_type.?;
+                func_type_result_sexp.* = Sexp{ .value = .{ .symbol = body_fragment.resolved_type.wasm_type.? } };
                 func_result_sexp.* = func_type_result_sexp.*;
 
                 std.debug.assert(func_type.result_types.len == 1);
@@ -608,10 +606,12 @@ const Compilation = struct {
                     //return error.ReturnTypeMismatch;
                 }
 
+                try impl_sexp.value.list.insertSlice(additional_locals_index, post_analysis_locals.items);
+                try impl_sexp.value.list.appendSlice(prologue.items);
+
                 // FIXME: what about the rest of the code?
-                try impl_sexp.value.list.addSlice(body_fragment.mut_code.items);
-                body_fragment.values.clearAndFree();
-                try impl_sexp.value.list.addSlice(body_fragment.values.items);
+                // NOTE: inserting fragments must occur after inserting the locals!
+                try impl_sexp.value.list.appendSlice(try body_fragment.values.toOwnedSlice());
                 body_fragment.values.clearAndFree();
             }
         }
@@ -619,8 +619,6 @@ const Compilation = struct {
 
     /// A fragment of compiled code and the type of its final variable
     const Fragment = struct {
-        /// any free code that must be run to set up this fragment, e.g. stack manipulation
-        mut_code: std.ArrayList(Sexp),
         /// values used to reference this fragment
         values: std.ArrayList(Sexp),
         /// offset in the stack frame for the value in this fragment
@@ -628,8 +626,7 @@ const Compilation = struct {
         resolved_type: Type,
 
         pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-            _ = alloc;
-            self.values.deinit();
+            (Sexp{ .value = .{ .list = self.values } }).deinit(alloc);
         }
     };
 
@@ -759,7 +756,26 @@ const Compilation = struct {
         local_types: []const Type,
         param_names: []const []const u8,
         param_types: []const Type,
+
         frame: StackFrame,
+        next_local: usize = 0,
+        /// to append new locals to
+        locals_sexp: *std.ArrayList(Sexp),
+        /// to append setup code to
+        prologue: *std.ArrayList(Sexp),
+
+        /// sometimes, e.g. when creating a vstack slot, we need a local to
+        /// hold the pointer to it
+        /// @returns a Sexp{.value = .symbol}
+        pub fn addLocal(self: *@This(), alloc: std.mem.Allocator) !Sexp {
+            const name = try std.fmt.allocPrint(alloc, "$__lc{}", .{self.next_local});
+            self.next_local += 1;
+            errdefer comptime unreachable;
+            // FIXME: symbols should be ownable!
+            const sym = Sexp{ .value = .{ .symbol = name } };
+
+            return sym;
+        }
     };
 
     // TODO: take a diagnostic
@@ -772,7 +788,6 @@ const Compilation = struct {
         const alloc = self.arena.allocator();
 
         var result = Fragment{
-            .mut_code = std.ArrayList(Sexp).init(alloc),
             .values = std.ArrayList(Sexp).init(alloc),
             .resolved_type = builtin.empty_type,
         };
@@ -816,9 +831,7 @@ const Compilation = struct {
                     for (v.items[1..]) |*return_expr| {
                         var compiled = try self.compileExpr(return_expr, context);
                         result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, &compiled);
-                        try result.values.appendSlice(compiled.mut_code.items);
                         try result.values.appendSlice(compiled.values.items);
-                        compiled.mut_code.clearAndFree();
                         compiled.values.clearAndFree();
                     }
 
@@ -832,8 +845,7 @@ const Compilation = struct {
                 };
 
                 const arg_fragments = try alloc.alloc(Fragment, v.items.len - 1);
-                // FIXME: maybe remove all deinits? This one is a bug and it's all in an arena anyway...
-                //defer for (arg_fragments) |*frag| frag.deinit(alloc);
+                errdefer for (arg_fragments) |*frag| frag.deinit(alloc);
                 defer alloc.free(arg_fragments);
 
                 // FIXME: gross to ignore the first exec occasionally, need to better distinguish between non/pure nodes
@@ -853,6 +865,8 @@ const Compilation = struct {
                         .local_types = context.local_types,
                         .param_names = context.param_names,
                         .param_types = context.param_types,
+                        .prologue = context.prologue,
+                        .locals_sexp = context.locals_sexp,
                         .frame = context.frame,
                     };
                     arg_fragment.* = try self.compileExpr(&arg_src, &subcontext);
@@ -888,11 +902,6 @@ const Compilation = struct {
                     wasm_op.value.list.addOneAssumeCapacity().* = set_val;
                     // TODO: more idiomatic move out data
                     arg_fragments[1].values.items[0] = Sexp{ .value = .void };
-
-                    for (arg_fragments) |arg_frag| {
-                        result.mut_code.appendSlice(arg_frag.mut_code);
-                        result.mut_code.clearAndFree(arg_frag.mut_code);
-                    }
 
                     return result;
                 }
@@ -1152,7 +1161,7 @@ const Compilation = struct {
                     \\           (i32.const #void)
                     \\           (i32.add (global.get $__grappl_vstkp)
                     \\                    (i32.const #void)))
-                    \\(local.set $__l0 (global.get $__grappl_vstkp)) ;; store the value stack pointer
+                    \\(local.set #void (global.get $__grappl_vstkp)) ;; store the value stack pointer
                     \\(global.set $__grappl_vstkp
                     \\            (global.get $__grappl_vstkp
                     \\                        (i32.add $__grappl_vstkp
@@ -1164,17 +1173,24 @@ const Compilation = struct {
                     std.log.err("diag={}", .{diag});
                     @panic("failed to parse temp non-comptime mut_code_src");
                 };
+                errdefer mut_code.deinit(alloc);
 
-                mut_code.value.module.items[0].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
-                mut_code.value.module.items[0].value.list.items[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(v.len) } };
+                const store_len = mut_code.value.module.items[0].value.list.items;
+                store_len[0].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
+                store_len[0].value.list.items[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(v.len) } };
                 // FIXME: can do this dynamically for intrinsics by enumerating fields
                 context.frame.byte_size += @sizeOf(std.meta.fields(intrinsics.GrapplString)[0].type);
 
-                mut_code.value.module.items[1].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
-                mut_code.value.module.items[1].value.list.items[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
+                const store_data = mut_code.value.module.items[1].value.list.items;
+                store_data[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(context.frame.byte_size) } };
+                store_data[3].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @intCast(data_offset + @sizeOf(usize)) } };
                 context.frame.byte_size += @sizeOf(std.meta.fields(intrinsics.GrapplString)[1].type);
 
+                mut_code.value.module.items[2].value.list.items[1] = try context.addLocal(alloc);
+
                 mut_code.value.module.items[3].value.list.items[2].value.list.items[2].value.list.items[2].value.list.items[1] = Sexp{ .value = .{ .int = @sizeOf(intrinsics.GrapplString) } };
+
+                std.debug.print("MUT_CODE:\n{}\n", .{mut_code});
 
                 const vals_src =
                     \\(local.get $__l0)
@@ -1187,7 +1203,7 @@ const Compilation = struct {
                 };
 
                 result.values = std.ArrayList(Sexp).fromOwnedSlice(alloc, try vals_code.value.module.toOwnedSlice());
-                result.mut_code = std.ArrayList(Sexp).fromOwnedSlice(alloc, try mut_code.value.module.toOwnedSlice());
+                try context.prologue.appendSlice(try mut_code.toOwnedSlice());
 
                 return result;
             },

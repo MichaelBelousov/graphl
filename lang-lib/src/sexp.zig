@@ -43,6 +43,13 @@ pub const Sexp = struct {
         }
     }
 
+    pub fn toOwnedSlice(self: *Self) ![]Sexp {
+        return switch (self.value) {
+            .list, .module => |*v| v.toOwnedSlice(),
+            .ownedString, .void, .int, .float, .bool, .borrowedString, .symbol => @panic("can only call toOwnedSlice on modules and lists"),
+        };
+    }
+
     const WriteState = struct {
         /// number of spaces we are in
         depth: usize = 0,
