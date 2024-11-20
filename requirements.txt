@@ -1,2 +1,0 @@
-# dev dependency; provides bpy types at dev time, probably doesn't belong in requirements.txt as a result
-fake-bpy-module-3.0==20211212
