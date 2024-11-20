@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
     }) catch unreachable;
     const web_target = b.resolveTargetQuery(web_target_query);
 
-    const small_intrinsics = b.option(bool, "small-intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse false;
+    const small_intrinsics = b.option(bool, "small_intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse false;
 
     const intrinsics = b.addExecutable(.{
         .name = "grappl_intrinsics",

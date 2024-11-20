@@ -583,6 +583,10 @@ const Compilation = struct {
                 var post_analysis_locals = std.ArrayList(Sexp).init(alloc);
                 defer post_analysis_locals.deinit();
 
+                // FIXME: make next_local automatic in the expression context
+                // probably possible by separating the global expr_ctx from the type context
+                // which can change
+                var next_local: usize = 0;
                 var expr_ctx = ExprContext{
                     .locals_sexp = &post_analysis_locals,
                     .local_names = func_decl.local_names,
@@ -591,6 +595,7 @@ const Compilation = struct {
                     .param_types = func_type.param_types,
                     .prologue = &prologue,
                     .frame = .{},
+                    .next_local = &next_local,
                 };
                 var body_fragment = try self.compileExpr(&body_expr, &expr_ctx);
                 errdefer body_fragment.deinit(alloc);
@@ -758,7 +763,7 @@ const Compilation = struct {
         param_types: []const Type,
 
         frame: StackFrame,
-        next_local: usize = 0,
+        next_local: *usize,
         /// to append new locals to
         locals_sexp: *std.ArrayList(Sexp),
         /// to append setup code to
@@ -768,10 +773,10 @@ const Compilation = struct {
         /// hold the pointer to it
         /// @returns a Sexp{.value = .symbol}
         pub fn addLocal(self: *@This(), alloc: std.mem.Allocator, type_: Type) !Sexp {
-            const name = try std.fmt.allocPrint(alloc, "$__lc{}", .{self.next_local});
+            const name = try std.fmt.allocPrint(alloc, "$__lc{}", .{self.next_local.*});
             // lol?
-            defer self.next_local += 1;
-            errdefer self.next_local -= 1;
+            defer self.next_local.* += 1;
+            errdefer self.next_local.* -= 1;
 
             // FIXME: symbols should be ownable! (doesn't matter tho cuz arena)
             const sym = Sexp{ .value = .{ .symbol = name } };
@@ -877,6 +882,7 @@ const Compilation = struct {
                         .prologue = context.prologue,
                         .locals_sexp = context.locals_sexp,
                         .frame = context.frame,
+                        .next_local = context.next_local,
                     };
                     arg_fragment.* = try self.compileExpr(&arg_src, &subcontext);
                 }
@@ -1302,7 +1308,10 @@ const Compilation = struct {
             //\\(memory $__grappl_vstk 1)
             // FIXME: really need to figure out how to customize the intrinsics output
             // compiled by zig... or accept writing it manually?
-            \\(global $__grappl_vstkp (mut i32) (i32.const 1024))
+            // FIXME: if there is a lot of data, it will corrupt the stack,
+            // need to place the stack behind the data and possibly implement a routine
+            // for growing the stack...
+            \\(global $__grappl_vstkp (mut i32) (i32.const 4096))
         ;
 
         // prologue
@@ -1595,11 +1604,11 @@ test "parse" {
         \\  (begin
         \\    (return (+ (/ a 10) (* a b)))))
         \\
-        \\;;; comment
-        \\(typeof (strings-stuff string) bool)
-        \\(define (strings-stuff x)
+        \\;;; comment ;; TODO: reintroduce use of a parameter
+        \\(typeof (strings-stuff) bool)
+        \\(define (strings-stuff)
         \\  (begin
-        \\    (return (string-equal "hello" x))))
+        \\    (return (string-equal "hello" "world"))))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
@@ -1647,7 +1656,7 @@ test "parse" {
         \\      (param i32))
         \\(global $__grappl_vstkp
         \\        (mut i32)
-        \\        (i32.const 1024))
+        \\        (i32.const 4096))
         \\;;; BEGIN INTRINSICS
         \\{s}
         \\;;; END INTRINSICS
@@ -1713,13 +1722,12 @@ test "parse" {
         \\(export "strings-stuff"
         \\        (func $strings-stuff))
         \\(type $typeof_strings-stuff
-        \\      (func (param i32)
-        \\            (result i32)))
+        \\      (func (result i32)))
         \\(func $strings-stuff
-        \\      (param $param_x
-        \\             i32)
         \\      (result i32)
         \\      (local $__lc0
+        \\             i32)
+        \\      (local $__lc1
         \\             i32)
         \\      (i32.store (global.get $__grappl_vstkp)
         \\                 (i32.const 5))
@@ -1731,11 +1739,23 @@ test "parse" {
         \\      (global.set $__grappl_vstkp
         \\                  (i32.add (global.get $__grappl_vstkp)
         \\                           (i32.const 16)))
+        \\      (i32.store (global.get $__grappl_vstkp)
+        \\                 (i32.const 5))
+        \\      (i32.store (i32.add (global.get $__grappl_vstkp)
+        \\                          (i32.const 4))
+        \\                 (i32.const 160))
+        \\      (local.set $__lc1
+        \\                 (global.get $__grappl_vstkp))
+        \\      (global.set $__grappl_vstkp
+        \\                  (i32.add (global.get $__grappl_vstkp)
+        \\                           (i32.const 16)))
         \\      (call $__grappl_string_equal
         \\            (local.get $__lc0)
-        \\            (local.get $param_x)))
+        \\            (local.get $__lc1)))
         \\(data (i32.const 123)
         \\      "\05\00\00\00\00\00\00\00hello")
+        \\(data (i32.const 152)
+        \\      "\05\00\00\00\00\00\00\00world")
         \\)
         // TODO: clearly instead of embedding the pointer we should have a global variable
         // so the host can set that

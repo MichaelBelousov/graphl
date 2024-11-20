@@ -34,7 +34,10 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const dvui_dep = b.dependency("dvui", .{});
-    const grappl_core_dep = b.dependency("grappl_core", .{});
+    const grappl_core_dep = b.dependency("grappl_core", .{
+        .optimize = optimize,
+        .small_intrinsics = true,
+    });
 
     const binaryen_dep = b.dependency("binaryen-zig", .{
         .target = web_target,
