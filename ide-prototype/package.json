@@ -1,12 +1,13 @@
 {
-  "name": "@graphl/ide-browser",
+  "name": "@graphl/ide",
   "description": "Grappl IDE in browsers",
   "main": "./dist/grappl-ide-web.es.js",
   "module": "./dist/grappl-ide-web.es.js",
   "type": "module",
   "types": "./dist/grappl-ide-web.d.ts",
   "exports": {
-    ".": "./dist/grappl-ide-web.es.js"
+    ".": "./dist/grappl-ide-web.es.js",
+    "./browser": "./dist/grappl-ide-web.es.js"
   },
   "scripts": {
     "build": "zig build -Doptimize=ReleaseSmall && vite build --mode production",

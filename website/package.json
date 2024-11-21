@@ -42,7 +42,7 @@
     "react-helmet": "^5.2.1",
     "sass": "^1.67.0",
     "url-loader": "^3.0.0",
-    "@graphl/ide-browser": "../ide-prototype"
+    "@graphl/ide": "../ide-prototype"
   },
   "//": [
     "everything is bundled, no prod deps"

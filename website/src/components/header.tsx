@@ -24,6 +24,7 @@ const Header = () => {
         try it
       </a>
       <Link className={styles.navLink} to="/blog">blog</Link>
+      <Link className={styles.navLink} to="/faqs">FAQs</Link>
       <Link className={styles.navLink} to="/commercial">commercial usage</Link>
       <Link {...classNames(styles.navLink, styles.subButton)} to="/FIXME">subscribe</Link>
     </nav>

@@ -31,6 +31,33 @@ export declare interface JsFunctionBinding {
   impl: (...args: any[]) => any;
 }
 
+export declare type InputInitState =
+  | { node: number, outPin: number }
+  | { int: number }
+  | { float: number }
+  | { string: string }
+  | { symbol: string };
+
+export declare interface NodeInitState {
+  /** id of the node, must be positive and non-zero which is reserved for the graph entry node */
+  id: number;
+  /** type of node "+" */
+  type: string;
+  /** inputs */
+  inputs?: Record<number, InputInitState>,
+}
+
+export declare interface GraphInitState {
+  /** @default false */
+  notRemovable?: boolean,
+  /** @default just the entry node (since it is required) */
+  nodes?: NodeInitState[],
+}
+
+export declare interface InitState {
+  graphs: Record<string, GraphInitState>;
+}
+
 export declare namespace Ide {
   export interface Options {
     /**
@@ -42,7 +69,21 @@ export declare namespace Ide {
       jsHost?: {
         functions?: Record<string, JsFunctionBinding>;
       }
-    }
+    },
+    /** initial preferences for the IDE */
+    preferences?: {
+      definitionsPanel?:  {
+        /** where to place the side panel */
+        orientation?: "left", // TODO: add "right"
+        /** whether or not the side panel is visible */
+        visible?: boolean,
+      },
+    },
+    /**
+     * initial state of the IDE, e.g. which graphs exist
+     * mark graphs as non-removable here
+     */
+    initState: InitState;
   }
 }
 

@@ -5,7 +5,7 @@ import * as styles from "./index.module.scss";
 import { MailLink } from '../components/MailLink';
 import * as constants from "../constants";
 import { classNames } from '../react-utils';
-//import * as graphl from "@graphl/ide-browser";
+import * as graphl from "@graphl/ide-browser";
 
 const ShinyLogo = (divProps: React.HTMLProps<HTMLDivElement>) => {
   const {className, ...rest} = divProps;
@@ -16,7 +16,7 @@ const ShinyLogo = (divProps: React.HTMLProps<HTMLDivElement>) => {
   );
 };
 
-//const customNodes: Record<string, graphl.JsFunctionBinding> = {};
+const customNodes: Record<string, graphl.JsFunctionBinding> = {};
 
 const Homepage = () => {
   const mediumText: React.CSSProperties = {
@@ -31,7 +31,6 @@ const Homepage = () => {
     if (canvasRef.current === null)
       throw Error("bad canvas elem");
 
-    /*
     const _ide = new graphl.Ide(canvasRef.current, {
       bindings: {
         jsHost: {
@@ -68,7 +67,6 @@ const Homepage = () => {
         },
       }
     });
-    */
   }, []);
 
   return (
