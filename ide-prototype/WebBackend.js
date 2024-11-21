@@ -597,24 +597,74 @@ export function Ide(canvasElem, opts) {
     frontendWasmPromise(imports)
     .then((result) => {
         wasmResult = { instance: result };
+        const we = wasmResult.instance.exports;
 
         const MAX_FUNC_NAME = 256;
 
-        // FIXME: down transpile to ES6
+        // FIXME: down transpile to ES6 with typescript
         if (opts?.preferences?.topbar?.visible !== undefined) {
-          wasmResult.instance.exports.setOpt_preferences_topbar_visible(opts.preferences.topbar.visible ? 1 : 0);
+            we.setOpt_preferences_topbar_visible(opts.preferences.topbar.visible ? 1 : 0);
         }
 
         if (opts?.preferences?.definitionsPanel?.visible !== undefined) {
-          wasmResult.instance.exports.setOpt_preferences_definitionsPanel_visible(opts.preferences.definitionsPanel.visible ? 1 : 0);
+            we.setOpt_preferences_definitionsPanel_visible(opts.preferences.definitionsPanel.visible ? 1 : 0);
         }
 
         if (opts?.preferences?.definitionsPanel?.orientation !== undefined) {
-          wasmResult.instance.exports.setOpt_preferences_definitionsPanel_orientation(opts.preferences.definitionsPanel.orientation === "left" ? 0 : 1);
+            // NOTE: technically this could be generated using a proxy, but perhaps better to use zigar if I need that
+            we.setOpt_preferences_definitionsPanel_orientation(opts.preferences.definitionsPanel.orientation === "left" ? 0 : 1);
         }
 
+        if (opts?.initState?.graphs !== undefined) {
+            for (const [graphName, graph] of Object.entries(opts.initState.graphs)) {
+                const graph_name_ptr = ;
+                const graph_name_len = graphName.length;
 
-        const funcsOption = (((((opts || {}).bindings) || {}).jsHost) || {}).functions || {};
+                if (graph.notRemovable !== undefined) {
+                    we.setInitState_graphs_notRemovable(graph_name_ptr, graph_name_len, graph.notRemovable ? 1 : 0);
+                }
+
+                if (graph.nodes === undefined) continue;
+
+                for (let i = 0; i < graph.nodes.length; ++i) {
+                    const node = graph.nodes[i];
+                    const type_ptr = 0;
+                    const type_len = node.type.length;
+                    we.setInitState_graphs_nodes_type(graph_name_ptr, graph_name_len, i, node.id);
+                    for (const [inputIdStr, input] of Object.entries(node.inputs ?? {})) {
+                        const inputId = Number(inputIdStr);
+                        if (Number.isNaN(inputId) || inputId >= 1 || inputId !== Math.floor(inputId)) {
+                            throw Error(
+                                `BadInputId: node id '${node.id}' at index ${i} in graph '${graphName}'\n`
+                                + `is not a positive integer. It may not be 0, negative, nor have a fraction.`
+                            );
+                        }
+
+                        if ("symbol" in input) {
+                            const val_ptr = ;
+                            const val_len = ;
+                            we.setInitState_graphs_nodes_input_symbol(graph_name_ptr, graph_name_len, i, node.id, val_ptr, val_len);
+                        } else if ("string" in input) {
+                            const val_ptr = ;
+                            const val_len = ;
+                            we.setInitState_graphs_nodes_input_string(graph_name_ptr, graph_name_len, i, node.id, val_ptr, val_len);
+                        } else if ("int" in input) {
+                            we.setInitState_graphs_nodes_input_int(graph_name_ptr, graph_name_len, i, node.id, input.int);
+                        } else if ("float" in input) {
+                            we.setInitState_graphs_nodes_input_float(graph_name_ptr, graph_name_len, i, node.id, input.float);
+                        } else if ("node" in input) {
+                            we.setInitState_graphs_nodes_input_node(graph_name_ptr, graph_name_len, i, node.id, input.node, input.outPin);
+                        } else {
+                            console.error("invalid input value:", input);
+                            throw Error(`BadInputValue: graph='${graphName}',node.id=${node.id},inputId=${inputId}`);
+                        }
+
+                    }
+                }
+            }
+        }
+
+        const funcsOption = opts?.bindings?.jsHost?.functions ?? {};
 
         for (const [funcName, func] of Object.entries(funcsOption)) {
             if (funcName.length > MAX_FUNC_NAME)

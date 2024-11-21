@@ -49,6 +49,7 @@ const Orientation = enum(u32) {
     right = 1,
 };
 
+// FIXME: generate this object and all of the setter functions in the build
 // NOTE: must correlate to WebBackend.d.ts
 var options: struct {
     preferences: struct {
@@ -62,6 +63,7 @@ var options: struct {
     } = .{},
 } = .{};
 
+// FIXME: move these to web.zig?
 export fn setOpt_preferences_definitionsPanel_orientation(val: Orientation) bool {
     options.preferences.definitionsPanel.orientation = val;
     return true;
@@ -532,7 +534,11 @@ pub fn init() !void {
     {
         var maybe_cursor = user_funcs.first;
         while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-            _ = try shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data));
+            std.log.info("adding user func: '{s}'", .{cursor.data.name});
+            _ = shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data)) catch |e| {
+                std.log.err("failed to add: '{s}'", .{cursor.data.name});
+                return e;
+            };
         }
     }
 
