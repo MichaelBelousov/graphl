@@ -77,6 +77,21 @@
   filter: drop-shadow(0 0 1px var(--color-one));
 }
 
+a.logoAnimated {
+  background-clip: initial;
+  border-radius: 10px;
+  padding: 12px;
+  color: var(--body);
+  border: none;
+  font-weight: bold;
+  background-color: linear-gradient(
+                90deg,
+                var(--color-one),
+                var(--color-one-accent),
+                var(--color-one)
+              ) 0 0 / var(--bg-size) 100%;
+}
+
 @keyframes pulsate {
   0% {
     transform: scale(1.0);
@@ -127,9 +142,9 @@
       grid-template-rows: auto auto auto;
       grid-template-columns: 1fr 1fr;
       grid-template-areas:
-        "0 1"
-        "2 3"
-        "4 5";
+        "a1 a2"
+        "a4 a3"
+        "a5 a6";
     }
   }
 
@@ -137,9 +152,18 @@
     padding: 10px;
   }
 
-  @for $i from 0 through 5 {
+  > canvas {
+    width: 100%;
+    height: auto;
+    border: 0;
+    margin: 30px 0;
+    border-radius: 9px;
+    pointer-events: none;
+  }
+
+  @for $i from 1 through 6 {
     > :nth-child(#{$i}) {
-      grid-area: #{$i};
+      grid-area: a#{$i};
     }
   }
 }

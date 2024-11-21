@@ -16,6 +16,15 @@ const ShinyLogo = (divProps: React.HTMLProps<HTMLDivElement>) => {
   );
 };
 
+const ShinyButton = (btnProps: React.HTMLProps<HTMLAnchorElement>) => {
+  const {className, ...rest} = btnProps;
+  return (
+    <a href="/FIXME" {...classNames(styles.logoAnimated, className)} {...rest}>
+      {btnProps.children}
+    </a>
+  );
+};
+
 const customNodes: Record<string, graphl.JsFunctionBinding> = {};
 
 const Homepage = () => {
@@ -25,6 +34,7 @@ const Homepage = () => {
     width: "100%",
   };
 
+  // use images, this many IDEs is horrible for memory usage...
   const canvas1Ref = React.useRef<HTMLCanvasElement>(null);
   const canvas2Ref = React.useRef<HTMLCanvasElement>(null);
   const canvas3Ref = React.useRef<HTMLCanvasElement>(null);
@@ -121,15 +131,17 @@ const Homepage = () => {
           <strong className={styles["fadeInText_1"]}>is the <em>only</em> no-code solution</strong>
           <strong className={styles["fadeInText_1"]}>designed to be as powerful as code</strong>
         </div>
-
-        {/* TODO: need an image! */}
-        <div>
-          <a href="/FIXME">
-            <ShinyLogo className={styles["fadeInText_0"]} style={{ marginBottom: "0.5em", fontSize: "2em", textDecoration: "underline" }}>
-              try it
-            </ShinyLogo>
-          </a>
-        </div>
+        <br/>
+        <br/>
+        <ShinyButton
+          className={styles["fadeInText_2"]}
+          style={{
+            fontSize: "2em",
+            textDecoration: "none",
+          }}
+        >
+          Try it
+        </ShinyButton>
       </div>
 
       <div className={styles.sampleGrid}>
@@ -144,39 +156,25 @@ const Homepage = () => {
         <div className="center">
           <p style={mediumText} {...classNames(styles["fadeInText_2"])}>
             Throw away 60 years of text editing baggage and write code
-            <br/>
             <em> without writing code</em>
           </p>
         </div>
+        {/* TODO: use images instead */}
         <canvas
           ref={canvas1Ref}
-          onScroll={e => e.preventDefault()}
-          style={{
-            width: "100%",
-            height: "auto",
-            border: 0,
-            margin: "30px 0",
-            borderRadius: "9px",
-          }}
+          onScroll={e => e.stopPropagation()}
         />
 
         <div className="center">
           <p style={mediumText} className={styles["fadeInText_3"]}>
-            Compiles to WebAssembly so you can run anywhere.
+            Compiles to WebAssembly so you can run it anywhere,
             <br/>
-            <em> Run locally on your device. </em>
+            <em>including in your browser</em>
           </p>
         </div>
         <canvas
           ref={canvas2Ref}
-          onWheel={e => e.preventDefault()}
-          style={{
-            width: "100%",
-            height: "auto",
-            border: 0,
-            margin: "30px 0",
-            borderRadius: "9px",
-          }}
+          onScroll={() => false}
         />
 
         <div className="center">
@@ -189,14 +187,7 @@ const Homepage = () => {
         </div>
         <canvas
           ref={canvas3Ref}
-          onWheel={e => e.preventDefault()}
-          style={{
-            width: "100%",
-            height: "auto",
-            border: 0,
-            margin: "30px 0",
-            borderRadius: "9px",
-          }}
+          onScroll={() => false}
         />
       </div>
 
