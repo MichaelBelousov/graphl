@@ -8,7 +8,9 @@ const Faqs = () => {
   return (
     <Layout pageTitle="Graphl FAQs" pageDesc="Frequently asked questions about Graphl">
       <div>
-        <h1>FAQs</h1>
+        <div className="center">
+          <h1 style={{ fontSize: "2em" }}>FAQs</h1>
+        </div>
 
         <div>
           <h2>Why not open source? <br/> Isn't it a programming language?</h2>
