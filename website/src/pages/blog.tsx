@@ -8,7 +8,8 @@ import * as styles from './blog.module.scss'
 // blogposts TODO:
 // - why visual nodes
 // - visual macros
-// - wny not open source
+// - why not open source
+// - why zig for the frontend
 
 export default function(props: any) {
   const perYear = React.useMemo(

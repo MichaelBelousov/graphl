@@ -18,11 +18,7 @@ const Header = () => {
 
   const links = (
     <nav className={styles.right}>
-      <a className={styles.navLink}
-        href={process.env.NODE_ENV === "development" ? "http://localhost:3001/app/#?trial" : "/app"}
-      >
-        try it
-      </a>
+      <Link className={styles.navLink} to="/app">try it</Link>
       <Link className={styles.navLink} to="/faqs">FAQs</Link>
       <Link className={styles.navLink} to="/commercial">commercial</Link>
       <Link className={styles.navLink} to="/blog/HowICameUpWithGraphl">blog</Link>

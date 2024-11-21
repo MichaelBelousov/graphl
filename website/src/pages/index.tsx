@@ -118,6 +118,7 @@ const Homepage = () => {
 
   }, []);
 
+  // TODO: add blurbs to each canvas example
   return (
     <Layout pageTitle="Graphl" pageDesc="The next generation no-coding environment">
       <div {...classNames(styles.blurbContainer, "center-down")}>

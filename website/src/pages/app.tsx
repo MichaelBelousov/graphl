@@ -1,0 +1,60 @@
+import React from 'react'
+import "../shared.css";
+import * as graphl from "@graphl/ide-browser";
+import SEO from '../components/seo';
+
+const customNodes: Record<string, graphl.JsFunctionBinding> = {
+  fetch: {
+    // TODO: optional nodes
+    // TODO: make this a (starting) import
+    parameters: [
+      { name: "url", type: graphl.Types.string },
+      // TODO: this is what enum types are for!
+      { name: "method", type: graphl.Types.string },
+    ],
+    results: [
+      { name: "status", type: graphl.Types.i32 },
+      { name: "data", type: graphl.Types.string },
+    ],
+    // TODO: need to be able to handle async nodes
+    async impl(url, method) {
+      const data = await fetch(url, { method });
+      const text = await data.text();
+      return text;
+    }
+  },
+};
+
+const Homepage = () => {
+  // use images, this many IDEs is horrible for memory usage...
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  React.useLayoutEffect(() => {
+    if (canvasRef.current === null)
+      throw Error("bad canvas elem");
+
+    const _ide = new graphl.Ide(canvasRef.current, {
+      bindings: {
+        jsHost: {
+          functions: customNodes,
+        },
+      },
+    });
+  }, []);
+
+  // TODO: add blurbs to each canvas example
+  return (
+    <div>
+      <SEO title={"Graphl Web IDE"} description={"Use Graphl on the web"} />
+      <canvas
+        ref={canvasRef}
+        style={{
+          height: "100vh",
+          width: "100vw",
+        }}
+      />
+    </div>
+  );
+}
+
+export default Homepage
