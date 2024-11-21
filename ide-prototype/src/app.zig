@@ -53,6 +53,11 @@ const Orientation = enum(u32) {
 // NOTE: must correlate to WebBackend.d.ts
 var options: struct {
     preferences: struct {
+        graph: struct {
+            origin: ?dvui.Point = null,
+            scale: ?f32 = null,
+            scrollBarsVisible: ?bool = null,
+        } = .{},
         definitionsPanel: struct {
             orientation: Orientation = .left,
             visible: bool = true,
@@ -62,6 +67,21 @@ var options: struct {
         } = .{},
     } = .{},
 } = .{};
+
+export fn setOpt_preferences_graph_origin(x: f32, y: f32) bool {
+    options.preferences.graph.origin = .{ .x = x, .y = y };
+    return true;
+}
+
+export fn setOpt_preferences_graph_scale(val: f32) bool {
+    options.preferences.graph.scale = val;
+    return true;
+}
+
+export fn setOpt_preferences_graph_scrollBarsVisible(val: bool) bool {
+    options.preferences.graph.scrollBarsVisible = val;
+    return true;
+}
 
 // FIXME: move these to web.zig?
 export fn setOpt_preferences_definitionsPanel_orientation(val: Orientation) bool {
@@ -810,14 +830,29 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
 fn renderGraph(canvas: *dvui.BoxWidget) !void {
     _ = canvas;
 
+    if (options.preferences.graph.origin) |origin| {
+        ScrollData.origin = origin;
+    }
+    if (options.preferences.graph.scale) |scale| {
+        ScrollData.scale = scale;
+    }
+
     // FIXME: get max size from this from the graph size
     const ctext = try dvui.context(@src(), .{ .expand = .both });
     context_menu_widget_id = ctext.wd.id;
     defer ctext.deinit();
 
+    const scroll_bar_vis: dvui.ScrollInfo.ScrollBarMode = if (options.preferences.graph.scrollBarsVisible) |v|
+        if (v) .show else .hide
+    else
+        .auto;
     var graph_area = try dvui.scrollArea(
         @src(),
-        .{ .scroll_info = &ScrollData.scroll_info },
+        .{
+            .scroll_info = &ScrollData.scroll_info,
+            .vertical_bar = scroll_bar_vis,
+            .horizontal_bar = scroll_bar_vis,
+        },
         .{
             .expand = .both,
             .color_fill = .{ .name = .fill_window },

@@ -72,6 +72,11 @@ export declare namespace Ide {
     },
     /** initial preferences for the IDE */
     preferences?: {
+      graph?: {
+        origin?: { x: number, y: number };
+        scale?: number;
+        scrollBarsVisible?: boolean;
+      },
       topbar?: {
         visible?: boolean,
       },

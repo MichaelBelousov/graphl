@@ -603,19 +603,20 @@ export function Ide(canvasElem, opts) {
         const WASM_PAGE_SIZE = 64 * 1024;
         const INIT_BUFFER_SZ = WASM_PAGE_SIZE;
 
+        // NOTE: technically this could be generated using a proxy, but perhaps better to use zigar if I need that
         // FIXME: down transpile to ES6 with typescript
-        if (opts?.preferences?.topbar?.visible !== undefined) {
+        if (opts?.preferences?.graph?.origin !== undefined)
+            we.setOpt_preferences_graph_origin(opts.preferences.graph.origin.x, opts.preferences.graph.origin.y);
+        if (opts?.preferences?.graph?.scale !== undefined)
+            we.setOpt_preferences_graph_scale(opts.preferences.graph.scale);
+        if (opts?.preferences?.graph?.scrollBarsVisible !== undefined)
+            we.setOpt_preferences_graph_scrollBarsVisible(opts.preferences.graph.scrollBarsVisible ? 1 : 0);
+        if (opts?.preferences?.topbar?.visible !== undefined)
             we.setOpt_preferences_topbar_visible(opts.preferences.topbar.visible ? 1 : 0);
-        }
-
-        if (opts?.preferences?.definitionsPanel?.visible !== undefined) {
+        if (opts?.preferences?.definitionsPanel?.visible !== undefined)
             we.setOpt_preferences_definitionsPanel_visible(opts.preferences.definitionsPanel.visible ? 1 : 0);
-        }
-
-        if (opts?.preferences?.definitionsPanel?.orientation !== undefined) {
-            // NOTE: technically this could be generated using a proxy, but perhaps better to use zigar if I need that
+        if (opts?.preferences?.definitionsPanel?.orientation !== undefined)
             we.setOpt_preferences_definitionsPanel_orientation(opts.preferences.definitionsPanel.orientation === "left" ? 0 : 1);
-        }
 
         if (opts?.initState?.graphs !== undefined) {
             for (const [graphName, graph] of Object.entries(opts.initState.graphs)) {
@@ -683,7 +684,7 @@ export function Ide(canvasElem, opts) {
                             } else if ("float" in input) {
                                 we.setInitState_graphs_nodes_input_float(graph_name_ptr, graph_name_len, i, node.id, input.float);
                             } else if ("node" in input) {
-                                we.setInitState_graphs_nodes_input_node(graph_name_ptr, graph_name_len, i, node.id, input.node, input.outPin);
+                                we.setInitState_graphs_nodes_input_pin(graph_name_ptr, graph_name_len, i, node.id, input.node, input.outPin);
                             } else {
                                 console.error("invalid input value:", input);
                                 throw Error(`BadInputValue: '${graphName}'/${node.id}/${inputId}`);

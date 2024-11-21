@@ -41,6 +41,9 @@ const Homepage = () => {
         definitionsPanel:  {
           visible: false,
         },
+        topbar: {
+          visible: false,
+        }
       },
       initState: {
         graphs: {
