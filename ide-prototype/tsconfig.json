@@ -104,7 +104,8 @@
 
     /* Completeness */
     // "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
-    "skipLibCheck": false                                /* Skip type checking all .d.ts files. */
+    "skipLibCheck": false,                                /* Skip type checking all .d.ts files. */
+    "types": ["vite"]
   },
   "files": ["./WebBackend.js", "./WebBackend.d.ts"]
 }

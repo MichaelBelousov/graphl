@@ -19,12 +19,13 @@ const MAX_FUNC_NAME = 256;
 extern fn recvCurrentSource(ptr: ?[*]const u8, len: usize) void;
 extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
-const grappl_init_buffer: [MAX_FUNC_NAME]u8 = _: {
-    var result = std.mem.zeroes([MAX_FUNC_NAME]u8);
+// NOTE: check if this is bad
+const grappl_init_buffer: [std.wasm.page_size]u8 = _: {
+    var result = std.mem.zeroes([std.wasm.page_size]u8);
     result[0] = '\x1B';
     result[1] = '\x2D';
-    result[MAX_FUNC_NAME - 2] = '\x3E';
-    result[MAX_FUNC_NAME - 1] = '\x4F';
+    result[std.wasm.page_size - 2] = '\x3E';
+    result[std.wasm.page_size - 1] = '\x4F';
     break :_ result;
 };
 
@@ -39,7 +40,177 @@ const init_buff_offset: isize = switch (builtin.mode) {
     else => 0,
 };
 
-const grappl_real_init_buff: *const [MAX_FUNC_NAME]u8 = @ptrCast(grappl_init_start + init_buff_offset);
+const grappl_real_init_buff: *const [std.wasm.page_size]u8 = @ptrCast(grappl_init_start + init_buff_offset);
+
+// FIXME: consider moving options and initState to a separate file
+
+const Orientation = enum(u32) {
+    left = 0,
+    right = 1,
+};
+
+// NOTE: must correlate to WebBackend.d.ts
+var options: struct {
+    preferences: struct {
+        definitionsPanel: struct {
+            orientation: Orientation = .left,
+            visible: bool = true,
+        } = .{},
+    } = .{},
+} = .{};
+
+export fn setOpt_preferences_definitionsPanel_orientation(val: Orientation) bool {
+    options.preferences.definitionsPanel.orientation = val;
+    return true;
+}
+
+export fn setOpt_preferences_definitionsPanel_visible(val: bool) bool {
+    options.preferences.definitionsPanel.visible = val;
+    return true;
+}
+
+const InputInitState = union(enum) {
+    node: struct { id: usize, out_pin: usize },
+    int: i64,
+    float: f64,
+    string: []const u8,
+    symbol: []const u8,
+};
+
+const NodeInitState = struct {
+    id: usize,
+    /// type of node "+"
+    type_: []const u8,
+    inputs: std.AutoHashMapUnmanaged(usize, InputInitState),
+};
+
+// NOTE: must correlate to WebBackend.d.ts
+var initState: struct {
+    graphs: std.StringHashMapUnmanaged(struct {
+        notRemovable: bool,
+        nodes: std.ArrayListUnmanaged(NodeInitState) = .{},
+    }) = .{},
+} = .{};
+
+export fn setInitState_graphs_notRemovable(
+    graph_name_ptr: [*]const u8,
+    graph_name_len: usize,
+    val: bool,
+) bool {
+    const graph_name = graph_name_ptr[0..graph_name_len];
+    const graph = (initState.graphs.getOrPut(gpa, graph_name) catch |err| {
+        std.log.err("failed to put graph '{s}', error={}", .{ graph_name, err });
+        return false;
+    }).value_ptr;
+
+    graph.notRemovable = val;
+
+    return true;
+}
+
+export fn setInitState_graphs_nodes_type(
+    graph_name_ptr: [*]const u8,
+    graph_name_len: usize,
+    node_index: usize,
+    node_id: usize,
+    type_ptr: [*]const u8,
+    type_len: usize,
+) bool {
+    const type_ = gpa.dupe(u8, type_ptr[0..type_len]) catch |err| {
+        std.log.err("failed to put dupe type name error={}", .{err});
+        return false;
+    };
+
+    const node = _setInitState_getNode(graph_name_ptr, graph_name_len, node_index, node_id) catch {
+        return false;
+    };
+
+    node.type_ = type_;
+
+    return true;
+}
+
+fn _setInitState_getNode(
+    graph_name_ptr: [*]const u8,
+    graph_name_len: usize,
+    node_index: usize,
+    node_id: usize,
+) !*NodeInitState {
+    const graph_name = try gpa.dupe(u8, graph_name_ptr[0..graph_name_len]);
+
+    const graph = (try initState.graphs.getOrPut(gpa, graph_name)).value_ptr;
+
+    if (node_index >= graph.nodes.items.len) {
+        try graph.nodes.ensureTotalCapacity(gpa, node_index);
+        graph.nodes.expandToCapacity();
+        graph.nodes.shrinkRetainingCapacity(node_index);
+    }
+
+    const node = &graph.nodes.items[node_index];
+    node.id = node_id;
+
+    return node;
+}
+
+fn _setInitState_getInput(
+    graph_name_ptr: [*]const u8,
+    graph_name_len: usize,
+    node_index: usize,
+    node_id: usize,
+    input_id: usize,
+) !*InputInitState {
+    const node = try _setInitState_getNode(graph_name_ptr, graph_name_len, node_index, node_id);
+    const input = (try node.inputs.getOrPut(gpa, input_id)).value_ptr;
+    return input;
+}
+
+export fn setInitState_graphs_nodes_input_int(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: usize, value: i64) bool {
+    const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
+        return false;
+    };
+    input.* = .{ .int = value };
+    return true;
+}
+
+export fn setInitState_graphs_nodes_input_float(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: usize, value: f64) bool {
+    const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
+        return false;
+    };
+    input.* = .{ .float = value };
+    return true;
+}
+
+export fn setInitState_graphs_nodes_input_string(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: usize, value_ptr: [*]const u8, value_len: usize) bool {
+    const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
+        return false;
+    };
+    const value = gpa.dupe(u8, value_ptr[0..value_len]) catch {
+        return false;
+    };
+    input.* = .{ .string = value };
+    return true;
+}
+
+export fn setInitState_graphs_nodes_input_symbol(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: usize, value_ptr: [*]const u8, value_len: usize) bool {
+    const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
+        return false;
+    };
+    const value = gpa.dupe(u8, value_ptr[0..value_len]) catch {
+        return false;
+    };
+    input.* = .{ .symbol = value };
+    return true;
+}
+
+export fn setInitState_graphs_nodes_input_pin(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: usize, target_id: usize, out_pin: usize) bool {
+    const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
+        return false;
+    };
+    input.* = .{
+        .node = .{ .id = target_id, .out_pin = out_pin },
+    };
+    return true;
+}
 
 const UserFuncList = std.SinglyLinkedList(helpers.BasicMutNodeDesc);
 var user_funcs = UserFuncList{};

@@ -41,7 +41,7 @@ export declare type InputInitState =
 export declare interface NodeInitState {
   /** id of the node, must be positive and non-zero which is reserved for the graph entry node */
   id: number;
-  /** type of node "+" */
+  /** type of node, e.g. "+" */
   type: string;
   /** inputs */
   inputs?: Record<number, InputInitState>,
