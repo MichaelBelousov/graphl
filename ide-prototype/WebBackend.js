@@ -600,6 +600,8 @@ export function Ide(canvasElem, opts) {
         const we = wasmResult.instance.exports;
 
         const MAX_FUNC_NAME = 256;
+        const WASM_PAGE_SIZE = 64 * 1024;
+        const INIT_BUFFER_SZ = WASM_PAGE_SIZE;
 
         // FIXME: down transpile to ES6 with typescript
         if (opts?.preferences?.topbar?.visible !== undefined) {
@@ -617,16 +619,18 @@ export function Ide(canvasElem, opts) {
 
         if (opts?.initState?.graphs !== undefined) {
             for (const [graphName, graph] of Object.entries(opts.initState.graphs)) {
-                const graphNameBuff = () => new Uint8Array(we.memory.buffer, we.grappl_init_start, graphName.length);
+                const graph_name_ptr = we.grappl_init_start - INIT_BUFFER_SZ;
+                const graph_name_len = graphName.length;
+
+                const graphNameBuff = () => new Uint8Array(we.memory.buffer, graph_name_ptr, graph_name_len);
+
+                // FIXME: use write.written for written buffer length, and a utility function
                 {
                     const write = utf8encoder.encodeInto(graphName, graphNameBuff());
                     // TODO: add assert lib!
                     if (write.read !== graphName.length)
                         throw Error(`failed to write graph name '${graphName}'`);
                 }
-                const graph_name_ptr = we.grappl_init_start;
-                const graph_name_len = graphName.length;
-
 
                 if (graph.notRemovable !== undefined) {
                     we.setInitState_graphs_notRemovable(graph_name_ptr, graph_name_len, graph.notRemovable ? 1 : 0);
@@ -636,7 +640,7 @@ export function Ide(canvasElem, opts) {
 
                 for (let i = 0; i < graph.nodes.length; ++i) {
                     const node = graph.nodes[i];
-                    const typeNameBuff = () => new Uint8Array(we.memory.buffer, we.grappl_init_start + graphName.length, node.type.length);
+                    const typeNameBuff = () => new Uint8Array(we.memory.buffer, graph_name_ptr + graphName.length, node.type.length);
                     {
                         const write = utf8encoder.encodeInto(node.type, typeNameBuff());
                         // TODO: add assert lib!
@@ -665,7 +669,7 @@ export function Ide(canvasElem, opts) {
                                 if (write.read !== value.length)
                                     throw Error(`failed to write value '${value}' for ${graphName}/${node.id}/${inputId}`);
                             }
-                            const val_ptr = we.grappl_init_start + graphName.length + node.type.length;
+                            const val_ptr = type_ptr + node.type.length;
                             const val_len = value.length;
 
                             if ("symbol" in input) {
@@ -699,7 +703,7 @@ export function Ide(canvasElem, opts) {
             const transferBuffer = () => new Uint8Array(
                 wasmResult.instance.exports.memory.buffer,
                 // FIXME: why is the end of the region exported? This doesn't seem to match what zig sees
-                wasmResult.instance.exports.grappl_init_start - MAX_FUNC_NAME,
+                wasmResult.instance.exports.grappl_init_start - INIT_BUFFER_SZ,
                 MAX_FUNC_NAME,
             );
 
