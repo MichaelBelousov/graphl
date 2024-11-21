@@ -617,8 +617,16 @@ export function Ide(canvasElem, opts) {
 
         if (opts?.initState?.graphs !== undefined) {
             for (const [graphName, graph] of Object.entries(opts.initState.graphs)) {
-                const graph_name_ptr = ;
+                const graphNameBuff = () => new Uint8Array(we.memory.buffer, we.grappl_init_start, graphName.length);
+                {
+                    const write = utf8encoder.encodeInto(graphName, graphNameBuff());
+                    // TODO: add assert lib!
+                    if (write.read !== graphName.length)
+                        throw Error(`failed to write graph name '${graphName}'`);
+                }
+                const graph_name_ptr = we.grappl_init_start;
                 const graph_name_len = graphName.length;
+
 
                 if (graph.notRemovable !== undefined) {
                     we.setInitState_graphs_notRemovable(graph_name_ptr, graph_name_len, graph.notRemovable ? 1 : 0);
@@ -628,9 +636,17 @@ export function Ide(canvasElem, opts) {
 
                 for (let i = 0; i < graph.nodes.length; ++i) {
                     const node = graph.nodes[i];
-                    const type_ptr = 0;
+                    const typeNameBuff = () => new Uint8Array(we.memory.buffer, we.grappl_init_start + graphName.length, node.type.length);
+                    {
+                        const write = utf8encoder.encodeInto(node.type, typeNameBuff());
+                        // TODO: add assert lib!
+                        if (write.read !== node.type.length)
+                            throw Error(`failed to write node type '${node.type}'`);
+                    }
+                    const type_ptr = graph_name_ptr + graphName.length;
                     const type_len = node.type.length;
-                    we.setInitState_graphs_nodes_type(graph_name_ptr, graph_name_len, i, node.id);
+                    we.setInitState_graphs_nodes_type(graph_name_ptr, graph_name_len, i, node.id, type_ptr, type_len);
+
                     for (const [inputIdStr, input] of Object.entries(node.inputs ?? {})) {
                         const inputId = Number(inputIdStr);
                         if (Number.isNaN(inputId) || inputId >= 1 || inputId !== Math.floor(inputId)) {
@@ -640,25 +656,35 @@ export function Ide(canvasElem, opts) {
                             );
                         }
 
-                        if ("symbol" in input) {
-                            const val_ptr = ;
-                            const val_len = ;
-                            we.setInitState_graphs_nodes_input_symbol(graph_name_ptr, graph_name_len, i, node.id, val_ptr, val_len);
-                        } else if ("string" in input) {
-                            const val_ptr = ;
-                            const val_len = ;
-                            we.setInitState_graphs_nodes_input_string(graph_name_ptr, graph_name_len, i, node.id, val_ptr, val_len);
-                        } else if ("int" in input) {
-                            we.setInitState_graphs_nodes_input_int(graph_name_ptr, graph_name_len, i, node.id, input.int);
-                        } else if ("float" in input) {
-                            we.setInitState_graphs_nodes_input_float(graph_name_ptr, graph_name_len, i, node.id, input.float);
-                        } else if ("node" in input) {
-                            we.setInitState_graphs_nodes_input_node(graph_name_ptr, graph_name_len, i, node.id, input.node, input.outPin);
-                        } else {
-                            console.error("invalid input value:", input);
-                            throw Error(`BadInputValue: graph='${graphName}',node.id=${node.id},inputId=${inputId}`);
-                        }
+                        if ("symbol" in input || "string" in input) {
+                            const value = input.symbol ?? input.string;
+                            const valBuff = () => new Uint8Array(we.memory.buffer, type_ptr + node.type.length, value.length);
+                            {
+                                const write = utf8encoder.encodeInto(value, valBuff());
+                                // TODO: add assert lib!
+                                if (write.read !== value.length)
+                                    throw Error(`failed to write value '${value}' for ${graphName}/${node.id}/${inputId}`);
+                            }
+                            const val_ptr = we.grappl_init_start + graphName.length + node.type.length;
+                            const val_len = value.length;
 
+                            if ("symbol" in input) {
+                                we.setInitState_graphs_nodes_input_symbol(graph_name_ptr, graph_name_len, i, node.id, val_ptr, val_len);
+                            } else /* if ("string" in input) */ {
+                                we.setInitState_graphs_nodes_input_string(graph_name_ptr, graph_name_len, i, node.id, val_ptr, val_len);
+                            }
+                        } else {
+                            if ("int" in input) {
+                                we.setInitState_graphs_nodes_input_int(graph_name_ptr, graph_name_len, i, node.id, input.int);
+                            } else if ("float" in input) {
+                                we.setInitState_graphs_nodes_input_float(graph_name_ptr, graph_name_len, i, node.id, input.float);
+                            } else if ("node" in input) {
+                                we.setInitState_graphs_nodes_input_node(graph_name_ptr, graph_name_len, i, node.id, input.node, input.outPin);
+                            } else {
+                                console.error("invalid input value:", input);
+                                throw Error(`BadInputValue: '${graphName}'/${node.id}/${inputId}`);
+                            }
+                        }
                     }
                 }
             }
