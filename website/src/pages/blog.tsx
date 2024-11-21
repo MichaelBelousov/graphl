@@ -3,6 +3,8 @@ import { graphql } from 'gatsby'
 import Layout from '../components/layout'
 import * as styles from './blog.module.scss'
 
+// TODO:
+// - post previous/next blog posts in each blog page
 // blogposts TODO:
 // - why visual nodes
 // - visual macros

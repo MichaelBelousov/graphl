@@ -53,6 +53,7 @@ exports.onCreateNode = ({ node, getNode, actions }) => {
   if (node.internal.type === 'MarkdownRemark') {
     // XXX: hackily concat to '/blog' since basePath doesn't seem to be working when
     // generating the names
+    // FIXME: use node.path
     const slug = createFilePath({ node, getNode, basePath: `blog` })
     createNodeField({ node, name: 'slug', value: `/blog${slug}` })
   }

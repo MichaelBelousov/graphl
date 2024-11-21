@@ -19,6 +19,9 @@ const Faqs = () => {
           an application.
         </p>
         <p>
+          Embeddings of the Graphl IDE into a non-commercial application is not restricted.
+        </p>
+        <p>
           Advising someone to use an official Graphl IDE (<a href="https://graphl.tech/app">https://graphl.tech/app</a>,
           or the native IDE app distributions) to directly import a library which integrates with a separate commercial entity
           does not constitute an embedding and is therefore unrestricted by this license.
@@ -38,7 +41,7 @@ const Faqs = () => {
           on usage.
         </p>
         <p>
-          Other authorized distributors of an embedded Graphl IDE may not give you the same rights, so
+          Other authorized distributors of a commercially embedded Graphl IDE may not give you the same rights, so
           please refer to their terms.
         </p>
 
