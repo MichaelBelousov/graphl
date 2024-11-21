@@ -92,10 +92,15 @@
   }
 }
 
+.blurbContainer {
+  position: relative;
+  margin-bottom: 30px;
+}
+
 .blurbBackground {
   position: absolute;
-  height: 100%;
-  width: 100%;
+  height: 50vh;
+  width: 50vh;
 
   --color-one: hsl(15 90% 55%);
   --color-two: hsl(40 95% 55%);
@@ -107,4 +112,34 @@
     rgba(100, 100, 150, 0.3) 0%,
     transparent 60%,
   );
+} 
+
+ 
+.sampleGrid {
+  display: grid;
+  gap: 0.5in 0.5in;
+
+  @media only screen {
+    @media (max-width: 800px) {
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 800px) {
+      grid-template-rows: auto auto auto;
+      grid-template-columns: 1fr 1fr;
+      grid-template-areas:
+        "0 1"
+        "2 3"
+        "4 5";
+    }
+  }
+
+  > :not(canvas) {
+    padding: 10px;
+  }
+
+  @for $i from 0 through 5 {
+    > :nth-child(#{$i}) {
+      grid-area: #{$i};
+    }
+  }
 }

@@ -11,7 +11,7 @@ const ShinyLogo = (divProps: React.HTMLProps<HTMLDivElement>) => {
   const {className, ...rest} = divProps;
   return (
     <h1 {...classNames(styles.logoAnimated, className)} {...rest}>
-      {constants.flagshipProductName}
+      {divProps.children}
     </h1>
   );
 };
@@ -25,26 +25,36 @@ const Homepage = () => {
     width: "100%",
   };
 
-  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const canvas1Ref = React.useRef<HTMLCanvasElement>(null);
+  const canvas2Ref = React.useRef<HTMLCanvasElement>(null);
+  const canvas3Ref = React.useRef<HTMLCanvasElement>(null);
 
   React.useLayoutEffect(() => {
-    if (canvasRef.current === null)
+    if (canvas1Ref.current === null)
       throw Error("bad canvas elem");
 
-    const _ide = new graphl.Ide(canvasRef.current, {
+    const sharedOpts = {
       bindings: {
         jsHost: {
           functions: customNodes,
-        }
+        },
       },
       preferences: {
+        graph: {
+          scrollBarsVisible: false,
+          origin: { x: 200, y: 200 },
+        },
         definitionsPanel:  {
           visible: false,
         },
         topbar: {
           visible: false,
-        }
+        },
       },
+    };
+
+    const _ide1 = new graphl.Ide(canvas1Ref.current, {
+      ...sharedOpts,
       initState: {
         graphs: {
           "main": {
@@ -70,30 +80,59 @@ const Homepage = () => {
         },
       }
     });
+
+    const _ide2 = new graphl.Ide(canvas2Ref.current, {
+      ...sharedOpts,
+      initState: {
+        graphs: {
+          "main": {
+            notRemovable: true,
+            nodes: [],
+          }
+        },
+      }
+    });
+
+    const _ide3 = new graphl.Ide(canvas3Ref.current, {
+      ...sharedOpts,
+      initState: {
+        graphs: {
+          "main": {
+            notRemovable: true,
+            nodes: [],
+          }
+        },
+      }
+    });
+
+
   }, []);
 
   return (
     <Layout pageTitle="Graphl" pageDesc="The next generation no-coding environment">
-      <div style={{position: "relative"}}>
+      <div {...classNames(styles.blurbContainer, "center-down")}>
         <div className={styles.blurbBackground} />
         {/* TODO: wrap this in a component/function to make it readable */}
         <div className={styles.bigText} style={{ fontSize: "2em", textAlign: "center" }}>
-          <ShinyLogo className={styles["fadeInText_0"]} style={{ marginBottom: "0.5em" }} />
+          <ShinyLogo className={styles["fadeInText_0"]} style={{ marginBottom: "0.5em" }}>
+            {constants.flagshipProductName}
+          </ShinyLogo>
           <br/>
           <strong className={styles["fadeInText_1"]}>is the <em>only</em> no-code solution</strong>
-          {" "}
-          <strong className={styles["fadeInText_1"]}>that is as powerful as code</strong>
+          <strong className={styles["fadeInText_1"]}>designed to be as powerful as code</strong>
         </div>
 
+        {/* TODO: need an image! */}
         <div>
-          <br/>
-          {/* TODO: need an image! */}
-          <p style={mediumText} {...classNames(styles["fadeInText_2"])}>
-            Throw away 60 years of text editing baggage and write code
-            <br/>
-            <em> without writing code</em>
-          </p>
+          <a href="/FIXME">
+            <ShinyLogo className={styles["fadeInText_0"]} style={{ marginBottom: "0.5em", fontSize: "2em", textDecoration: "underline" }}>
+              try it
+            </ShinyLogo>
+          </a>
+        </div>
+      </div>
 
+      <div className={styles.sampleGrid}>
           {/*
           <p style={mediumText} className={styles["fadeInText_3"]}>
             Want to understand what your AI generated?
@@ -102,36 +141,69 @@ const Homepage = () => {
           </p>
           */}
 
-          <p style={mediumText} className={styles["fadeInText_3"]}>
-            Compile to WebAssembly and run anywhere,
+        <div className="center">
+          <p style={mediumText} {...classNames(styles["fadeInText_2"])}>
+            Throw away 60 years of text editing baggage and write code
             <br/>
-            <em> even in your browser </em>
+            <em> without writing code</em>
           </p>
+        </div>
+        <canvas
+          ref={canvas1Ref}
+          onScroll={e => e.preventDefault()}
+          style={{
+            width: "100%",
+            height: "auto",
+            border: 0,
+            margin: "30px 0",
+            borderRadius: "9px",
+          }}
+        />
 
+        <div className="center">
+          <p style={mediumText} className={styles["fadeInText_3"]}>
+            Compiles to WebAssembly so you can run anywhere.
+            <br/>
+            <em> Run locally on your device. </em>
+          </p>
+        </div>
+        <canvas
+          ref={canvas2Ref}
+          onWheel={e => e.preventDefault()}
+          style={{
+            width: "100%",
+            height: "auto",
+            border: 0,
+            margin: "30px 0",
+            borderRadius: "9px",
+          }}
+        />
+
+        <div className="center">
           <p style={mediumText} className={styles["fadeInText_4"]}>
             Experience the programming language that feels like a
             <br/>
             <em>workflow engine</em>
           </p>
 
-          <br/>
-          <p style={{ textAlign: "center" }}>
-            Questions?
-            Reach out to us at <a href={`mailto:me@mikemikeb.com`}>support@graphl.tech</a>
-          </p>
         </div>
+        <canvas
+          ref={canvas3Ref}
+          onWheel={e => e.preventDefault()}
+          style={{
+            width: "100%",
+            height: "auto",
+            border: 0,
+            margin: "30px 0",
+            borderRadius: "9px",
+          }}
+        />
       </div>
 
-      <canvas
-        ref={canvasRef}
-        style={{
-          width: "100%",
-          height: "auto",
-          border: 0,
-          margin: "30px 0",
-          pointerEvents: "none",
-        }}
-      />
+      <p style={{ textAlign: "center" }}>
+        Questions?
+        Reach out to us at <a href={`mailto:me@mikemikeb.com`}>support@graphl.tech</a>
+      </p>
 
     </Layout>
   );

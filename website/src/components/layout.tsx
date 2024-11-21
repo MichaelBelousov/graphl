@@ -23,7 +23,8 @@ const Layout = ({
       <div>
         <main>{children}</main>
       </div>
-      <footer className="center" style={{ position: "fixed", bottom: 0 }}>
+      {/*<footer className="center" style={{ position: "fixed", bottom: 0 }}>*/}
+      <footer className="center" style={{ position: "relative", bottom: 0 }}>
         &copy; {constants.companyName} 2024
       </footer>
     </div>

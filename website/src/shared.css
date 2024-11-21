@@ -1,7 +1,7 @@
 /* FIXME: merge with app shared.global.css */
 
 :root {
-  --background-rgb:  18, 18, 24;
+  --background-rgb:  2, 2, 8;
   --body-rgb:        239, 239, 239;
   --hover-rgb:       255, 255, 255;
 
@@ -25,6 +25,13 @@
   display: flex;
   justify-content: center;
   align-items: center;
+}
+
+.center-down {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
 }
 
 .hoverable {

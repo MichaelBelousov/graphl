@@ -9,6 +9,14 @@ async function dvui_sleep(ms) {
     await new Promise(r => setTimeout(r, ms));
 }
 
+/**
+ * @param {any} cond
+ * @param {string} errMessage
+ */
+function assert(cond, errMessage = "Assertion failed") {
+    if (!cond) throw Error(errMessage);
+}
+
 export const Types = {
     "i32": 0,
     "i64": 1,
@@ -606,17 +614,17 @@ export function Ide(canvasElem, opts) {
         // NOTE: technically this could be generated using a proxy, but perhaps better to use zigar if I need that
         // FIXME: down transpile to ES6 with typescript
         if (opts?.preferences?.graph?.origin !== undefined)
-            we.setOpt_preferences_graph_origin(opts.preferences.graph.origin.x, opts.preferences.graph.origin.y);
+            assert(we.setOpt_preferences_graph_origin(opts.preferences.graph.origin.x, opts.preferences.graph.origin.y));
         if (opts?.preferences?.graph?.scale !== undefined)
-            we.setOpt_preferences_graph_scale(opts.preferences.graph.scale);
+            assert(we.setOpt_preferences_graph_scale(opts.preferences.graph.scale));
         if (opts?.preferences?.graph?.scrollBarsVisible !== undefined)
-            we.setOpt_preferences_graph_scrollBarsVisible(opts.preferences.graph.scrollBarsVisible ? 1 : 0);
+            assert(we.setOpt_preferences_graph_scrollBarsVisible(opts.preferences.graph.scrollBarsVisible ? 1 : 0));
         if (opts?.preferences?.topbar?.visible !== undefined)
-            we.setOpt_preferences_topbar_visible(opts.preferences.topbar.visible ? 1 : 0);
+            assert(we.setOpt_preferences_topbar_visible(opts.preferences.topbar.visible ? 1 : 0));
         if (opts?.preferences?.definitionsPanel?.visible !== undefined)
-            we.setOpt_preferences_definitionsPanel_visible(opts.preferences.definitionsPanel.visible ? 1 : 0);
+            assert(we.setOpt_preferences_definitionsPanel_visible(opts.preferences.definitionsPanel.visible ? 1 : 0));
         if (opts?.preferences?.definitionsPanel?.orientation !== undefined)
-            we.setOpt_preferences_definitionsPanel_orientation(opts.preferences.definitionsPanel.orientation === "left" ? 0 : 1);
+            assert(we.setOpt_preferences_definitionsPanel_orientation(opts.preferences.definitionsPanel.orientation === "left" ? 0 : 1));
 
         if (opts?.initState?.graphs !== undefined) {
             for (const [graphName, graph] of Object.entries(opts.initState.graphs)) {
@@ -634,13 +642,19 @@ export function Ide(canvasElem, opts) {
                 }
 
                 if (graph.notRemovable !== undefined) {
-                    we.setInitState_graphs_notRemovable(graph_name_ptr, graph_name_len, graph.notRemovable ? 1 : 0);
+                    assert(we.setInitState_graphs_notRemovable(graph_name_ptr, graph_name_len, graph.notRemovable ? 1 : 0));
                 }
 
                 if (graph.nodes === undefined) continue;
 
                 for (let i = 0; i < graph.nodes.length; ++i) {
                     const node = graph.nodes[i];
+                    if (node.id < 1 || node.id !== Math.floor(node.id)) {
+                        throw Error(
+                            `BadNodeId: node id ${node.id} at index ${i} in graph '${graphName}'\n`
+                            + `is not a non-negative integer. It may not be negative nor have a fraction.`
+                        );
+                    }
                     const typeNameBuff = () => new Uint8Array(we.memory.buffer, graph_name_ptr + graphName.length, node.type.length);
                     {
                         const write = utf8encoder.encodeInto(node.type, typeNameBuff());
@@ -650,14 +664,14 @@ export function Ide(canvasElem, opts) {
                     }
                     const type_ptr = graph_name_ptr + graphName.length;
                     const type_len = node.type.length;
-                    we.setInitState_graphs_nodes_type(graph_name_ptr, graph_name_len, i, node.id, type_ptr, type_len);
+                    assert(we.setInitState_graphs_nodes_type(graph_name_ptr, graph_name_len, i, node.id, type_ptr, type_len));
 
                     for (const [inputIdStr, input] of Object.entries(node.inputs ?? {})) {
                         const inputId = Number(inputIdStr);
-                        if (Number.isNaN(inputId) || inputId >= 1 || inputId !== Math.floor(inputId)) {
+                        if (Number.isNaN(inputId) || inputId < 0 || inputId !== Math.floor(inputId)) {
                             throw Error(
-                                `BadInputId: node id '${node.id}' at index ${i} in graph '${graphName}'\n`
-                                + `is not a positive integer. It may not be 0, negative, nor have a fraction.`
+                                `BadInputId: input id '${inputIdStr}' on node #${node.id} at index ${i} in graph '${graphName}'\n`
+                                + `is not a non-negative integer. It may not be negative nor have a fraction.`
                             );
                         }
 
@@ -674,17 +688,17 @@ export function Ide(canvasElem, opts) {
                             const val_len = value.length;
 
                             if ("symbol" in input) {
-                                we.setInitState_graphs_nodes_input_symbol(graph_name_ptr, graph_name_len, i, node.id, val_ptr, val_len);
+                                assert(we.setInitState_graphs_nodes_input_symbol(graph_name_ptr, graph_name_len, i, node.id, val_ptr, val_len));
                             } else /* if ("string" in input) */ {
-                                we.setInitState_graphs_nodes_input_string(graph_name_ptr, graph_name_len, i, node.id, val_ptr, val_len);
+                                assert(we.setInitState_graphs_nodes_input_string(graph_name_ptr, graph_name_len, i, node.id, val_ptr, val_len));
                             }
                         } else {
                             if ("int" in input) {
-                                we.setInitState_graphs_nodes_input_int(graph_name_ptr, graph_name_len, i, node.id, input.int);
+                                assert(we.setInitState_graphs_nodes_input_int(graph_name_ptr, graph_name_len, i, node.id, input.int));
                             } else if ("float" in input) {
-                                we.setInitState_graphs_nodes_input_float(graph_name_ptr, graph_name_len, i, node.id, input.float);
+                                assert(we.setInitState_graphs_nodes_input_float(graph_name_ptr, graph_name_len, i, node.id, input.float));
                             } else if ("node" in input) {
-                                we.setInitState_graphs_nodes_input_pin(graph_name_ptr, graph_name_len, i, node.id, input.node, input.outPin);
+                                assert(we.setInitState_graphs_nodes_input_pin(graph_name_ptr, graph_name_len, i, node.id, input.node, input.outPin));
                             } else {
                                 console.error("invalid input value:", input);
                                 throw Error(`BadInputValue: '${graphName}'/${node.id}/${inputId}`);
