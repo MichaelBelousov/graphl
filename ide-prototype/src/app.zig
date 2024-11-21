@@ -56,6 +56,9 @@ var options: struct {
             orientation: Orientation = .left,
             visible: bool = true,
         } = .{},
+        topbar: struct {
+            visible: bool = true,
+        } = .{},
     } = .{},
 } = .{};
 
@@ -66,6 +69,11 @@ export fn setOpt_preferences_definitionsPanel_orientation(val: Orientation) bool
 
 export fn setOpt_preferences_definitionsPanel_visible(val: bool) bool {
     options.preferences.definitionsPanel.visible = val;
+    return true;
+}
+
+export fn setOpt_preferences_topbar_visible(val: bool) bool {
+    options.preferences.topbar.visible = val;
     return true;
 }
 
@@ -1788,7 +1796,7 @@ pub const VisualGraph = struct {
 
 pub fn frame() !void {
     // file menu
-    {
+    if (options.preferences.topbar.visible) {
         var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .expand = .horizontal });
         defer m.deinit();
 
@@ -1818,7 +1826,7 @@ pub fn frame() !void {
     var hbox = try dvui.box(@src(), .horizontal, .{ .expand = .both });
     defer hbox.deinit();
 
-    {
+    if (options.preferences.definitionsPanel.visible) {
         var defines_box = try dvui.box(@src(), .vertical, .{ .expand = .vertical, .background = true });
         defer defines_box.deinit();
 

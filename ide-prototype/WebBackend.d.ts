@@ -72,6 +72,9 @@ export declare namespace Ide {
     },
     /** initial preferences for the IDE */
     preferences?: {
+      topbar?: {
+        visible?: boolean,
+      },
       definitionsPanel?:  {
         /** where to place the side panel */
         orientation?: "left", // TODO: add "right"
@@ -83,7 +86,7 @@ export declare namespace Ide {
      * initial state of the IDE, e.g. which graphs exist
      * mark graphs as non-removable here
      */
-    initState: InitState;
+    initState?: InitState;
   }
 }
 

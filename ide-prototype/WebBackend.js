@@ -600,8 +600,20 @@ export function Ide(canvasElem, opts) {
 
         const MAX_FUNC_NAME = 256;
 
-
         // FIXME: down transpile to ES6
+        if (opts?.preferences?.topbar?.visible !== undefined) {
+          wasmResult.instance.exports.setOpt_preferences_topbar_visible(opts.preferences.topbar.visible ? 1 : 0);
+        }
+
+        if (opts?.preferences?.definitionsPanel?.visible !== undefined) {
+          wasmResult.instance.exports.setOpt_preferences_definitionsPanel_visible(opts.preferences.definitionsPanel.visible ? 1 : 0);
+        }
+
+        if (opts?.preferences?.definitionsPanel?.orientation !== undefined) {
+          wasmResult.instance.exports.setOpt_preferences_definitionsPanel_orientation(opts.preferences.definitionsPanel.orientation === "left" ? 0 : 1);
+        }
+
+
         const funcsOption = (((((opts || {}).bindings) || {}).jsHost) || {}).functions || {};
 
         for (const [funcName, func] of Object.entries(funcsOption)) {
