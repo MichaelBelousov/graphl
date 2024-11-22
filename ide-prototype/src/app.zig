@@ -879,14 +879,6 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
     // try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .y = 10 }));
     // try dvui.pathStroke(false, 1, .none, dvui.Color.black);
 
-    if (ctext.activePoint()) |cp| {
-        const mp = dvui.currentWindow().mouse_pt;
-        const pt_in_graph = dataRectScale.pointFromScreen(mp);
-        try renderAddNodeMenu(cp, pt_in_graph, node_menu_filter);
-    } else {
-        node_menu_filter = null;
-    }
-
     // TODO: use link struct?
     var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Point){};
     defer socket_positions.deinit(gpa);
@@ -1089,8 +1081,13 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
         dvui.refresh(null, @src(), graph_area.scroll.data().id);
     }
 
-    // deinit graph area to process events
+    const mp = dvui.currentWindow().mouse_pt;
+    // calculate mouse in graph for later after graph deinit and event handling
+    // we will use it for renderAddNodeMenu
+    const pt_in_graph = dataRectScale.pointFromScreen(mp);
+
     scaler.deinit();
+    // deinit graph area to process events
     graph_area.deinit();
 
     // don't mess with scrolling if we aren't being shown (prevents weirdness
@@ -1146,6 +1143,13 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
                 dvui.refresh(null, @src(), null);
             }
         }
+    }
+
+    // render add node context menu outside the graph
+    if (ctext.activePoint()) |cp| {
+        try renderAddNodeMenu(cp, pt_in_graph, node_menu_filter);
+    } else {
+        node_menu_filter = null;
     }
 }
 
