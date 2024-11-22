@@ -599,9 +599,6 @@ const Socket = struct {
 };
 
 fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from: ?Socket) !void {
-    var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
-    defer fw.deinit();
-
     // TODO: handle defocus event
     const Local = struct {
         pub fn validSocketIndex(
@@ -669,6 +666,19 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
         }
     };
 
+    var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
+    defer fw.deinit();
+
+    const search_input = _: {
+        const text_result = try dvui.textEntry(@src(), .{}, .{});
+        defer text_result.deinit();
+        if (dvui.firstFrame(text_result.data().id)) {
+            dvui.focusWidget(text_result.data().id, null, null);
+        }
+        // TODO: don't dupe this memory! use a dynamic buffer instead
+        break :_ text_result.getText();
+    };
+
     const maybe_create_from_type: ?grappl.PrimitivePin = if (maybe_create_from) |create_from| _: {
         const node = current_graph.grappl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
         const pins = switch (create_from.kind) {
@@ -704,6 +714,11 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                             continue;
                         }
 
+                        if (search_input.len != 0) {
+                            const matches_search = std.mem.indexOf(u8, binding.name, search_input) != null;
+                            if (!matches_search) continue;
+                        }
+
                         var label_buf: [MAX_FUNC_NAME]u8 = undefined;
                         const label = try std.fmt.bufPrint(&label_buf, "Get {s}", .{binding.name});
 
@@ -732,6 +747,11 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                             continue;
                     }
 
+                    if (search_input.len != 0) {
+                        const matches_search = std.mem.indexOf(u8, binding.name, search_input) != null;
+                        if (!matches_search) continue;
+                    }
+
                     var label_buf: [MAX_FUNC_NAME]u8 = undefined;
                     const label = try std.fmt.bufPrint(&label_buf, "Set {s}", .{binding.name});
 
@@ -754,6 +774,11 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     std.debug.assert(binding.asPrimitivePin() == .value);
                     if (maybe_create_from_type != null and !std.meta.eql(maybe_create_from_type.?, binding.asPrimitivePin())) {
                         continue;
+                    }
+
+                    if (search_input.len != 0) {
+                        const matches_search = std.mem.indexOf(u8, binding.name, search_input) != null;
+                        if (!matches_search) continue;
                     }
 
                     var label_buf: [MAX_FUNC_NAME]u8 = undefined;
@@ -781,6 +806,11 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     valid_socket_index = try Local.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
                     if (valid_socket_index == null)
                         continue;
+                }
+
+                if (search_input.len != 0) {
+                    const matches_search = std.mem.indexOf(u8, binding.name, search_input) != null;
+                    if (!matches_search) continue;
                 }
 
                 var label_buf: [MAX_FUNC_NAME]u8 = undefined;
@@ -816,6 +846,11 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                 valid_socket_index = try Local.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
                 if (valid_socket_index == null)
                     continue;
+            }
+
+            if (search_input.len != 0) {
+                const matches_search = std.mem.indexOf(u8, node_name, search_input) != null;
+                if (!matches_search) continue;
             }
 
             if ((try dvui.menuItemLabel(@src(), node_name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
