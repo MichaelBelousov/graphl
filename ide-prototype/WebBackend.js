@@ -947,10 +947,10 @@ export function Ide(canvasElem, opts) {
         });
 
         let keydown = function(ev) {
-            if (ev.key == "Tab") {
-                // stop tab from tabbing away from the canvas
-                ev.preventDefault();
-            }
+            // stop tab from tabbing away from the canvas
+            if (ev.key == "Tab") ev.preventDefault();
+            // stop F5 from refreshing the page
+            if (ev.key == "F5") ev.preventDefault();
 
             let str = utf8encoder.encode(ev.key);
             if (str.length > 0) {

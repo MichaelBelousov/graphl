@@ -582,6 +582,28 @@ pub fn init() !void {
     // first_graph.addEdge(set6_index, 0, set7_index, 0, 0) catch unreachable;
 }
 
+fn runCurrentGraphs() !void {
+    const sexp = try combineGraphs();
+    defer sexp.deinit(gpa);
+
+    if (builtin.mode == .Debug) {
+        var bytes = std.ArrayList(u8).init(gpa);
+        defer bytes.deinit();
+        _ = try sexp.write(bytes.writer());
+        std.log.info("graph '{s}':\n{s}", .{ current_graph.name, bytes.items });
+    }
+
+    var diagnostic = compiler.Diagnostic.init();
+
+    if (compiler.compile(gpa, &sexp, &shared_env, &user_funcs, &diagnostic)) |module| {
+        std.log.info("compile_result:\n{s}", .{module});
+        runCurrentWat(module.ptr, module.len);
+        gpa.free(module);
+    } else |err| {
+        std.log.err("compile_error={any}", .{err});
+    }
+}
+
 pub fn deinit() void {
     var maybe_cursor = graphs.first;
     while (maybe_cursor) |cursor| {
@@ -1894,26 +1916,8 @@ pub fn frame() !void {
             var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
             defer fw.deinit();
 
-            if (try dvui.menuItemLabel(@src(), "Run", .{}, .{ .expand = .horizontal })) |_| {
-                const sexp = try combineGraphs();
-                defer sexp.deinit(gpa);
-
-                if (builtin.mode == .Debug) {
-                    var bytes = std.ArrayList(u8).init(gpa);
-                    defer bytes.deinit();
-                    _ = try sexp.write(bytes.writer());
-                    std.log.info("graph '{s}':\n{s}", .{ current_graph.name, bytes.items });
-                }
-
-                var diagnostic = compiler.Diagnostic.init();
-
-                if (compiler.compile(gpa, &sexp, &shared_env, &user_funcs, &diagnostic)) |module| {
-                    std.log.info("compile_result:\n{s}", .{module});
-                    runCurrentWat(module.ptr, module.len);
-                    gpa.free(module);
-                } else |err| {
-                    std.log.err("compile_error={any}", .{err});
-                }
+            if (try dvui.menuItemLabel(@src(), "Run (F5)", .{}, .{ .expand = .horizontal })) |_| {
+                try runCurrentGraphs();
             }
 
             if (try dvui.menuItemLabel(@src(), "Debug DVUI", .{}, .{ .expand = .horizontal })) |_| {
@@ -2337,4 +2341,13 @@ pub fn frame() !void {
     }
 
     try renderGraph(hbox);
+
+    // FIXME: this doesn't work
+    // left over global events
+    for (dvui.events()) |*e| {
+        if (!e.handled and e.evt == .key and e.evt.key.code == .f5) {
+            e.handled = true;
+            try runCurrentGraphs();
+        }
+    }
 }
