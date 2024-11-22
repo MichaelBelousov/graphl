@@ -1526,7 +1526,7 @@ fn renderNode(
     var outputs_vbox = try dvui.box(@src(), .vertical, .{});
 
     for (node.desc().getOutputs(), node.outputs, 0..) |output_desc, *output, j| {
-        var output_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
+        var output_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j, .gravity_x = 1.0 });
         defer output_box.deinit();
 
         const socket = Socket{ .node_id = node.id, .kind = .output, .index = @intCast(j) };

@@ -704,7 +704,7 @@ pub const builtin_nodes = struct {
         },
         .outputs = &.{
             Pin{ .name = "then", .kind = .{ .primitive = .exec } },
-            Pin{ .name = "otherwise", .kind = .{ .primitive = .exec } },
+            Pin{ .name = "else", .kind = .{ .primitive = .exec } },
         },
     });
 
