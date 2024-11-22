@@ -75,6 +75,7 @@ pub const NodeDesc = struct {
     // FIXME: horrible
     special: NodeSpecialInfo = .none,
 
+    tags: []const []const u8 = &.{},
     context: *const anyopaque,
     // TODO: do I really need pointers? The types are all going to be well defined aggregates,
     // and the nodes too
@@ -347,6 +348,7 @@ pub const BasicNodeDesc = struct {
     special: NodeSpecialInfo = .none,
     inputs: []const Pin = &.{},
     outputs: []const Pin = &.{},
+    tags: []const []const u8 = &.{},
 };
 
 /// caller owns memory!
@@ -386,6 +388,7 @@ pub const BasicMutNodeDesc = struct {
     special: NodeSpecialInfo = .none,
     inputs: []Pin = &.{},
     outputs: []Pin = &.{},
+    tags: []const []const u8 = &.{},
 };
 
 pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
@@ -422,7 +425,11 @@ pub const VarNodes = struct {
     get: NodeDesc,
     set: NodeDesc,
 
-    fn init(alloc: std.mem.Allocator, var_name: []const u8, var_type: Type) !VarNodes {
+    fn init(
+        alloc: std.mem.Allocator,
+        var_name: []const u8,
+        var_type: Type,
+    ) !VarNodes {
         // FIXME: test and plug non-comptime alloc leaks
         comptime var getter_outputs_slot: [if (@inComptime()) 1 else 0]Pin = undefined;
         const _getter_outputs = if (@inComptime()) &getter_outputs_slot else try alloc.alloc(Pin, 1);
@@ -541,6 +548,7 @@ pub const builtin_nodes = struct {
             // TODO: this should output a sexp type
             Pin{ .name = "data", .kind = .{ .primitive = .{ .value = primitive_types.code } } },
         },
+        .tags = &.{"json"},
     });
 
     pub const @"+": NodeDesc = basicNode(&.{
@@ -552,6 +560,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
+        .tags = &.{"math"},
     });
     pub const @"-": NodeDesc = basicNode(&.{
         .name = "-",
@@ -562,6 +571,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
+        .tags = &.{"math"},
     });
     pub const max: NodeDesc = basicNode(&.{
         .name = "max",
@@ -572,6 +582,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
+        .tags = &.{"math"},
     });
     pub const min: NodeDesc = basicNode(&.{
         .name = "min",
@@ -582,6 +593,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
+        .tags = &.{"math"},
     });
     pub const @"*": NodeDesc = basicNode(&.{
         .name = "*",
@@ -592,6 +604,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
+        .tags = &.{"math"},
     });
     pub const @"/": NodeDesc = basicNode(&.{
         .name = "/",
@@ -602,6 +615,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
+        .tags = &.{"math"},
     });
     pub const @">=": NodeDesc = basicNode(&.{
         .name = ">=",
@@ -612,6 +626,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
+        .tags = &.{"comparison"},
     });
     pub const @"<=": NodeDesc = basicNode(&.{
         .name = "<=",
@@ -622,6 +637,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
+        .tags = &.{"comparison"},
     });
     pub const @"<": NodeDesc = basicNode(&.{
         .name = "<",
@@ -632,6 +648,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
+        .tags = &.{"comparison"},
     });
     pub const @">": NodeDesc = basicNode(&.{
         .name = ">",
@@ -642,6 +659,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
+        .tags = &.{"comparison"},
     });
     pub const @"==": NodeDesc = basicNode(&.{
         .name = "==",
@@ -652,6 +670,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
+        .tags = &.{"comparison"},
     });
     pub const @"!=": NodeDesc = basicNode(&.{
         .name = "!=",
@@ -662,6 +681,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
+        .tags = &.{"comparison"},
     });
 
     pub const not: NodeDesc = basicNode(&.{
@@ -672,6 +692,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
+        .tags = &.{"boolean"},
     });
 
     pub const @"and": NodeDesc = basicNode(&.{
@@ -683,6 +704,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
+        .tags = &.{"boolean"},
     });
 
     pub const @"or": NodeDesc = basicNode(&.{
@@ -694,6 +716,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
+        .tags = &.{"boolean"},
     });
 
     pub const @"if": NodeDesc = basicNode(&.{
@@ -706,6 +729,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "then", .kind = .{ .primitive = .exec } },
             Pin{ .name = "else", .kind = .{ .primitive = .exec } },
         },
+        .tags = &.{"control flow"},
     });
 
     pub const string_equal: NodeDesc = basicNode(&.{
@@ -717,6 +741,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "equal", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
+        .tags = &.{"string"},
     });
 
     // FIXME: TEMP FOR DEMO
@@ -729,6 +754,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "equal", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
+        .tags = &.{"sql"},
     });
 
     pub const string_indexof: NodeDesc = basicNode(&.{
@@ -740,6 +766,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "index", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
+        .tags = &.{"string"},
     });
 
     pub const string_length: NodeDesc = basicNode(&.{
@@ -750,6 +777,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "length", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
+        .tags = &.{"string"},
     });
 
     pub const make_symbol: NodeDesc = basicNode(&.{
@@ -760,6 +788,7 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "symbol", .kind = .{ .primitive = .{ .value = primitive_types.symbol } } },
         },
+        .tags = &.{"symbol"},
     });
     // TODO: function...
     // pub const sequence: NodeDesc = basicNode(&.{
@@ -784,6 +813,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "next", .kind = .{ .primitive = .exec } },
             Pin{ .name = "value", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
+        .tags = &.{"set"},
     });
 
     pub const func_start: NodeDesc = basicNode(&.{
@@ -1046,6 +1076,8 @@ pub const Env = struct {
     _types: std.StringHashMapUnmanaged(Type) = .{},
     // could be macro, function, operator
     _nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
+    // TODO: use this!
+    _nodes_by_tag: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(*const NodeDesc)) = .{},
 
     created_types: std.SinglyLinkedList(TypeInfo) = .{},
     created_nodes: std.SinglyLinkedList(NodeDesc) = .{},
