@@ -17,6 +17,7 @@ const helpers = @import("grappl_core").helpers;
 const MAX_FUNC_NAME = 256;
 
 extern fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void;
+extern fn onRequestLoadSource(ptr: ?[*]const u8, len: usize) void;
 extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
 // NOTE: check if this is bad
@@ -1908,6 +1909,10 @@ pub fn frame() !void {
             defer fw.deinit();
 
             if (try dvui.menuItemLabel(@src(), "Save", .{}, .{ .expand = .horizontal })) |_| {
+                try exportCurrentSource();
+            }
+
+            if (try dvui.menuItemLabel(@src(), "Open", .{}, .{ .expand = .horizontal })) |_| {
                 try exportCurrentSource();
             }
         }

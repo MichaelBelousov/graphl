@@ -70,13 +70,18 @@ exports.createPages = async ({ graphql, actions }) => {
             fields {
               slug
             }
+            frontmatter {
+              path
+            }
           }
         }
       }
     }
   `)
+  console.log(result)
   result.data.allMarkdownRemark.edges.forEach(({ node }) =>
     createPage({
+      //path: node.fields.frontmatter.path,
       path: node.fields.slug,
       component: path.resolve('./src/components/BlogPage.tsx'),
       context: {

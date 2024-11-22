@@ -9,7 +9,7 @@ module.exports = {
     description: constants.flagshipProductName,
     author: constants.companyName,
     siteUrl: `https://graphl.tech`,
-    image: `./src/images/logo2.svg`,
+    image: `./src/images/GraphlAnimation.inline.svg`,
   },
   plugins: [
     `gatsby-plugin-react-helmet`,
@@ -31,7 +31,7 @@ module.exports = {
         background_color: `#663399`,
         theme_color: `#663399`,
         display: `minimal-ui`,
-        icon: `./src/images/logo2.svg`,
+        icon: `./src/images/GraphlAnimation.inline.svg`,
       },
     },
     // this (optional) plugin enables Progressive Web App + Offline functionality
