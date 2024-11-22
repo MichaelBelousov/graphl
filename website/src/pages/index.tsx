@@ -20,7 +20,7 @@ const ShinyLogo = (divProps: React.HTMLProps<HTMLDivElement>) => {
 const ShinyButton = (btnProps: React.HTMLProps<HTMLAnchorElement>) => {
   const {className, ...rest} = btnProps;
   return (
-    <a href="/FIXME" {...classNames(styles.logoAnimated, className)} {...rest}>
+    <a href="app" {...classNames(styles.logoAnimated, className)} {...rest}>
       {btnProps.children}
     </a>
   );
@@ -145,6 +145,8 @@ const Homepage = () => {
         <ShinyButton
           className={styles["fadeInText_2"]}
           style={{
+            display: "flex",
+            alignItems: "center",
             fontSize: "2em",
             textDecoration: "none",
             marginTop: "1em",

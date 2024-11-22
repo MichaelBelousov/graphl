@@ -22,6 +22,7 @@ const Header = () => {
       <Link className={styles.navLink} to="/faqs">FAQs</Link>
       <Link className={styles.navLink} to="/commercial">commercial</Link>
       <Link className={styles.navLink} to="/blog/HowICameUpWithGraphl">blog</Link>
+      <Link className={styles.navLink} to="/FIXME">docs</Link>
       <Link {...classNames(styles.navLink, styles.subButton)} to="/FIXME">subscribe</Link>
     </nav>
   );
