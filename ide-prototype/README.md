@@ -1,3 +1,3 @@
-Bindings to embed the Grappl IDE in the browser.
+Bindings to embed the Graphl IDE in the browser.
 
 See [https://graphl.tech](https://graphl.tech) for more.

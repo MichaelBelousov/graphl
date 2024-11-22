@@ -17,6 +17,7 @@ const helpers = @import("grappl_core").helpers;
 const MAX_FUNC_NAME = 256;
 
 extern fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void;
+extern fn onExportCompiled(ptr: ?[*]const u8, len: usize) void;
 extern fn onRequestLoadSource(ptr: ?[*]const u8, len: usize) void;
 extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
@@ -468,9 +469,9 @@ fn combineGraphs() !Sexp {
     return result;
 }
 
-fn exportCurrentSource() !void {
+// TODO: take an allocator once compiling allocation is fixed
+fn combineGraphsText() !std.ArrayList(u8) {
     var bytes = std.ArrayList(u8).init(gpa);
-    defer bytes.deinit();
 
     var maybe_cursor = graphs.first;
     while (maybe_cursor) |cursor| : ({
@@ -483,6 +484,13 @@ fn exportCurrentSource() !void {
 
         _ = try sexp.write(bytes.writer());
     }
+
+    return bytes;
+}
+
+fn exportCurrentSource() !void {
+    var bytes = try combineGraphsText();
+    defer bytes.deinit();
 
     onExportCurrentSource(bytes.items.ptr, bytes.items.len);
 }
@@ -599,6 +607,28 @@ fn runCurrentGraphs() !void {
     if (compiler.compile(gpa, &sexp, &shared_env, &user_funcs, &diagnostic)) |module| {
         std.log.info("compile_result:\n{s}", .{module});
         runCurrentWat(module.ptr, module.len);
+        gpa.free(module);
+    } else |err| {
+        std.log.err("compile_error={any}", .{err});
+    }
+}
+
+fn exportCurrentCompiled() !void {
+    const sexp = try combineGraphs();
+    defer sexp.deinit(gpa);
+
+    if (builtin.mode == .Debug) {
+        var bytes = std.ArrayList(u8).init(gpa);
+        defer bytes.deinit();
+        _ = try sexp.write(bytes.writer());
+        std.log.info("graph '{s}':\n{s}", .{ current_graph.name, bytes.items });
+    }
+
+    var diagnostic = compiler.Diagnostic.init();
+
+    if (compiler.compile(gpa, &sexp, &shared_env, &user_funcs, &diagnostic)) |module| {
+        std.log.info("compile_result:\n{s}", .{module});
+        onExportCompiled(module.ptr, module.len);
         gpa.free(module);
     } else |err| {
         std.log.err("compile_error={any}", .{err});
@@ -1914,6 +1944,10 @@ pub fn frame() !void {
 
             if (try dvui.menuItemLabel(@src(), "Open", .{}, .{ .expand = .horizontal })) |_| {
                 try exportCurrentSource();
+            }
+
+            if (try dvui.menuItemLabel(@src(), "Export Wasm", .{}, .{ .expand = .horizontal })) |_| {
+                try exportCurrentCompiled();
             }
         }
 

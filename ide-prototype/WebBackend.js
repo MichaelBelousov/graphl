@@ -466,6 +466,15 @@ export function Ide(canvasElem, opts) {
             });
         },
 
+        onExportCompiled: (ptr, len) => {
+            if (len === 0) return;
+            const content = utf8decoder.decode(new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len));
+            void downloadFile({
+                fileName: "compiled.wat",
+                content,
+            });
+        },
+
         runCurrentWat: async (ptr, len) => {
             if (len === 0) return;
 
