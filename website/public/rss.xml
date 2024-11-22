@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title><![CDATA[Torakku dev blog RSS feed]]></title><description><![CDATA[Graphl]]></description><link>https://graphl.tech</link><generator>GatsbyJS</generator><lastBuildDate>Fri, 22 Nov 2024 15:28:23 GMT</lastBuildDate><item><title><![CDATA[How I came up with Graphl]]></title><description><![CDATA[TODO: finish this blog A long time ago, I didn't program. In fact, I only scraped some Python for loops together to automate some stuff in…]]></description><link>https://graphl.tech/blog/HowICameUpWithGraphl/</link><guid isPermaLink="false">https://graphl.tech/blog/HowICameUpWithGraphl/</guid><pubDate>Thu, 21 Nov 2024 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;TODO: finish this blog&lt;/p&gt;
+&lt;p&gt;A long time ago, I didn&apos;t program.&lt;/p&gt;
+&lt;p&gt;In fact, I only scraped some Python for loops together to automate some stuff in Blender,
+with much help from my dad, and it was beyond me.&lt;/p&gt;
+&lt;img src=&quot;https://mikemikeb.com/images/the-eye.png&quot; alt=&quot;mike&apos;s procedural eye&quot;/&gt;
+&lt;p&gt;Then, while still quite young, I learned about Unreal Engine blueprints.
+I was already programming by then so I didn&apos;t like them much, but I met several animators,
+game developers, and later in the Architecture-Engineering-Construction industry several
+architects who swore by this thing. I met (and led a team of) people making entire projects
+that pretty much only used visual script. And they vastly preferred it.&lt;/p&gt;
+&lt;p&gt;And I dreamed that I would never have to edit these things myself.&lt;/p&gt;
+&lt;p&gt;I realized eventually that text editing is the barrier. Text editing is an old vestige
+of the technological transitions that brought us todays intuitive computers. And I even
+think it&apos;s very efficient once learnt and combined with good tooling.&lt;/p&gt;
+&lt;p&gt;Now I believe that the gap between visual languages and textual languages is an
+imagined one. And I intend to lead the design of this language to prove it.&lt;/p&gt;
+&lt;p&gt;This language will be &lt;em&gt;isomorphic&lt;/em&gt; to a visual representation. Meaning you can edit
+one format and it will cleanly change the other, automatically. So people can choose
+whichever format they prefer and still work together!&lt;/p&gt;</content:encoded></item></channel></rss>
