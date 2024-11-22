@@ -1,0 +1,4 @@
+body {
+  /* FIXME: fix the actual overflow */
+  overflow: hidden;
+}

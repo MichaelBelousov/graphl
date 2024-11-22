@@ -2,6 +2,7 @@ import React from 'react'
 import "../shared.css";
 import * as graphl from "@graphl/ide-browser";
 import SEO from '../components/seo';
+import "./app.css";
 
 const customNodes: Record<string, graphl.JsFunctionBinding> = {
   fetch: {
@@ -42,6 +43,7 @@ const Homepage = () => {
     });
   }, []);
 
+
   // TODO: add blurbs to each canvas example
   return (
     <div>
@@ -49,8 +51,8 @@ const Homepage = () => {
       <canvas
         ref={canvasRef}
         style={{
-          height: "100vh",
           width: "100vw",
+          height: "100vh",
         }}
       />
     </div>
