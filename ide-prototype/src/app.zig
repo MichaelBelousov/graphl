@@ -701,6 +701,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
     inline for (bindings_infos, 0..) |bindings_info, i| {
         const bindings = bindings_info.data;
 
+        // TODO: don't show "Get Locals >" if none of them match the search
         if (bindings.items.len > 0) {
             if (maybe_create_from == null or maybe_create_from.?.kind == .input) {
                 if (try dvui.menuItemLabel(@src(), "Get " ++ bindings_info.display ++ " >", .{ .submenu = true }, .{ .expand = .horizontal, .id_extra = i })) |r| {
@@ -1889,59 +1890,15 @@ pub fn frame() !void {
             }
         }
 
-        if (try dvui.menuItemLabel(@src(), "Edit", .{ .submenu = true }, .{ .expand = .none })) |r| {
+        if (try dvui.menuItemLabel(@src(), "Go", .{ .submenu = true }, .{ .expand = .none })) |r| {
             var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
             defer fw.deinit();
-            _ = try dvui.menuItemLabel(@src(), "Dummy", .{}, .{ .expand = .horizontal });
-            _ = try dvui.menuItemLabel(@src(), "Dummy Long", .{}, .{ .expand = .horizontal });
-            _ = try dvui.menuItemLabel(@src(), "Dummy Super Long", .{}, .{ .expand = .horizontal });
-        }
-    }
 
-    //ScrollData.scroll_info.virtual_size = current_graph.visual_graph.graph_bb.size();
-
-    // FIXME: move the viewport to any newly created nodes
-    //scroll_info.viewport = current_graph.visual_graph.graph_bb;
-
-    var hbox = try dvui.box(@src(), .horizontal, .{ .expand = .both });
-    defer hbox.deinit();
-
-    if (options.preferences.definitionsPanel.visible) {
-        var defines_box = try dvui.box(@src(), .vertical, .{ .expand = .vertical, .background = true });
-        defer defines_box.deinit();
-
-        var tl = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
-        try tl.addText("Graphl Test Editor", .{});
-        tl.deinit();
-
-        {
-            var btns_box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal, .background = true });
-            defer btns_box.deinit();
-
-            if (try dvui.button(@src(), "Guide", .{}, .{})) {
-                try dvui.dialog(@src(), .{ .modal = false, .title = "Guide", .max_size = .{ .w = 600, .h = 600 }, .message = 
-                \\Welcome to Graphl
-                \\
-                \\Left click and drag from a socket to create a contextually applicable node
-                \\from it and automatically connect the new node.
-                \\Or right click to create a free node.
-                \\
-                \\Click on a socket to delete any link/edge connected to it.
-                \\Hold Control/Cmd and left-click on any node to delete it.
-                \\
-                \\
-                });
-            }
-
-            if (try dvui.button(@src(), "Debug", .{}, .{})) {
-                dvui.currentWindow().debug_window_show = true;
-            }
-
-            if (try dvui.button(@src(), "Sync", .{}, .{})) {
+            if (try dvui.menuItemLabel(@src(), "Sync", .{}, .{ .expand = .horizontal })) |_| {
                 try postCurrentSexp();
             }
 
-            if (try dvui.button(@src(), "Run", .{}, .{})) {
+            if (try dvui.menuItemLabel(@src(), "Run", .{}, .{ .expand = .horizontal })) |_| {
                 const sexp = try combineGraphs();
                 defer sexp.deinit(gpa);
 
@@ -1962,21 +1919,66 @@ pub fn frame() !void {
                     std.log.err("compile_error={any}", .{err});
                 }
             }
+
+            if (try dvui.menuItemLabel(@src(), "Debug DVUI", .{}, .{ .expand = .horizontal })) |_| {
+                dvui.currentWindow().debug_window_show = true;
+            }
+        }
+
+        if (try dvui.menuItemLabel(@src(), "Help", .{ .submenu = true }, .{ .expand = .none })) |r| {
+            var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
+            defer fw.deinit();
+            if (try dvui.menuItemLabel(@src(), "Guide", .{}, .{ .expand = .horizontal })) |_| {
+                try dvui.dialog(@src(), .{
+                    .modal = true,
+                    .title = "Guide",
+                    .max_size = .{ .w = 600, .h = 600 },
+                    .message =
+                    \\Welcome to Graphl
+                    \\
+                    \\Left click and drag from a socket to create a contextually applicable node
+                    \\from it and automatically connect the new node.
+                    \\Or right click to create a free node.
+                    \\
+                    \\Click on a socket to delete any link/edge connected to it.
+                    \\Hold Control/Cmd and left-click on any node to delete it.
+                    \\
+                    \\
+                    ,
+                });
+            }
+        }
+    }
+
+    //ScrollData.scroll_info.virtual_size = current_graph.visual_graph.graph_bb.size();
+
+    // FIXME: move the viewport to any newly created nodes
+    //scroll_info.viewport = current_graph.visual_graph.graph_bb;
+
+    var hbox = try dvui.box(@src(), .horizontal, .{ .expand = .both });
+    defer hbox.deinit();
+
+    if (options.preferences.definitionsPanel.visible) {
+        var defines_box = try dvui.box(@src(), .vertical, .{ .expand = .vertical, .background = true });
+        defer defines_box.deinit();
+
+        var tl = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
+        try tl.addText("Graphl Test Editor", .{});
+        tl.deinit();
+
+        {
+            var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal });
+            defer box.deinit();
+
+            _ = try dvui.label(@src(), "Functions", .{}, .{ .font_style = .heading });
+
+            const add_clicked = (try dvui.buttonIcon(@src(), "add-graph", entypo.plus, .{}, .{})).clicked;
+            if (add_clicked) {
+                _ = try addGraph("new-func", false);
+            }
         }
 
         {
-            {
-                var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal });
-                defer box.deinit();
-
-                _ = try dvui.label(@src(), "Functions", .{}, .{ .font_style = .heading });
-
-                const add_clicked = (try dvui.buttonIcon(@src(), "add-graph", entypo.plus, .{}, .{})).clicked;
-                if (add_clicked) {
-                    _ = try addGraph("new-func", false);
-                }
-            }
-
             var maybe_cursor = graphs.first;
             var i: usize = 0;
             while (maybe_cursor) |cursor| : ({
