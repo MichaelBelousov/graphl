@@ -1,7 +1,7 @@
 import { Link } from 'gatsby';
 import React from 'react';
 import * as styles from './header.module.scss';
-import logoPath from '../images/logo2.svg';
+import Logo from '../images/GraphlAnimation.inline.svg';
 import { useIsMobileLike } from '../useIsMobileLike';
 import * as constants from "../constants";
 import { classNames } from '../react-utils';
@@ -11,7 +11,7 @@ const Header = () => {
     <div className={styles.left}>
       {/* FIXME: make svg logo */}
       <Link className={`${styles.navLink} ${styles.logo}`} to="/">
-        <img src={logoPath} /> {constants.flagshipProductName}
+        <Logo height="1.5em" width="1.5em" /> {constants.flagshipProductName}
       </Link>
     </div>
   );

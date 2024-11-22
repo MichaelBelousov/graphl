@@ -124,7 +124,7 @@ a.logoAnimated {
   background: radial-gradient(
     //ellipse at top,
     circle at center,
-    rgba(100, 100, 150, 0.3) 0%,
+    rgba(130, 130, 180, 0.35) 0%,
     transparent 60%,
   );
 } 
@@ -166,4 +166,11 @@ a.logoAnimated {
       grid-area: a#{$i};
     }
   }
+}
+
+.logoImage {
+  width: 2em;
+  height: 2em;
+  fill: white;
+  stroke: white;
 }

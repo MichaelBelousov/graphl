@@ -3,8 +3,9 @@ const { createFilePath } = require('gatsby-source-filesystem')
 
 const imageInlineSizeLimit = 4 * 1024
 
-exports.onCreateWebpackConfig = ({ actions }) => {
+exports.onCreateWebpackConfig = ({ stage, actions }) => {
   actions.setWebpackConfig({
+    devtool: false,
     module: {
       rules: [
         {
