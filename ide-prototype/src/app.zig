@@ -16,7 +16,7 @@ const helpers = @import("grappl_core").helpers;
 
 const MAX_FUNC_NAME = 256;
 
-extern fn recvCurrentSource(ptr: ?[*]const u8, len: usize) void;
+extern fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void;
 extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
 // NOTE: check if this is bad
@@ -56,7 +56,7 @@ var options: struct {
         graph: struct {
             origin: ?dvui.Point = null,
             scale: ?f32 = null,
-            scrollBarsVisible: ?bool = null,
+            scrollBarsVisible: ?bool = false,
         } = .{},
         definitionsPanel: struct {
             orientation: Orientation = .left,
@@ -467,7 +467,7 @@ fn combineGraphs() !Sexp {
     return result;
 }
 
-fn postCurrentSexp() !void {
+fn exportCurrentSource() !void {
     var bytes = std.ArrayList(u8).init(gpa);
     defer bytes.deinit();
 
@@ -483,7 +483,7 @@ fn postCurrentSexp() !void {
         _ = try sexp.write(bytes.writer());
     }
 
-    recvCurrentSource(bytes.items.ptr, bytes.items.len);
+    onExportCurrentSource(bytes.items.ptr, bytes.items.len);
 }
 
 fn setCurrentGraphByIndex(index: u16) !void {
@@ -716,7 +716,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                         }
 
                         if (search_input.len != 0) {
-                            const matches_search = std.mem.indexOf(u8, binding.name, search_input) != null;
+                            const matches_search = std.ascii.indexOfIgnoreCase(binding.name, search_input) != null;
                             if (!matches_search) continue;
                         }
 
@@ -749,7 +749,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     }
 
                     if (search_input.len != 0) {
-                        const matches_search = std.mem.indexOf(u8, binding.name, search_input) != null;
+                        const matches_search = std.ascii.indexOfIgnoreCase(binding.name, search_input) != null;
                         if (!matches_search) continue;
                     }
 
@@ -778,7 +778,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     }
 
                     if (search_input.len != 0) {
-                        const matches_search = std.mem.indexOf(u8, binding.name, search_input) != null;
+                        const matches_search = std.ascii.indexOfIgnoreCase(binding.name, search_input) != null;
                         if (!matches_search) continue;
                     }
 
@@ -810,7 +810,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                 }
 
                 if (search_input.len != 0) {
-                    const matches_search = std.mem.indexOf(u8, binding.name, search_input) != null;
+                    const matches_search = std.ascii.indexOfIgnoreCase(binding.name, search_input) != null;
                     if (!matches_search) continue;
                 }
 
@@ -850,7 +850,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
             }
 
             if (search_input.len != 0) {
-                const matches_search = std.mem.indexOf(u8, node_name, search_input) != null;
+                const matches_search = std.ascii.indexOfIgnoreCase(node_name, search_input) != null;
                 if (!matches_search) continue;
             }
 
@@ -1885,18 +1885,14 @@ pub fn frame() !void {
             var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
             defer fw.deinit();
 
-            if (try dvui.menuItemLabel(@src(), "Close Menu", .{}, .{}) != null) {
-                m.close();
+            if (try dvui.menuItemLabel(@src(), "Save", .{}, .{ .expand = .horizontal })) |_| {
+                try exportCurrentSource();
             }
         }
 
         if (try dvui.menuItemLabel(@src(), "Go", .{ .submenu = true }, .{ .expand = .none })) |r| {
             var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
             defer fw.deinit();
-
-            if (try dvui.menuItemLabel(@src(), "Sync", .{}, .{ .expand = .horizontal })) |_| {
-                try postCurrentSexp();
-            }
 
             if (try dvui.menuItemLabel(@src(), "Run", .{}, .{ .expand = .horizontal })) |_| {
                 const sexp = try combineGraphs();

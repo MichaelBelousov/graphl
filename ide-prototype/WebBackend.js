@@ -1,6 +1,7 @@
 ///<reference path="./WebBackend.d.ts">
 
 import frontendWasmPromise from './zig-out/bin/dvui-frontend.wasm?init';
+import { downloadFile } from './localFileManip';
 
 // TODO: remove references to dvui in prod build
 
@@ -453,12 +454,16 @@ export function Ide(canvasElem, opts) {
             }
         },
 
-        recvCurrentSource: (ptr, len) => {
+        onExportCurrentSource: (ptr, len) => {
             if (len === 0) return;
-            const msg = utf8decoder.decode(new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len));
+            const content = utf8decoder.decode(new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len));
             console.log("compiled:")
-            console.log(msg)
-            globalThis._monacoSyncHook?.(msg);
+            console.log(content)
+            globalThis._monacoSyncHook?.(content);
+            void downloadFile({
+                fileName: "project.scm",
+                content,
+            });
         },
 
         runCurrentWat: async (ptr, len) => {
