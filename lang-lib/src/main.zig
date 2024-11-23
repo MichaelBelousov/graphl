@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 // import to export these public functions
-pub const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 pub const graphToSource = @import("./graph_to_source.zig").graphToSource;
 pub const readSrc = @import("./ide_json_gen.zig").readSrc;
 
@@ -23,6 +22,7 @@ pub const BasicNodeDesc = @import("./nodes/builtin.zig").BasicNodeDesc;
 pub const helpers = @import("./nodes/builtin.zig");
 pub const Value = @import("./nodes/builtin.zig").Value;
 pub const Sexp = @import("./sexp.zig").Sexp;
+pub const syms = @import("./sexp.zig").syms;
 pub const SexpParser = @import("./sexp_parser.zig").Parser;
 pub const compiler = @import("./compiler-wat.zig");
 

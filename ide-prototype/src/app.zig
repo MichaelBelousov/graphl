@@ -13,12 +13,13 @@ const compiler = grappl.compiler;
 const SexpParser = @import("grappl_core").SexpParser;
 const Sexp = @import("grappl_core").Sexp;
 const helpers = @import("grappl_core").helpers;
+const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 
 const MAX_FUNC_NAME = 256;
 
 extern fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void;
 extern fn onExportCompiled(ptr: ?[*]const u8, len: usize) void;
-extern fn onRequestLoadSource(ptr: ?[*]const u8, len: usize) void;
+extern fn onRequestLoadSource() [*:0]const u8;
 extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
 // NOTE: check if this is bad
@@ -352,7 +353,7 @@ else
 
 var shared_env: grappl.Env = undefined;
 
-const Graph = struct {
+pub const Graph = struct {
     index: u16,
 
     name: []u8,
@@ -499,6 +500,13 @@ fn exportCurrentSource() !void {
     defer bytes.deinit();
 
     onExportCurrentSource(bytes.items.ptr, bytes.items.len);
+}
+
+fn importSource() !void {
+    const src = onRequestLoadSource();
+    const src_slice = src[0..std.mem.len(src)];
+    // FIXME: leaks!
+    graphs = try sourceToGraph(gpa, src_slice, &shared_env);
 }
 
 fn setCurrentGraphByIndex(index: u16) !void {
@@ -1950,7 +1958,7 @@ pub fn frame() !void {
             }
 
             if (try dvui.menuItemLabel(@src(), "Open", .{}, .{ .expand = .horizontal })) |_| {
-                try exportCurrentSource();
+                try importSource();
             }
 
             if (try dvui.menuItemLabel(@src(), "Export Wasm", .{}, .{ .expand = .horizontal })) |_| {
