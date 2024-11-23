@@ -19,7 +19,7 @@ npm install @graphl/ide
 import * as graphl from "./WebBackend.js";
 import confetti from "@tsparticles/confetti";
 
-// execute a function that the user compiled in the 
+// grab the canvas you prepared
 const canvas = document.getElementById("my-canvas");
 
 // we define custom nodes separately here

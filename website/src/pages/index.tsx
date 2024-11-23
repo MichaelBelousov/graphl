@@ -61,6 +61,9 @@ const Homepage = () => {
         topbar: {
           visible: false,
         },
+        compiler: {
+          watOnly: true,
+        },
       },
     };
 

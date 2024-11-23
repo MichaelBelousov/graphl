@@ -29,7 +29,8 @@ const Faqs = () => {
               </p>
               <p>
                 I'd heavily consider open sourcing everything if we can achieve a sustainable
-                model for it.
+                model for it. If you really disagree with my reasoning please reach out, I'd love
+                to chat.
               </p>
             </li>
           </ul>

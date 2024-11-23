@@ -27,11 +27,17 @@ const Faqs = () => {
           does not constitute an embedding and is therefore unrestricted by this license.
         </p>
         <p>
+          Another example is, suppose you make a (web?) game where you use Graphl to program the game logic, using a WebAssembly
+          runtime to run game scripts programmed in Graphl. You are completely free to sell that game commercially. However,
+          if you wanted players of the game to be able to use Graphl embedded in the game to design custom game logic, that
+          would require an agreement with Graphl Technologies.
+        </p>
+        <p>
           You may use the IDE in any application provided to you by an authorized distributor,
           such as <a href="https://graphl.tech/app">https://graphl.tech/app</a> which is free
           to use, but not embed. In fact, if you are just an end-user using the Graphl editor,
-          you are beholden only to the restrictions of your distributor, which for
-          <a href="https://graphl.tech/app">https://graphl.tech/app</a> is described in the first
+          you are beholden only to the restrictions of your distributor, which
+          for <a href="https://graphl.tech/app">https://graphl.tech/app</a> is described in the first
           paragraph.
         </p>
         <p>
