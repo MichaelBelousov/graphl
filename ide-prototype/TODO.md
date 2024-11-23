@@ -1,3 +1,10 @@
+## website
+
+- prepare samples
+  - math
+  - confetti
+  - sqlite
+
 ## short term
 
 - deploy iTwin example binding
@@ -5,9 +12,8 @@
 - organized context menu
 - test on mac
 - restrict result count to 1 for now
-- ability to open/save existing projects
+- ability to open saved projects
 - ability to see your output somehow...
-- add subscribe
 - better logo
 - better marketing site
 

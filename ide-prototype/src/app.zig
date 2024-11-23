@@ -950,15 +950,11 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
         ScrollData.scale = scale;
     }
 
-    // FIXME: get max size from this from the graph size
-    const ctext = try dvui.context(@src(), .{ .expand = .both });
-    context_menu_widget_id = ctext.wd.id;
-    defer ctext.deinit();
-
     const scroll_bar_vis: dvui.ScrollInfo.ScrollBarMode = if (options.preferences.graph.scrollBarsVisible) |v|
         if (v) .show else .hide
     else
         .auto;
+
     var graph_area = try dvui.scrollArea(
         @src(),
         .{
@@ -1259,11 +1255,19 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
         }
     }
 
-    // render add node context menu outside the graph
-    if (ctext.activePoint()) |cp| {
-        try renderAddNodeMenu(cp, pt_in_graph, node_menu_filter);
-    } else {
-        node_menu_filter = null;
+    {
+        // FIXME: get max size from this from the graph size
+        const ctext = try dvui.context(@src(), .{ .rect = graph_area.data().rect }, .{ .expand = .both });
+        // FIXME: shouldn't this be set before the usage?
+        context_menu_widget_id = ctext.wd.id;
+
+        defer ctext.deinit();
+        // render add node context menu outside the graph
+        if (ctext.activePoint()) |cp| {
+            try renderAddNodeMenu(cp, pt_in_graph, node_menu_filter);
+        } else {
+            node_menu_filter = null;
+        }
     }
 }
 
@@ -1393,24 +1397,25 @@ fn renderNode(
 
     const result = box.data().rectScale().r; // already has origin added (already in scroll coords)
 
-    // // FIXME: this causes a glitch
-    // // TODO: allow deleting nodes via context menu
-    // const ctext = try dvui.context(@src(), .{ .expand = .both });
-    // defer ctext.deinit();
-
-    // if (ctext.activePoint()) |cp| {
-    //     var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(cp), .{});
-    //     defer fw.deinit();
-    //     if (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal })) |_| {
-    //         if (current_graph.removeNode(node.id)) |removed| {
-    //             std.debug.assert(removed);
-    //         } else |err| switch (err) {
-    //             error.CantRemoveEntry => {},
-    //             else => return err,
-    //         }
-    //     }
-    //     // TODO: also add ability to change the type of the node?
-    // }
+    // FIXME: this causes a glitch
+    // TODO: allow deleting nodes via context menu
+    {
+        const ctext = try dvui.context(@src(), .{ .rect = box.data().rect }, .{ .expand = .both });
+        if (ctext.activePoint()) |cp| {
+            var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(cp), .{});
+            defer fw.deinit();
+            if (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal })) |_| {
+                if (current_graph.removeNode(node.id)) |removed| {
+                    std.debug.assert(removed);
+                } else |err| switch (err) {
+                    error.CantRemoveEntry => {},
+                    else => return err,
+                }
+            }
+            // TODO: also add ability to change the type of the node?
+        }
+        defer ctext.deinit();
+    }
 
     switch (node.kind) {
         .desc => |desc| try dvui.label(@src(), "{s}", .{desc.name()}, .{ .font_style = .title_3 }),
