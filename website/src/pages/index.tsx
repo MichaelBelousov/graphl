@@ -137,7 +137,7 @@ const Homepage = () => {
       preferences: {
         graph: {
           scrollBarsVisible: false,
-          origin: { x: 200, y: 200 },
+          //origin: { x: 200, y: 200 },
         },
         definitionsPanel:  {
           visible: false,
