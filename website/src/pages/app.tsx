@@ -43,7 +43,7 @@ const Homepage = () => {
       },
     });
 
-    return () => { delete document.body.style.overflow };
+    return () => { document.body.style.overflow = "initial"; };
   }, []);
 
 

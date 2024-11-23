@@ -17,7 +17,14 @@ const Layout = ({
   pageTitle,
   pageDesc,
   children,
-}: React.PropsWithChildren<LayoutProps>) => { return (
+}: React.PropsWithChildren<LayoutProps>) => {
+
+  React.useLayoutEffect(() => {
+    // HACK! restore overflow handling after using app
+    document.body.style.overflow = "initial";
+  }, []);
+
+  return (
     // NEXT: add links to footer
     <div className={styles.layoutContainer} style={{ position: "relative" }}>
       <Header />
