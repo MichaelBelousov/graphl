@@ -615,7 +615,6 @@ export function Ide(canvasElem, opts) {
       },
     };
 
-    Promise.all([
     frontendWasmPromise(imports)
     .then((result) => {
         wasmResult = { instance: result };
@@ -633,6 +632,8 @@ export function Ide(canvasElem, opts) {
             assert(we.setOpt_preferences_graph_scale(opts.preferences.graph.scale));
         if (opts?.preferences?.graph?.scrollBarsVisible !== undefined)
             assert(we.setOpt_preferences_graph_scrollBarsVisible(opts.preferences.graph.scrollBarsVisible ? 1 : 0));
+        if (opts?.preferences?.graph?.allowPanning !== undefined)
+            assert(we.setOpt_preferences_graph_scrollBarsVisible(opts.preferences.graph.allowPanning ? 1 : 0));
         if (opts?.preferences?.topbar?.visible !== undefined)
             assert(we.setOpt_preferences_topbar_visible(opts.preferences.topbar.visible ? 1 : 0));
         if (opts?.preferences?.definitionsPanel?.visible !== undefined)
@@ -1040,15 +1041,16 @@ export function Ide(canvasElem, opts) {
 
         // start the first update
         requestRender();
-    }),
+    });
 
-    import("./zig-out/bin/wasm-opt.js")
-        .then(s => s.default())
-        .then((mod) => {
-            globalThis._wasmOpt = mod;
-            wasmOpt = mod;
-        }),
-    ]);
+    if (!(opts.preferences?.compiler.watOnly ?? false))
+        import("./zig-out/bin/wasm-opt.js")
+            .then(s => s.default())
+            .then((mod) => {
+                globalThis._wasmOpt = mod;
+                // FIXME: save the promise so there isn't a race!
+                wasmOpt = mod;
+            });
 
     return {
         functions: new Proxy({}, {

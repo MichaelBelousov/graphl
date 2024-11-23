@@ -468,6 +468,10 @@ const Compilation = struct {
                 .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_string_equal" } },
                 .node_desc = builtin.builtin_nodes.string_equal,
             };
+            pub const string_concat = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_string_concat" } },
+                .node_desc = builtin.builtin_nodes.string_concat,
+            };
         };
     };
 

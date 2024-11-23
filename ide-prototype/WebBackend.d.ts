@@ -76,6 +76,7 @@ export declare namespace Ide {
         origin?: { x: number, y: number };
         scale?: number;
         scrollBarsVisible?: boolean;
+        allowPanning?: boolean;
       },
       topbar?: {
         visible?: boolean,
@@ -84,8 +85,18 @@ export declare namespace Ide {
         /** where to place the side panel */
         orientation?: "left", // TODO: add "right"
         /** whether or not the side panel is visible */
-        visible?: boolean,
+        visible?: boolean;
       },
+      compiler: {
+        /**
+         * @default false
+         * prevents fetching the wasm-opt binary which saves 10MB bandwidth
+         * but prevents execution of compiled code
+         *
+         * this is a temporary measure for display-only scenarios
+         */
+        watOnly: boolean;
+      };
     },
     /**
      * initial state of the IDE, e.g. which graphs exist

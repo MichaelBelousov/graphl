@@ -59,6 +59,7 @@ var options: struct {
             origin: ?dvui.Point = null,
             scale: ?f32 = null,
             scrollBarsVisible: ?bool = false,
+            allowPanning: bool = true,
         } = .{},
         definitionsPanel: struct {
             orientation: Orientation = .left,
@@ -82,6 +83,11 @@ export fn setOpt_preferences_graph_scale(val: f32) bool {
 
 export fn setOpt_preferences_graph_scrollBarsVisible(val: bool) bool {
     options.preferences.graph.scrollBarsVisible = val;
+    return true;
+}
+
+export fn setOpt_preferences_graph_allowPanning(val: bool) bool {
+    options.preferences.graph.allowPanning = val;
     return true;
 }
 
@@ -1124,9 +1130,10 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
                     }
                 } else if (me.action == .motion) {
                     if (me.button.touch()) {
+                        // FIXME: check dvui scrollArea sample, why is this commented out?
                         //e.handled = true;
                     }
-                    if (dvui.captured(graph_area.scroll.data().id)) {
+                    if (dvui.captured(graph_area.scroll.data().id) and options.preferences.graph.allowPanning) {
                         if (dvui.dragging(me.p)) |dps| {
                             const rs = scrollRectScale;
                             ScrollData.scroll_info.viewport.x -= dps.x / rs.s;
@@ -2000,10 +2007,6 @@ pub fn frame() !void {
     if (options.preferences.definitionsPanel.visible) {
         var defines_box = try dvui.box(@src(), .vertical, .{ .expand = .vertical, .background = true });
         defer defines_box.deinit();
-
-        var tl = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal, .font_style = .title_4 });
-        try tl.addText("Graphl Test Editor", .{});
-        tl.deinit();
 
         {
             var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal });

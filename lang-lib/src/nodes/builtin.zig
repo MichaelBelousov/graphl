@@ -744,6 +744,18 @@ pub const builtin_nodes = struct {
         .tags = &.{"string"},
     });
 
+    pub const string_concat: NodeDesc = basicNode(&.{
+        .name = "string-concat",
+        .inputs = &.{
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "equal", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+        },
+        .tags = &.{"string"},
+    });
+
     // FIXME: TEMP FOR DEMO
     pub const like: NodeDesc = basicNode(&.{
         .name = "like",
