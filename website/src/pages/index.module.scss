@@ -132,19 +132,24 @@ a.logoAnimated {
  
 .sampleGrid {
   display: grid;
-  gap: 0.5in 0.5in;
 
   @media only screen {
     @media (max-width: 800px) {
       grid-template-columns: 1fr;
     }
     @media (min-width: 800px) {
+      gap: 1in 1in;
       grid-template-rows: auto auto auto;
       grid-template-columns: 1fr 1fr;
       grid-template-areas:
         "a1 a2"
         "a4 a3"
         "a5 a6";
+      @for $i from 1 through 6 {
+        > :nth-child(#{$i}) {
+          grid-area: a#{$i};
+        }
+      }
     }
   }
 
@@ -161,11 +166,6 @@ a.logoAnimated {
     pointer-events: none;
   }
 
-  @for $i from 1 through 6 {
-    > :nth-child(#{$i}) {
-      grid-area: a#{$i};
-    }
-  }
 }
 
 .logoImage {

@@ -160,6 +160,36 @@ const Homepage = () => {
         >
           Try it
         </ShinyButton>
+
+        <div className="center">
+          <p style={mediumText} {...classNames(styles["fadeInText_2"])}>
+            Throw away 60 years of text editing baggage and write code
+            <em> without writing code</em>
+          </p>
+        </div>
+
+        <div className="center">
+          <p style={mediumText} className={styles["fadeInText_3"]}>
+            Compiles to WebAssembly so you can run it anywhere,
+            <br/>
+            <em>including in your browser</em>
+          </p>
+        </div>
+
+        <div className="center">
+          <p style={mediumText} className={styles["fadeInText_4"]}>
+            Experience the programming language that feels like a
+            <br/>
+            <em>workflow engine</em>
+          </p>
+        </div>
+
+        <div className="center">
+          <a href={"/blog/docs"} style={mediumText} className={styles["fadeInText_4"]}>
+            Get started
+          </a>
+        </div>
+
       </div>
 
       <div className={styles.sampleGrid}>
@@ -171,23 +201,27 @@ const Homepage = () => {
           </p>
           */}
 
+        {/* TODO: use images instead */}
         <div className="center">
-          <p style={mediumText} {...classNames(styles["fadeInText_2"])}>
-            Throw away 60 years of text editing baggage and write code
-            <em> without writing code</em>
+          <p style={mediumText}>
+            Do all the programming stuff.
+            <br />
+            Math, strings, <em>if</em> this, <em>loop</em> that
+            {/* add "run button" printing math result */}
           </p>
         </div>
-        {/* TODO: use images instead */}
         <canvas
           ref={canvas1Ref}
           onScroll={e => e.stopPropagation()}
         />
 
         <div className="center">
-          <p style={mediumText} className={styles["fadeInText_3"]}>
-            Compiles to WebAssembly so you can run it anywhere,
+          <p style={mediumText}>
+            Or embed Graphl into your own program and add custom nodes.
             <br/>
-            <em>including in your browser</em>
+            <br/>
+            On the web, call out to the host and run JavaScript from custom nodes.
+            {/* add "run button" with confetti */}
           </p>
         </div>
         <canvas
@@ -196,12 +230,13 @@ const Homepage = () => {
         />
 
         <div className="center">
-          <p style={mediumText} className={styles["fadeInText_4"]}>
-            Experience the programming language that feels like a
-            <br/>
-            <em>workflow engine</em>
+          <p style={mediumText}>
+            Get powerful with lisp-inspired macros.
+            <br />
+            <br />
+            Embedded SQL query node system, anyone?
+            {/* SQL sample */}
           </p>
-
         </div>
         <canvas
           ref={canvas3Ref}
