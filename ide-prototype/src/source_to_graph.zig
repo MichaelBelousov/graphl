@@ -28,8 +28,6 @@ fn funcSourceToGraph(
     index: u16,
     env: *Env,
 ) !Graph {
-    var graph = try Graph.init(index, env);
-
     assert(type_sexp.value == .list);
     assert(impl_sexp.value == .list);
 
@@ -47,12 +45,20 @@ fn funcSourceToGraph(
     assert(bindings.value.list.items.len == binding_types.value.list.items.len);
     for (bindings.value.list.items) |b| assert(b.value == .symbol);
 
+    const impl_func_name = &bindings.value.list.items[0];
+    const type_func_name = &binding_types.value.list.items[0];
+    assert(std.mem.eql(u8, impl_func_name.value.symbol, type_func_name.value.symbol));
+
+    const func_name = try a.dupe(u8, impl_func_name.value.symbol);
+
+    var graph = try Graph.init(index, func_name);
+
     const param_names = bindings.value.list.items[1..];
     const param_types = binding_types.value.list.items[1..];
 
     {
-        graph.entry_node_basic_desc.outputs = try a.realloc(graph.entry_node_basic_desc.outputs, param_names.len);
-        for (param_names, param_types, graph.entry_node_basic_desc.outputs) |param_name, param_type_name, *output_desc| {
+        graph.grappl_graph.entry_node_basic_desc.outputs = try a.realloc(graph.grappl_graph.entry_node_basic_desc.outputs, param_names.len);
+        for (param_names, param_types, graph.grappl_graph.entry_node_basic_desc.outputs) |param_name, param_type_name, *output_desc| {
             output_desc.name = try a.dupe(u8, param_name.value.symbol);
             const param_type = env.getType(param_type_name.value.symbol) orelse unreachable;
             output_desc.kind = .{ .primitive = .{ .value = param_type } };
@@ -61,7 +67,7 @@ fn funcSourceToGraph(
 
     const result_type_name = type_sexp.value.list.items[2].value.symbol;
     const result_type = env.getType(result_type_name) orelse unreachable;
-    graph.result_node_basic_desc.inputs[1].kind.primitive.value = result_type;
+    graph.grappl_graph.result_node_basic_desc.inputs[1].kind.primitive.value = result_type;
 
     const definition = &impl_sexp.value.list.items[2];
     assert(definition.value.list.items.len == 1);
@@ -89,7 +95,7 @@ fn funcSourceToGraph(
 
     {
         assert(locals_forms.len % 2 == 0);
-        try graph.locals.ensureTotalCapacityPrecise(a, locals_forms.len / 2);
+        try graph.grappl_graph.locals.ensureTotalCapacityPrecise(a, locals_forms.len / 2);
 
         var i: usize = 0;
         while (i < locals_forms.len) : (i += 2) {
@@ -101,7 +107,7 @@ fn funcSourceToGraph(
 
             const local_type = env.getType(local_type_name) orelse unreachable;
 
-            graph.locals.addOneAssumeCapacity().* = .{
+            graph.grappl_graph.locals.addOneAssumeCapacity().* = .{
                 .name = try a.dupe(u8, local_name),
                 .type_ = local_type,
                 // FIXME: should add an "extra" to be compatible with the frontend?
@@ -125,8 +131,8 @@ fn funcSourceToGraph(
                         const callee = v.items[0];
                         const input_args = v.items[1..];
                         assert(callee.value == .symbol);
-                        const input_node_id = try _graph.addNode(_a, callee.value.symbol, false, null, null);
-                        const input_node = _graph.nodes.map.getPtr(input_node_id) orelse unreachable;
+                        const input_node_id = try _graph.addNode(_a, callee.value.symbol, false, null, null, .{});
+                        const input_node = _graph.grappl_graph.nodes.map.getPtr(input_node_id) orelse unreachable;
                         try attachArgs(_a, input_node, input_args, _env, _graph);
                         input.link = .{
                             .target = input_node_id,
@@ -159,13 +165,13 @@ fn funcSourceToGraph(
         }
     };
 
-    var prev_node = graph.entry() orelse unreachable;
+    var prev_node = graph.grappl_graph.entry() orelse unreachable;
     for (body_exprs) |body_expr| {
         const callee = body_expr.value.list.items[0].value.symbol;
         const args = body_expr.value.list.items[1..];
         // TODO: this should return the full node and not cause consumers to need to perform a lookup
-        const new_node_id = try graph.addNode(a, callee, false, null, null);
-        const new_node = graph.nodes.map.getPtr(new_node_id) orelse unreachable;
+        const new_node_id = try graph.addNode(a, callee, false, null, null, .{});
+        const new_node = graph.grappl_graph.nodes.map.getPtr(new_node_id) orelse unreachable;
         assert(new_node.desc().getInputs()[0].isExec());
         assert(prev_node.desc().getOutputs()[0].isExec());
         prev_node.outputs[0] = .{ .link = .{
@@ -176,6 +182,8 @@ fn funcSourceToGraph(
         // FIXME: won't work for if duh
         try Local.attachArgs(a, new_node, args, env, &graph);
     }
+
+    try graph.visual_graph.formatGraphNaive(a);
 
     return graph;
 }
