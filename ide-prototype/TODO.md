@@ -1,11 +1,16 @@
 ## short term
 
-- deploy marketing website
 - deploy iTwin example binding
-- publish to NPM for people to play with
 - working function calls
-- more string utilities
 - organized context menu
+- test on mac
+- restrict result count to 1 for now
+- ability to open/save existing projects
+- ability to see your output somehow...
+- add subscribe
+- better logo
+- better marketing site
 
 ## long term
 - custom types
+- generate user function types

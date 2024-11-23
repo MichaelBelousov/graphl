@@ -49,6 +49,7 @@
   ],
   "dependencies": {
     "@bentley/react-hooks": "^1.2.0",
+    "@fontsource/quicksand": "^5.1.0",
     "gatsby-plugin-react-svg": "^3.3.0"
   }
 }

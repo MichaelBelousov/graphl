@@ -31,6 +31,7 @@ const Homepage = () => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
   React.useLayoutEffect(() => {
+    document.body.style.overflow = "hidden";
     if (canvasRef.current === null)
       throw Error("bad canvas elem");
 
@@ -41,12 +42,14 @@ const Homepage = () => {
         },
       },
     });
+
+    return () => { delete document.body.style.overflow };
   }, []);
 
 
   // TODO: add blurbs to each canvas example
   return (
-    <div>
+    <div style={{ overflow: "hidden", margin: 0, padding: 0 }}>
       <SEO title={"Graphl Web IDE"} description={"Use Graphl on the web"} />
       <canvas
         ref={canvasRef}

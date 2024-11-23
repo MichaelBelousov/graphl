@@ -98,3 +98,20 @@ hr {
 .layoutContainer > :not(:last-child):not(:first-child) {
   flex-grow: 2;
 }
+
+.linkColumn {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  a {
+    text-decoration: none;
+    color: var(--body);
+  }
+}
+
+.footerLinks {
+  display: flex;
+  justify-content: space-around;
+  gap: 12px;
+  margin-bottom: 12px;
+}

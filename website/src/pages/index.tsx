@@ -30,6 +30,89 @@ const ShinyButton = (btnProps: React.HTMLProps<HTMLAnchorElement>) => {
 
 const customNodes: Record<string, Graphl.JsFunctionBinding> = {};
 
+const sharedOpts = {
+  bindings: {
+    jsHost: {
+      functions: customNodes,
+    },
+  },
+  preferences: {
+    graph: {
+      scrollBarsVisible: false,
+      origin: { x: 200, y: 200 },
+    },
+    definitionsPanel:  {
+      visible: false,
+    },
+    topbar: {
+      visible: false,
+    },
+    compiler: {
+      watOnly: true,
+    },
+  },
+};
+
+
+const Sample = (props: {
+  graphInitState: Graphl.GraphInitState,
+  // in order to avoid including the wasm-opt/wat2wasm, we preload the exported wasm
+  wasmUrl?: string,
+}) => {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  React.useLayoutEffect(() => {
+    if (canvasRef.current === null)
+      throw Error("bad canvas elem");
+
+    // TODO: use React suspense
+    const _ide = graphl.then(g => new g.Ide(canvasRef.current!, {
+      ...sharedOpts,
+      initState: {
+        graphs: {
+          main: props.graphInitState,
+        },
+      }
+    }));
+
+  }, []);
+
+  const wasmPromise = React.useRef<Promise<WebAssembly.WebAssemblyInstantiatedSource>>();
+  const getWasm = React.useCallback(() => {
+    if (props.wasmUrl === undefined) return;
+    if (!wasmPromise.current)
+      wasmPromise.current = WebAssembly.instantiateStreaming(fetch(props.wasmUrl));
+  }, []);
+
+  return (
+    <div
+      className={styles.sampleCanvas}
+      style={{ position: "relative" }}
+      onMouseMove={getWasm}
+      onClick={async () => {
+        if (props.wasmUrl === undefined) return;
+        getWasm();
+        const wasm = await wasmPromise.current!;
+        wasm.instance.exports.main();
+      }}
+      title={"click to run"}
+    >
+      <canvas
+        ref={canvasRef}
+        onScroll={() => false}
+      />
+      <div
+        className={styles.execContainer}
+      >
+        <svg height="30px" width="30px" viewBox="-3 -3 16 16">
+          <path {...classNames(styles.playButton)} d="M0 0 l0 10 l10 -5 l-10 -5" />
+        </svg>
+      </div>
+    </div>
+  );
+};
+
+
 const Homepage = () => {
   const mediumText: React.CSSProperties = {
     fontSize: "1.5em",
@@ -38,12 +121,11 @@ const Homepage = () => {
   };
 
   // use images, this many IDEs is horrible for memory usage...
-  const canvas1Ref = React.useRef<HTMLCanvasElement>(null);
   const canvas2Ref = React.useRef<HTMLCanvasElement>(null);
   const canvas3Ref = React.useRef<HTMLCanvasElement>(null);
 
   React.useLayoutEffect(() => {
-    if (!(canvas1Ref.current !== null && canvas2Ref.current !== null && canvas3Ref.current !== null))
+    if (!(canvas2Ref.current !== null && canvas3Ref.current !== null))
       throw Error("bad canvas elem");
 
     const sharedOpts = {
@@ -68,35 +150,6 @@ const Homepage = () => {
         },
       },
     };
-
-    // TODO: use React suspense
-    const _ide1 = graphl.then(g => new g.Ide(canvas1Ref.current!, {
-      ...sharedOpts,
-      initState: {
-        graphs: {
-          "main": {
-            notRemovable: true,
-            nodes: [
-              {
-                id: 1,
-                type: "return",
-                inputs: {
-                  0: { node: 2, outPin: 0 },
-                },
-              },
-              {
-                id: 2,
-                type: "+",
-                inputs: {
-                  0: { float: 1.0 },
-                  1: { float: 2.0 },
-                },
-              },
-            ],
-          }
-        },
-      }
-    }));
 
     const _ide2 = graphl.then(g => new g.Ide(canvas2Ref.current!, {
       ...sharedOpts,
@@ -124,6 +177,32 @@ const Homepage = () => {
 
 
   }, []);
+
+  const sample1 = (
+    <Sample
+      wasmUrl={undefined} // FIXME
+      graphInitState={{
+      notRemovable: true,
+      nodes: [
+        {
+          id: 1,
+          type: "return",
+          inputs: {
+            0: { node: 2, outPin: 0 },
+          },
+        },
+        {
+          id: 2,
+          type: "+",
+          inputs: {
+            0: { float: 1.0 },
+            1: { float: 2.0 },
+          },
+        },
+      ],
+    }}
+    />
+  );
 
   // TODO: add blurbs to each canvas example
   return (
@@ -185,7 +264,7 @@ const Homepage = () => {
           */}
 
         {/* TODO: use images instead */}
-        <div className="center">
+        <div className={`center ${styles.blurb}`}>
           <p style={mediumText}>
             Do all the programming stuff.
             <br />
@@ -193,13 +272,9 @@ const Homepage = () => {
             {/* add "run button" printing math result */}
           </p>
         </div>
-        <canvas
-          className={styles.sampleCanvas}
-          ref={canvas1Ref}
-          onScroll={e => e.stopPropagation()}
-        />
+        {sample1}
 
-        <div className="center">
+        <div className={`center ${styles.blurb}`}>
           <p style={mediumText}>
             Or embed Graphl into your own program and add custom nodes.
             <br/>
@@ -214,7 +289,7 @@ const Homepage = () => {
           onScroll={() => false}
         />
 
-        <div className="center">
+        <div className={`center ${styles.blurb}`}>
           <p style={mediumText}>
             Wield power with lisp-inspired macros but on graphs.
             <br />

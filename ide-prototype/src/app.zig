@@ -1162,7 +1162,7 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
                     // TODO: mouse wheel zoom
                 } else if (me.action == .wheel_y) {
                     e.handled = true;
-                    const base: f32 = 1.01;
+                    const base: f32 = 1.005;
                     const zs = @exp(@log(base) * me.data.wheel_y);
                     if (zs != 1.0) {
                         zoom *= zs;
@@ -1392,6 +1392,25 @@ fn renderNode(
     defer box.deinit();
 
     const result = box.data().rectScale().r; // already has origin added (already in scroll coords)
+
+    // // FIXME: this causes a glitch
+    // // TODO: allow deleting nodes via context menu
+    // const ctext = try dvui.context(@src(), .{ .expand = .both });
+    // defer ctext.deinit();
+
+    // if (ctext.activePoint()) |cp| {
+    //     var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(cp), .{});
+    //     defer fw.deinit();
+    //     if (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal })) |_| {
+    //         if (current_graph.removeNode(node.id)) |removed| {
+    //             std.debug.assert(removed);
+    //         } else |err| switch (err) {
+    //             error.CantRemoveEntry => {},
+    //             else => return err,
+    //         }
+    //     }
+    //     // TODO: also add ability to change the type of the node?
+    // }
 
     switch (node.kind) {
         .desc => |desc| try dvui.label(@src(), "{s}", .{desc.name()}, .{ .font_style = .title_3 }),
