@@ -139,13 +139,13 @@ const Homepage = () => {
             gap: "10px",
             margin: "12px 0",
           }}>
-          <Logo className={styles.logoImage} />
-          <ShinyLogo className={styles["fadeInText_0"]}>
-            {constants.flagshipProductName}
-          </ShinyLogo>
+            <Logo className={styles.logoImage} />
+            <ShinyLogo className={styles["fadeInText_0"]}>
+              {constants.flagshipProductName}
+            </ShinyLogo>
           </div>
-          <strong className={styles["fadeInText_1"]}>the <em>only</em> no-code solution</strong>
-          <strong className={styles["fadeInText_1"]}>designed to be as powerful as code</strong>
+          <span className={styles["fadeInText_1"]}>the <em>only</em> no-code solution</span>
+          <span className={styles["fadeInText_1"]}>designed to be as powerful as code</span>
         </div>
 
         <ShinyButton
@@ -163,31 +163,14 @@ const Homepage = () => {
 
         <div className="center">
           <p style={mediumText} {...classNames(styles["fadeInText_2"])}>
-            Throw away 60 years of text editing baggage and write code
-            <em> without writing code</em>
-          </p>
-        </div>
-
-        <div className="center">
-          <p style={mediumText} className={styles["fadeInText_3"]}>
-            Compiles to WebAssembly so you can run it anywhere,
+            Throw away 60 years of text editing baggage and
             <br/>
-            <em>including in your browser</em>
-          </p>
-        </div>
-
-        <div className="center">
-          <p style={mediumText} className={styles["fadeInText_4"]}>
-            Experience the programming language that feels like a
+            write code <strong> without writing code</strong>.
             <br/>
-            <em>workflow engine</em>
+            Experience the programming language that feels like a <strong>workflow engine</strong>.
+            <br/>
+            Then export to WebAssembly and <strong>run anywhere</strong>.
           </p>
-        </div>
-
-        <div className="center">
-          <a href={"/blog/docs"} style={mediumText} className={styles["fadeInText_4"]}>
-            Get started
-          </a>
         </div>
 
       </div>
@@ -211,6 +194,7 @@ const Homepage = () => {
           </p>
         </div>
         <canvas
+          className={styles.sampleCanvas}
           ref={canvas1Ref}
           onScroll={e => e.stopPropagation()}
         />
@@ -225,20 +209,22 @@ const Homepage = () => {
           </p>
         </div>
         <canvas
+          className={styles.sampleCanvas}
           ref={canvas2Ref}
           onScroll={() => false}
         />
 
         <div className="center">
           <p style={mediumText}>
-            Get powerful with lisp-inspired macros.
+            Wield power with lisp-inspired macros but on graphs.
             <br />
             <br />
-            Embedded SQL query node system, anyone?
+            Visual SQL query macros, anyone?
             {/* SQL sample */}
           </p>
         </div>
         <canvas
+          className={styles.sampleCanvas}
           ref={canvas3Ref}
           onScroll={() => false}
         />
