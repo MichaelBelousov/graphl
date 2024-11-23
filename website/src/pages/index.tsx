@@ -5,8 +5,10 @@ import * as styles from "./index.module.scss";
 import { MailLink } from '../components/MailLink';
 import * as constants from "../constants";
 import { classNames } from '../react-utils';
-import * as graphl from "@graphl/ide-browser";
+import type * as Graphl from "@graphl/ide-browser";
 import Logo from "../images/GraphlAnimation.inline.svg";
+
+const graphl = import("@graphl/ide-browser");
 
 const ShinyLogo = (divProps: React.HTMLProps<HTMLDivElement>) => {
   const {className, style, ...rest} = divProps;
@@ -26,7 +28,7 @@ const ShinyButton = (btnProps: React.HTMLProps<HTMLAnchorElement>) => {
   );
 };
 
-const customNodes: Record<string, graphl.JsFunctionBinding> = {};
+const customNodes: Record<string, Graphl.JsFunctionBinding> = {};
 
 const Homepage = () => {
   const mediumText: React.CSSProperties = {
@@ -41,7 +43,7 @@ const Homepage = () => {
   const canvas3Ref = React.useRef<HTMLCanvasElement>(null);
 
   React.useLayoutEffect(() => {
-    if (canvas1Ref.current === null)
+    if (!(canvas1Ref.current !== null && canvas2Ref.current !== null && canvas3Ref.current !== null))
       throw Error("bad canvas elem");
 
     const sharedOpts = {
@@ -67,7 +69,8 @@ const Homepage = () => {
       },
     };
 
-    const _ide1 = new graphl.Ide(canvas1Ref.current, {
+    // TODO: use React suspense
+    const _ide1 = graphl.then(g => new g.Ide(canvas1Ref.current!, {
       ...sharedOpts,
       initState: {
         graphs: {
@@ -93,9 +96,9 @@ const Homepage = () => {
           }
         },
       }
-    });
+    }));
 
-    const _ide2 = new graphl.Ide(canvas2Ref.current, {
+    const _ide2 = graphl.then(g => new g.Ide(canvas2Ref.current!, {
       ...sharedOpts,
       initState: {
         graphs: {
@@ -105,9 +108,9 @@ const Homepage = () => {
           }
         },
       }
-    });
+    }));
 
-    const _ide3 = new graphl.Ide(canvas3Ref.current, {
+    const _ide3 = graphl.then(g => new g.Ide(canvas3Ref.current!, {
       ...sharedOpts,
       initState: {
         graphs: {
@@ -117,7 +120,7 @@ const Homepage = () => {
           }
         },
       }
-    });
+    }));
 
 
   }, []);

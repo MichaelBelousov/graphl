@@ -23,7 +23,7 @@ const Header = () => {
       <Link className={styles.navLink} to="/commercial">commercial</Link>
       {/* TODO: blog <Link className={styles.navLink} to="/blog/HowICameUpWithGraphl">blog</Link>*/}
       <Link className={styles.navLink} to="/blog/docs">docs</Link>
-      <Link {...classNames(styles.navLink, styles.subButton)} to="/FIXME">subscribe</Link>
+      <Link {...classNames(styles.navLink, styles.subButton)} replace={false} to="https://docs.google.com/forms/d/e/1FAIpQLSdIbJ7Ye-J5fdLjuLjSIqx6B7YKTQJfI8jk3gNTIc4CVw9ysg/viewform?usp=sf_link">subscribe</Link>
     </nav>
   );
 
