@@ -70,28 +70,28 @@ fn funcSourceToGraph(
     graph.grappl_graph.result_node_basic_desc.inputs[1].kind.primitive.value = result_type;
 
     const definition = &impl_sexp.value.list.items[2];
-    assert(definition.value.list.items.len == 1);
+    assert(definition.value.list.items.len >= 2);
 
     const def_begin = &definition.value.list.items[0];
-    assert(def_begin.value.list.items[0].value.symbol.ptr == syms.begin.value.symbol.ptr);
+    assert(def_begin.value.symbol.ptr == syms.begin.value.symbol.ptr);
 
-    const full_body = def_begin.value.list.items[1..];
+    const full_body = definition.value.list.items[1..];
     assert(full_body.len >= 1);
 
     const first_non_def_index = _: {
         var i: usize = 0;
         for (full_body) |form| {
-            i += 1;
             assert(form.value.list.items.len >= 1);
             const callee = &form.value.list.items[0];
             if (callee.value.symbol.ptr != syms.typeof.value.symbol.ptr and callee.value.symbol.ptr != syms.define.value.symbol.ptr)
                 break :_ i;
+            i += 1;
         }
         unreachable;
     };
 
-    const locals_forms = def_begin.value.list.items[0..first_non_def_index];
-    const body_exprs = def_begin.value.list.items[first_non_def_index..];
+    const locals_forms = full_body[0..first_non_def_index];
+    const body_exprs = full_body[first_non_def_index..];
 
     {
         assert(locals_forms.len % 2 == 0);
@@ -196,7 +196,7 @@ fn sexpToGraphs(a: std.mem.Allocator, sexp: *const Sexp, env: *Env) !Graphs {
 
     // NOTE: assuming typeof is always right before, which has not been explicitly decided upon
     var maybe_prev_typeof: ?*const Sexp = null;
-    for (sexp.value.module.items) |top_level| {
+    for (sexp.value.module.items) |*top_level| {
         assert(top_level.value == .list);
         assert(top_level.value.list.items.len == 3);
         if (maybe_prev_typeof) |prev_typeof| {
@@ -206,14 +206,14 @@ fn sexpToGraphs(a: std.mem.Allocator, sexp: *const Sexp, env: *Env) !Graphs {
 
             const graph_slot = try a.create(Graphs.Node);
             graph_slot.* = .{
-                .data = try funcSourceToGraph(a, prev_typeof, &top_level, index, env),
+                .data = try funcSourceToGraph(a, prev_typeof, top_level, index, env),
             };
             graphs.prepend(graph_slot);
             index += 1;
         } else {
             const typeof = &top_level.value.list.items[0];
             assert(typeof.value.symbol.ptr == syms.typeof.value.symbol.ptr);
-            maybe_prev_typeof = &top_level;
+            maybe_prev_typeof = top_level;
         }
     }
 

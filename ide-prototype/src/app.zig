@@ -19,7 +19,7 @@ const MAX_FUNC_NAME = 256;
 
 extern fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void;
 extern fn onExportCompiled(ptr: ?[*]const u8, len: usize) void;
-extern fn onRequestLoadSource() [*:0]const u8;
+extern fn onRequestLoadSource() void;
 extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
 // NOTE: check if this is bad
@@ -426,9 +426,11 @@ pub const Graph = struct {
     }
 
     pub fn deinit(self: *@This()) void {
+        std.debug.assert(shared_env._nodes.remove(self.call_basic_desc.name));
         self.visual_graph.deinit(gpa);
         self.grappl_graph.deinit(gpa);
         gpa.free(self.name);
+        self.env.deinit(gpa);
     }
 
     pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?grappl.NodeId, diag: ?*grappl.GraphBuilder.Diagnostic, pos: dvui.Point) !grappl.NodeId {
@@ -502,11 +504,23 @@ fn exportCurrentSource() !void {
     onExportCurrentSource(bytes.items.ptr, bytes.items.len);
 }
 
-fn importSource() !void {
-    const src = onRequestLoadSource();
-    const src_slice = src[0..std.mem.len(src)];
-    // FIXME: leaks!
-    graphs = try sourceToGraph(gpa, src_slice, &shared_env);
+export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
+    const ptr = in_ptr orelse return;
+    const src = ptr[0..len];
+
+    {
+        var maybe_cursor = graphs.first;
+        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
+            cursor.data.deinit();
+            gpa.destroy(cursor);
+        }
+    }
+    // FIXME: overwriting without deallocating graphs is a leak!
+    // opting to keep for now since cleaning up isn't trivial
+    graphs = sourceToGraph(gpa, src, &shared_env) catch |err| {
+        std.log.err("sourceToGraph error: {}", .{err});
+        return;
+    };
 }
 
 fn setCurrentGraphByIndex(index: u16) !void {
@@ -577,11 +591,7 @@ pub fn init() !void {
     {
         var maybe_cursor = user_funcs.first;
         while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-            std.log.info("adding user func: '{s}'", .{cursor.data.name});
-            _ = shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data)) catch |e| {
-                std.log.err("failed to add: '{s}'", .{cursor.data.name});
-                return e;
-            };
+            _ = try shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data));
         }
     }
 
@@ -1958,7 +1968,7 @@ pub fn frame() !void {
             }
 
             if (try dvui.menuItemLabel(@src(), "Open", .{}, .{ .expand = .horizontal })) |_| {
-                try importSource();
+                onRequestLoadSource();
             }
 
             if (try dvui.menuItemLabel(@src(), "Export Wasm", .{}, .{ .expand = .horizontal })) |_| {

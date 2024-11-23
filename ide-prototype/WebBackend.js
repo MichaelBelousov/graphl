@@ -1,9 +1,9 @@
 ///<reference path="./WebBackend.d.ts">
 
 import frontendWasmPromise from './zig-out/bin/dvui-frontend.wasm?init';
-import { downloadFile } from './localFileManip';
+import { downloadFile, uploadFile } from './localFileManip';
 
-// TODO: remove references to dvui in prod build
+// TODO: remove references to dvui in prod build (but acknowledge it somewhere)
 
 /** @param {number} ms */
 async function dvui_sleep(ms) {
@@ -27,6 +27,10 @@ export const Types = {
     "code": 5,
     "bool": 6,
 };
+
+const MAX_FUNC_NAME = 256;
+const WASM_PAGE_SIZE = 64 * 1024;
+const INIT_BUFFER_SZ = WASM_PAGE_SIZE;
 
 // FIXME: this should return a promise
 /**
@@ -475,6 +479,19 @@ export function Ide(canvasElem, opts) {
             });
         },
 
+        onRequestLoadSource() {
+            uploadFile({ type: "text" }).then((file) => {
+                const len = file.content.length;
+                const ptr = wasmResult.instance.exports.grappl_init_start;
+                const transferBuffer = () => new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
+                {
+                    const write = utf8encoder.encodeInto(file.content, transferBuffer());
+                    assert(write.written === len, `failed to write file to transfer buffer`);
+                }
+                return wasmResult.instance.exports.onReceiveLoadedSource(ptr, len)
+            });
+        },
+
         runCurrentWat: async (ptr, len) => {
             if (len === 0) return;
 
@@ -619,10 +636,6 @@ export function Ide(canvasElem, opts) {
     .then((result) => {
         wasmResult = { instance: result };
         const we = wasmResult.instance.exports;
-
-        const MAX_FUNC_NAME = 256;
-        const WASM_PAGE_SIZE = 64 * 1024;
-        const INIT_BUFFER_SZ = WASM_PAGE_SIZE;
 
         // NOTE: technically this could be generated using a proxy, but perhaps better to use zigar if I need that
         // FIXME: down transpile to ES6 with typescript

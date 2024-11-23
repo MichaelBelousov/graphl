@@ -61,7 +61,8 @@ pub const GraphBuilder = struct {
     entry_id: ?NodeId = null,
 
     branch_count: u32 = 0,
-    next_node_index: usize = 0,
+    // NEXT: setting this to 1 instead of 0 broke shit
+    next_node_index: usize = 0, // 0 is reserved for entry
 
     // FIXME: who owns these?
     imports: std.ArrayListUnmanaged(Sexp) = .{},
@@ -139,7 +140,7 @@ pub const GraphBuilder = struct {
             .entry_node_basic_desc = entry_node_basic_desc,
         };
 
-        const entry_id = self.addNode(alloc, self.entry_node_basic_desc.name, true, null, null) catch unreachable;
+        const entry_id = self.addNode(alloc, self.entry_node_basic_desc.name, true, 0, null) catch unreachable;
         const return_id = self.addNode(alloc, self.result_node_basic_desc.name, false, null, null) catch unreachable;
         self.addEdge(entry_id, 0, return_id, 0, 0) catch unreachable;
 
@@ -147,6 +148,8 @@ pub const GraphBuilder = struct {
     }
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+        std.debug.assert(self.env._nodes.remove(self.entry_node_basic_desc.name));
+        std.debug.assert(self.env._nodes.remove(self.result_node_basic_desc.name));
         alloc.free(self.entry_node_basic_desc.outputs);
         alloc.free(self.entry_node_basic_desc.inputs);
         alloc.destroy(self.entry_node_basic_desc);
