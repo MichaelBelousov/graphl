@@ -338,6 +338,7 @@ const Compilation = struct {
             pub const @"local.set" = Sexp{ .value = .{ .symbol = "local.set" } };
 
             pub const i32_ = struct {
+                pub const self = Sexp{ .value = .{ .symbol = "i32" } };
                 pub const add = Sexp{ .value = .{ .symbol = "i32.add" } };
                 pub const sub = Sexp{ .value = .{ .symbol = "i32.sub" } };
                 pub const mul = Sexp{ .value = .{ .symbol = "i32.mul" } };
@@ -353,6 +354,7 @@ const Compilation = struct {
             };
 
             pub const u32_ = struct {
+                pub const self = Sexp{ .value = .{ .symbol = "u32" } };
                 pub const add = Sexp{ .value = .{ .symbol = "i32.add" } };
                 pub const sub = Sexp{ .value = .{ .symbol = "i32.sub" } };
                 pub const mul = Sexp{ .value = .{ .symbol = "i32.mul" } };
@@ -368,6 +370,7 @@ const Compilation = struct {
             };
 
             pub const i64_ = struct {
+                pub const self = Sexp{ .value = .{ .symbol = "i64" } };
                 pub const add = Sexp{ .value = .{ .symbol = "i64.add" } };
                 pub const sub = Sexp{ .value = .{ .symbol = "i64.sub" } };
                 pub const mul = Sexp{ .value = .{ .symbol = "i64.mul" } };
@@ -386,6 +389,7 @@ const Compilation = struct {
             };
 
             pub const u64_ = struct {
+                pub const self = Sexp{ .value = .{ .symbol = "u64" } };
                 pub const add = Sexp{ .value = .{ .symbol = "i64.add" } };
                 pub const sub = Sexp{ .value = .{ .symbol = "i64.sub" } };
                 pub const mul = Sexp{ .value = .{ .symbol = "i64.mul" } };
@@ -404,6 +408,7 @@ const Compilation = struct {
             };
 
             pub const f32_ = struct {
+                pub const self = Sexp{ .value = .{ .symbol = "f32" } };
                 pub const add = Sexp{ .value = .{ .symbol = "f32.add" } };
                 pub const sub = Sexp{ .value = .{ .symbol = "f32.sub" } };
                 pub const mul = Sexp{ .value = .{ .symbol = "f32.mul" } };
@@ -424,6 +429,7 @@ const Compilation = struct {
             };
 
             pub const f64_ = struct {
+                pub const self = Sexp{ .value = .{ .symbol = "f64" } };
                 pub const add = Sexp{ .value = .{ .symbol = "f64.add" } };
                 pub const sub = Sexp{ .value = .{ .symbol = "f64.sub" } };
                 pub const mul = Sexp{ .value = .{ .symbol = "f64.mul" } };
@@ -1289,13 +1295,13 @@ const Compilation = struct {
 
         const imports_src =
             //\\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_JSON_R_JSON") (param i32) (param i32) (param i32) (result i32) (result i32))
-            \\(func $callUserFunc_code_R_void (import "env" "callUserFunc_code_R_void") (param i32) (param i32) (param i32))
-            \\(func $callUserFunc_string_R_void (import "env" "callUserFunc_string_R_void") (param i32) (param i32) (param i32))
-            \\(func $callUserFunc_R_void (import "env" "callUserFunc_R_void") (param i32))
-            \\(func $callUserFunc_i32_R_void (import "env" "callUserFunc_i32_R_void") (param i32) (param i32))
+            \\(func $callUserFunc_code_R (import "env" "callUserFunc_code_R") (param i32) (param i32) (param i32))
+            \\(func $callUserFunc_string_R (import "env" "callUserFunc_string_R") (param i32) (param i32) (param i32))
+            \\(func $callUserFunc_R (import "env" "callUserFunc_R") (param i32))
+            \\(func $callUserFunc_i32_R (import "env" "callUserFunc_i32_R") (param i32) (param i32))
             \\(func $callUserFunc_i32_R_i32 (import "env" "callUserFunc_i32_R_i32") (param i32) (param i32) (result i32))
             \\(func $callUserFunc_i32_i32_R_i32 (import "env" "callUserFunc_i32_i32_R_i32") (param i32) (param i32) (param i32) (result i32))
-            \\(func $callUserFunc_bool_R_void (import "env" "callUserFunc_bool_R_void") (param i32) (param i32))
+            \\(func $callUserFunc_bool_R (import "env" "callUserFunc_bool_R") (param i32) (param i32))
         ;
 
         // TODO: parse them at comptime and get the count that way
@@ -1357,115 +1363,111 @@ const Compilation = struct {
             // TODO: for each user provided function, build a thunk and append it
             var maybe_user_func = self.user_context.funcs.first;
             while (maybe_user_func) |user_func| : (maybe_user_func = user_func.next) {
-                if (user_func.data.inputs.len == 2
-                //
-                and user_func.data.inputs[1].kind == .primitive
-                //
-                and user_func.data.inputs[1].kind.primitive == .value
-                //
-                and user_func.data.inputs[1].kind.primitive.value == primitive_types.i32_) {
-                    // TODO: create dedicated function for this kind of substitution
-                    const user_func_thunk_src = try std.fmt.allocPrint(alloc,
-                        \\(func ${s}
-                        \\      (param $param_1 i32)
-                        \\      (call $callUserFunc_i32_R_void (i32.const {}) (local.get $param_1)))
-                    , .{ user_func.data.name, @intFromPtr(&user_func.data) });
-                    const user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
-                    try self.module_body.appendSlice(user_func_thunk.value.module.items);
+                // FIXME: leak kinda but arena
+                const name = try std.fmt.allocPrint(alloc, "${s}", .{user_func.data.name});
 
-                    // FIXME: bool_R_void can probably be same as i32_R_void
+                // FIXME: skip the first exec input
+                std.debug.assert(user_func.data.inputs[0].kind.primitive == .exec);
+                const params = user_func.data.inputs[1..];
+
+                // FIXME: skip the first exec output
+                std.debug.assert(user_func.data.outputs[0].kind.primitive == .exec);
+                const results = user_func.data.outputs[1..];
+
+                var thunk_buf: [1024]u8 = undefined;
+                var thunk_buf_writer = std.io.fixedBufferStream(&thunk_buf);
+                _ = try thunk_buf_writer.write("$callUserFunc_");
+                for (params) |param| {
+                    _ = try thunk_buf_writer.write(param.kind.primitive.value.name);
+                    _ = try thunk_buf_writer.write("_");
+                }
+                _ = try thunk_buf_writer.write("R");
+                for (results) |result| {
+                    _ = try thunk_buf_writer.write("_");
+                    _ = try thunk_buf_writer.write(result.kind.primitive.value.name);
                 }
 
-                if (user_func.data.inputs.len == 2
-                //
-                and user_func.data.inputs[1].kind == .primitive
-                //
-                and user_func.data.inputs[1].kind.primitive == .value
-                //
-                and user_func.data.inputs[1].kind.primitive.value == primitive_types.i32_) {
-                    // TODO: create dedicated function for this kind of substitution
-                    const user_func_thunk_src = try std.fmt.allocPrint(alloc,
-                        \\(func ${s}
-                        \\      (param $param_1 i32)
-                        \\      (call $callUserFunc_i32_R_void (i32.const {}) (local.get $param_1)))
-                    , .{ user_func.data.name, @intFromPtr(&user_func.data) });
-                    const user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
-                    try self.module_body.appendSlice(user_func_thunk.value.module.items);
+                const thunk_name = try alloc.dupe(u8, thunk_buf_writer.getWritten());
 
-                    // FIXME: bool_R_void can probably be same as i32_R_void
-                } else if (user_func.data.inputs.len == 2
-                //
-                and user_func.data.inputs[1].kind == .primitive
-                //
-                and user_func.data.inputs[1].kind.primitive == .value
-                //
-                and user_func.data.inputs[1].kind.primitive.value == primitive_types.bool_) {
-                    // TODO: create dedicated function for this kind of substitution
-                    const user_func_thunk_src = try std.fmt.allocPrint(alloc,
-                        \\(func ${s}
-                        \\      (param $param_1 i32)
-                        \\      (call $callUserFunc_bool_R_void (i32.const {}) (local.get $param_1)))
-                    , .{ user_func.data.name, @intFromPtr(&user_func.data) });
-                    const user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
-                    try self.module_body.appendSlice(user_func_thunk.value.module.items);
-                } else if (user_func.data.inputs.len == 2
-                //
-                and user_func.data.inputs[1].kind == .primitive
-                //
-                and user_func.data.inputs[1].kind.primitive == .value
-                //
-                and user_func.data.inputs[1].kind.primitive.value == primitive_types.code
-                //
-                and user_func.data.outputs.len == 1
-                //
-                ) {
-                    // TODO: create dedicated function for this kind of substitution
-                    const user_func_thunk_src = try std.fmt.allocPrint(alloc,
-                        \\(func ${s}
-                        \\      (param $in_len i32)
-                        \\      (param $in_ptr i32)
-                        \\      (call $callUserFunc_code_R_void (i32.const {}) (local.get $in_len) (local.get $in_ptr))
-                        \\)
-                    , .{ user_func.data.name, @intFromPtr(&user_func.data) });
-                    const user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
-                    try self.module_body.appendSlice(user_func_thunk.value.module.items);
-                } else if (user_func.data.inputs.len == 2
-                //
-                and user_func.data.inputs[1].kind == .primitive
-                //
-                and user_func.data.inputs[1].kind.primitive == .value
-                //
-                and user_func.data.inputs[1].kind.primitive.value == primitive_types.string) {
-                    // TODO: create dedicated function for this kind of substitution
-                    const user_func_thunk_src = try std.fmt.allocPrint(alloc,
-                        \\(func ${s}
-                        \\      (param $in_ptr i32)
-                        \\      (param $in_len i32)
-                        \\      (call $callUserFunc_string_R_void (i32.const {}) (local.get $in_ptr) (local.get $in_len))
-                        \\)
-                    , .{ user_func.data.name, @intFromPtr(&user_func.data) });
-                    const user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
-                    try self.module_body.appendSlice(user_func_thunk.value.module.items);
-                } else {
-                    std.log.err("unhandled user func: {s}\n", .{user_func.data.name});
-                    std.log.err("inputs: ({})\n", .{user_func.data.inputs.len});
-                    for (user_func.data.inputs) |inp| {
-                        switch (inp.asPrimitivePin()) {
-                            .exec => std.log.err("{s} | exec", .{inp.name}),
-                            .value => |v| std.log.err("{s} | value,type={s}", .{ inp.name, v.name }),
+                var user_func_sexp = Sexp.newList(alloc);
+                const thunk_len = (1 // func keyword
+                + 1 // function name
+                + 2 * params.len // twice in case they are all strings
+                + 1 // call binding
+                );
+                try user_func_sexp.value.list.ensureTotalCapacityPrecise(thunk_len);
+                user_func_sexp.value.list.addOneAssumeCapacity().* = wat_syms.func;
+                user_func_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
+
+                {
+                    var i: usize = 0;
+                    for (params) |param| {
+                        const param_type = param.asPrimitivePin().value;
+
+                        // FIXME/HACK: string/code should be a pointer, so don't pass it as two params
+                        const param_actual_count: usize =
+                            if (param_type == primitive_types.string or param_type == primitive_types.code)
+                            2
+                        else
+                            1;
+
+                        for (0..param_actual_count) |_| {
+                            var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
+                            wasm_param.* = Sexp.newList(alloc);
+                            try wasm_param.value.list.ensureTotalCapacityPrecise(3);
+
+                            wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.param;
+                            wasm_param.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
+                            // FIXME/HACK: this doesn't work for many types!
+                            wasm_param.value.list.addOneAssumeCapacity().* = if (param.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
+
+                            i += 1;
                         }
                     }
-                    std.log.err("outputs: ({})\n", .{user_func.data.outputs.len});
-                    for (user_func.data.outputs) |out| {
-                        switch (out.asPrimitivePin()) {
-                            .exec => std.log.err("{s} | exec", .{out.name}),
-                            .value => |v| std.log.err("{s} | value,type={s}", .{ out.name, v.name }),
-                        }
-                    }
-                    std.debug.panic("unhandled user_func type: {s},", .{
-                        user_func.data.name,
-                    });
                 }
+
+                const call_body = user_func_sexp.value.list.addOneAssumeCapacity();
+                call_body.* = Sexp.newList(alloc);
+                try call_body.value.list.ensureTotalCapacityPrecise(1 // call keyword
+                + 1 // thunk name
+                + 1 // func id
+                + 2 * params.len // twice in case they are strings
+                );
+
+                call_body.value.list.addOneAssumeCapacity().* = wat_syms.call;
+                call_body.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = thunk_name } };
+                const func_id = call_body.value.list.addOneAssumeCapacity();
+                func_id.* = Sexp.newList(alloc);
+                try func_id.value.list.ensureTotalCapacityPrecise(2);
+                func_id.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+                func_id.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(@intFromPtr(&user_func.data)) } };
+
+                {
+                    var i: usize = 0;
+                    for (params) |param| {
+                        const param_type = param.asPrimitivePin().value;
+
+                        // FIXME/HACK: string/code should be a pointer, so don't pass it as two params
+                        const param_actual_count: usize =
+                            if (param_type == primitive_types.string or param_type == primitive_types.code)
+                            2
+                        else
+                            1;
+
+                        for (0..param_actual_count) |_| {
+                            const wasm_local = call_body.value.list.addOneAssumeCapacity();
+                            wasm_local.* = Sexp.newList(alloc);
+                            try wasm_local.value.list.ensureTotalCapacityPrecise(2);
+                            // FIXME: does this work for non-primitives?
+                            wasm_local.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.get";
+                            wasm_local.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
+
+                            i += 1;
+                        }
+                    }
+                }
+
+                (try self.module_body.addOne()).* = user_func_sexp;
             }
         }
 
@@ -1650,25 +1652,25 @@ test "parse" {
 
     const expected = try std.fmt.allocPrint(t.allocator,
         \\(module
-        \\(func $callUserFunc_code_R_void
+        \\(func $callUserFunc_code_R
         \\      (import "env"
-        \\              "callUserFunc_code_R_void")
+        \\              "callUserFunc_code_R")
         \\      (param i32)
         \\      (param i32)
         \\      (param i32))
-        \\(func $callUserFunc_string_R_void
+        \\(func $callUserFunc_string_R
         \\      (import "env"
-        \\              "callUserFunc_string_R_void")
+        \\              "callUserFunc_string_R")
         \\      (param i32)
         \\      (param i32)
         \\      (param i32))
-        \\(func $callUserFunc_R_void
+        \\(func $callUserFunc_R
         \\      (import "env"
-        \\              "callUserFunc_R_void")
+        \\              "callUserFunc_R")
         \\      (param i32))
-        \\(func $callUserFunc_i32_R_void
+        \\(func $callUserFunc_i32_R
         \\      (import "env"
-        \\              "callUserFunc_i32_R_void")
+        \\              "callUserFunc_i32_R")
         \\      (param i32)
         \\      (param i32))
         \\(func $callUserFunc_i32_R_i32
@@ -1684,9 +1686,9 @@ test "parse" {
         \\      (param i32)
         \\      (param i32)
         \\      (result i32))
-        \\(func $callUserFunc_bool_R_void
+        \\(func $callUserFunc_bool_R
         \\      (import "env"
-        \\              "callUserFunc_bool_R_void")
+        \\              "callUserFunc_bool_R")
         \\      (param i32)
         \\      (param i32))
         \\(global $__grappl_vstkp
@@ -1696,20 +1698,20 @@ test "parse" {
         \\{s}
         \\;;; END INTRINSICS
         \\(func $sql
-        \\      (param $in_len
+        \\      (param $param_0
         \\             i32)
-        \\      (param $in_ptr
-        \\             i32)
-        \\      (call $callUserFunc_code_R_void
-        \\            (i32.const {})
-        \\            (local.get $in_len)
-        \\            (local.get $in_ptr)))
-        \\(func $Confetti
         \\      (param $param_1
         \\             i32)
-        \\      (call $callUserFunc_i32_R_void
+        \\      (call $callUserFunc_code_R
         \\            (i32.const {})
+        \\            (local.get $param_0)
         \\            (local.get $param_1)))
+        \\(func $Confetti
+        \\      (param $param_0
+        \\             i32)
+        \\      (call $callUserFunc_i32_R
+        \\            (i32.const {})
+        \\            (local.get $param_0)))
         \\(export "++"
         \\        (func $++))
         \\(type $typeof_++
@@ -1767,7 +1769,7 @@ test "parse" {
         \\      (i32.store (global.get $__grappl_vstkp)
         \\                 (i32.const 5))
         \\      (i32.store (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const 4))
+        \\                          (i32.const 8))
         \\                 (i32.const 131))
         \\      (local.set $__lc0
         \\                 (global.get $__grappl_vstkp))
@@ -1777,7 +1779,7 @@ test "parse" {
         \\      (i32.store (global.get $__grappl_vstkp)
         \\                 (i32.const 5))
         \\      (i32.store (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const 4))
+        \\                          (i32.const 8))
         \\                 (i32.const 160))
         \\      (local.set $__lc1
         \\                 (global.get $__grappl_vstkp))

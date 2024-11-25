@@ -8,11 +8,15 @@
 pub const GrapplChar = u32;
 pub const GrapplBool = u8;
 
-const alloc = @import("std").heap.wasm_allocator;
+const alloc = if (@import("builtin").cpu.arch.isWasm())
+    @import("std").heap.wasm_allocator
+    // need this to allow local tests
+else
+    @import("std").testing.failing_allocator;
 
 /// utf8 string (eventually)
 pub const GrapplString = extern struct {
-    len: u32,
+    len: usize,
     ptr: [*]u8,
 };
 
@@ -37,7 +41,7 @@ pub export fn __grappl_string_indexof(str: *const GrapplString, chr: GrapplChar)
     return -1;
 }
 
-pub export fn __grappl_string_len(str: *const GrapplString) u32 {
+pub export fn __grappl_string_len(str: *const GrapplString) usize {
     return str.len;
 }
 
