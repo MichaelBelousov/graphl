@@ -120,13 +120,13 @@ const NodeInitState = struct {
     id: usize,
     /// type of node "+"
     type_: []const u8,
-    inputs: std.AutoHashMapUnmanaged(usize, InputInitState),
+    inputs: std.AutoHashMapUnmanaged(u16, InputInitState),
 };
 
 // NOTE: must correlate to WebBackend.d.ts
 var initState: struct {
     graphs: std.StringHashMapUnmanaged(struct {
-        notRemovable: bool,
+        notRemovable: bool = false,
         nodes: std.ArrayListUnmanaged(NodeInitState) = .{},
     }) = .{},
 } = .{};
@@ -177,16 +177,28 @@ fn _setInitState_getNode(
 ) !*NodeInitState {
     const graph_name = try gpa.dupe(u8, graph_name_ptr[0..graph_name_len]);
 
-    const graph = (try initState.graphs.getOrPut(gpa, graph_name)).value_ptr;
+    const graph = _: {
+        const get_or_put = try initState.graphs.getOrPut(gpa, graph_name);
+        if (!get_or_put.found_existing) {
+            get_or_put.value_ptr.* = .{};
+        }
+        break :_ get_or_put.value_ptr;
+    };
 
     if (node_index >= graph.nodes.items.len) {
-        try graph.nodes.ensureTotalCapacity(gpa, node_index);
-        graph.nodes.expandToCapacity();
-        graph.nodes.shrinkRetainingCapacity(node_index);
+        const new_elems = try graph.nodes.addManyAsSlice(gpa, node_index + 1 - graph.nodes.items.len);
+        // set to 0 since it's a checked illegal entry, and we can use it to tell if this node has been set yet
+        for (new_elems) |*new_elem| new_elem.id = 0;
     }
 
     const node = &graph.nodes.items[node_index];
-    node.id = node_id;
+    if (node.id == 0) {
+        node.* = .{
+            .id = node_id,
+            .type_ = "<UNSET_TYPE>",
+            .inputs = .{},
+        };
+    }
 
     return node;
 }
@@ -196,14 +208,18 @@ fn _setInitState_getInput(
     graph_name_len: usize,
     node_index: usize,
     node_id: usize,
-    input_id: usize,
+    input_id: u16,
 ) !*InputInitState {
     const node = try _setInitState_getNode(graph_name_ptr, graph_name_len, node_index, node_id);
-    const input = (try node.inputs.getOrPut(gpa, input_id)).value_ptr;
+    const input = _: {
+        // FIXME: there's probably an API for this type of action
+        const get_or_put = try node.inputs.getOrPut(gpa, input_id);
+        break :_ get_or_put.value_ptr;
+    };
     return input;
 }
 
-export fn setInitState_graphs_nodes_input_int(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: usize, value: i64) bool {
+export fn setInitState_graphs_nodes_input_int(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: u16, value: i64) bool {
     const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
         return false;
     };
@@ -211,7 +227,7 @@ export fn setInitState_graphs_nodes_input_int(graph_name_ptr: [*]const u8, graph
     return true;
 }
 
-export fn setInitState_graphs_nodes_input_float(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: usize, value: f64) bool {
+export fn setInitState_graphs_nodes_input_float(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: u16, value: f64) bool {
     const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
         return false;
     };
@@ -219,7 +235,7 @@ export fn setInitState_graphs_nodes_input_float(graph_name_ptr: [*]const u8, gra
     return true;
 }
 
-export fn setInitState_graphs_nodes_input_string(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: usize, value_ptr: [*]const u8, value_len: usize) bool {
+export fn setInitState_graphs_nodes_input_string(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: u16, value_ptr: [*]const u8, value_len: usize) bool {
     const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
         return false;
     };
@@ -230,7 +246,7 @@ export fn setInitState_graphs_nodes_input_string(graph_name_ptr: [*]const u8, gr
     return true;
 }
 
-export fn setInitState_graphs_nodes_input_symbol(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: usize, value_ptr: [*]const u8, value_len: usize) bool {
+export fn setInitState_graphs_nodes_input_symbol(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: u16, value_ptr: [*]const u8, value_len: usize) bool {
     const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
         return false;
     };
@@ -241,7 +257,7 @@ export fn setInitState_graphs_nodes_input_symbol(graph_name_ptr: [*]const u8, gr
     return true;
 }
 
-export fn setInitState_graphs_nodes_input_pin(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: usize, target_id: usize, out_pin: usize) bool {
+export fn setInitState_graphs_nodes_input_pin(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: u16, target_id: usize, out_pin: usize) bool {
     const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
         return false;
     };
@@ -412,16 +428,10 @@ pub const Graph = struct {
         self.visual_graph = VisualGraph{ .graph = &self.grappl_graph };
 
         std.debug.assert(self.grappl_graph.nodes.map.getPtr(0).?.id == self.grappl_graph.entry_id);
-        std.debug.assert(self.grappl_graph.nodes.map.getPtr(1) != null);
 
         try self.visual_graph.node_data.put(gpa, 0, .{
             .position = dvui.Point{ .x = 200, .y = 200 },
             .position_override = dvui.Point{ .x = 200, .y = 200 },
-        });
-
-        try self.visual_graph.node_data.put(gpa, 1, .{
-            .position = dvui.Point{ .x = 400, .y = 200 },
-            .position_override = dvui.Point{ .x = 400, .y = 200 },
         });
     }
 
@@ -585,14 +595,51 @@ var edge_drag_end: ?Socket = null;
 
 pub fn init() !void {
     shared_env = try grappl.Env.initDefault(gpa);
-    const first_graph = try addGraph("main", true);
-    _ = first_graph;
 
     {
         var maybe_cursor = user_funcs.first;
         while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
             _ = try shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data));
         }
+    }
+
+    // TODO:
+    if (initState.graphs.count() > 0) {
+        var graph_iter = initState.graphs.iterator();
+        while (graph_iter.next()) |entry| {
+            const graph_name = entry.key_ptr;
+            const graph_desc = entry.value_ptr;
+            // FIXME: must I dupe this?
+            const graph = try addGraph(graph_name.*, true);
+            for (graph_desc.nodes.items) |node_desc| {
+                _ = try graph.addNode(gpa, node_desc.type_, false, node_desc.id, null, .{});
+                var input_iter = node_desc.inputs.iterator();
+                while (input_iter.next()) |input_entry| {
+                    const input_id = input_entry.key_ptr.*;
+                    const input_desc = input_entry.value_ptr;
+                    switch (input_desc.*) {
+                        .node => |v| {
+                            try graph.addEdge(v.id, @intCast(v.out_pin), node_desc.id, input_id, 0);
+                        },
+                        .int => |v| {
+                            try graph.addLiteralInput(node_desc.id, input_id, 0, .{ .int = v });
+                        },
+                        .float => |v| {
+                            try graph.addLiteralInput(node_desc.id, input_id, 0, .{ .float = v });
+                        },
+                        .string => |v| {
+                            try graph.addLiteralInput(node_desc.id, input_id, 0, .{ .string = v });
+                        },
+                        .symbol => |v| {
+                            try graph.addLiteralInput(node_desc.id, input_id, 0, .{ .symbol = v });
+                        },
+                    }
+                }
+            }
+            try graph.visual_graph.formatGraphNaive(gpa);
+        }
+    } else {
+        _ = try addGraph("main", true);
     }
 
     // we know the entry is set by addGraph
@@ -1397,26 +1444,6 @@ fn renderNode(
 
     const result = box.data().rectScale().r; // already has origin added (already in scroll coords)
 
-    // FIXME: this causes a glitch
-    // TODO: allow deleting nodes via context menu
-    {
-        const ctext = try dvui.context(@src(), .{ .rect = box.data().rect }, .{ .expand = .both });
-        if (ctext.activePoint()) |cp| {
-            var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(cp), .{});
-            defer fw.deinit();
-            if (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal })) |_| {
-                if (current_graph.removeNode(node.id)) |removed| {
-                    std.debug.assert(removed);
-                } else |err| switch (err) {
-                    error.CantRemoveEntry => {},
-                    else => return err,
-                }
-            }
-            // TODO: also add ability to change the type of the node?
-        }
-        defer ctext.deinit();
-    }
-
     switch (node.kind) {
         .desc => |desc| try dvui.label(@src(), "{s}", .{desc.name()}, .{ .font_style = .title_3 }),
         .get => |v| try dvui.label(@src(), "Get {s}", .{v.binding.name}, .{ .font_style = .title_3 }),
@@ -1731,6 +1758,24 @@ fn renderNode(
     }
 
     dvui.dataSet(null, box.data().id, "_ctrl", ctrl_down);
+
+    {
+        const ctext = try dvui.context(@src(), .{ .rect = box.data().rect }, .{ .expand = .both });
+        if (ctext.activePoint()) |cp| {
+            var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(cp), .{});
+            defer fw.deinit();
+            if (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal })) |_| {
+                if (current_graph.removeNode(node.id)) |removed| {
+                    std.debug.assert(removed);
+                } else |err| switch (err) {
+                    error.CantRemoveEntry => {},
+                    else => return err,
+                }
+            }
+            // TODO: also add ability to change the type of the node?
+        }
+        defer ctext.deinit();
+    }
 
     return result;
 }
@@ -2422,6 +2467,22 @@ pub fn frame() !void {
                 }
             }
         }
+
+        {
+            var result_box = try dvui.box(@src(), .vertical, .{
+                .expand = .vertical,
+                .background = true,
+                .margin = .{ .w = 3.0, .h = 3.0 },
+                .color_fill = .{ .color = .{ .r = 0x19, .g = 0x19, .b = 0x19 } },
+            });
+            defer result_box.deinit();
+
+            var text = try dvui.textLayout(@src(), .{}, .{ .expand = .horizontal });
+            defer text.deinit();
+
+            try text.addText("Result:\n", .{});
+            try text.addText(result_buffer[0..std.mem.indexOf(u8, &result_buffer, "\x00").?], .{});
+        }
     }
 
     try renderGraph(hbox);
@@ -2435,3 +2496,6 @@ pub fn frame() !void {
         }
     }
 }
+
+// TODO: also a result size global
+export const result_buffer = std.mem.zeroes([4096]u8);

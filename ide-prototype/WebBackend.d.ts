@@ -27,8 +27,11 @@ export declare interface JsFunctionBinding {
   //name: string;
   parameters: BindingDesc[];
   results: BindingDesc[];
-  /* must match the above given results */
-  impl: (...args: any[]) => any;
+  /*
+   * if defined, must match the above given parameters/results
+   * if undefined, this is a data-only node
+   */
+  impl?: (...args: any[]) => any;
 }
 
 export declare type InputInitState =

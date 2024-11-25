@@ -1354,9 +1354,28 @@ const Compilation = struct {
 
         // thunks for user provided functions
         {
-            // TODO/NEXT: for each user provided function, build a thunk and append it
+            // TODO: for each user provided function, build a thunk and append it
             var maybe_user_func = self.user_context.funcs.first;
             while (maybe_user_func) |user_func| : (maybe_user_func = user_func.next) {
+                if (user_func.data.inputs.len == 2
+                //
+                and user_func.data.inputs[1].kind == .primitive
+                //
+                and user_func.data.inputs[1].kind.primitive == .value
+                //
+                and user_func.data.inputs[1].kind.primitive.value == primitive_types.i32_) {
+                    // TODO: create dedicated function for this kind of substitution
+                    const user_func_thunk_src = try std.fmt.allocPrint(alloc,
+                        \\(func ${s}
+                        \\      (param $param_1 i32)
+                        \\      (call $callUserFunc_i32_R_void (i32.const {}) (local.get $param_1)))
+                    , .{ user_func.data.name, @intFromPtr(&user_func.data) });
+                    const user_func_thunk = try SexpParser.parse(alloc, user_func_thunk_src, null);
+                    try self.module_body.appendSlice(user_func_thunk.value.module.items);
+
+                    // FIXME: bool_R_void can probably be same as i32_R_void
+                }
+
                 if (user_func.data.inputs.len == 2
                 //
                 and user_func.data.inputs[1].kind == .primitive

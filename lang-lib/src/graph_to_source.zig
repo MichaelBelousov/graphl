@@ -141,8 +141,9 @@ pub const GraphBuilder = struct {
         };
 
         const entry_id = self.addNode(alloc, self.entry_node_basic_desc.name, true, 0, null) catch unreachable;
-        const return_id = self.addNode(alloc, self.result_node_basic_desc.name, false, null, null) catch unreachable;
-        self.addEdge(entry_id, 0, return_id, 0, 0) catch unreachable;
+        _ = entry_id;
+        //const return_id = self.addNode(alloc, self.result_node_basic_desc.name, false, null, null) catch unreachable;
+        //self.addEdge(entry_id, 0, return_id, 0, 0) catch unreachable;
 
         return self;
     }
@@ -197,7 +198,10 @@ pub const GraphBuilder = struct {
     pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?NodeId, diag: ?*Diagnostic) !NodeId {
         const node_id: NodeId = force_node_id orelse @intCast(self.next_node_index);
         const putResult = try self.nodes.map.getOrPut(alloc, node_id);
-        putResult.value_ptr.* = try self.env.spawnNodeOfKind(alloc, node_id, kind) orelse unreachable;
+        putResult.value_ptr.* = try self.env.spawnNodeOfKind(alloc, node_id, kind) orelse {
+            std.log.err("attempted to spawn unknown node: '{s}'", .{kind});
+            unreachable;
+        };
         const node = putResult.value_ptr;
 
         self.next_node_index += 1;

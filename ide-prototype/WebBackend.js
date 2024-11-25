@@ -716,17 +716,17 @@ export function Ide(canvasElem, opts) {
                             const val_len = value.length;
 
                             if ("symbol" in input) {
-                                assert(we.setInitState_graphs_nodes_input_symbol(graph_name_ptr, graph_name_len, i, node.id, val_ptr, val_len));
+                                assert(we.setInitState_graphs_nodes_input_symbol(graph_name_ptr, graph_name_len, i, node.id, inputId, val_ptr, val_len));
                             } else /* if ("string" in input) */ {
-                                assert(we.setInitState_graphs_nodes_input_string(graph_name_ptr, graph_name_len, i, node.id, val_ptr, val_len));
+                                assert(we.setInitState_graphs_nodes_input_string(graph_name_ptr, graph_name_len, i, node.id, inputId, val_ptr, val_len));
                             }
                         } else {
                             if ("int" in input) {
-                                assert(we.setInitState_graphs_nodes_input_int(graph_name_ptr, graph_name_len, i, node.id, input.int));
+                                assert(we.setInitState_graphs_nodes_input_int(graph_name_ptr, graph_name_len, i, node.id, inputId, BigInt(input.int)));
                             } else if ("float" in input) {
-                                assert(we.setInitState_graphs_nodes_input_float(graph_name_ptr, graph_name_len, i, node.id, input.float));
+                                assert(we.setInitState_graphs_nodes_input_float(graph_name_ptr, graph_name_len, i, node.id, inputId, input.float));
                             } else if ("node" in input) {
-                                assert(we.setInitState_graphs_nodes_input_pin(graph_name_ptr, graph_name_len, i, node.id, input.node, input.outPin));
+                                assert(we.setInitState_graphs_nodes_input_pin(graph_name_ptr, graph_name_len, i, node.id, inputId, input.node, input.outPin));
                             } else {
                                 console.error("invalid input value:", input);
                                 throw Error(`BadInputValue: '${graphName}'/${node.id}/${inputId}`);
