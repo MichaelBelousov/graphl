@@ -521,7 +521,7 @@ export function Ide(canvasElem, opts) {
 
             const scriptImports = {
                 env: {
-                    callUserFunc_JSON_R_JSON(func_id, json1) {
+                    callUserFunc_JSON_R(func_id, json1) {
                         const funcInfo = userFuncs.get(func_id);
 
                         throw Error(`json not yet supported`);
@@ -529,7 +529,7 @@ export function Ide(canvasElem, opts) {
                         return funcInfo.func.impl(json1);
                     },
 
-                    callUserFunc_string_R_string(func_id) {
+                    callUserFunc_string_R(func_id) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
@@ -541,7 +541,7 @@ export function Ide(canvasElem, opts) {
                         funcInfo.func.impl();
                     },
 
-                    callUserFunc_code_R_void(func_id, len, ptr) {
+                    callUserFunc_code_R(func_id, len, ptr) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
@@ -556,7 +556,7 @@ export function Ide(canvasElem, opts) {
                         funcInfo.func.impl(code);
                     },
 
-                    callUserFunc_string_R_void(func_id, len, ptr) {
+                    callUserFunc_string_R(func_id, len, ptr) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
@@ -569,7 +569,7 @@ export function Ide(canvasElem, opts) {
                         funcInfo.func.impl(str);
                     },
 
-                    callUserFunc_R_void(func_id) {
+                    callUserFunc_R(func_id) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
@@ -580,7 +580,7 @@ export function Ide(canvasElem, opts) {
                         funcInfo.func.impl();
                     },
 
-                    callUserFunc_i32_R_void(func_id, i1) {
+                    callUserFunc_i32_R(func_id, i1) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
@@ -592,7 +592,7 @@ export function Ide(canvasElem, opts) {
                         funcInfo.func.impl(i1);
                     },
 
-                    get callUserFunc_bool_R_void() { return this.callUserFunc_i32_R_void; },
+                    get callUserFunc_bool_R() { return this.callUserFunc_i32_R; },
 
                     callUserFunc_i32_R_i32(func_id, i1) {
                         const funcInfo = userFuncs.get(func_id);
@@ -627,7 +627,12 @@ export function Ide(canvasElem, opts) {
             lastCompiled = compiled;
             const result = compiled.instance.exports["main"]();
 
-            console.log(result);
+            console.log("exec result", result);
+            const resultsBuffer = () => new Uint8Array(wasmResult.instance.exports.memory.buffer, wasmResult.instance.exports.result_buffer, 4096);
+
+            utf8encoder.encodeInto(JSON.stringify(result), resultsBuffer());
+
+            wasmResult.instance.exports.dvui_refresh();
         },
       },
     };

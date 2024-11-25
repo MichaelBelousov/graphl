@@ -175,3 +175,7 @@ fn dvui_frame() !void {
         win.content_scale = ns;
     }
 }
+
+export fn dvui_refresh() void {
+    dvui.refresh(&win, @src(), null);
+}
