@@ -14,13 +14,19 @@ const app = @import("./app.zig");
 
 const c = RaylibBackend.c;
 
-export fn recvCurrentSource(ptr: ?[*]const u8, len: usize) void {
-    std.debug.print("recvCurrentSource:\n{s}\n", .{ptr.?[0..len]});
+export fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void {
+    std.debug.print("onExportCurrentSource:\n{s}\n", .{ptr.?[0..len]});
+}
+
+export fn onExportCompiled(ptr: ?[*]const u8, len: usize) void {
+    std.debug.print("onExportCompiled:\n{s}\n", .{ptr.?[0..len]});
 }
 
 export fn runCurrentWat(ptr: ?[*]const u8, len: usize) void {
     std.debug.print("runCurrentWat:\n{s}\n", .{ptr.?[0..len]});
 }
+
+export fn onRequestLoadSource() void {}
 
 // FIXME:
 //const window_icon_png = @embedFile("zig-favicon.png");

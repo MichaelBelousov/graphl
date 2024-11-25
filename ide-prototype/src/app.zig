@@ -612,26 +612,27 @@ pub fn init() !void {
             // FIXME: must I dupe this?
             const graph = try addGraph(graph_name.*, true);
             for (graph_desc.nodes.items) |node_desc| {
-                _ = try graph.addNode(gpa, node_desc.type_, false, node_desc.id, null, .{});
+                const node_id: grappl.NodeId = @intCast(node_desc.id);
+                _ = try graph.addNode(gpa, node_desc.type_, false, node_id, null, .{});
                 var input_iter = node_desc.inputs.iterator();
                 while (input_iter.next()) |input_entry| {
                     const input_id = input_entry.key_ptr.*;
                     const input_desc = input_entry.value_ptr;
                     switch (input_desc.*) {
                         .node => |v| {
-                            try graph.addEdge(v.id, @intCast(v.out_pin), node_desc.id, input_id, 0);
+                            try graph.addEdge(@intCast(v.id), @intCast(v.out_pin), node_id, input_id, 0);
                         },
                         .int => |v| {
-                            try graph.addLiteralInput(node_desc.id, input_id, 0, .{ .int = v });
+                            try graph.addLiteralInput(node_id, input_id, 0, .{ .int = v });
                         },
                         .float => |v| {
-                            try graph.addLiteralInput(node_desc.id, input_id, 0, .{ .float = v });
+                            try graph.addLiteralInput(node_id, input_id, 0, .{ .float = v });
                         },
                         .string => |v| {
-                            try graph.addLiteralInput(node_desc.id, input_id, 0, .{ .string = v });
+                            try graph.addLiteralInput(node_id, input_id, 0, .{ .string = v });
                         },
                         .symbol => |v| {
-                            try graph.addLiteralInput(node_desc.id, input_id, 0, .{ .symbol = v });
+                            try graph.addLiteralInput(node_id, input_id, 0, .{ .symbol = v });
                         },
                     }
                 }
@@ -2470,7 +2471,7 @@ pub fn frame() !void {
 
         {
             var result_box = try dvui.box(@src(), .vertical, .{
-                .expand = .vertical,
+                .expand = .both,
                 .background = true,
                 .margin = .{ .w = 3.0, .h = 3.0 },
                 .color_fill = .{ .color = .{ .r = 0x19, .g = 0x19, .b = 0x19 } },
