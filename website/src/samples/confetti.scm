@@ -1,0 +1,5 @@
+(typeof (main)
+        i32)
+(define (main)
+        (begin (Confetti 100)
+               (return 0)))

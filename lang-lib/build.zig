@@ -68,7 +68,7 @@ pub fn build(b: *std.Build) void {
 
     const main_tests = b.addTest(.{
         .name = "main-tests",
-        .root_source_file = b.path("./src//main.zig"),
+        .root_source_file = b.path("./src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -78,6 +78,23 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .target = web_target,
     });
+
+    const text_to_wasm_tool = b.step("text-to-wasm", "build the text version of the compiler");
+    const text_to_wasm_exe = b.addExecutable(.{
+        .name = "text-to-wasm",
+        .root_source_file = b.path("./src/text_to_wasm.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    text_to_wasm_exe.step.dependOn(&intrinsics_to_wat_step.step);
+    text_to_wasm_exe.root_module.addAnonymousImport("grappl_intrinsics", .{
+        .root_source_file = intrinsics_wat_file,
+        .optimize = optimize,
+        .target = web_target,
+    });
+    b.installArtifact(text_to_wasm_exe);
+    const text_to_wasm_install = b.addInstallArtifact(text_to_wasm_exe, .{});
+    text_to_wasm_tool.dependOn(&text_to_wasm_install.step);
 
     // inline for (.{ &lib.root_module, &main_tests.root_module, grappl_core_mod }) |m| {
     //     m.addImport("binaryen", binaryen_dep.module("binaryen"));

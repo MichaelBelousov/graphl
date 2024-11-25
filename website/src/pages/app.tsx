@@ -3,6 +3,7 @@ import "../shared.css";
 import * as graphl from "@graphl/ide-browser";
 import SEO from '../components/seo';
 import "./app.css";
+import confetti from "https://cdn.jsdelivr.net/npm/@tsparticles/confetti@3.0.3";
 
 const customNodes: Record<string, graphl.JsFunctionBinding> = {
   fetch: {
@@ -24,6 +25,17 @@ const customNodes: Record<string, graphl.JsFunctionBinding> = {
       return text;
     }
   },
+  "Confetti": {
+    parameters: [{ name: "particle count", type: graphl.Types.i32 }],
+    results: [],
+    impl(particleCount) {
+      confetti({
+        particleCount,
+        spread: 70,
+        origin: { y: 0.6 },
+      });
+    }
+  },
 };
 
 const Homepage = () => {
@@ -41,6 +53,21 @@ const Homepage = () => {
           functions: customNodes,
         },
       },
+      initState: {
+        graphs: {
+          "main": {
+            nodes: [
+              {
+                id: 1,
+                type: "return",
+                inputs: {
+                  0: { node: 0, outPin: 0 },
+                }
+              },
+            ],
+          },
+        }
+      }
     });
 
     return () => { document.body.style.overflow = "initial"; };
