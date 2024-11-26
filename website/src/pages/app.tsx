@@ -3,7 +3,7 @@ import "../shared.css";
 import * as graphl from "@graphl/ide-browser";
 import SEO from '../components/seo';
 import "./app.css";
-import confetti from "https://cdn.jsdelivr.net/npm/@tsparticles/confetti@3.0.3";
+import { confetti } from "@tsparticles/confetti";
 
 const customNodes: Record<string, graphl.JsFunctionBinding> = {
   fetch: {
@@ -28,7 +28,7 @@ const customNodes: Record<string, graphl.JsFunctionBinding> = {
   "Confetti": {
     parameters: [{ name: "particle count", type: graphl.Types.i32 }],
     results: [],
-    impl(particleCount) {
+    impl(particleCount: number) {
       confetti({
         particleCount,
         spread: 70,

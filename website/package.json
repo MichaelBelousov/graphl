@@ -6,7 +6,7 @@
   "author": "Michael Belousov",
   "license": "MIT",
   "scripts": {
-    "build": "rm -r ./public && gatsby build",
+    "build": "bun ./scripts/build-samples.ts && rm -rf ./public && gatsby build",
     "dev": "gatsby develop",
     "format": "prettier --write \"**/*.{js,jsx,json,md}\"",
     "start": "npm run develop",
@@ -15,6 +15,7 @@
     "test": "echo \"Write tests! -> https://gatsby.dev/unit-testing\" && exit 1"
   },
   "devDependencies": {
+    "@graphl/ide": "../ide-prototype",
     "@types/react": "^18.2.14",
     "file-loader": "^5.1.0",
     "gatsby": "^5.12.4",
@@ -41,8 +42,7 @@
     "react-dom": "^18.2.0",
     "react-helmet": "^5.2.1",
     "sass": "^1.67.0",
-    "url-loader": "^3.0.0",
-    "@graphl/ide": "../ide-prototype"
+    "url-loader": "^3.0.0"
   },
   "//": [
     "everything is bundled, no prod deps"
@@ -50,6 +50,8 @@
   "dependencies": {
     "@bentley/react-hooks": "^1.2.0",
     "@fontsource/quicksand": "^5.1.0",
+    "@tsparticles/confetti": "^3.7.1",
+    "@types/bun": "^1.1.14",
     "gatsby-plugin-react-svg": "^3.3.0"
   }
 }
