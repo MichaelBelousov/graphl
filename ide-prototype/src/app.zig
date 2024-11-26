@@ -267,8 +267,9 @@ export fn setInitState_graphs_nodes_input_pin(graph_name_ptr: [*]const u8, graph
     return true;
 }
 
-const UserFuncList = std.SinglyLinkedList(helpers.BasicMutNodeDesc);
+const UserFuncList = std.SinglyLinkedList(compiler.UserFunc);
 var user_funcs = UserFuncList{};
+var next_user_func: usize = 0;
 
 // FIXME: keep in sync with typescript automatically
 const UserFuncTypes = enum(u32) {
@@ -281,49 +282,53 @@ const UserFuncTypes = enum(u32) {
     bool = 6,
 };
 
-export fn createUserFunc(name_len: u32, input_count: u32, output_count: u32) *const anyopaque {
+export fn createUserFunc(name_len: u32, input_count: u32, output_count: u32) usize {
     const name = grappl_real_init_buff[0..name_len];
     return _createUserFunc(name, input_count, output_count) catch unreachable;
 }
 
-export fn addUserFuncInput(func_id: *const anyopaque, index: u32, name_len: u32, input_type: u32) void {
+export fn addUserFuncInput(func_id: usize, index: u32, name_len: u32, input_type: u32) void {
     const name = grappl_real_init_buff[0..name_len];
-    return _addUserFuncInput(@alignCast(@ptrCast(func_id)), index, name, @enumFromInt(input_type)) catch unreachable;
+    return _addUserFuncInput(func_id, index, name, @enumFromInt(input_type)) catch unreachable;
 }
 
-export fn addUserFuncOutput(func_id: *const anyopaque, index: u32, name_len: u32, output_type: u32) void {
+export fn addUserFuncOutput(func_id: usize, index: u32, name_len: u32, output_type: u32) void {
     const name = grappl_real_init_buff[0..name_len];
-    return _addUserFuncOutput(@alignCast(@ptrCast(func_id)), index, name, @enumFromInt(output_type)) catch unreachable;
+    return _addUserFuncOutput(func_id, index, name, @enumFromInt(output_type)) catch unreachable;
 }
 
-fn _createUserFunc(name: []const u8, input_count: u32, output_count: u32) !*const helpers.BasicMutNodeDesc {
+fn _createUserFunc(name: []const u8, input_count: u32, output_count: u32) !usize {
     const node = try gpa.create(UserFuncList.Node);
     node.* = UserFuncList.Node{
         .data = .{
-            .name = try gpa.dupe(u8, name),
-            .hidden = false,
-            .inputs = try gpa.alloc(helpers.Pin, input_count + 1), // an extra is inserted for exec
-            .outputs = try gpa.alloc(helpers.Pin, output_count + 1), // an extra is inserted for exec
+            .id = next_user_func,
+            .node = .{
+                .name = try gpa.dupe(u8, name),
+                .hidden = false,
+                .inputs = try gpa.alloc(helpers.Pin, input_count + 1), // an extra is inserted for exec
+                .outputs = try gpa.alloc(helpers.Pin, output_count + 1), // an extra is inserted for exec
+            },
         },
     };
     user_funcs.prepend(node);
 
-    const result = &node.data;
+    next_user_func += 1;
+    errdefer next_user_func -= 1;
 
-    result.inputs[0] = helpers.Pin{
+    node.data.node.inputs[0] = helpers.Pin{
         .name = "exec",
         .kind = .{ .primitive = .exec },
     };
 
-    result.outputs[0] = helpers.Pin{
+    node.data.node.outputs[0] = helpers.Pin{
         .name = "",
         .kind = .{ .primitive = .exec },
     };
 
-    return result;
+    return node.data.id;
 }
 
-fn _addUserFuncInput(func_id: *const helpers.BasicMutNodeDesc, index: u32, name: []const u8, input_type_tag: UserFuncTypes) !void {
+fn _addUserFuncInput(func_id: usize, index: u32, name: []const u8, input_type_tag: UserFuncTypes) !void {
     const input_type = switch (input_type_tag) {
         .i32_ => grappl.primitive_types.i32_,
         .i64_ => grappl.primitive_types.i64_,
@@ -334,14 +339,24 @@ fn _addUserFuncInput(func_id: *const helpers.BasicMutNodeDesc, index: u32, name:
         .bool => grappl.primitive_types.bool_,
     };
 
+    // FIXME: slow!
+    const func: *helpers.BasicMutNodeDesc = _: {
+        var cursor = user_funcs.first;
+        while (cursor) |curr| : (cursor = curr.next) {
+            if (curr.data.id == func_id)
+                break :_ &curr.data.node;
+        }
+        unreachable;
+    };
+
     // skip the exec index
-    func_id.inputs[index + 1] = helpers.Pin{
+    func.inputs[index + 1] = helpers.Pin{
         .name = try gpa.dupe(u8, name),
         .kind = .{ .primitive = .{ .value = input_type } },
     };
 }
 
-fn _addUserFuncOutput(func_id: *const helpers.BasicMutNodeDesc, index: u32, name: []const u8, output_type_tag: UserFuncTypes) !void {
+fn _addUserFuncOutput(func_id: usize, index: u32, name: []const u8, output_type_tag: UserFuncTypes) !void {
     const output_type = switch (output_type_tag) {
         .i32_ => grappl.primitive_types.i32_,
         .i64_ => grappl.primitive_types.i64_,
@@ -352,8 +367,18 @@ fn _addUserFuncOutput(func_id: *const helpers.BasicMutNodeDesc, index: u32, name
         .bool => grappl.primitive_types.bool_,
     };
 
+    // FIXME: slow!
+    const func: *helpers.BasicMutNodeDesc = _: {
+        var cursor = user_funcs.first;
+        while (cursor) |curr| : (cursor = curr.next) {
+            if (curr.data.id == func_id)
+                break :_ &curr.data.node;
+        }
+        unreachable;
+    };
+
     // skip the exec index
-    func_id.outputs[index + 1] = helpers.Pin{
+    func.outputs[index + 1] = helpers.Pin{
         .name = try gpa.dupe(u8, name),
         .kind = .{ .primitive = .{ .value = output_type } },
     };
@@ -599,7 +624,7 @@ pub fn init() !void {
     {
         var maybe_cursor = user_funcs.first;
         while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-            _ = try shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data));
+            _ = try shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data.node));
         }
     }
 

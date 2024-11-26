@@ -54,7 +54,7 @@ const DeferredFuncTypeInfo = struct {
     result_types: []const Type,
 };
 
-var empty_user_funcs = std.SinglyLinkedList(builtin.BasicMutNodeDesc){};
+var empty_user_funcs = std.SinglyLinkedList(UserFunc){};
 
 fn writeWasmMemoryString(data: []const u8, writer: anytype) !void {
     for (data) |char| {
@@ -75,6 +75,11 @@ fn writeWasmMemoryString(data: []const u8, writer: anytype) !void {
     }
 }
 
+pub const UserFunc = struct {
+    id: usize,
+    node: builtin.BasicMutNodeDesc,
+};
+
 const Compilation = struct {
     env: *const Env,
     // TODO: have a first pass just figure out types?
@@ -91,7 +96,7 @@ const Compilation = struct {
     module_body: *std.ArrayList(Sexp),
     arena: std.heap.ArenaAllocator,
     user_context: struct {
-        funcs: *std.SinglyLinkedList(builtin.BasicMutNodeDesc),
+        funcs: *std.SinglyLinkedList(UserFunc),
     },
     diag: *Diagnostic,
 
@@ -100,7 +105,7 @@ const Compilation = struct {
     pub fn init(
         alloc: std.mem.Allocator,
         env: *const Env,
-        user_funcs: ?*std.SinglyLinkedList(builtin.BasicMutNodeDesc),
+        user_funcs: ?*std.SinglyLinkedList(UserFunc),
         in_diag: *Diagnostic,
     ) !@This() {
         const result = @This(){
@@ -1364,15 +1369,15 @@ const Compilation = struct {
             var maybe_user_func = self.user_context.funcs.first;
             while (maybe_user_func) |user_func| : (maybe_user_func = user_func.next) {
                 // FIXME: leak kinda but arena
-                const name = try std.fmt.allocPrint(alloc, "${s}", .{user_func.data.name});
+                const name = try std.fmt.allocPrint(alloc, "${s}", .{user_func.data.node.name});
 
                 // FIXME: skip the first exec input
-                std.debug.assert(user_func.data.inputs[0].kind.primitive == .exec);
-                const params = user_func.data.inputs[1..];
+                std.debug.assert(user_func.data.node.inputs[0].kind.primitive == .exec);
+                const params = user_func.data.node.inputs[1..];
 
                 // FIXME: skip the first exec output
-                std.debug.assert(user_func.data.outputs[0].kind.primitive == .exec);
-                const results = user_func.data.outputs[1..];
+                std.debug.assert(user_func.data.node.outputs[0].kind.primitive == .exec);
+                const results = user_func.data.node.outputs[1..];
 
                 var thunk_buf: [1024]u8 = undefined;
                 var thunk_buf_writer = std.io.fixedBufferStream(&thunk_buf);
@@ -1440,7 +1445,7 @@ const Compilation = struct {
                 func_id.* = Sexp.newList(alloc);
                 try func_id.value.list.ensureTotalCapacityPrecise(2);
                 func_id.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                func_id.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(@intFromPtr(&user_func.data)) } };
+                func_id.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(user_func.data.id) } };
 
                 {
                     var i: usize = 0;
@@ -1544,7 +1549,7 @@ pub fn compile(
     a: std.mem.Allocator,
     sexp: *const Sexp,
     env: *const Env,
-    user_funcs: ?*std.SinglyLinkedList(builtin.BasicMutNodeDesc),
+    user_funcs: ?*std.SinglyLinkedList(UserFunc),
     _in_diagnostic: ?*Diagnostic,
 ) ![]const u8 {
     var ignored_diagnostic: Diagnostic = undefined; // FIXME: why don't we init?
@@ -1564,11 +1569,11 @@ test "parse" {
     // FIXME: support expression functions
     //     \\(define (++ x) (+ x 1))
 
-    var user_funcs = std.SinglyLinkedList(builtin.BasicMutNodeDesc){};
+    var user_funcs = std.SinglyLinkedList(UserFunc){};
 
-    const user_func_1 = try t.allocator.create(std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node);
-    user_func_1.* = std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node{
-        .data = .{
+    const user_func_1 = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
+    user_func_1.* = std.SinglyLinkedList(UserFunc).Node{
+        .data = .{ .id = 0, .node = .{
             .name = "Confetti",
             .inputs = try t.allocator.dupe(builtin.Pin, &.{
                 builtin.Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
@@ -1580,32 +1585,35 @@ test "parse" {
             .outputs = try t.allocator.dupe(builtin.Pin, &.{
                 builtin.Pin{ .name = "", .kind = .{ .primitive = .exec } },
             }),
-        },
+        } },
     };
     defer t.allocator.destroy(user_func_1);
-    defer t.allocator.free(user_func_1.data.inputs);
-    defer t.allocator.free(user_func_1.data.outputs);
+    defer t.allocator.free(user_func_1.data.node.inputs);
+    defer t.allocator.free(user_func_1.data.node.outputs);
     user_funcs.prepend(user_func_1);
 
-    const user_func_2 = try t.allocator.create(std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node);
-    user_func_2.* = std.SinglyLinkedList(builtin.BasicMutNodeDesc).Node{
+    const user_func_2 = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
+    user_func_2.* = std.SinglyLinkedList(UserFunc).Node{
         .data = .{
-            .name = "sql",
-            .inputs = try t.allocator.dupe(builtin.Pin, &.{
-                builtin.Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
-                builtin.Pin{
-                    .name = "code",
-                    .kind = .{ .primitive = .{ .value = primitive_types.code } },
-                },
-            }),
-            .outputs = try t.allocator.dupe(builtin.Pin, &.{
-                builtin.Pin{ .name = "", .kind = .{ .primitive = .exec } },
-            }),
+            .id = 1,
+            .node = .{
+                .name = "sql",
+                .inputs = try t.allocator.dupe(builtin.Pin, &.{
+                    builtin.Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
+                    builtin.Pin{
+                        .name = "code",
+                        .kind = .{ .primitive = .{ .value = primitive_types.code } },
+                    },
+                }),
+                .outputs = try t.allocator.dupe(builtin.Pin, &.{
+                    builtin.Pin{ .name = "", .kind = .{ .primitive = .exec } },
+                }),
+            },
         },
     };
     defer t.allocator.destroy(user_func_2);
-    defer t.allocator.free(user_func_2.data.inputs);
-    defer t.allocator.free(user_func_2.data.outputs);
+    defer t.allocator.free(user_func_2.data.node.inputs);
+    defer t.allocator.free(user_func_2.data.node.outputs);
     user_funcs.prepend(user_func_2);
 
     var env = try Env.initDefault(t.allocator);
@@ -1614,7 +1622,7 @@ test "parse" {
     {
         var maybe_cursor = user_funcs.first;
         while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-            _ = try env.addNode(t.allocator, builtin.basicMutableNode(&cursor.data));
+            _ = try env.addNode(t.allocator, builtin.basicMutableNode(&cursor.data.node));
         }
     }
 
@@ -1703,14 +1711,14 @@ test "parse" {
         \\      (param $param_1
         \\             i32)
         \\      (call $callUserFunc_code_R
-        \\            (i32.const {})
+        \\            (i32.const 1)
         \\            (local.get $param_0)
         \\            (local.get $param_1)))
         \\(func $Confetti
         \\      (param $param_0
         \\             i32)
         \\      (call $callUserFunc_i32_R
-        \\            (i32.const {})
+        \\            (i32.const 0)
         \\            (local.get $param_0)))
         \\(export "++"
         \\        (func $++))
@@ -1796,7 +1804,7 @@ test "parse" {
         \\)
         // TODO: clearly instead of embedding the pointer we should have a global variable
         // so the host can set that
-    , .{ intrinsics_code, @intFromPtr(&user_func_2.data), @intFromPtr(&user_func_1.data) });
+    , .{intrinsics_code});
     defer t.allocator.free(expected);
 
     var diagnostic = Diagnostic.init();
