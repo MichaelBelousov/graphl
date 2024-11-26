@@ -6,6 +6,7 @@ import "./app.css";
 import { confetti } from "@tsparticles/confetti";
 
 const customNodes: Record<string, graphl.JsFunctionBinding> = {
+  /*
   fetch: {
     // TODO: optional nodes
     // TODO: make this a (starting) import
@@ -25,6 +26,7 @@ const customNodes: Record<string, graphl.JsFunctionBinding> = {
       return text;
     }
   },
+  */
   "Confetti": {
     parameters: [{ name: "particle count", type: graphl.Types.i32 }],
     results: [],

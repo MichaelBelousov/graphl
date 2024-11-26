@@ -40,14 +40,14 @@ const Faqs = () => {
           <ul>
             <li>
               <p>
-                Go read the <a href="/FIXME">license</a>, but the short of it is:
+                Go read the <a href="/commercial">license</a>, but the short of it is:
               </p>
               <p>
                 You may not distribute a commercial product that embeds the Graphl IDE.<br/>
                 You can use the IDE (website or desktop app) we distribute for free to write,
                 execute and export anything to run anywhere. But you cannot embed the Graphl IDE
                 in your own app and then make money off that app without first entering into
-                a <a href="/commercial">commercial agreement</a> with Graphl Technologies.
+                a commercial agreement with Graphl Technologies.
               </p>
             </li>
           </ul>

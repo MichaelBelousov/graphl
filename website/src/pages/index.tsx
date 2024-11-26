@@ -30,9 +30,46 @@ const ShinyButton = (btnProps: React.HTMLProps<HTMLAnchorElement>) => {
   );
 };
 
-const customNodes: Record<string, Graphl.JsFunctionBinding> = {};
+const customNodes: Record<string, Graphl.JsFunctionBinding> = {
+  "Confetti": {
+    parameters: [{"name": "particleCount", type: /*graphl.Types.i32*/ 0 }],
+    results: [],
+    impl(particleCount: number) {
+      confetti({
+        particleCount,
+        spread: 70,
+        origin: { y: 0.6 },
+      });
+    }
+  },
+  "query-string": {
+    parameters: [{ name: "nodes", type: 5/*grappl.Types.code*/ }],
+    results: [{ name: "query", type: 4/*grappl.Types.string*/}],
+    impl(code) {
+      // TODO: print the formed sql query
+      console.log('QUERY:', code);
+    }
+  },
+  // dummy nodes
+  "SELECT": {
+    parameters: [{ name: "column", type: 4 /*grappl.Types.string*/ }],
+    results: [],
+    // TODO: remove empty impl to indicate dummy
+    impl() {},
+  },
+  "WHERE": {
+    parameters: [{ name: "condition", type: 6/*grappl.Types.bool*/ }],
+    results: [],
+    impl() {},
+  },
+  "FROM": {
+    parameters: [{ name: "table", type: 4 /*grappl.Types.string*/ }],
+    results: [],
+    impl() {},
+  },
+};
 
-const sharedOpts = {
+const sharedOpts: Partial<Graphl.Ide.Options> = {
   bindings: {
     jsHost: {
       functions: customNodes,
@@ -41,7 +78,7 @@ const sharedOpts = {
   preferences: {
     graph: {
       scrollBarsVisible: false,
-      origin: { x: 200, y: 200 },
+      scale: 0.5,
     },
     definitionsPanel:  {
       visible: false,
@@ -102,13 +139,8 @@ const Sample = (props: {
       className={styles.sampleCanvas}
       style={{ position: "relative" }}
       onMouseMove={getWasm}
-      onClick={async () => {
-        if (props.wasmGetter === undefined) return;
-        getWasm();
-        const wasm = await wasmPromise.current!;
-        wasm.instance.exports.main();
-      }}
-      title={"click to run"}
+      // FIXME: ask Matt/Don what they think...
+      title={"click the green play button to run\nIf you want to make changes, try the app"}
     >
       <canvas
         ref={canvasRef}
@@ -116,6 +148,12 @@ const Sample = (props: {
       />
       <div
         className={styles.execContainer}
+        onClick={async () => {
+          if (props.wasmGetter === undefined) return;
+          getWasm();
+          const wasm = await wasmPromise.current!;
+          wasm.instance.exports.main();
+        }}
       >
         <svg height="30px" width="30px" viewBox="-3 -3 16 16">
           <path {...classNames(styles.playButton)} d="M0 0 l0 10 l10 -5 l-10 -5" />
@@ -132,64 +170,6 @@ const Homepage = () => {
     textAlign: "center",
     width: "100%",
   };
-
-  // use images, this many IDEs is horrible for memory usage...
-  const canvas2Ref = React.useRef<HTMLCanvasElement>(null);
-  const canvas3Ref = React.useRef<HTMLCanvasElement>(null);
-
-  React.useLayoutEffect(() => {
-    if (!(canvas2Ref.current !== null && canvas3Ref.current !== null))
-      throw Error("bad canvas elem");
-
-    const sharedOpts = {
-      bindings: {
-        jsHost: {
-          functions: customNodes,
-        },
-      },
-      preferences: {
-        graph: {
-          scrollBarsVisible: false,
-          //origin: { x: 200, y: 200 },
-        },
-        definitionsPanel:  {
-          visible: false,
-        },
-        topbar: {
-          visible: false,
-        },
-        compiler: {
-          watOnly: true,
-        },
-      },
-    };
-
-    const _ide2 = graphl.then(g => new g.Ide(canvas2Ref.current!, {
-      ...sharedOpts,
-      initState: {
-        graphs: {
-          "main": {
-            notRemovable: true,
-            nodes: [],
-          }
-        },
-      }
-    }));
-
-    const _ide3 = graphl.then(g => new g.Ide(canvas3Ref.current!, {
-      ...sharedOpts,
-      initState: {
-        graphs: {
-          "main": {
-            notRemovable: true,
-            nodes: [],
-          }
-        },
-      }
-    }));
-
-
-  }, []);
 
   const data = useStaticQuery(graphql`
     {
@@ -213,6 +193,50 @@ const Homepage = () => {
   const sample1 = (
     <Sample
       wasmGetter={async () => {
+        // FIXME: import directly instead?
+        //return import("../samples/confetti.scm.wasm");
+        const wasmUrl = data.allFile.edges.find(e => e.node.name === "confetti.scm").node.publicURL;
+        return WebAssembly.instantiateStreaming(fetch(wasmUrl), {
+          env: { ...scriptImportStubs, }
+        });
+      }}
+      graphInitState={{
+        notRemovable: true,
+        nodes: [
+          {
+            id: 1,
+            type: "if",
+            inputs: {
+              0: { node: 0, outPin: 0 },
+              1: { bool: false },
+            },
+          },
+          {
+            id: 2,
+            type: "return",
+            inputs: {
+              0: { node: 1, outPin: 0 },
+              1: { int: 2 },
+            },
+          },
+          {
+            id: 3,
+            type: "return",
+            inputs: {
+              0: { node: 1, outPin: 1 },
+              1: { int: 1 },
+            },
+          },
+        ],
+      }
+    }
+    />
+  );
+
+  const sample2 = (
+    <Sample
+      wasmGetter={async () => {
+        // FIXME: import directly instead?
         //return import("../samples/confetti.scm.wasm");
         const wasmUrl = data.allFile.edges.find(e => e.node.name === "confetti.scm").node.publicURL;
         return WebAssembly.instantiateStreaming(fetch(wasmUrl), {
@@ -230,27 +254,74 @@ const Homepage = () => {
         });
       }}
       graphInitState={{
-      notRemovable: true,
-      nodes: [
-        {
-          id: 1,
-          type: "+",
-          inputs: {
-            0: { float: 1.0 },
-            1: { float: 2.0 },
+        notRemovable: true,
+        nodes: [
+          {
+            id: 1,
+            type: "Confetti",
+            inputs: {
+              0: { node: 0, outPin: 0 },
+              1: { float: 2.0 },
+            },
           },
-        },
-        {
-          id: 2,
-          type: "return",
-          inputs: {
-            0: { node: 1, outPin: 0 },
+          {
+            id: 2,
+            type: "return",
+            inputs: {
+              0: { node: 1, outPin: 0 },
+            },
           },
-        },
-      ],
-    }}
+        ],
+      }}
     />
   );
+
+  const sample3 = (
+    <Sample
+      wasmGetter={async () => {
+        // FIXME: import directly instead?
+        //return import("../samples/confetti.scm.wasm");
+        const wasmUrl = data.allFile.edges.find(e => e.node.name === "confetti.scm").node.publicURL;
+        return WebAssembly.instantiateStreaming(fetch(wasmUrl), { env: { ...scriptImportStubs } });
+      }}
+      graphInitState={{
+        notRemovable: true,
+        nodes: [
+          {
+            id: 2,
+            type: "SELECT",
+            inputs: {
+              1: { string: "col1" },
+            },
+          },
+          {
+            id: 3,
+            type: "FROM",
+            inputs: {
+              0: { node: 2, outPin: 0 },
+              1: { string: "table" },
+            },
+          },
+          {
+            id: 4,
+            type: "WHERE",
+            inputs: {
+              0: { node: 3, outPin: 0 },
+            },
+          },
+          {
+            id: 1,
+            type: "query-string",
+            inputs: {
+              0: { node: 0, outPin: 0 },
+              1: { node: 4, outPin: 0 },
+            },
+          },
+        ],
+      }}
+    />
+  );
+
 
   // TODO: add blurbs to each canvas example
   return (
@@ -331,26 +402,18 @@ const Homepage = () => {
             {/* add "run button" with confetti */}
           </p>
         </div>
-        <canvas
-          className={styles.sampleCanvas}
-          ref={canvas2Ref}
-          onScroll={() => false}
-        />
+        {sample2}
 
         <div className={`center ${styles.blurb}`}>
           <p style={mediumText}>
-            Wield power with lisp-inspired macros but on graphs.
+            Wield power with lisp-inspired macros, but on graphs.
             <br />
             <br />
-            Visual SQL query macros, anyone?
+            Visual SQL query nodes, anyone?
             {/* SQL sample */}
           </p>
         </div>
-        <canvas
-          className={styles.sampleCanvas}
-          ref={canvas3Ref}
-          onScroll={() => false}
-        />
+        {sample3}
       </div>
 
       <p style={{ textAlign: "center" }}>
