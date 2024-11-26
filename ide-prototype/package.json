@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "description": "Grahpl IDE in browsers",
   "main": "./dist/graphl-ide-web.es.js",
-  "module": "./dist/grappl-ide-web.es.js",
+  "module": "./dist/graphl-ide-web.es.js",
   "type": "module",
-  "types": "./dist/grappl-ide-web.d.ts",
+  "types": "./dist/graphl-ide-web.d.ts",
   "author": {
     "url": "https://graphl.tech",
     "name": "Michael Belousov",
@@ -15,8 +15,8 @@
     "access": "public"
   },
   "exports": {
-    ".": "./dist/grappl-ide-web.es.js",
-    "./browser": "./dist/grappl-ide-web.es.js"
+    ".": "./dist/graphl-ide-web.es.js",
+    "./browser": "./dist/graphl-ide-web.es.js"
   },
   "scripts": {
     "build": "zig build -Doptimize=ReleaseSmall && vite build --mode production",

@@ -12,7 +12,7 @@ const copyTypesPlugin = (): PluginOption => {
     closeBundle() {
       void fs.promises.copyFile(
         path.join(__dirname, "./WebBackend.d.ts"),
-        path.join(__dirname, "./dist/grappl-ide-web.d.ts"),
+        path.join(__dirname, "./dist/graphl-ide-web.d.ts"),
       );
     }
   };
@@ -52,9 +52,9 @@ export default defineConfig(async ({ mode }) => {
     build: {
       lib: {
         entry: path.resolve(__dirname, "./entry.ts"),
-        name: "GrapplIdeWeb",
+        name: "GraphlIdeWeb",
         fileName: (format, _entryName) => {
-          return `grappl-ide-web.${format}.js`
+          return `graphl-ide-web.${format}.js`
         },
       },
       minify: mode === "production" && "esbuild",
@@ -70,6 +70,6 @@ export default defineConfig(async ({ mode }) => {
         external: ["react"],
       },
     },
-    envPrefix: "GRAPPL_",
+    envPrefix: "GRAPHL_",
   };
 });

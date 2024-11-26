@@ -5,10 +5,12 @@ import * as styles from "./index.module.scss";
 import { MailLink } from '../components/MailLink';
 import * as constants from "../constants";
 import { classNames } from '../react-utils';
-import type * as Graphl from "@graphl/ide-browser";
+import type * as Graphl from "@graphl/ide";
 import Logo from "../images/GraphlAnimation.inline.svg";
+import { confetti } from '@tsparticles/confetti';
+import { useStaticQuery, graphql } from 'gatsby';
 
-const graphl = import("@graphl/ide-browser");
+const graphl = import("@graphl/ide");
 
 const ShinyLogo = (divProps: React.HTMLProps<HTMLDivElement>) => {
   const {className, style, ...rest} = divProps;
@@ -53,11 +55,21 @@ const sharedOpts = {
   },
 };
 
+const scriptImportStubs = {
+  callUserFunc_code_R: () => {},
+  callUserFunc_string_R: () => {},
+  callUserFunc_R: () => {},
+  callUserFunc_i32_R: () => {},
+  callUserFunc_i32_R_i32: () => {},
+  callUserFunc_i32_i32_R_i32: () => {},
+  callUserFunc_bool_R: () => {},
+};
+
 
 const Sample = (props: {
   graphInitState: Graphl.GraphInitState,
   // in order to avoid including the wasm-opt/wat2wasm, we preload the exported wasm
-  wasmUrl?: string,
+  wasmGetter?: () => Promise<WebAssembly.WebAssemblyInstantiatedSource>,
 }) => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
@@ -79,9 +91,10 @@ const Sample = (props: {
 
   const wasmPromise = React.useRef<Promise<WebAssembly.WebAssemblyInstantiatedSource>>();
   const getWasm = React.useCallback(() => {
-    if (props.wasmUrl === undefined) return;
-    if (!wasmPromise.current)
-      wasmPromise.current = WebAssembly.instantiateStreaming(fetch(props.wasmUrl));
+    if (props.wasmGetter === undefined) return;
+    if (!wasmPromise.current) {
+      wasmPromise.current = props.wasmGetter();
+    }
   }, []);
 
   return (
@@ -90,7 +103,7 @@ const Sample = (props: {
       style={{ position: "relative" }}
       onMouseMove={getWasm}
       onClick={async () => {
-        if (props.wasmUrl === undefined) return;
+        if (props.wasmGetter === undefined) return;
         getWasm();
         const wasm = await wasmPromise.current!;
         wasm.instance.exports.main();
@@ -178,25 +191,60 @@ const Homepage = () => {
 
   }, []);
 
+  const data = useStaticQuery(graphql`
+    {
+      # allFile(filter: {
+      #   and: [
+      #     { extension: { eq: "wasm" } },
+      #     { sourceInstanceName: { eq: "graphl-samples" }}
+      #   ]
+      # }) {
+      allFile(filter: { extension: { eq: "wasm" } }) {
+        edges {
+          node {
+            publicURL
+            name
+          }
+        }
+      }
+    }
+  `)
+
   const sample1 = (
     <Sample
-      wasmUrl={undefined} // FIXME
+      wasmGetter={async () => {
+        //return import("../samples/confetti.scm.wasm");
+        const wasmUrl = data.allFile.edges.find(e => e.node.name === "confetti.scm").node.publicURL;
+        return WebAssembly.instantiateStreaming(fetch(wasmUrl), {
+          env: {
+            ...scriptImportStubs,
+            callUserFunc_i32_R(func_id: number, particleCount: number) {
+              // assert func_id
+              confetti({
+                particleCount,
+                spread: 70,
+                origin: { y: 0.6 },
+              });
+            },
+          }
+        });
+      }}
       graphInitState={{
       notRemovable: true,
       nodes: [
         {
           id: 1,
-          type: "return",
-          inputs: {
-            0: { node: 2, outPin: 0 },
-          },
-        },
-        {
-          id: 2,
           type: "+",
           inputs: {
             0: { float: 1.0 },
             1: { float: 2.0 },
+          },
+        },
+        {
+          id: 2,
+          type: "return",
+          inputs: {
+            0: { node: 1, outPin: 0 },
           },
         },
       ],

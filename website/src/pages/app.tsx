@@ -1,6 +1,6 @@
 import React from 'react'
 import "../shared.css";
-import * as graphl from "@graphl/ide-browser";
+import * as graphl from "@graphl/ide";
 import SEO from '../components/seo';
 import "./app.css";
 import { confetti } from "@tsparticles/confetti";
