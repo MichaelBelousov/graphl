@@ -11,6 +11,6 @@ for (const sample of await fs.promises.readdir("./src/samples")) {
   const samplePath = path.join("./src/samples", sample);
   const wat = path.join("./src/samples", sample + ".wat")
   const wasm = path.join("./src/samples", sample + ".wasm")
-  await $`../lang-lib/zig-out/bin/text-to-wasm --env 'Confetti(i32)' ${samplePath} > ${wat}`;
+  await $`../lang-lib/zig-out/bin/graphltc --env 'Confetti(i32)' ${samplePath} > ${wat}`;
   await $`wat2wasm ${wat} -o ${wasm}`;
 }
