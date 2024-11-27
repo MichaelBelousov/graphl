@@ -153,10 +153,11 @@ export function Ide(canvasElem, opts) {
         if (textInputRect.length == 0) {
             gl.canvas.focus();
         } else {
-	    hidden_input.style.left = textInputRect[0] + 'px';
-	    hidden_input.style.top = textInputRect[1] + 'px';
-	    hidden_input.style.width = textInputRect[2] + 'px';
-	    hidden_input.style.height = textInputRect[3] + 'px';
+            // TODO: fix so hidden_input is always matching the canvas?
+            hidden_input.style.left = textInputRect[0] + 'px';
+            hidden_input.style.top = textInputRect[1] + 'px';
+            hidden_input.style.width = textInputRect[2] + 'px';
+            hidden_input.style.height = textInputRect[3] + 'px';
             hidden_input.focus();
         }
     }
@@ -497,25 +498,43 @@ export function Ide(canvasElem, opts) {
 
             const data = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
 
-            const inputFile = '/input.wat';
-            const outputFile = '/optimized.wasm';
-            wasmOpt.FS.writeFile(inputFile, data);
-            // TODO: source maps
-            // FIXME: consider whether it's worth enabling optimizations
-                const status = wasmOpt.callMain([
-                    inputFile,
-                    '-o',
-                    outputFile,
-                    '-g',
-                    // NOTE: multimemory not supported by safari
-                    "--enable-bulk-memory",
-                    "--enable-multivalue",
-                ]);
+            function compileWat_binaryen() {
+                const inputFile = '/input.wat';
+                const outputFile = '/optimized.wasm';
+                wasmOpt.FS.writeFile(inputFile, data);
+                // TODO: source maps
+                // FIXME: consider whether it's worth enabling optimizations
+                    const status = wasmOpt.callMain([
+                        inputFile,
+                        '-o',
+                        outputFile,
+                        //'-g',
+                        // NOTE: multimemory not supported by safari
+                        //"--enable-bulk-memory",
+                        //"--enable-multivalue",
+                    ]);
 
-            if (status !== 0)
-                throw Error(`non-zero return: ${status}`)
+                if (status !== 0)
+                    throw Error(`non-zero return: ${status}`)
 
-            const moduleBytes = wasmOpt.FS.readFile(outputFile, { encoding: "binary" });
+                return wasmOpt.FS.readFile(outputFile, { encoding: "binary" });
+            }
+
+            // FIXME: use this, it's no optimizer but it's much much lighter
+            function compileWat_wabt() {
+                var module = globalThis._wabtModule.parseWat('test.wast', data, {});
+
+                module.resolveNames();
+                module.validate({});
+                const binaryOutput = module.toBinary({log: true, write_debug_names:true});
+                const outputLog = binaryOutput.log;
+                console.warn(outputLog);
+                const binaryBuffer = binaryOutput.buffer;
+                return binaryBuffer;
+            }
+
+            const moduleBytes = compileWat_binaryen();
+
 
             let compiled;
 
@@ -730,6 +749,8 @@ export function Ide(canvasElem, opts) {
                                 assert(we.setInitState_graphs_nodes_input_int(graph_name_ptr, graph_name_len, i, node.id, inputId, BigInt(input.int)));
                             } else if ("float" in input) {
                                 assert(we.setInitState_graphs_nodes_input_float(graph_name_ptr, graph_name_len, i, node.id, inputId, input.float));
+                            } else if ("bool" in input) {
+                                assert(we.setInitState_graphs_nodes_input_bool(graph_name_ptr, graph_name_len, i, node.id, inputId, input.bool));
                             } else if ("node" in input) {
                                 assert(we.setInitState_graphs_nodes_input_pin(graph_name_ptr, graph_name_len, i, node.id, inputId, input.node, input.outPin));
                             } else {
@@ -789,8 +810,8 @@ export function Ide(canvasElem, opts) {
         //div.style.overflow = "hidden";
         hidden_input = document.createElement("input");
        hidden_input.style.position = "absolute";
-       hidden_input.style.left = 0;
-       hidden_input.style.top = 0;
+       hidden_input.style.left = canvas.getBoundingClientRect().left;
+       hidden_input.style.top = canvas.getBoundingClientRect().top;
         div.appendChild(hidden_input);
         document.body.prepend(div);
 
@@ -1069,6 +1090,27 @@ export function Ide(canvasElem, opts) {
                 // FIXME: save the promise so there isn't a race!
                 wasmOpt = mod;
             });
+
+    /*
+    if (!(opts.preferences?.compiler.watOnly ?? false))
+        import("./zig-out/bin/libwabt.js")
+            .then((WabtModule) => {
+                const wabtPromise = WabtModule();
+                return wabtPromise;
+            })
+            .then((wabt) => {
+                globalThis._wabtModule = wabt;
+                return wabt;
+            });
+
+    const libWabtScript = document.createElement("script");
+    // FIXME: make async with onload
+    libWabtScript.src = "/graphl-demo/zig-out/bin/libwabt.js";
+    //document.body.append(libWabtScript);
+    globalThis.WabtModule().then(w => {
+        globalThis._wabtModule = w;
+    });
+    */
 
     return {
         functions: new Proxy({}, {

@@ -112,6 +112,7 @@ const InputInitState = union(enum) {
     node: struct { id: usize, out_pin: usize },
     int: i64,
     float: f64,
+    bool: bool,
     string: []const u8,
     symbol: []const u8,
 };
@@ -136,11 +137,20 @@ export fn setInitState_graphs_notRemovable(
     graph_name_len: usize,
     val: bool,
 ) bool {
-    const graph_name = graph_name_ptr[0..graph_name_len];
-    const graph = (initState.graphs.getOrPut(gpa, graph_name) catch |err| {
-        std.log.err("failed to put graph '{s}', error={}", .{ graph_name, err });
+    const graph_name = gpa.dupe(u8, graph_name_ptr[0..graph_name_len]) catch |err| {
+        std.log.err("failed to alloc graph name '{s}', error={}", .{ graph_name_ptr[0..graph_name_len], err });
         return false;
-    }).value_ptr;
+    };
+    const graph = _: {
+        const get_or_put = initState.graphs.getOrPut(gpa, graph_name) catch |err| {
+            std.log.err("failed to put graph '{s}', error={}", .{ graph_name, err });
+            return false;
+        };
+        if (!get_or_put.found_existing) {
+            get_or_put.value_ptr.* = .{};
+        }
+        break :_ get_or_put.value_ptr;
+    };
 
     graph.notRemovable = val;
 
@@ -224,6 +234,14 @@ export fn setInitState_graphs_nodes_input_int(graph_name_ptr: [*]const u8, graph
         return false;
     };
     input.* = .{ .int = value };
+    return true;
+}
+
+export fn setInitState_graphs_nodes_input_bool(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: u16, value: bool) bool {
+    const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
+        return false;
+    };
+    input.* = .{ .bool = value };
     return true;
 }
 
@@ -652,6 +670,9 @@ pub fn init() !void {
                         },
                         .float => |v| {
                             try graph.addLiteralInput(node_id, input_id, 0, .{ .float = v });
+                        },
+                        .bool => |v| {
+                            try graph.addLiteralInput(node_id, input_id, 0, .{ .bool = v });
                         },
                         .string => |v| {
                             try graph.addLiteralInput(node_id, input_id, 0, .{ .string = v });
@@ -1194,6 +1215,10 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
         dvui.focusWidget(context_menu_widget_id orelse unreachable, null, null);
     }
 
+    // set drag cursor
+    if (dvui.captured(graph_area.data().id))
+        dvui.cursorSet(.hand);
+
     var zoom: f32 = 1;
     var zoomP: dvui.Point = .{};
 
@@ -1443,7 +1468,7 @@ fn renderNode(
     }
     const viz_data = maybe_viz_data.?;
     if (viz_data.position_override == null) {
-        viz_data.position_override = dvui.Point{};
+        viz_data.position_override = viz_data.position;
     }
     const position: *dvui.Point = &viz_data.position_override.?;
 
@@ -1729,6 +1754,9 @@ fn renderNode(
 
     var ctrl_down = dvui.dataGet(null, box.data().id, "_ctrl", bool) orelse false;
 
+    if (dvui.captured(box.data().id) and dvui.currentWindow().drag_state != .none)
+        dvui.cursorSet(.hand);
+
     // process events to drag the box around before processing graph events
     //if (maybe_viz_data) |viz_data| {
     {
@@ -1748,6 +1776,7 @@ fn renderNode(
                         dvui.captureMouse(box.data().id);
                         const offset = me.p.diff(box.data().rectScale().r.topLeft()); // pixel offset from box corner
                         dvui.dragPreStart(me.p, .{ .offset = offset });
+                        dvui.cursorSet(.hand);
                     } else if (me.action == .release and me.button.pointer()) {
                         if (ctrl_down) {
                             if (current_graph.removeNode(node.id)) |removed| {
@@ -1786,7 +1815,7 @@ fn renderNode(
     dvui.dataSet(null, box.data().id, "_ctrl", ctrl_down);
 
     {
-        const ctext = try dvui.context(@src(), .{ .rect = box.data().rect }, .{ .expand = .both });
+        const ctext = try dvui.context(@src(), .{ .rect = result }, .{ .expand = .both });
         if (ctext.activePoint()) |cp| {
             var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(cp), .{});
             defer fw.deinit();
@@ -1981,6 +2010,8 @@ pub const VisualGraph = struct {
                             },
                         };
 
+                        std.log.info("id={}, data={}\n", .{ node.id, new_cell.data.pos });
+
                         next_col.data.append(new_cell);
 
                         try impl(self, alloc, grid, visited, next_col, new_cell);
@@ -2042,6 +2073,7 @@ pub const VisualGraph = struct {
                             .y = node_rect.y,
                         },
                     });
+                    std.log.info("id={}, pos=({},{})\n", .{ cell.data.node.id, node_rect.x, node_rect.y });
                 }
             }
         }

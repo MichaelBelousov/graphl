@@ -39,6 +39,7 @@ export declare type InputInitState =
   | { int: number }
   | { float: number }
   | { string: string }
+  | { bool: boolean }
   | { symbol: string };
 
 export declare interface NodeInitState {

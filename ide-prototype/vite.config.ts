@@ -64,7 +64,8 @@ export default defineConfig(async ({ mode }) => {
         // they may not be compatible at all, so be warned
         plugins: [
           copyTypesPlugin(),
-          ...(mode === "development" ? [rollupVisualizer()] : [])
+          // FIXME: not working
+          ...(mode === "development" ? [/*rollupVisualizer()*/] : [])
         ],
         // NOTE: shouldn't be used afaict?
         external: ["react"],

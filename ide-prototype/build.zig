@@ -101,6 +101,8 @@ pub fn build(b: *std.Build) void {
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(output, .{ .custom = ".." }, "index.html").step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(binaryen_dep.path("binaryen/bin/wasm-opt.wasm"), .bin, "wasm-opt.wasm").step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(binaryen_dep.path("binaryen/bin/wasm-opt.js"), .bin, "wasm-opt.js").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(.{ .cwd_relative = "/home/mike/projects/wabt/bin/wat2wasm.js" }, .bin, "wat2wasm.js").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(.{ .cwd_relative = "/home/mike/projects/wabt/docs/demo/libwabt.js" }, .bin, "libwabt.js").step);
     b.getInstallStep().dependOn(&install_exe.step);
 
     {
