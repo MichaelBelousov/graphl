@@ -98,10 +98,17 @@ pub fn build(b: *std.Build) void {
     cb_run.addFileArg(exe.getEmittedBin());
     const output = cb_run.captureStdOut();
 
+    const wat2wasm = addWat2Wasm(b);
+    const install_wat2wasm = b.addInstallArtifact(wat2wasm, .{
+        .dest_dir = .{ .override = .{ .custom = "bin" } },
+    });
+    b.getInstallStep().dependOn(&install_wat2wasm.step);
+
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(output, .{ .custom = ".." }, "index.html").step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(binaryen_dep.path("binaryen/bin/wasm-opt.wasm"), .bin, "wasm-opt.wasm").step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(binaryen_dep.path("binaryen/bin/wasm-opt.js"), .bin, "wasm-opt.js").step);
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(.{ .cwd_relative = "/home/mike/projects/wabt/bin/wat2wasm.js" }, .bin, "wat2wasm.js").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(.{ .cwd_relative = "/home/mike/projects/wabt/out/emscripten/Release/wat2wasm.js" }, .bin, "wat2wasm.js").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(.{ .cwd_relative = "/home/mike/projects/wabt/out/emscripten/Release/wat2wasm.wasm" }, .bin, "wat2wasm.wasm").step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(.{ .cwd_relative = "/home/mike/projects/wabt/docs/demo/libwabt.js" }, .bin, "libwabt.js").step);
     b.getInstallStep().dependOn(&install_exe.step);
 
@@ -148,3 +155,78 @@ pub fn build(b: *std.Build) void {
         build_native_step.dependOn(&native_install.step);
     }
 }
+
+fn addWat2Wasm(b: *std.Build) *std.Build.Step.Compile {
+    const wabt_dep = b.dependency("wabt", .{});
+
+    const wabt_config_h = b.addConfigHeader(.{
+        .style = .{ .cmake = wabt_dep.path("src/config.h.in") },
+        .include_path = "wabt/config.h",
+    }, .{
+        .WABT_VERSION_STRING = "1.0.34",
+        .HAVE_SNPRINTF = 1,
+        .HAVE_SSIZE_T = 1,
+        .HAVE_STRCASECMP = 1,
+        .COMPILER_IS_CLANG = 1,
+        .SIZEOF_SIZE_T = @sizeOf(usize),
+    });
+
+    const wabt_lib = b.addStaticLibrary(.{
+        .name = "wabt",
+        .target = b.host,
+        .optimize = .Debug,
+    });
+    wabt_lib.addConfigHeader(wabt_config_h);
+    wabt_lib.addIncludePath(wabt_dep.path("include"));
+    wabt_lib.addCSourceFiles(.{
+        .root = wabt_dep.path("."),
+        .files = &wabt_files,
+    });
+    wabt_lib.linkLibCpp();
+
+    const wat2wasm = b.addExecutable(.{
+        .name = "wat2wasm",
+        .target = b.host,
+    });
+    wat2wasm.addConfigHeader(wabt_config_h);
+    wat2wasm.addIncludePath(wabt_dep.path("include"));
+    wat2wasm.addCSourceFile(.{
+        .file = wabt_dep.path("src/tools/wat2wasm.cc"),
+    });
+    wat2wasm.linkLibCpp();
+    wat2wasm.linkLibrary(wabt_lib);
+    return wat2wasm;
+}
+
+const wabt_files = [_][]const u8{
+    "src/binary-reader-ir.cc",
+    "src/binary-reader-logging.cc",
+    "src/binary-reader.cc",
+    "src/binary-writer-spec.cc",
+    "src/binary-writer.cc",
+    "src/binary.cc",
+    "src/binding-hash.cc",
+    "src/color.cc",
+    "src/common.cc",
+    "src/error-formatter.cc",
+    "src/expr-visitor.cc",
+    "src/feature.cc",
+    "src/filenames.cc",
+    "src/ir.cc",
+    "src/leb128.cc",
+    "src/lexer-source-line-finder.cc",
+    "src/lexer-source.cc",
+    "src/literal.cc",
+    "src/opcode-code-table.c",
+    "src/opcode.cc",
+    "src/option-parser.cc",
+    "src/resolve-names.cc",
+    "src/shared-validator.cc",
+    "src/stream.cc",
+    "src/token.cc",
+    "src/type-checker.cc",
+    "src/utf8.cc",
+    "src/validator.cc",
+    "src/wast-lexer.cc",
+    "src/wast-parser.cc",
+};

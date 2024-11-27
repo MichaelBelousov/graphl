@@ -498,7 +498,7 @@ export function Ide(canvasElem, opts) {
 
             const data = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
 
-            function compileWat_binaryen() {
+            async function compileWat_binaryen() {
                 const inputFile = '/input.wat';
                 const outputFile = '/optimized.wasm';
                 wasmOpt.FS.writeFile(inputFile, data);
@@ -521,8 +521,9 @@ export function Ide(canvasElem, opts) {
             }
 
             // FIXME: use this, it's no optimizer but it's much much lighter
-            function compileWat_wabt() {
-                var module = globalThis._wabtModule.parseWat('test.wast', data, {});
+            async function compileWat_wabt() {
+                const wabt = await wabtPromise;
+                var module = wabt.parseWat('graph.wat', data, {});
 
                 module.resolveNames();
                 module.validate({});
@@ -533,8 +534,7 @@ export function Ide(canvasElem, opts) {
                 return binaryBuffer;
             }
 
-            const moduleBytes = compileWat_binaryen();
-
+            const moduleBytes = await compileWat_wabt();
 
             let compiled;
 
@@ -651,7 +651,7 @@ export function Ide(canvasElem, opts) {
 
             utf8encoder.encodeInto(JSON.stringify(result), resultsBuffer());
 
-            opts.onMainResult(result);
+            opts.onMainResult?.(result);
             wasmResult.instance.exports.dvui_refresh();
         },
       },
@@ -1087,7 +1087,11 @@ export function Ide(canvasElem, opts) {
         requestRender();
     });
 
-    if (!(opts.preferences?.compiler.watOnly ?? false))
+    /** @type {Promise<any>} */
+    let wabtPromise;
+    if (!(opts.preferences?.compiler.watOnly ?? false)) {
+        // old binaryen code
+        /*
         import("./zig-out/bin/wasm-opt.js")
             .then(s => s.default())
             .then((mod) => {
@@ -1095,27 +1099,19 @@ export function Ide(canvasElem, opts) {
                 // FIXME: save the promise so there isn't a race!
                 wasmOpt = mod;
             });
+        */
 
-    /*
-    if (!(opts.preferences?.compiler.watOnly ?? false))
-        import("./zig-out/bin/libwabt.js")
-            .then((WabtModule) => {
-                const wabtPromise = WabtModule();
-                return wabtPromise;
-            })
-            .then((wabt) => {
-                globalThis._wabtModule = wabt;
-                return wabt;
-            });
-
-    const libWabtScript = document.createElement("script");
-    // FIXME: make async with onload
-    libWabtScript.src = "/graphl-demo/zig-out/bin/libwabt.js";
-    //document.body.append(libWabtScript);
-    globalThis.WabtModule().then(w => {
-        globalThis._wabtModule = w;
-    });
-    */
+        const libWabtScript = document.createElement("script");
+        // FIXME: make async with onload
+        libWabtScript.src = "/graphl-demo/zig-out/bin/libwabt.js";
+        wabtPromise = new Promise((resolve) => libWabtScript.onload = () => {
+          globalThis.WabtModule().then((wabt) => {
+              globalThis._wabt = wabt;
+              resolve(wabt);
+          });
+        });
+        document.body.append(libWabtScript);
+    }
 
     return {
         functions: new Proxy({}, {
