@@ -170,7 +170,7 @@ a.logoAnimated {
   width: 100%;
   height: 250px;
   margin: 30px 0;
-  border-radius: 9px;
+  border-radius: 5px;
   border: 1px solid black;
   box-shadow: 0 0 10px 5px rgba(255, 255, 255, 0.2);
   cursor: pointer;
@@ -178,7 +178,7 @@ a.logoAnimated {
   > canvas {
     width: 100%;
     height: 250px;
-    border-radius: 9px;
+    border-radius: 5px;
   }
 }
 
@@ -199,4 +199,22 @@ a.logoAnimated {
 .playButton {
   fill: rgb(135, 255, 135);
   stroke: rgb(135, 255, 135);
+}
+
+.canvasPopover {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 100ms ease-in-out;
+  border: black;
+  background-color: rgb(35, 35, 35);
+  border-radius: 5px;
+  box-shadow: 0 0 10px 3px rgba(255, 255, 255, 0.2);
+  position: absolute;
+  bottom: 10px;
+  //height: 100px;
+  --width: 100px;
+  width: var(--width);
+  left: calc(50% - var(--width)/2);
 }

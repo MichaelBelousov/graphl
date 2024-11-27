@@ -134,6 +134,9 @@ const Sample = (props: {
     }
   }, []);
 
+  const resultPopoverRef = React.useRef<HTMLDivElement>(null);
+  const resultTimer = React.useRef<NodeJS.Timeout>();
+
   return (
     <div
       className={styles.sampleCanvas}
@@ -142,6 +145,9 @@ const Sample = (props: {
       // FIXME: ask Matt/Don what they think...
       title={"click the green play button to run\nIf you want to make changes, try the app"}
     >
+      <div ref={resultPopoverRef} className={styles.canvasPopover}>
+        empty result
+      </div>
       <canvas
         ref={canvasRef}
         onScroll={() => false}
@@ -152,7 +158,17 @@ const Sample = (props: {
           if (props.wasmGetter === undefined) return;
           getWasm();
           const wasm = await wasmPromise.current!;
-          wasm.instance.exports.main();
+          const result = wasm.instance.exports.main();
+
+          const resultPopover = resultPopoverRef.current;
+          if (resultPopover) {
+            clearTimeout(resultTimer.current);
+            resultPopover.textContent = JSON.stringify(result);
+            resultPopover.style.opacity = "1.0";
+            resultTimer.current = setTimeout(() => {
+              resultPopover.style.opacity = "0";
+            }, 5000);
+          }
         }}
       >
         <svg height="30px" width="30px" viewBox="-3 -3 16 16">
@@ -208,7 +224,7 @@ const Homepage = () => {
             type: "if",
             inputs: {
               0: { node: 0, outPin: 0 },
-              1: { bool: false },
+              1: { bool: true },
             },
           },
           {
@@ -216,15 +232,23 @@ const Homepage = () => {
             type: "return",
             inputs: {
               0: { node: 1, outPin: 0 },
-              1: { int: 2 },
+              1: { int: 1 },
             },
           },
           {
             id: 3,
+            type: "+",
+            inputs: {
+              0: { int: 2 },
+              1: { int: 3 },
+            },
+          },
+          {
+            id: 4,
             type: "return",
             inputs: {
               0: { node: 1, outPin: 1 },
-              1: { int: 1 },
+              1: { node: 3, outPin: 0 },
             },
           },
         ],

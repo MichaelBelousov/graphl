@@ -6,6 +6,9 @@ const imageInlineSizeLimit = 4 * 1024
 exports.onCreateWebpackConfig = ({ stage, actions }) => {
   actions.setWebpackConfig({
     devtool: false,
+    experiments: {
+      asyncWebAssembly: true,
+    },
     module: {
       rules: [
         {
