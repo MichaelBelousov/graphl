@@ -154,8 +154,8 @@ export function Ide(canvasElem, opts) {
             gl.canvas.focus();
         } else {
             // TODO: fix so hidden_input is always matching the canvas?
-            hidden_input.style.left = textInputRect[0] + 'px';
-            hidden_input.style.top = textInputRect[1] + 'px';
+            hidden_input.style.left = (window.scrollX + canvasElem.getBoundingClientRect().left + textInputRect[0]) + 'px';
+            hidden_input.style.top = (window.scrollY + canvasElem.getBoundingClientRect().top + textInputRect[1]) + 'px';
             hidden_input.style.width = textInputRect[2] + 'px';
             hidden_input.style.height = textInputRect[3] + 'px';
             hidden_input.focus();
@@ -651,6 +651,7 @@ export function Ide(canvasElem, opts) {
 
             utf8encoder.encodeInto(JSON.stringify(result), resultsBuffer());
 
+            opts.onMainResult(result);
             wasmResult.instance.exports.dvui_refresh();
         },
       },
@@ -717,6 +718,9 @@ export function Ide(canvasElem, opts) {
                     const type_ptr = graph_name_ptr + graphName.length;
                     const type_len = node.type.length;
                     assert(we.setInitState_graphs_nodes_type(graph_name_ptr, graph_name_len, i, node.id, type_ptr, type_len));
+                    if (node.position) {
+                        assert(we.setInitState_graphs_nodes_pos(graph_name_ptr, graph_name_len, i, node.id, node.position.x, node.position.y));
+                    }
 
                     for (const [inputIdStr, input] of Object.entries(node.inputs ?? {})) {
                         const inputId = Number(inputIdStr);
@@ -809,9 +813,10 @@ export function Ide(canvasElem, opts) {
         //div.style.height = 0;
         //div.style.overflow = "hidden";
         hidden_input = document.createElement("input");
+        hidden_input.classList.add("dvui-hidden-input");
        hidden_input.style.position = "absolute";
-       hidden_input.style.left = canvas.getBoundingClientRect().left;
-       hidden_input.style.top = canvas.getBoundingClientRect().top;
+       hidden_input.style.left = (window.scrollX + canvas.getBoundingClientRect().left) + "px";
+       hidden_input.style.top = (window.scrollY + canvas.getBoundingClientRect().top) + "px";
         div.appendChild(hidden_input);
         document.body.prepend(div);
 

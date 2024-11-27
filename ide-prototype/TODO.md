@@ -1,8 +1,6 @@
 ## website
 
 - prepare samples
-  - math
-  - confetti
   - sqlite
 
 ## short term
@@ -13,9 +11,8 @@
 - test on mac
 - restrict result count to 1 for now
 - ability to open saved projects
-- ability to see your output somehow...
 - better logo
-- better marketing site
+- fix logo for safari plus FF mobile
 
 ## long term
 - custom types

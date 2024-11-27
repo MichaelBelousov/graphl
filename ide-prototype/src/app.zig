@@ -122,6 +122,7 @@ const NodeInitState = struct {
     /// type of node "+"
     type_: []const u8,
     inputs: std.AutoHashMapUnmanaged(u16, InputInitState),
+    position: ?dvui.Point = null,
 };
 
 // NOTE: must correlate to WebBackend.d.ts
@@ -175,6 +176,23 @@ export fn setInitState_graphs_nodes_type(
     };
 
     node.type_ = type_;
+
+    return true;
+}
+
+export fn setInitState_graphs_nodes_pos(
+    graph_name_ptr: [*]const u8,
+    graph_name_len: usize,
+    node_index: usize,
+    node_id: usize,
+    pos_x: f32,
+    pos_y: f32,
+) bool {
+    const node = _setInitState_getNode(graph_name_ptr, graph_name_len, node_index, node_id) catch {
+        return false;
+    };
+
+    node.position = .{ .x = pos_x, .y = pos_y };
 
     return true;
 }
@@ -657,6 +675,10 @@ pub fn init() !void {
             for (graph_desc.nodes.items) |node_desc| {
                 const node_id: grappl.NodeId = @intCast(node_desc.id);
                 _ = try graph.addNode(gpa, node_desc.type_, false, node_id, null, .{});
+                if (node_desc.position) |pos| {
+                    const node = graph.visual_graph.node_data.getPtr(node_id) orelse unreachable;
+                    node.position_override = pos;
+                }
                 var input_iter = node_desc.inputs.iterator();
                 while (input_iter.next()) |input_entry| {
                     const input_id = input_entry.key_ptr.*;
@@ -1660,6 +1682,9 @@ fn renderNode(
 
                         const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{} } }, .{ .id_extra = id_extra });
                         defer text_result.deinit();
+                        if (dvui.firstFrame(text_result.data().id)) {
+                            text_result.textTyped(@field(input.value, @tagName(info.tag)));
+                        }
                         // TODO: don't dupe this memory! use a dynamic buffer instead
                         if (text_result.text_changed) {
                             if (@field(input.value, @tagName(info.tag)).ptr != empty.ptr)
@@ -2010,8 +2035,6 @@ pub const VisualGraph = struct {
                             },
                         };
 
-                        std.log.info("id={}, data={}\n", .{ node.id, new_cell.data.pos });
-
                         next_col.data.append(new_cell);
 
                         try impl(self, alloc, grid, visited, next_col, new_cell);
@@ -2073,7 +2096,6 @@ pub const VisualGraph = struct {
                             .y = node_rect.y,
                         },
                     });
-                    std.log.info("id={}, pos=({},{})\n", .{ cell.data.node.id, node_rect.x, node_rect.y });
                 }
             }
         }

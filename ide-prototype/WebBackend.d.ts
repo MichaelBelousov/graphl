@@ -49,6 +49,8 @@ export declare interface NodeInitState {
   type: string;
   /** inputs */
   inputs?: Record<number, InputInitState>,
+  /** optional position */
+  position?: { x: number, y: number };
 }
 
 export declare interface GraphInitState {
@@ -107,6 +109,8 @@ export declare namespace Ide {
      * mark graphs as non-removable here
      */
     initState?: InitState;
+    /** a callback with the result for when the main graph function had a run triggered by the user */
+    onMainResult(result: any): void;
   }
 }
 

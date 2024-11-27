@@ -1234,7 +1234,8 @@ const Compilation = struct {
                     result.values.items[0] = Sexp.newList(alloc);
                     try result.values.items[0].value.list.ensureTotalCapacityPrecise(2);
                     result.values.items[0].value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                    result.values.items[0].value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 1 } };
+                    // FIXME: these are backwards for some reason?
+                    result.values.items[0].value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 0 } };
                     return result;
                 }
 
@@ -1244,7 +1245,8 @@ const Compilation = struct {
                     result.values.addOneAssumeCapacity().* = Sexp.newList(alloc);
                     try result.values.items[0].value.list.ensureTotalCapacityPrecise(2);
                     result.values.items[0].value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                    result.values.items[0].value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 0 } };
+                    // FIXME: these are backwards for some reason?
+                    result.values.items[0].value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 1 } };
                     return result;
                 }
 

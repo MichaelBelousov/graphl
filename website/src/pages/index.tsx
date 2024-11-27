@@ -30,6 +30,71 @@ const ShinyButton = (btnProps: React.HTMLProps<HTMLAnchorElement>) => {
   );
 };
 
+type Sexp = number | string | {symbol: string} | Sexp[];
+
+const sexpToSql = (sexp: Sexp) => {
+  if (Array.isArray(sexp)) {
+    let sql = "";
+
+    const [func, ...params] = sexp as [{symbol: string}, ...Sexp[]];
+
+    const handlePrev = () => {
+      if (!Array.isArray(params[0]))
+        return;
+      const execParam = params.shift() as Sexp;
+      const prev = sexpToSql(execParam);
+      sql += prev;
+      sql += '\n';
+    };
+
+    if (func.symbol === "SELECT") {
+      handlePrev();
+      // HACK: remove first since we know it's an empty exec which is currently bugged
+      params.shift();
+      params.forEach(p => { if (typeof p !== "string") throw Error(`bad SELECT arg: ${p}`); })
+      sql += sexpToSql(func) + ' ' + params.join(',');
+
+    } else if (func.symbol === "WHERE") {
+      handlePrev();
+      sql += sexpToSql(func) + ' ' + params.map(sexpToSql).join(',');
+
+    } else if (func.symbol === "FROM") {
+      handlePrev();
+      params.forEach(p => { if (typeof p !== "string") throw Error(`bad FROM arg: ${p}`); })
+      sql += sexpToSql(func) + ' ' + params.join(',');
+
+    } else if (func.symbol === "string-equal") {
+      handlePrev();
+      sql += `${sexpToSql(params[0])} = ${sexpToSql(params[1])}`;
+
+    } else if (func.symbol === "like") {
+      handlePrev();
+      sql += `${sexpToSql(params[0])} LIKE ${sexpToSql(params[1])}`;
+
+      // assume it's a binary operator
+    } else {
+      handlePrev();
+      sql += `${sexpToSql(params[0])} ${sexpToSql(func)} ${sexpToSql(params[1])}`;
+
+    }
+
+    return sql;
+
+  } else if (typeof sexp === "object" && "symbol" in sexp) {
+    return sexp.symbol;
+
+  } else if (typeof sexp === "string") {
+    return `'${sexp}'`
+
+  } else if (typeof sexp === "number") {
+    return `${sexp}`
+
+  } else {
+    console.error(sexp);
+    throw Error("unexpected value:");
+  }
+};
+
 const customNodes: Record<string, Graphl.JsFunctionBinding> = {
   "Confetti": {
     parameters: [{"name": "particleCount", type: /*graphl.Types.i32*/ 0 }],
@@ -47,7 +112,6 @@ const customNodes: Record<string, Graphl.JsFunctionBinding> = {
     results: [{ name: "query", type: 4/*grappl.Types.string*/}],
     impl(code) {
       // TODO: print the formed sql query
-      console.log('QUERY:', code);
     }
   },
   // dummy nodes
@@ -106,7 +170,8 @@ const scriptImportStubs = {
 const Sample = (props: {
   graphInitState: Graphl.GraphInitState,
   // in order to avoid including the wasm-opt/wat2wasm, we preload the exported wasm
-  wasmGetter?: () => Promise<WebAssembly.WebAssemblyInstantiatedSource>,
+  wasmGetter?: (onResultHack: (res: string) => void) => Promise<WebAssembly.WebAssemblyInstantiatedSource>,
+  useResultHack?: boolean,
 }) => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
@@ -126,16 +191,28 @@ const Sample = (props: {
 
   }, []);
 
+  const resultPopoverRef = React.useRef<HTMLDivElement>(null);
+  const resultTimer = React.useRef<NodeJS.Timeout>();
+
+  const flashResult = React.useCallback((result: any) => {
+    const resultPopover = resultPopoverRef.current;
+    if (resultPopover) {
+      clearTimeout(resultTimer.current);
+      resultPopover.textContent = result;
+      resultPopover.style.opacity = "1.0";
+      resultTimer.current = setTimeout(() => {
+        resultPopover.style.opacity = "0";
+      }, 5000);
+    }
+  }, []);
+
   const wasmPromise = React.useRef<Promise<WebAssembly.WebAssemblyInstantiatedSource>>();
   const getWasm = React.useCallback(() => {
     if (props.wasmGetter === undefined) return;
     if (!wasmPromise.current) {
-      wasmPromise.current = props.wasmGetter();
+      wasmPromise.current = props.wasmGetter(flashResult);
     }
   }, []);
-
-  const resultPopoverRef = React.useRef<HTMLDivElement>(null);
-  const resultTimer = React.useRef<NodeJS.Timeout>();
 
   return (
     <div
@@ -160,15 +237,8 @@ const Sample = (props: {
           const wasm = await wasmPromise.current!;
           const result = wasm.instance.exports.main();
 
-          const resultPopover = resultPopoverRef.current;
-          if (resultPopover) {
-            clearTimeout(resultTimer.current);
-            resultPopover.textContent = JSON.stringify(result);
-            resultPopover.style.opacity = "1.0";
-            resultTimer.current = setTimeout(() => {
-              resultPopover.style.opacity = "0";
-            }, 5000);
-          }
+          if (!props.useResultHack)
+            flashResult(result);
         }}
       >
         <svg height="30px" width="30px" viewBox="-3 -3 16 16">
@@ -211,7 +281,7 @@ const Homepage = () => {
       wasmGetter={async () => {
         // FIXME: import directly instead?
         //return import("../samples/confetti.scm.wasm");
-        const wasmUrl = data.allFile.edges.find(e => e.node.name === "confetti.scm").node.publicURL;
+        const wasmUrl = data.allFile.edges.find(e => e.node.name === "math.scm").node.publicURL;
         return WebAssembly.instantiateStreaming(fetch(wasmUrl), {
           env: { ...scriptImportStubs, }
         });
@@ -229,14 +299,6 @@ const Homepage = () => {
           },
           {
             id: 2,
-            type: "return",
-            inputs: {
-              0: { node: 1, outPin: 0 },
-              1: { int: 1 },
-            },
-          },
-          {
-            id: 3,
             type: "+",
             inputs: {
               0: { int: 2 },
@@ -244,11 +306,19 @@ const Homepage = () => {
             },
           },
           {
+            id: 3,
+            type: "return",
+            inputs: {
+              0: { node: 1, outPin: 0 },
+              1: { node: 2, outPin: 0 },
+            },
+          },
+          {
             id: 4,
             type: "return",
             inputs: {
               0: { node: 1, outPin: 1 },
-              1: { node: 3, outPin: 0 },
+              1: { int: 1},
             },
           },
         ],
@@ -285,7 +355,7 @@ const Homepage = () => {
             type: "Confetti",
             inputs: {
               0: { node: 0, outPin: 0 },
-              1: { float: 2.0 },
+              1: { int: 100 },
             },
           },
           {
@@ -302,11 +372,25 @@ const Homepage = () => {
 
   const sample3 = (
     <Sample
-      wasmGetter={async () => {
+      useResultHack={true}
+      wasmGetter={async (onResult) => {
         // FIXME: import directly instead?
         //return import("../samples/confetti.scm.wasm");
-        const wasmUrl = data.allFile.edges.find(e => e.node.name === "confetti.scm").node.publicURL;
-        return WebAssembly.instantiateStreaming(fetch(wasmUrl), { env: { ...scriptImportStubs } });
+        const wasmUrl = data.allFile.edges.find(e => e.node.name === "sql.scm").node.publicURL;
+        let wasm: WebAssembly.WebAssemblyInstantiatedSource;
+        const wasmPromise = WebAssembly.instantiateStreaming(fetch(wasmUrl), {
+          env: {
+            ...scriptImportStubs,
+            callUserFunc_code_R(funcId: number, codeLen: number, codePtr: number) {
+              // FIXME: executing this async is bad! the memory might have changed since...
+              const mem = wasm.instance.exports.memory;
+              const str = new TextDecoder().decode(new Uint8Array(mem.buffer, codePtr, codeLen));
+              const code = JSON.parse(str);
+              onResult(sexpToSql(code));
+            }
+          },
+        }).then((_wasm) => wasm = _wasm);
+        return wasmPromise;
       }}
       graphInitState={{
         notRemovable: true,
