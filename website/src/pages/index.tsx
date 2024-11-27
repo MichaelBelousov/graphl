@@ -49,8 +49,6 @@ const sexpToSql = (sexp: Sexp) => {
 
     if (func.symbol === "SELECT") {
       handlePrev();
-      // HACK: remove first since we know it's an empty exec which is currently bugged
-      params.shift();
       params.forEach(p => { if (typeof p !== "string") throw Error(`bad SELECT arg: ${p}`); })
       sql += sexpToSql(func) + ' ' + params.join(',');
 
@@ -70,6 +68,10 @@ const sexpToSql = (sexp: Sexp) => {
     } else if (func.symbol === "like") {
       handlePrev();
       sql += `${sexpToSql(params[0])} LIKE ${sexpToSql(params[1])}`;
+
+    } else if (func.symbol === "==") {
+      handlePrev();
+      sql += `${sexpToSql(params[0])}=${sexpToSql(params[1])}`;
 
       // assume it's a binary operator
     } else {
@@ -142,7 +144,7 @@ const sharedOpts: Partial<Graphl.Ide.Options> = {
   preferences: {
     graph: {
       scrollBarsVisible: false,
-      scale: 0.5,
+      scale: 0.7,
     },
     definitionsPanel:  {
       visible: false,
@@ -412,9 +414,25 @@ const Homepage = () => {
           },
           {
             id: 4,
+            type: "make-symbol",
+            inputs: {
+              0: { string: "col1" },
+            },
+          },
+          {
+            id: 5,
+            type: "==",
+            inputs: {
+              0: { node: 4, outPin: 0 },
+              1: { int: 2 },
+            },
+          },
+          {
+            id: 6,
             type: "WHERE",
             inputs: {
               0: { node: 3, outPin: 0 },
+              1: { node: 5, outPin: 0 },
             },
           },
           {
@@ -422,7 +440,7 @@ const Homepage = () => {
             type: "query-string",
             inputs: {
               0: { node: 0, outPin: 0 },
-              1: { node: 4, outPin: 0 },
+              1: { node: 6, outPin: 0 },
             },
           },
         ],

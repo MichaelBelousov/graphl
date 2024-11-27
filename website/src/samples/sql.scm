@@ -3,7 +3,7 @@
 (define (main)
         (begin 
            (query-string
-             (WHERE (FROM (SELECT "table")
-                          "test")
+             (WHERE (FROM (SELECT "col1")
+                          "table")
                     (== col1 2)))
            (return 0)))
