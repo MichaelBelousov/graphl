@@ -369,6 +369,9 @@ const Compilation = struct {
                 pub const le = Sexp{ .value = .{ .symbol = "i32.le_s" } };
                 pub const ne = Sexp{ .value = .{ .symbol = "i32.ne" } };
                 pub const eq = Sexp{ .value = .{ .symbol = "i32.eq" } };
+                pub const @"and" = Sexp{ .value = .{ .symbol = "i32.and" } };
+                pub const @"or" = Sexp{ .value = .{ .symbol = "i32.or" } };
+                pub const xor = Sexp{ .value = .{ .symbol = "i32.xor" } };
                 pub const @"const" = Sexp{ .value = .{ .symbol = "i32.const" } };
             };
 
@@ -385,6 +388,9 @@ const Compilation = struct {
                 pub const le = Sexp{ .value = .{ .symbol = "i32.le_u" } };
                 pub const ne = Sexp{ .value = .{ .symbol = "i32.ne" } };
                 pub const eq = Sexp{ .value = .{ .symbol = "i32.eq" } };
+                pub const @"and" = Sexp{ .value = .{ .symbol = "i32.and" } };
+                pub const @"or" = Sexp{ .value = .{ .symbol = "i32.or" } };
+                pub const xor = Sexp{ .value = .{ .symbol = "i32.xor" } };
                 pub const @"const" = Sexp{ .value = .{ .symbol = "i32.const" } };
             };
 
@@ -401,6 +407,9 @@ const Compilation = struct {
                 pub const le = Sexp{ .value = .{ .symbol = "i64.le_s" } };
                 pub const ne = Sexp{ .value = .{ .symbol = "i64.ne" } };
                 pub const eq = Sexp{ .value = .{ .symbol = "i64.eq" } };
+                pub const @"and" = Sexp{ .value = .{ .symbol = "i64.and" } };
+                pub const @"or" = Sexp{ .value = .{ .symbol = "i64.or" } };
+                pub const xor = Sexp{ .value = .{ .symbol = "i64.xor" } };
                 pub const @"const" = Sexp{ .value = .{ .symbol = "i64.const" } };
 
                 pub const extend_i32_s = Sexp{ .value = .{ .symbol = "i64.extend_i32_s" } };
@@ -1066,6 +1075,17 @@ const Compilation = struct {
                     .{
                         .sym = syms.@">=",
                         .wasm_name = "ge",
+                        .int_only = true,
+                    },
+                    .{
+                        .sym = syms.@"and",
+                        .wasm_name = "and",
+                        .int_only = true,
+                    },
+                    .{
+                        .sym = syms.@"or",
+                        .wasm_name = "or",
+                        .int_only = true,
                     },
                 }) |builtin_op| {
                     if (func.value.symbol.ptr == builtin_op.sym.value.symbol.ptr) {
@@ -1089,7 +1109,8 @@ const Compilation = struct {
 
                         inline for (&.{ "i32_", "i64_", "f32_", "f64_" }) |type_name| {
                             const primitive_type: Type = @field(primitive_types, type_name);
-                            if (result.resolved_type == primitive_type) {
+                            const float_type_but_int_op = @hasField(@TypeOf(builtin_op), "int_only") and type_name[0] == 'f';
+                            if (!float_type_but_int_op and result.resolved_type == primitive_type) {
                                 const wasm_type_ops = @field(wat_syms.ops, type_name);
                                 op_name.* = @field(wasm_type_ops, builtin_op.wasm_name);
                                 handled = true;
