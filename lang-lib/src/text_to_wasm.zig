@@ -111,7 +111,8 @@ pub fn main() !void {
 
         var compile_diag = compiler.Diagnostic.init();
         const wat = compiler.compile(alloc, &parsed, &env, &user_funcs, &compile_diag) catch |compile_err| {
-            std.debug.print("Compile error {} in '{s}':\n{}\n", .{ compile_err, arg, parse_diag });
+            // FIXME: somehow the pointer in diag (part of &parsed) is invalid when we reach here
+            std.debug.print("Compile error {} in '{s}':\n{}\n", .{ compile_err, arg, compile_diag });
             exit_code = compile_err;
             continue;
         };

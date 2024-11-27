@@ -24,6 +24,7 @@ const intrinsics_code = intrinsics_raw["(module $grappl_intrinsics.wasm\n".len .
 pub const Diagnostic = struct {
     err: Error = .None,
 
+    // set by compile call
     module: *const Sexp = undefined,
 
     const Error = union(enum(u16)) {
@@ -37,6 +38,24 @@ pub const Diagnostic = struct {
 
     pub fn init() @This() {
         return @This(){};
+    }
+
+    pub fn format(
+        self: @This(),
+        comptime fmt_str: []const u8,
+        fmt_opts: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        // TODO: use contextualize
+        _ = fmt_str;
+        _ = fmt_opts;
+        switch (self.err) {
+            .None => try writer.print("Not an error", .{}),
+            .BadTopLevelForm => |decl| {
+                try writer.print("Bad Top Level Form:\n{}\n", .{decl});
+                try writer.print("in:\n{}\n", .{self.module});
+            },
+        }
     }
 };
 
@@ -160,13 +179,6 @@ const Compilation = struct {
         if (body.value.list.items.len < 1) return error.FuncBodyWithoutBegin;
         if (body.value.list.items[0].value != .symbol) return error.FuncBodyWithoutBegin;
         if (body.value.list.items[0].value.symbol.ptr != syms.begin.value.symbol.ptr) return error.FuncBodyWithoutBegin;
-
-        if (body.value.list.items.len < 2) return error.FuncBodyWithoutImmediateReturn;
-        const last_in_begin = &body.value.list.items[body.value.list.items.len - 1];
-        if (last_in_begin.value != .list) return error.FuncBodyBeginReturnNotList;
-        if (last_in_begin.value.list.items.len < 1) return error.FuncBodyNotEndingInReturn;
-        const return_sym = &last_in_begin.value.list.items[0];
-        if (return_sym.value.symbol.ptr != syms.@"return".value.symbol.ptr) return error.FuncBodyNotEndingInReturn;
 
         var local_names = std.ArrayList([]const u8).init(alloc);
         defer local_names.deinit();
@@ -337,6 +349,8 @@ const Compilation = struct {
         pub const memory = Sexp{ .value = .{ .symbol = "memory" } };
         pub const @"$0" = Sexp{ .value = .{ .symbol = "$0" } };
         pub const data = Sexp{ .value = .{ .symbol = "data" } };
+        pub const then = Sexp{ .value = .{ .symbol = "then" } };
+        pub const @"else" = Sexp{ .value = .{ .symbol = "else" } };
 
         pub const ops = struct {
             pub const @"local.get" = Sexp{ .value = .{ .symbol = "local.get" } };
@@ -890,9 +904,28 @@ const Compilation = struct {
                 errdefer for (arg_fragments) |*frag| frag.deinit(alloc);
                 defer alloc.free(arg_fragments);
 
+                const if_inputs = [_]builtin.Pin{
+                    builtin.Pin{
+                        .name = "condition",
+                        .kind = .{ .primitive = .{ .value = primitive_types.bool_ } },
+                    },
+                    builtin.Pin{
+                        .name = "then",
+                        .kind = .{ .primitive = .{ .value = builtin.empty_type } },
+                    },
+                    builtin.Pin{
+                        .name = "else",
+                        .kind = .{ .primitive = .{ .value = builtin.empty_type } },
+                    },
+                };
+
                 // FIXME: gross to ignore the first exec occasionally, need to better distinguish between non/pure nodes
                 const input_descs = _: {
-                    if (func_node_desc.getInputs().len > 0 and func_node_desc.getInputs()[0].asPrimitivePin() == .exec) {
+                    if (func.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
+                        // FIXME: handle this better...
+                        std.debug.assert(arg_fragments.len == 3);
+                        break :_ &if_inputs;
+                    } else if (func_node_desc.getInputs().len > 0 and func_node_desc.getInputs()[0].asPrimitivePin() == .exec) {
                         break :_ func_node_desc.getInputs()[1..];
                     } else {
                         break :_ func_node_desc.getInputs();
@@ -957,15 +990,36 @@ const Compilation = struct {
                     try result.values.ensureTotalCapacityPrecise(1);
                     const wasm_op = result.values.addOneAssumeCapacity();
                     wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                    try wasm_op.value.list.ensureTotalCapacityPrecise(4);
+                    try wasm_op.value.list.ensureTotalCapacityPrecise(5);
                     wasm_op.value.list.addOneAssumeCapacity().* = syms.@"if";
+                    const result_type = wasm_op.value.list.addOneAssumeCapacity();
                     const cond = wasm_op.value.list.addOneAssumeCapacity();
                     const consequence = wasm_op.value.list.addOneAssumeCapacity();
                     const alternative = wasm_op.value.list.addOneAssumeCapacity();
 
-                    cond.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try arg_fragments[0].values.toOwnedSlice()) } };
-                    consequence.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try arg_fragments[1].values.toOwnedSlice()) } };
-                    alternative.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try arg_fragments[2].values.toOwnedSlice()) } };
+                    result_type.* = Sexp.newList(alloc);
+
+                    std.debug.assert(arg_fragments[0].values.items.len == 1);
+                    cond.* = arg_fragments[0].values.items[0];
+                    arg_fragments[0].values.items[0] = Sexp{ .value = .void };
+
+                    std.debug.assert(arg_fragments[1].values.items.len == 1);
+                    consequence.* = Sexp.newList(alloc);
+                    try consequence.value.list.ensureTotalCapacityPrecise(2);
+                    consequence.value.list.addOneAssumeCapacity().* = wat_syms.then;
+                    consequence.value.list.addOneAssumeCapacity().* = arg_fragments[1].values.items[0];
+                    arg_fragments[1].values.items[0] = Sexp{ .value = .void };
+
+                    std.debug.assert(arg_fragments[2].values.items.len == 1);
+                    alternative.* = Sexp.newList(alloc);
+                    try alternative.value.list.ensureTotalCapacityPrecise(2);
+                    alternative.value.list.addOneAssumeCapacity().* = wat_syms.@"else";
+                    alternative.value.list.addOneAssumeCapacity().* = arg_fragments[2].values.items[0];
+                    arg_fragments[2].values.items[0] = Sexp{ .value = .void };
+
+                    try result_type.value.list.ensureTotalCapacityPrecise(2);
+                    result_type.value.list.addOneAssumeCapacity().* = wat_syms.result;
+                    result_type.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = result.resolved_type.wasm_type.? } };
 
                     return result;
                 }
@@ -1484,11 +1538,13 @@ const Compilation = struct {
                         try self.compileTypeOf(&decl));
                     if (!did_compile) {
                         self.diag.err = Diagnostic.Error{ .BadTopLevelForm = &decl };
+                        std.log.err("{}", .{self.diag});
                         return error.badTopLevelForm;
                     }
                 },
                 else => {
                     self.diag.err = Diagnostic.Error{ .BadTopLevelForm = &decl };
+                    std.log.err("{}", .{self.diag});
                     return error.badTopLevelForm;
                 },
             }
@@ -1654,6 +1710,14 @@ test "parse" {
         \\(define (strings-stuff)
         \\  (begin
         \\    (return (string-equal "hello" "world"))))
+        \\
+        \\;;; comment ;; TODO: reintroduce use of a parameter
+        \\(typeof (ifs bool) i32)
+        \\(define (ifs a)
+        \\  (begin
+        \\    (if a
+        \\        (+ 2 3)
+        \\        5)))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
@@ -1801,6 +1865,20 @@ test "parse" {
         \\      "\05\00\00\00\00\00\00\00hello")
         \\(data (i32.const 152)
         \\      "\05\00\00\00\00\00\00\00world")
+        \\(export "ifs"
+        \\        (func $ifs))
+        \\(type $typeof_ifs
+        \\      (func (param i32)
+        \\            (result i32)))
+        \\(func $ifs
+        \\      (param $param_a
+        \\             i32)
+        \\      (result i32)
+        \\      (if (result i32)
+        \\          (local.get $param_a)
+        \\          (then (i32.add (i32.const 2)
+        \\                         (i32.const 3)))
+        \\          (else (i32.const 5))))
         \\)
         // TODO: clearly instead of embedding the pointer we should have a global variable
         // so the host can set that

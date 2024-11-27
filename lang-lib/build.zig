@@ -79,6 +79,7 @@ pub fn build(b: *std.Build) void {
         .target = web_target,
     });
 
+    // FIXME: rename to graphltc
     const text_to_wasm_tool = b.step("text-to-wasm", "build the text version of the compiler");
     const text_to_wasm_exe = b.addExecutable(.{
         .name = "text-to-wasm",
