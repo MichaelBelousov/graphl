@@ -1206,6 +1206,27 @@ const Compilation = struct {
             },
 
             .symbol => |v| {
+                if (v.ptr == syms.true.value.symbol.ptr) {
+                    result.resolved_type = primitive_types.bool_;
+                    try result.values.ensureTotalCapacityPrecise(1);
+                    result.values.addOneAssumeCapacity().* = Sexp.newList(alloc);
+                    result.values.items[0] = Sexp.newList(alloc);
+                    try result.values.items[0].value.list.ensureTotalCapacityPrecise(2);
+                    result.values.items[0].value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+                    result.values.items[0].value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 1 } };
+                    return result;
+                }
+
+                if (v.ptr == syms.false.value.symbol.ptr) {
+                    result.resolved_type = primitive_types.bool_;
+                    try result.values.ensureTotalCapacityPrecise(1);
+                    result.values.addOneAssumeCapacity().* = Sexp.newList(alloc);
+                    try result.values.items[0].value.list.ensureTotalCapacityPrecise(2);
+                    result.values.items[0].value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+                    result.values.items[0].value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 0 } };
+                    return result;
+                }
+
                 // FIXME: use hashmap instead
                 const Info = struct {
                     resolved_type: builtin.Type,
