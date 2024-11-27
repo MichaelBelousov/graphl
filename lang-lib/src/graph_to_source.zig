@@ -365,8 +365,9 @@ pub const GraphBuilder = struct {
         try self.branch_joiner_map.ensureTotalCapacity(alloc, self.branch_count);
         try self.is_join_set.resize(alloc, self.nodes.map.count(), false);
 
+        // FIXME: this causes a crash in non-debug builds
         //var analysis_arena = std.heap.ArenaAllocator.init(alloc);
-        try self.analyzeNodes(alloc);
+        //try self.analyzeNodes(alloc);
         //analysis_arena.deinit();
 
         var body = try self.rootToSexp(alloc);
@@ -1033,81 +1034,81 @@ pub const GraphToSourceDiagnostic = GraphToSourceErr;
 //     return page_writer.concat(global_alloc);
 // }
 
-// test "big local built graph" {
-//     const a = testing.allocator;
+test "big local built graph" {
+    const a = testing.allocator;
 
-//     var env = try Env.initDefault(a);
-//     defer env.deinit(a);
+    var env = try Env.initDefault(a);
+    defer env.deinit(a);
 
-//     _ = try env.addNode(a, helpers.basicNode(&.{
-//         .name = "throw-confetti",
-//         .inputs = &.{
-//             helpers.Pin{ .name = "run", .kind = .{ .primitive = .exec } },
-//             helpers.Pin{ .name = "particle count", .kind = .{ .primitive = .{ .value = helpers.primitive_types.i32_ } } },
-//         },
-//         .outputs = &.{
-//             helpers.Pin{ .name = "", .kind = .{ .primitive = .exec } },
-//         },
-//     }));
+    _ = try env.addNode(a, helpers.basicNode(&.{
+        .name = "throw-confetti",
+        .inputs = &.{
+            helpers.Pin{ .name = "run", .kind = .{ .primitive = .exec } },
+            helpers.Pin{ .name = "particle count", .kind = .{ .primitive = .{ .value = helpers.primitive_types.i32_ } } },
+        },
+        .outputs = &.{
+            helpers.Pin{ .name = "", .kind = .{ .primitive = .exec } },
+        },
+    }));
 
-//     var diagnostic: GraphBuilder.Diagnostic = .None;
-//     errdefer std.debug.print("DIAGNOSTIC:\n{}\n", .{diagnostic});
-//     var graph = GraphBuilder.init(a, &env) catch |e| {
-//         std.debug.print("\nERROR: {}\n", .{e});
-//         return e;
-//     };
-//     defer graph.deinit(a);
+    var diagnostic: GraphBuilder.Diagnostic = .None;
+    errdefer std.debug.print("DIAGNOSTIC:\n{}\n", .{diagnostic});
+    var graph = GraphBuilder.init(a, &env) catch |e| {
+        std.debug.print("\nERROR: {}\n", .{e});
+        return e;
+    };
+    defer graph.deinit(a);
 
-//     try graph.locals.append(a, .{
-//         .name = try a.dupe(u8, "x"),
-//         .type_ = helpers.primitive_types.i32_,
-//     });
-//     defer for (graph.locals.items) |l| a.free(l.name);
+    try graph.locals.append(a, .{
+        .name = try a.dupe(u8, "x"),
+        .type_ = helpers.primitive_types.i32_,
+    });
+    defer for (graph.locals.items) |l| a.free(l.name);
 
-//     const return_index = try graph.addNode(a, "return", true, null, null);
-//     const plus_index = try graph.addNode(a, "+", false, null, &diagnostic);
-//     const set_index = try graph.addNode(a, "set!", false, null, &diagnostic);
-//     const confetti_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
-//     const set2_index = try graph.addNode(a, "set!", false, null, &diagnostic);
+    const return_index = try graph.addNode(a, "return", true, null, null);
+    const plus_index = try graph.addNode(a, "+", false, null, &diagnostic);
+    const set_index = try graph.addNode(a, "set!", false, null, &diagnostic);
+    const confetti_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
+    const set2_index = try graph.addNode(a, "set!", false, null, &diagnostic);
 
-//     try graph.addLiteralInput(plus_index, 0, 0, .{ .float = 4.0 });
-//     try graph.addLiteralInput(plus_index, 1, 0, .{ .int = 8 });
-//     try graph.addLiteralInput(set_index, 1, 0, .{ .symbol = "x" });
-//     try graph.addLiteralInput(confetti_index, 1, 0, .{ .int = 100 });
-//     try graph.addLiteralInput(set2_index, 1, 0, .{ .symbol = "x" });
-//     try graph.addLiteralInput(set2_index, 2, 0, .{ .int = 10 });
-//     try graph.addEdge(set2_index, 0, confetti_index, 0, 0);
-//     try graph.addEdge(confetti_index, 0, set_index, 0, 0);
-//     try graph.addEdge(plus_index, 0, set_index, 2, 0);
-//     try graph.addEdge(set_index, 0, return_index, 0, 0);
+    try graph.addLiteralInput(plus_index, 0, 0, .{ .float = 4.0 });
+    try graph.addLiteralInput(plus_index, 1, 0, .{ .int = 8 });
+    try graph.addLiteralInput(set_index, 1, 0, .{ .symbol = "x" });
+    try graph.addLiteralInput(confetti_index, 1, 0, .{ .int = 100 });
+    try graph.addLiteralInput(set2_index, 1, 0, .{ .symbol = "x" });
+    try graph.addLiteralInput(set2_index, 2, 0, .{ .int = 10 });
+    try graph.addEdge(set2_index, 0, confetti_index, 0, 0);
+    try graph.addEdge(confetti_index, 0, set_index, 0, 0);
+    try graph.addEdge(plus_index, 0, set_index, 2, 0);
+    try graph.addEdge(set_index, 0, return_index, 0, 0);
 
-//     const sexp = graph.compile(a, "main") catch |e| {
-//         std.debug.print("\ncompile error: {}\n", .{e});
-//         return e;
-//     };
-//     defer sexp.deinit(a);
+    const sexp = graph.compile(a, "main") catch |e| {
+        std.debug.print("\ncompile error: {}\n", .{e});
+        return e;
+    };
+    defer sexp.deinit(a);
 
-//     var text = std.ArrayList(u8).init(a);
-//     defer text.deinit();
-//     _ = try sexp.write(text.writer());
+    var text = std.ArrayList(u8).init(a);
+    defer text.deinit();
+    _ = try sexp.write(text.writer());
 
-//     try testing.expectEqualStrings(
-//         \\(typeof (main)
-//         \\        i32)
-//         \\(define (main)
-//         \\        (begin (typeof x
-//         \\                       i32)
-//         \\               (define x)
-//         \\               (set! x
-//         \\                     10)
-//         \\               (throw-confetti 100)
-//         \\               (set! x
-//         \\                     (+ 4
-//         \\                        8))
-//         \\               (return 0)))
-//         // TODO: print floating point explicitly
-//     , text.items);
-// }
+    try testing.expectEqualStrings(
+        \\(typeof (main)
+        \\        i32)
+        \\(define (main)
+        \\        (begin (typeof x
+        \\                       i32)
+        \\               (define x)
+        \\               (set! x
+        \\                     10)
+        \\               (throw-confetti 100)
+        \\               (set! x
+        \\                     (+ 4
+        \\                        8))
+        \\               (return 0)))
+        // TODO: print floating point explicitly
+    , text.items);
+}
 
 // test "small local built graph" {
 //     const a = testing.allocator;
