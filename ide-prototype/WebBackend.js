@@ -498,7 +498,7 @@ export function Ide(canvasElem, opts) {
 
             const data = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
 
-            async function compileWat_binaryen() {
+            function compileWat_binaryen() {
                 const inputFile = '/input.wat';
                 const outputFile = '/optimized.wasm';
                 wasmOpt.FS.writeFile(inputFile, data);
@@ -534,7 +534,7 @@ export function Ide(canvasElem, opts) {
                 return binaryBuffer;
             }
 
-            const moduleBytes = await compileWat_wabt();
+            const moduleBytes = compileWat_binaryen();
 
             let compiled;
 
@@ -1091,7 +1091,6 @@ export function Ide(canvasElem, opts) {
     let wabtPromise;
     if (!(opts.preferences?.compiler.watOnly ?? false)) {
         // old binaryen code
-        /*
         import("./zig-out/bin/wasm-opt.js")
             .then(s => s.default())
             .then((mod) => {
@@ -1099,8 +1098,9 @@ export function Ide(canvasElem, opts) {
                 // FIXME: save the promise so there isn't a race!
                 wasmOpt = mod;
             });
-        */
 
+        /*
+        // TODO: use wabt
         const libWabtScript = document.createElement("script");
         // FIXME: make async with onload
         libWabtScript.src = "/graphl-demo/zig-out/bin/libwabt.js";
@@ -1111,6 +1111,7 @@ export function Ide(canvasElem, opts) {
           });
         });
         document.body.append(libWabtScript);
+        */
     }
 
     return {
