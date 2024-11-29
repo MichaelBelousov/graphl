@@ -107,6 +107,7 @@ pub fn build(b: *std.Build) void {
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(output, .{ .custom = ".." }, "index.html").step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(binaryen_dep.path("binaryen/bin/wasm-opt.wasm"), .bin, "wasm-opt.wasm").step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(binaryen_dep.path("binaryen/bin/wasm-opt.js"), .bin, "wasm-opt.js").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(.{ .cwd_relative = "/home/mike/projects/wabt/out/emscripten/Debug/libwabt.js" }, .bin, "libwabt.js").step);
     b.getInstallStep().dependOn(&install_exe.step);
 
     {
@@ -172,7 +173,7 @@ fn addWat2Wasm(b: *std.Build, optimize: std.builtin.OptimizeMode) *std.Build.Ste
     const web_target_query = std.Target.Query{
         .cpu_arch = .wasm32,
         .os_tag = .wasi, // can't use freestanding cuz binaryen
-        //.abi = .musl,
+        .abi = .musl,
         // https://github.com/ziglang/zig/pull/16207
         .cpu_features_add = std.Target.wasm.featureSet(&.{
             .atomics,
@@ -188,10 +189,7 @@ fn addWat2Wasm(b: *std.Build, optimize: std.builtin.OptimizeMode) *std.Build.Ste
     });
     wabt_lib.addConfigHeader(wabt_config_h);
     wabt_lib.addIncludePath(wabt_dep.path("include"));
-    wabt_lib.addCSourceFiles(.{
-        .root = wabt_dep.path("."),
-        .files = &wabt_files,
-    });
+    wabt_lib.addCSourceFiles(.{ .root = wabt_dep.path("."), .files = &wabt_files, .flags = &.{} });
     wabt_lib.linkLibCpp();
 
     const wat2wasm = b.addExecutable(.{
