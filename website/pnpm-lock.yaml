@@ -20,9 +20,9 @@ importers:
       '@types/bun':
         specifier: ^1.1.14
         version: 1.1.14
-      gatsby-plugin-react-svg:
-        specifier: ^3.3.0
-        version: 3.3.0(gatsby@5.13.7(babel-eslint@10.1.0(eslint@7.32.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@0.21.3)(typescript@5.5.4))
+      gatsby-plugin-google-gtag:
+        specifier: ^5.14.0
+        version: 5.14.0(gatsby@5.13.7(babel-eslint@10.1.0(eslint@7.32.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@0.21.3)(typescript@5.5.4))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@graphl/ide':
         specifier: ../ide-prototype
@@ -54,6 +54,9 @@ importers:
       gatsby-plugin-react-helmet:
         specifier: ^6.12.0
         version: 6.13.1(gatsby@5.13.7(babel-eslint@10.1.0(eslint@7.32.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@0.21.3)(typescript@5.5.4))(react-helmet@5.2.1(react@18.3.1))
+      gatsby-plugin-react-svg:
+        specifier: ^3.3.0
+        version: 3.3.0(gatsby@5.13.7(babel-eslint@10.1.0(eslint@7.32.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@0.21.3)(typescript@5.5.4))
       gatsby-plugin-sass:
         specifier: ^6.12.0
         version: 6.13.1(gatsby@5.13.7(babel-eslint@10.1.0(eslint@7.32.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@0.21.3)(typescript@5.5.4))(sass@1.77.8)(webpack@5.93.0)
@@ -3549,6 +3552,14 @@ packages:
 
   gatsby-plugin-feed@5.13.1:
     resolution: {integrity: sha512-Vg6oTqwxqA8suOnGF8wAeFMv1oFlEp1EXemd46hMTR8ubzOTYMKRjR1rv3WTYZPbVSsjLxliNykDUXokWoH/0A==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      gatsby: ^5.0.0-next
+      react: ^18.0.0 || ^0.0.0
+      react-dom: ^18.0.0 || ^0.0.0
+
+  gatsby-plugin-google-gtag@5.14.0:
+    resolution: {integrity: sha512-iXBQR4xjU20vR1b0zSE1McDxJZdm3pNxm8FMSvFIa9IswZskRgnjSYUBjGLMeGf8+t8y8rSTie94Ni0pJqf6dA==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
       gatsby: ^5.0.0-next
@@ -11876,6 +11887,14 @@ snapshots:
       rss: 1.2.2
     transitivePeerDependencies:
       - graphql
+
+  gatsby-plugin-google-gtag@5.14.0(gatsby@5.13.7(babel-eslint@10.1.0(eslint@7.32.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@0.21.3)(typescript@5.5.4))(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+    dependencies:
+      '@babel/runtime': 7.25.0
+      gatsby: 5.13.7(babel-eslint@10.1.0(eslint@7.32.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@0.21.3)(typescript@5.5.4)
+      minimatch: 3.1.2
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
 
   gatsby-plugin-image@3.13.1(@babel/core@7.25.2)(gatsby-plugin-sharp@5.13.1(gatsby@5.13.7(babel-eslint@10.1.0(eslint@7.32.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@0.21.3)(typescript@5.5.4))(graphql@16.9.0))(gatsby-source-filesystem@5.13.1(gatsby@5.13.7(babel-eslint@10.1.0(eslint@7.32.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@0.21.3)(typescript@5.5.4)))(gatsby@5.13.7(babel-eslint@10.1.0(eslint@7.32.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@0.21.3)(typescript@5.5.4))(graphql@16.9.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
