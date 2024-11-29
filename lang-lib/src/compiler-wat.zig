@@ -7,6 +7,7 @@
 //!
 
 const zig_builtin = @import("builtin");
+const build_opts = @import("build_opts");
 const std = @import("std");
 const Sexp = @import("./sexp.zig").Sexp;
 const syms = @import("./sexp.zig").syms;
@@ -1652,6 +1653,7 @@ pub fn compile(
     user_funcs: ?*std.SinglyLinkedList(UserFunc),
     _in_diagnostic: ?*Diagnostic,
 ) ![]const u8 {
+    if (build_opts.disable_compiler) unreachable;
     var ignored_diagnostic: Diagnostic = undefined; // FIXME: why don't we init?
     const diag = if (_in_diagnostic) |d| d else &ignored_diagnostic;
     diag.module = sexp;

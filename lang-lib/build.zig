@@ -18,9 +18,6 @@ pub fn build(b: *std.Build) void {
     const web_target = b.resolveTargetQuery(web_target_query);
 
     const small_intrinsics = b.option(bool, "small_intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse false;
-    // don't include
-    const display_only = b.option(bool, "disable_compiler", "don't include code for display-only scenarios, e.g. don't include the compiler") orelse false;
-    _ = display_only;
 
     const intrinsics = b.addExecutable(.{
         .name = "grappl_intrinsics",
@@ -54,6 +51,11 @@ pub fn build(b: *std.Build) void {
         .target = web_target,
     });
 
+    // don't include
+    const disable_compiler = b.option(bool, "disable_compiler", "don't include code for display-only scenarios, e.g. don't include the compiler") orelse false;
+    const lib_opts = b.addOptions();
+    lib_opts.addOption(bool, "disable_compiler", disable_compiler);
+
     const lib = b.addStaticLibrary(.{
         .name = "graph-lang",
         .root_source_file = null,
@@ -61,6 +63,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .pic = true,
     });
+    lib.root_module.addOptions("build_opts", lib_opts);
     lib.root_module.addImport("core", grappl_core_mod);
     lib.step.dependOn(&intrinsics_to_wat_step.step);
 
