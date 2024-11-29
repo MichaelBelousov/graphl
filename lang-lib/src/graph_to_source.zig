@@ -158,6 +158,9 @@ pub const GraphBuilder = struct {
         alloc.free(self.result_node_basic_desc.inputs);
         alloc.destroy(self.result_node_basic_desc);
 
+        self.locals.deinit(alloc);
+        self.imports.deinit(alloc);
+
         self.is_join_set.deinit(alloc);
         {
             var node_iter = self.nodes.map.iterator();
@@ -894,7 +897,7 @@ pub const GraphBuilder = struct {
         std.debug.assert(self.entry().?.desc().getOutputs()[0].isExec());
 
         if (self.entry().?.outputs[0] == null)
-            return Sexp{ .value = .void };
+            return Sexp.newList(alloc);
 
         const after_entry_id = self.entry().?.outputs[0].?.link.target;
         return (ToSexp{ .graph = self }).toSexp(alloc, after_entry_id);
@@ -955,85 +958,6 @@ const GraphToSourceErr = union(enum(u16)) {
 
 pub const GraphToSourceDiagnostic = GraphToSourceErr;
 
-// TODO: use cap'n proto instead of JSON
-
-// caller must free result with the given allocator
-// pub fn graphToSource(a: std.mem.Allocator, graph_json: []const u8, diagnostic: ?*GraphToSourceDiagnostic) ![]const u8 {
-//     var arena = std.heap.ArenaAllocator.init(a);
-//     defer arena.deinit();
-//     const arena_alloc = arena.allocator();
-
-//     const env = try Env.initDefault(arena_alloc);
-
-//     var json_diagnostics = json.Diagnostics{};
-//     var graph_json_reader = json.Scanner.initCompleteInput(arena_alloc, graph_json);
-//     graph_json_reader.enableDiagnostics(&json_diagnostics);
-//     const graph = json.parseFromTokenSourceLeaky(GraphDoc, arena_alloc, &graph_json_reader, .{
-//         .ignore_unknown_fields = true,
-//     }) catch |e| {
-//         if (diagnostic) |d| d.* = GraphToSourceDiagnostic{ .Read = json_diagnostics };
-//         return e;
-//     };
-
-//     var page_writer = try PageWriter.init(arena_alloc);
-//     defer page_writer.deinit();
-
-//     var import_exprs = std.ArrayList(Sexp).init(arena_alloc);
-//     defer import_exprs.deinit();
-//     try import_exprs.ensureTotalCapacityPrecise(graph.imports.map.count());
-
-//     var builder = try GraphBuilder.init(arena_alloc, env);
-//     defer builder.deinit(arena_alloc);
-
-//     // TODO: refactor blocks into functions
-//     {
-//         {
-//             // TODO: errdefer delete all added imports
-//             var imports_iter = graph.imports.map.iterator();
-//             while (imports_iter.next()) |json_import_entry| {
-//                 const json_import_name = json_import_entry.key_ptr.*;
-//                 const json_import_bindings = json_import_entry.value_ptr.*;
-
-//                 const bindings = try arena_alloc.alloc(ImportBinding, json_import_bindings.len);
-//                 defer arena_alloc.free(bindings);
-
-//                 for (json_import_bindings, bindings) |json_imported_binding, *binding| {
-//                     const ref = json_imported_binding.ref;
-//                     binding.* = .{
-//                         .binding = ref,
-//                         .alias = json_imported_binding.alias,
-//                     };
-//                 }
-
-//                 try builder.addImport(arena_alloc, json_import_name, bindings);
-//             }
-//         }
-
-//         for (import_exprs.items) |import| {
-//             _ = import.write(page_writer.writer()) catch |e| return {
-//                 if (diagnostic) |d| d.* = .{ .IoErr = e };
-//                 return e;
-//             };
-//             _ = try page_writer.writer().write("\n");
-//         }
-//     }
-
-//     const sexp = try builder.buildFromJson(
-//         arena_alloc,
-//         graph,
-//         if (diagnostic) |d| _: {
-//             d.* = .{ .Compile = .None };
-//             break :_ &d.Compile;
-//         } else null,
-//     );
-
-//     _ = try sexp.write(page_writer.writer());
-//     _ = try page_writer.writer().write("\n");
-
-//     // FIXME: provide API to free this
-//     return page_writer.concat(global_alloc);
-// }
-
 test "big local built graph" {
     const a = testing.allocator;
 
@@ -1065,7 +989,8 @@ test "big local built graph" {
     });
     defer for (graph.locals.items) |l| a.free(l.name);
 
-    const return_index = try graph.addNode(a, "return", true, null, null);
+    const entry_index: NodeId = 0;
+    const return_index = try graph.addNode(a, "return", false, null, null);
     const plus_index = try graph.addNode(a, "+", false, null, &diagnostic);
     const set_index = try graph.addNode(a, "set!", false, null, &diagnostic);
     const confetti_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
@@ -1077,6 +1002,7 @@ test "big local built graph" {
     try graph.addLiteralInput(confetti_index, 1, 0, .{ .int = 100 });
     try graph.addLiteralInput(set2_index, 1, 0, .{ .symbol = "x" });
     try graph.addLiteralInput(set2_index, 2, 0, .{ .int = 10 });
+    try graph.addEdge(entry_index, 0, set2_index, 0, 0);
     try graph.addEdge(set2_index, 0, confetti_index, 0, 0);
     try graph.addEdge(confetti_index, 0, set_index, 0, 0);
     try graph.addEdge(plus_index, 0, set_index, 2, 0);
@@ -1190,17 +1116,11 @@ test "empty graph twice" {
         std.debug.print("\ncompile error: {}\n", .{e});
         return e;
     };
-    second_sexp.deinit(a);
-
-    const third_sexp = graph.compile(a, "main") catch |e| {
-        std.debug.print("\ncompile error: {}\n", .{e});
-        return e;
-    };
-    defer third_sexp.deinit(a);
+    defer second_sexp.deinit(a);
 
     var text = std.ArrayList(u8).init(a);
     defer text.deinit();
-    _ = try third_sexp.write(text.writer());
+    _ = try second_sexp.write(text.writer());
 
     try testing.expectEqualStrings(
         \\(typeof (main)
@@ -1213,6 +1133,6 @@ test "empty graph twice" {
     const compiler = @import("./compiler-wat.zig");
     var compile_diag = compiler.Diagnostic.init();
     defer std.debug.print("compilation error: {}", .{compile_diag});
-    const compile_result = try compiler.compile(a, &third_sexp, null, &compile_diag);
+    const compile_result = try compiler.compile(a, &second_sexp, &env, null, &compile_diag);
     a.free(compile_result);
 }

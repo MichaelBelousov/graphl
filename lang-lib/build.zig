@@ -69,11 +69,15 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(lib);
 
+    const test_filter_opt = b.option([]const u8, "test-filter", "filter-for-tests");
+    const test_filters = if (test_filter_opt) |test_filter| (&[_][]const u8{test_filter}) else &[_][]const u8{};
+
     const main_tests = b.addTest(.{
         .name = "main-tests",
         .root_source_file = b.path("./src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .filters = test_filters,
     });
     main_tests.step.dependOn(&intrinsics_to_wat_step.step);
     main_tests.root_module.addAnonymousImport("grappl_intrinsics", .{
@@ -81,6 +85,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .target = web_target,
     });
+    main_tests.root_module.addOptions("build_opts", lib_opts);
 
     // FIXME: rename to graphltc
     const graphltc_tool = b.step("graphltc", "build the text version of the compiler");
