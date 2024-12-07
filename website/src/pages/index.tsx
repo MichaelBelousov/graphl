@@ -176,20 +176,23 @@ const Sample = (props: {
   useResultHack?: boolean,
 }) => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const ideRef = React.useRef<Graphl.Ide>();
 
   React.useLayoutEffect(() => {
     if (canvasRef.current === null)
       throw Error("bad canvas elem");
 
     // TODO: use React suspense
-    const _ide = graphl.then(g => new g.Ide(canvasRef.current!, {
-      ...sharedOpts,
-      initState: {
-        graphs: {
-          main: props.graphInitState,
-        },
-      }
-    }));
+    graphl.then(g => {
+      ideRef.current = new g.Ide(canvasRef.current!, {
+        ...sharedOpts,
+        initState: {
+          graphs: {
+            main: props.graphInitState,
+          },
+        }
+      })
+    });
 
   }, []);
 
@@ -222,7 +225,7 @@ const Sample = (props: {
       style={{ position: "relative" }}
       onMouseMove={getWasm}
       // FIXME: ask Matt/Don what they think...
-      title={"click the green play button to run\nIf you want to make changes, try the app"}
+      title={"click the green play button to run"}
     >
       <div ref={resultPopoverRef} className={styles.canvasPopover}>
         empty result

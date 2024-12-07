@@ -58,13 +58,22 @@ const Homepage = () => {
       initState: {
         graphs: {
           "main": {
+            notRemovable: true,
             nodes: [
               {
                 id: 1,
-                type: "return",
+                type: "Confetti",
                 inputs: {
                   0: { node: 0, outPin: 0 },
-                }
+                  1: { int: 100 },
+                },
+              },
+              {
+                id: 2,
+                type: "return",
+                inputs: {
+                  0: { node: 1, outPin: 0 },
+                },
               },
             ],
           },

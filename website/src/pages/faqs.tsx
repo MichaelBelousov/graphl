@@ -37,7 +37,11 @@ const Faqs = () => {
           </ul>
 
 
-          <h2>Why source-available? <br/> Aren't all programming language's open source now?</h2>
+          <h2>
+            Why source-available?
+            <br/>
+            Aren't all programming language's open source now?
+          </h2>
           <ul>
             <li>
               <p>

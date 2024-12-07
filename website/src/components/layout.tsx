@@ -20,7 +20,7 @@ const Layout = ({
 }: React.PropsWithChildren<LayoutProps>) => {
 
   React.useLayoutEffect(() => {
-    // HACK! restore overflow handling after using app
+    // HACK! restore overflow handling after using app page
     document.body.style.overflow = "initial";
   }, []);
 
