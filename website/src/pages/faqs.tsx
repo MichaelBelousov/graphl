@@ -13,20 +13,44 @@ const Faqs = () => {
         </div>
 
         <div>
-          <h2>Why not open source? <br/> Why would people use a closed source programming language?</h2>
+          <h2>How is it pronounced?</h2>
           <ul>
             <li>
               <p>
-                I will write more about this on my personal blog, but at its core,
-                I want to be able to work on this full-time but feed my kids. I think I can do 
-                that reasonably without making it free for commercial usage immediately.
-                I don't believe I can do that if I start this as open source.
+                Graph-uhl.
+              </p>
+            </li>
+          </ul>
+        </div>
+
+        <div>
+          <h2>I don't like the license</h2>
+          <ul>
+            <li>
+              <p>
+                Not a question, but, please <a href="mailto:me@mikemikeb.com">reach out to me</a> and let's discuss!
               </p>
               <p>
-                Also, one of my design goals has been to make sure that the visual programs
+                Do please read the other relevant FAQ though.
+              </p>
+            </li>
+          </ul>
+
+
+          <h2>Why source-available? <br/> Aren't all programming language's open source now?</h2>
+          <ul>
+            <li>
+              <p>
+                One of my design goals has been to make sure that the visual programs
                 can be cleanly isomorphic to a textual language, and I am committed to
                 open sourcing everything at that layer. The visual IDE though I am not
                 committed to open sourcing at the moment.
+              </p>
+              <p>
+                I will write more about this on my personal blog, but at its core,
+                I would love to be able to work on this full-time and feed my kids at the same time.
+                I think I can do that reasonably without making it free for commercial usage immediately.
+                I think I can do that faster this way.
               </p>
               <p>
                 I'd heavily consider open sourcing everything if we can achieve a sustainable
@@ -40,17 +64,53 @@ const Faqs = () => {
           <ul>
             <li>
               <p>
-                Go read the <a href="/commercial">license</a>, but the short of it is:
+                Go read the <a href="/commercial">license</a>.
               </p>
               <p>
-                You may not distribute a commercial product that embeds the Graphl IDE.<br/>
-                You can use the IDE (website or desktop app) we distribute for free to write,
-                execute and export anything to run anywhere. But you cannot embed the Graphl IDE
-                in your own app and then make money off that app without first entering into
-                a commercial agreement with Graphl Technologies.
+                If you want to use it commercially, there's a big 12-month trial period.
               </p>
             </li>
           </ul>
+
+          <h2>How is this different from other visual scripting languages?</h2>
+          <ul>
+            <li>
+              <p>
+                The project has a few goals to circumvent the problems of many visual scripting languages:
+                <ol>
+                  <li>The IDE and runtime should be portable to almost all systems
+                    (hence zig, WebAssembly and [dvui](https://github.com/david-vanderson/dvui))
+                  </li>
+                  <li>
+                    The language should be deterministically interchangeable with a textual language (graphlt), this means a few things:
+                    <ol>
+                      <li>
+                        Existing text based tools (like version control or classical text editors) can be used without issue.
+                        (I myself really want to be able to edit people's nodes in vim!)
+                      </li>
+                      <li>
+                        Both the text language (graphlt) and the node language should
+                        use strict but fair deterministic formatters to eliminate the need for people editing
+                        the text to have to declare node positions, and to also prevent merge conflicts on node
+                        position changes.
+                      </li>
+                      <li>
+                        Certain concepts like backwards node edges must be disallowed or limited very carefully
+                        to prevent overly complex node formatting algorithms.
+                      </li>
+                    </ol>
+                  </li>
+                  <li>
+                    The graph macro system allows emulating other visual scripting systems in the language!
+                  </li>
+                  <li>
+                    Control flow, types, and objects will be a first class citizen.
+                  </li>
+                </ol>
+              </p>
+            </li>
+          </ul>
+
 
         </div>
       </div>
