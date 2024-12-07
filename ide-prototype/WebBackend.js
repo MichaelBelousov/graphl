@@ -495,7 +495,7 @@ export function Ide(canvasElem, opts) {
 
         onClickReportIssue() {
             window.open("https://docs.google.com/forms/d/e/1FAIpQLSf2dRcS7Nrv4Ut9GGmxIDVuIpzYnKR7CyHBMUkJQwdjenAXAA/viewform?usp=header", "_blank").focus();
-        }
+        },
 
         runCurrentWat: async (ptr, len) => {
             if (len === 0) return;
@@ -1119,13 +1119,19 @@ export function Ide(canvasElem, opts) {
     }
 
     return {
+        /** @param {WebAssembly.WebAssemblyInstantiatedSource} val */
+        _setLastCompiled(val) {
+            lastCompiled = val;
+        },
         functions: new Proxy({}, {
             get(_target, key, _receiver) {
                 if (typeof key !== "string")
                     throw Error("function names are strings");
-                if (!lastCompiled?.instance.exports)
-                    throw Error("IDE not compiled")
-                return lastCompiled?.instance.exports?.[key];
+                //if (!lastCompiled) {
+                // fix compilation to allow specific function execution!
+                return wasmResult?.instance.exports._runCurrentGraphs;
+                //}
+                //return lastCompiled?.instance.exports?.[key];
             }
         })
     };

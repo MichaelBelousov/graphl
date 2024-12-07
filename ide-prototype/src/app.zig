@@ -754,6 +754,12 @@ fn runCurrentGraphs() !void {
     }
 }
 
+export fn _runCurrentGraphs() void {
+    runCurrentGraphs() catch |e| {
+        std.log.err("Error running: {}", .{e});
+    };
+}
+
 fn exportCurrentCompiled() !void {
     const sexp = try combineGraphs();
     defer sexp.deinit(gpa);

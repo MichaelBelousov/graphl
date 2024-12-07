@@ -1,7 +1,8 @@
 // TODO: type check with this file isn't working
 
-export declare class Ide {
+export declare class Ide<Funcs extends Record<string, Function>> {
   public constructor(canvas: HTMLCanvasElement, opts?: Ide.Options)
+  functions: Funcs;
 }
 
 export declare const Types: {
@@ -93,7 +94,7 @@ export declare namespace Ide {
         /** whether or not the side panel is visible */
         visible?: boolean;
       },
-      compiler: {
+      compiler?: {
         /**
          * @default false
          * prevents fetching the wasm-opt binary which saves 10MB bandwidth
@@ -101,7 +102,7 @@ export declare namespace Ide {
          *
          * this is a temporary measure for display-only scenarios
          */
-        watOnly: boolean;
+        watOnly?: boolean;
       };
     },
     /**
@@ -110,7 +111,7 @@ export declare namespace Ide {
      */
     initState?: InitState;
     /** a callback with the result for when the main graph function had a run triggered by the user */
-    onMainResult(result: any): void;
+    onMainResult?(result: any): void;
   }
 }
 
