@@ -20,6 +20,7 @@ const MAX_FUNC_NAME = 256;
 extern fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void;
 extern fn onExportCompiled(ptr: ?[*]const u8, len: usize) void;
 extern fn onRequestLoadSource() void;
+extern fn onClickReportIssue() void;
 extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
 // NOTE: check if this is bad
@@ -2159,6 +2160,9 @@ pub fn frame() !void {
                     \\
                     ,
                 });
+            }
+            if (try dvui.menuItemLabel(@src(), "Report issue", .{}, .{ .expand = .horizontal })) |_| {
+                onClickReportIssue();
             }
         }
     }

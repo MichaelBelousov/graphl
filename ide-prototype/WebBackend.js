@@ -493,6 +493,10 @@ export function Ide(canvasElem, opts) {
             });
         },
 
+        onClickReportIssue() {
+            window.open("https://docs.google.com/forms/d/e/1FAIpQLSf2dRcS7Nrv4Ut9GGmxIDVuIpzYnKR7CyHBMUkJQwdjenAXAA/viewform?usp=header", "_blank").focus();
+        }
+
         runCurrentWat: async (ptr, len) => {
             if (len === 0) return;
 

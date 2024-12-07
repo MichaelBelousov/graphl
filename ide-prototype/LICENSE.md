@@ -1,12 +1,14 @@
 # The Graphl License
 
 You may not distribute a commercial product that embeds the Graphl IDE
-without entering into an agreement with Graphl Technologies or its creator
+without entering into an agreement with Graphl Technologies or its creator,
 Michael Belousov. An incomplete list of examples of "embeddings" includes loading
 the official Graphl IDE in a webview, an iframe, or linking the native SDK into
 an application.
 
 Embeddings of the Graphl IDE into a non-commercial application is not restricted.
+An example of a non-commercial application is one distributed under an OSI-approved
+open source license.
 
 Advising someone to use an official Graphl IDE (<a href="https://graphl.tech/app">https://graphl.tech/app</a>,
 or the native IDE app distributions) to directly import a library which integrates with a separate commercial entity
