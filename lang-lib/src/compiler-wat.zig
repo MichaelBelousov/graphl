@@ -1020,7 +1020,6 @@ const Compilation = struct {
                         consequence.value.list.addOneAssumeCapacity().* = then_code.*;
                         then_code.* = Sexp{ .value = .void };
                     }
-                    arg_fragments[1].values.items[0] = Sexp{ .value = .void };
 
                     alternative.* = Sexp.newList(alloc);
                     try alternative.value.list.ensureTotalCapacityPrecise(1 + arg_fragments[2].values.items.len);
@@ -1029,7 +1028,6 @@ const Compilation = struct {
                         alternative.value.list.addOneAssumeCapacity().* = else_code.*;
                         else_code.* = Sexp{ .value = .void };
                     }
-                    arg_fragments[2].values.items[0] = Sexp{ .value = .void };
 
                     try result_type.value.list.ensureTotalCapacityPrecise(2);
                     result_type.value.list.addOneAssumeCapacity().* = wat_syms.result;
@@ -1794,51 +1792,52 @@ test "compile big" {
 
     const expected = try std.fmt.allocPrint(t.allocator,
         \\(module
-        \\(func $callUserFunc_code_R
-        \\      (import "env"
-        \\              "callUserFunc_code_R")
-        \\      (param i32)
-        \\      (param i32)
-        \\      (param i32))
-        \\(func $callUserFunc_code_R_string
-        \\      (import "env"
-        \\              "callUserFunc_code_R_string")
-        \\      (param i32)
-        \\      (param i32)
-        \\      (param i32))
-        \\(func $callUserFunc_string_R
-        \\      (import "env"
-        \\              "callUserFunc_string_R")
-        \\      (param i32)
-        \\      (param i32)
-        \\      (param i32))
-        \\(func $callUserFunc_R
-        \\      (import "env"
-        \\              "callUserFunc_R")
-        \\      (param i32))
-        \\(func $callUserFunc_i32_R
-        \\      (import "env"
-        \\              "callUserFunc_i32_R")
-        \\      (param i32)
-        \\      (param i32))
-        \\(func $callUserFunc_i32_R_i32
-        \\      (import "env"
-        \\              "callUserFunc_i32_R_i32")
-        \\      (param i32)
-        \\      (param i32)
-        \\      (result i32))
-        \\(func $callUserFunc_i32_i32_R_i32
-        \\      (import "env"
-        \\              "callUserFunc_i32_i32_R_i32")
-        \\      (param i32)
-        \\      (param i32)
-        \\      (param i32)
-        \\      (result i32))
-        \\(func $callUserFunc_bool_R
-        \\      (import "env"
-        \\              "callUserFunc_bool_R")
-        \\      (param i32)
-        \\      (param i32))
+        \\(import "env"
+        \\        "callUserFunc_code_R"
+        \\        (func $callUserFunc_code_R
+        \\              (param i32)
+        \\              (param i32)
+        \\              (param i32)))
+        \\(import "env"
+        \\        "callUserFunc_code_R_string"
+        \\        (func $callUserFunc_code_R_string
+        \\              (param i32)
+        \\              (param i32)
+        \\              (param i32)
+        \\              (result i32)))
+        \\(import "env"
+        \\        "callUserFunc_string_R"
+        \\        (func $callUserFunc_string_R
+        \\              (param i32)
+        \\              (param i32)
+        \\              (param i32)))
+        \\(import "env"
+        \\        "callUserFunc_R"
+        \\        (func $callUserFunc_R
+        \\              (param i32)))
+        \\(import "env"
+        \\        "callUserFunc_i32_R"
+        \\        (func $callUserFunc_i32_R
+        \\              (param i32)
+        \\              (param i32)))
+        \\(import "env"
+        \\        "callUserFunc_i32_R_i32"
+        \\        (func $callUserFunc_i32_R_i32
+        \\              (param i32)
+        \\              (param i32)
+        \\              (result i32)))
+        \\(import "env"
+        \\        "callUserFunc_i32_i32_R_i32"
+        \\        (func $callUserFunc_i32_i32_R_i32
+        \\              (param i32)
+        \\              (param i32)
+        \\              (param i32)
+        \\              (result i32)))
+        \\(import "env"
+        \\        "callUserFunc_bool_R"
+        \\        (func $callUserFunc_bool_R
+        \\              (param i32)
+        \\              (param i32)))
         \\(global $__grappl_vstkp
         \\        (mut i32)
         \\        (i32.const 4096))

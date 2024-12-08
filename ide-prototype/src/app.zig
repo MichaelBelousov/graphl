@@ -2157,9 +2157,12 @@ pub fn frame() !void {
                     .message =
                     \\Welcome to Graphl
                     \\
-                    \\Left click and drag from a socket to create a contextually applicable node
-                    \\from it and automatically connect the new node.
-                    \\Or right click to create a free node.
+                    \\Click in empty space in the graph and drag to pan around.
+                    \\Use the mouse wheel to zoom in and out.
+                    \\
+                    \\Left click and drag from the colored socket of a node to open a menu to select
+                    \\from a contextually applicable node to connect.
+                    \\Or right click in the graph to create a free node.
                     \\
                     \\Click on a socket to delete any link/edge connected to it.
                     \\Hold Control/Cmd and left-click on any node to delete it.
