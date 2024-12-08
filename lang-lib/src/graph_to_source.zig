@@ -711,9 +711,9 @@ pub const GraphBuilder = struct {
     const ToSexp = struct {
         graph: *const GraphBuilder,
 
-        const NodeData = struct {
+        const NodeData = packed struct {
             visited: u1,
-            depth: u32,
+            depth: u32, // TODO: u31
         };
 
         pub const Block = std.ArrayList(Sexp);
@@ -722,6 +722,20 @@ pub const GraphBuilder = struct {
             node_data: std.MultiArrayList(NodeData) = .{},
             block: *Block,
             current_depth: u32 = 0,
+
+            pub fn init(alloc: std.mem.Allocator, in_block: *Block, node_count: usize) !@This() {
+                var self = @This(){
+                    .block = in_block,
+                };
+
+                // TODO: can this be done better?
+                try self.node_data.resize(alloc, node_count);
+                var slices = self.node_data.slice();
+                @memset(slices.items(.visited)[0..self.node_data.len], 0);
+                @memset(slices.items(.depth)[0..self.node_data.len], 0);
+
+                return self;
+            }
 
             pub fn deinit(self: *@This(), a: std.mem.Allocator) void {
                 self.node_data.deinit(a);
@@ -732,11 +746,9 @@ pub const GraphBuilder = struct {
             var block = Block.init(alloc);
             defer for (block.items) |member| member.deinit(alloc);
             defer block.deinit();
-            var ctx = Context{
-                .block = &block,
-            };
+            var ctx = try Context.init(alloc, &block, self.graph.nodes.map.count());
             defer ctx.deinit(alloc);
-            try ctx.node_data.resize(alloc, self.graph.nodes.map.count());
+
             try self.onNode(alloc, node_id, &ctx);
             return Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try ctx.block.toOwnedSlice()) } };
         }

@@ -50,7 +50,6 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/web.zig"),
         .target = web_target,
         .optimize = optimize,
-        //.strip = false,
         .strip = switch (optimize) {
             .ReleaseFast, .ReleaseSmall => true,
             else => false,
