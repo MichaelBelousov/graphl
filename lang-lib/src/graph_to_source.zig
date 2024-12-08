@@ -719,19 +719,20 @@ pub const GraphBuilder = struct {
 
         const Context = struct {
             node_data: std.MultiArrayList(NodeData) = .{},
-            block: Block,
+            block: *Block,
             current_depth: u32 = 0,
 
             pub fn deinit(self: *@This(), a: std.mem.Allocator) void {
                 self.node_data.deinit(a);
-                for (self.block.items) |member| member.deinit(a);
-                self.block.deinit();
             }
         };
 
         pub fn toSexp(self: @This(), alloc: std.mem.Allocator, node_id: NodeId) !Sexp {
+            var block = Block.init(alloc);
+            defer for (block.items) |member| member.deinit(alloc);
+            defer block.deinit();
             var ctx = Context{
-                .block = Block.init(alloc),
+                .block = &block,
             };
             defer ctx.deinit(alloc);
             try ctx.node_data.resize(alloc, self.graph.nodes.map.count());
@@ -777,25 +778,27 @@ pub const GraphBuilder = struct {
             var alternative_sexp: Sexp = undefined;
 
             if (node.outputs[0]) |consequence| {
+                var block = Block.init(alloc);
                 var consequence_ctx = Context{
                     .node_data = context.node_data,
-                    .block = Block.init(alloc),
+                    .block = &block,
                 };
                 // FIXME: only add `begin` if it's multiple expressions
                 (try consequence_ctx.block.addOne()).* = syms.begin;
                 try self.onNode(alloc, consequence.link.target, &consequence_ctx);
-                consequence_sexp = Sexp{ .value = .{ .list = consequence_ctx.block } };
+                consequence_sexp = Sexp{ .value = .{ .list = block } };
             }
 
             if (node.outputs[1]) |alternative| {
+                var block = Block.init(alloc);
                 var alternative_ctx = Context{
                     .node_data = context.node_data,
-                    .block = Block.init(alloc),
+                    .block = &block,
                 };
                 // FIXME: only add `begin` if it's multiple expressions
                 (try alternative_ctx.block.addOne()).* = syms.begin;
                 try self.onNode(alloc, alternative.link.target, &alternative_ctx);
-                alternative_sexp = Sexp{ .value = .{ .list = alternative_ctx.block } };
+                alternative_sexp = Sexp{ .value = .{ .list = block } };
             }
 
             var branch_sexp = try context.block.addOne();
@@ -1117,6 +1120,9 @@ test "empty graph twice" {
         return e;
     };
     defer graph.deinit(a);
+
+    const return_node = try graph.addNode(a, "return", false, null, null);
+    try graph.addEdge(0, 0, return_node, 0, 0);
 
     const first_sexp = graph.compile(a, "main") catch |e| {
         std.debug.print("\ncompile error: {}\n", .{e});
