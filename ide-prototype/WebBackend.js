@@ -1,6 +1,6 @@
 ///<reference path="./WebBackend.d.ts">
 
-import frontendWasmPromise from './zig-out/bin/dvui-frontend.wasm?init';
+import frontendWasmUrl from './zig-out/bin/dvui-frontend.wasm?url';
 import { downloadFile, uploadFile } from './localFileManip';
 
 // TODO: remove references to dvui in prod build (but acknowledge it somewhere)
@@ -667,9 +667,9 @@ export function Ide(canvasElem, opts) {
       },
     };
 
-    frontendWasmPromise(imports)
-    .then((result) => {
-        wasmResult = { instance: result };
+    WebAssembly.instantiateStreaming(fetch(frontendWasmUrl), imports)
+    .then((_wasmResult) => {
+        wasmResult = _wasmResult;
         const we = wasmResult.instance.exports;
 
         // NOTE: technically this could be generated using a proxy, but perhaps better to use zigar if I need that

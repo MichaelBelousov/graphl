@@ -19,8 +19,8 @@
     "./browser": "./dist/graphl-ide-web.es.js"
   },
   "scripts": {
-    "build": "zig build -Doptimize=ReleaseSmall && vite build --mode production",
-    "build:debug": "zig build && vite build --mode development",
+    "build": "zig build -Doptimize=ReleaseSmall && NODE_ENV=production ./esbuild.mjs",
+    "build:debug": "zig build && NODE_ENV=development ./esbuild.mjs",
     "build:demo": "zig build && vite build -c ./vite.demo.config.ts --mode production",
     "preview": "vite preview",
     "dev": "vite --port 3001 -c ./vite.demo.config.ts",
@@ -35,6 +35,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^3.0.1",
     "chai": "^4.3.7",
+    "esbuild": "^0.24.0",
     "jsdom": "^21.1.0",
     "jsdom-global": "^3.0.2",
     "lodash.debounce": "^4.0.8",

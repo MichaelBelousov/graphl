@@ -10,6 +10,7 @@ import Logo from "../images/GraphlAnimation.inline.svg";
 import { confetti } from '@tsparticles/confetti';
 import { useStaticQuery, graphql } from 'gatsby';
 
+// unbundled cuz stupid webpack
 const graphl = import("@graphl/ide");
 
 const ShinyLogo = (divProps: React.HTMLProps<HTMLDivElement>) => {
@@ -171,30 +172,9 @@ const scriptImportStubs = {
 
 const Sample = (props: {
   graphInitState: Graphl.GraphInitState,
-  // in order to avoid including the wasm-opt/wat2wasm, we preload the exported wasm
-  wasmGetter?: (onResultHack: (res: string) => void) => Promise<WebAssembly.WebAssemblyInstantiatedSource>,
-  useResultHack?: boolean,
 }) => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const ideRef = React.useRef<Graphl.Ide<{"main": Function}>>();
-
-  React.useLayoutEffect(() => {
-    if (canvasRef.current === null)
-      throw Error("bad canvas elem");
-
-    // TODO: use React suspense
-    graphl.then(g => {
-      ideRef.current = new g.Ide(canvasRef.current!, {
-        ...sharedOpts,
-        initState: {
-          graphs: {
-            main: props.graphInitState,
-          },
-        }
-      })
-    });
-
-  }, []);
 
   const resultPopoverRef = React.useRef<HTMLDivElement>(null);
   const resultTimer = React.useRef<NodeJS.Timeout>();
@@ -211,21 +191,32 @@ const Sample = (props: {
     }
   }, []);
 
-  const wasmPromise = React.useRef<Promise<WebAssembly.WebAssemblyInstantiatedSource>>();
-  const getWasm = React.useCallback(() => {
-    if (props.wasmGetter === undefined) return;
-    if (!wasmPromise.current) {
-      wasmPromise.current = props.wasmGetter(flashResult);
-    }
+  React.useLayoutEffect(() => {
+    if (canvasRef.current === null)
+      throw Error("bad canvas elem");
+
+    // TODO: use React suspense
+    graphl.then(g => {
+      ideRef.current = new g.Ide(canvasRef.current!, {
+        ...sharedOpts,
+        initState: {
+          graphs: {
+            main: props.graphInitState,
+          },
+        },
+        onMainResult: (res) => {
+          flashResult(res);
+        },
+      })
+    });
+
   }, []);
 
   return (
     <div
       className={styles.sampleCanvas}
       style={{ position: "relative" }}
-      onMouseMove={getWasm}
-      // FIXME: ask Matt/Don what they think...
-      title={"click the green play button to run"}
+      title={"click the green play button to run\nAnd try editing it!"}
     >
       <div ref={resultPopoverRef} className={styles.canvasPopover}>
         empty result
@@ -237,14 +228,7 @@ const Sample = (props: {
       <div
         className={styles.execContainer}
         onClick={async () => {
-          //if (props.wasmGetter === undefined) return;
-          //getWasm();
-          //const wasm = await wasmPromise.current!;
-          //const result = wasm.instance.exports.main();
-          const result = ideRef.current?.functions.main();
-
-          if (!props.useResultHack)
-            flashResult(result);
+          ideRef.current?.functions.main();
         }}
       >
         <svg height="30px" width="30px" viewBox="-3 -3 16 16">
@@ -263,35 +247,8 @@ const Homepage = () => {
     width: "100%",
   };
 
-  const data = useStaticQuery(graphql`
-    {
-      # allFile(filter: {
-      #   and: [
-      #     { extension: { eq: "wasm" } },
-      #     { sourceInstanceName: { eq: "graphl-samples" }}
-      #   ]
-      # }) {
-      allFile(filter: { extension: { eq: "wasm" } }) {
-        edges {
-          node {
-            publicURL
-            name
-          }
-        }
-      }
-    }
-  `)
-
   const sample1 = (
     <Sample
-      wasmGetter={async () => {
-        // FIXME: import directly instead?
-        //return import("../samples/confetti.scm.wasm");
-        const wasmUrl = data.allFile.edges.find(e => e.node.name === "math.scm").node.publicURL;
-        return WebAssembly.instantiateStreaming(fetch(wasmUrl), {
-          env: { ...scriptImportStubs, }
-        });
-      }}
       graphInitState={{
         notRemovable: true,
         nodes: [
@@ -335,24 +292,6 @@ const Homepage = () => {
 
   const sample2 = (
     <Sample
-      wasmGetter={async () => {
-        // FIXME: import directly instead?
-        //return import("../samples/confetti.scm.wasm");
-        const wasmUrl = data.allFile.edges.find(e => e.node.name === "confetti.scm").node.publicURL;
-        return WebAssembly.instantiateStreaming(fetch(wasmUrl), {
-          env: {
-            ...scriptImportStubs,
-            callUserFunc_i32_R(func_id: number, particleCount: number) {
-              // assert func_id
-              confetti({
-                particleCount,
-                spread: 70,
-                origin: { y: 0.6 },
-              });
-            },
-          }
-        });
-      }}
       graphInitState={{
         notRemovable: true,
         nodes: [
@@ -380,26 +319,6 @@ const Homepage = () => {
 
   const sample3 = (
     <Sample
-      useResultHack={true}
-      wasmGetter={async (onResult) => {
-        // FIXME: import directly instead?
-        //return import("../samples/confetti.scm.wasm");
-        const wasmUrl = data.allFile.edges.find(e => e.node.name === "sql.scm").node.publicURL;
-        let wasm: WebAssembly.WebAssemblyInstantiatedSource;
-        const wasmPromise = WebAssembly.instantiateStreaming(fetch(wasmUrl), {
-          env: {
-            ...scriptImportStubs,
-            callUserFunc_code_R(funcId: number, codeLen: number, codePtr: number) {
-              // FIXME: executing this async is bad! the memory might have changed since...
-              const mem = wasm.instance.exports.memory;
-              const str = new TextDecoder().decode(new Uint8Array(mem.buffer, codePtr, codeLen));
-              const code = JSON.parse(str);
-              onResult(sexpToSql(code));
-            }
-          },
-        }).then((_wasm) => wasm = _wasm);
-        return wasmPromise;
-      }}
       graphInitState={{
         notRemovable: true,
         nodes: [

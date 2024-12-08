@@ -4,6 +4,7 @@ import viteInspect from "vite-plugin-inspect";
 import { defineConfig, loadEnv, PluginOption } from "vite";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import rollupUrl from "@rollup/plugin-url";
 
 const copyTypesPlugin = (): PluginOption => {
   return {
@@ -63,9 +64,16 @@ export default defineConfig(async ({ mode }) => {
         // NOTE: rollup plugins are mostly treated as vite plugins that take place after normal vite-plugins
         // they may not be compatible at all, so be warned
         plugins: [
+          {
+            ...rollupUrl({
+              include: ["**/*.wasm"],
+              emitFiles: true,
+            }),
+            enforce: "pre",
+          },
           copyTypesPlugin(),
           // FIXME: not working
-          ...(mode === "development" ? [/*rollupVisualizer()*/] : [])
+          ...(mode === "development" ? [/*rollupVisualizer()*/] : []),
         ],
         // NOTE: shouldn't be used afaict?
         external: ["react"],

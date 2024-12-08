@@ -1,21 +1,41 @@
 const path = require('path')
 const { createFilePath } = require('gatsby-source-filesystem')
+const { StatsWriterPlugin } = require("webpack-stats-plugin")
 
 const imageInlineSizeLimit = 4 * 1024
 
-exports.onCreateWebpackConfig = ({ stage, actions }) => {
+exports.onCreateWebpackConfig = ({ stage, actions, getConfig }) => {
   actions.setWebpackConfig({
     devtool: false,
+    /*
     experiments: {
       asyncWebAssembly: true,
     },
+    */
+    plugins: [
+      new StatsWriterPlugin({
+        filename: './webpack-stats.json',
+        stats: {
+          assets: true,
+          chunks: true,
+          modules: true
+        }
+      })
+    ],
     module: {
+      noParse: /\.wasm$/,
       rules: [
         {
+          //hack: "NO_MUTATE",
           // "oneOf" will traverse all following loaders until one will
           // match the requirements. When no loader matches it will fall
           // back to the "file" loader at the end of the loader list.
           oneOf: [
+            // FIXME: do this better
+            {
+              test: /\.wasm$/,
+              type: "asset/resource"
+            },
             // "url" loader works like "file" loader except that it embeds assets
             // smaller than specified limit in bytes as data URLs to avoid requests.
             // A missing `test` is equivalent to a match.
@@ -48,8 +68,32 @@ exports.onCreateWebpackConfig = ({ stage, actions }) => {
     },
     resolve: {
       modules: [path.resolve(__dirname, 'src'), 'node_modules'],
+      extensions: [
+        '.mjs',  '.js',
+        '.jsx', //'.wasm',
+        '.json', '.ts',
+        '.tsx'
+      ]
     },
+    profile: true,
   })
+  // actions.replaceWebpackConfig({
+  //   ...getConfig(),
+  //   module: {
+  //     ...getConfig().module,
+  //     rules: getConfig().module.rules.map(rule => {
+  //       const newRule = {
+  //         ...rule,
+  //         ...rule.hack !== "NO_MUTATE" && {
+  //           exclude: rule.exclude ? new RegExp(`(${rule.exclude.source})|(\\.wasm$)`) : /\.wasm$/,
+  //         },
+  //       };
+  //       delete newRule.hack;
+  //       return newRule;
+  //     }),
+  //   },
+  // });
+  console.log(JSON.stringify(getConfig().module.rules, (_k, v) => v instanceof RegExp ? v.source : v, " "));
 }
 
 exports.onCreateNode = ({ node, getNode, actions }) => {
@@ -81,7 +125,6 @@ exports.createPages = async ({ graphql, actions }) => {
       }
     }
   `)
-  console.log(result)
   result.data.allMarkdownRemark.edges.forEach(({ node }) =>
     createPage({
       //path: node.fields.frontmatter.path,
