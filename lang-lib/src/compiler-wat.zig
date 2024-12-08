@@ -1013,18 +1013,22 @@ const Compilation = struct {
                     cond.* = arg_fragments[0].values.items[0];
                     arg_fragments[0].values.items[0] = Sexp{ .value = .void };
 
-                    std.debug.assert(arg_fragments[1].values.items.len == 1);
                     consequence.* = Sexp.newList(alloc);
-                    try consequence.value.list.ensureTotalCapacityPrecise(2);
+                    try consequence.value.list.ensureTotalCapacityPrecise(1 + arg_fragments[1].values.items.len);
                     consequence.value.list.addOneAssumeCapacity().* = wat_syms.then;
-                    consequence.value.list.addOneAssumeCapacity().* = arg_fragments[1].values.items[0];
+                    for (arg_fragments[1].values.items) |*then_code| {
+                        consequence.value.list.addOneAssumeCapacity().* = then_code.*;
+                        then_code.* = Sexp{ .value = .void };
+                    }
                     arg_fragments[1].values.items[0] = Sexp{ .value = .void };
 
-                    std.debug.assert(arg_fragments[2].values.items.len == 1);
                     alternative.* = Sexp.newList(alloc);
-                    try alternative.value.list.ensureTotalCapacityPrecise(2);
+                    try alternative.value.list.ensureTotalCapacityPrecise(1 + arg_fragments[2].values.items.len);
                     alternative.value.list.addOneAssumeCapacity().* = wat_syms.@"else";
-                    alternative.value.list.addOneAssumeCapacity().* = arg_fragments[2].values.items[0];
+                    for (arg_fragments[2].values.items) |*else_code| {
+                        alternative.value.list.addOneAssumeCapacity().* = else_code.*;
+                        else_code.* = Sexp{ .value = .void };
+                    }
                     arg_fragments[2].values.items[0] = Sexp{ .value = .void };
 
                     try result_type.value.list.ensureTotalCapacityPrecise(2);
@@ -1762,8 +1766,10 @@ test "compile big" {
         \\(define (ifs a)
         \\  (begin
         \\    (if a
-        \\        (begin (+ 2 3))
-        \\        (begin 5))))
+        \\        (begin (Confetti 100)
+        \\               (+ 2 3))
+        \\        (begin (Confetti 200)
+        \\               5))))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
@@ -1922,9 +1928,13 @@ test "compile big" {
         \\      (result i32)
         \\      (if (result i32)
         \\          (local.get $param_a)
-        \\          (then (i32.add (i32.const 2)
+        \\          (then (call $Confetti
+        \\                      (i32.const 100))
+        \\                (i32.add (i32.const 2)
         \\                         (i32.const 3)))
-        \\          (else (i32.const 5))))
+        \\          (else (call $Confetti
+        \\                      (i32.const 200))
+        \\                (i32.const 5))))
         \\)
         // TODO: clearly instead of embedding the pointer we should have a global variable
         // so the host can set that

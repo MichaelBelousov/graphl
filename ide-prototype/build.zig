@@ -66,19 +66,21 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("WebBackend", dvui_dep.module("WebBackend"));
     exe.root_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
 
+    // FIXME: re-enable this! for some reason it's not running quickly...
     // TODO: build wasm_opt without emscripten
-    const wasm_opt_emscripten_build = b.addSystemCommand(&.{
-        "sh",
-        "-c",
-        std.fmt.allocPrint(b.allocator,
-            \\cd {0s};
-            \\emcmake cmake -DBUILD_FOR_BROWSER=ON -DBUILD_TESTS=OFF . > build.log 2>&1 || echo failed;
-            \\emmake make > build.log 2>&1 || echo failed;
-            \\echo "finished building binaryen, see $(pwd)/build.log for details"
-        , .{binaryen_dep.path("binaryen").getPath(b)}) catch unreachable,
-    });
+    // const wasm_opt_emscripten_build = b.addSystemCommand(&.{
+    //     "sh",
+    //     "-c",
+    //     std.fmt.allocPrint(b.allocator,
+    //         \\echo "building binaryen..."
+    //         \\cd {0s};
+    //         \\emcmake cmake -DBUILD_FOR_BROWSER=ON -DBUILD_TESTS=OFF . > build.log 2>&1 || echo failed;
+    //         \\emmake make > build.log 2>&1 || echo failed;
+    //         \\echo "finished building binaryen, see $(pwd)/build.log for details"
+    //     , .{binaryen_dep.path("binaryen").getPath(b)}) catch unreachable,
+    // });
 
-    b.getInstallStep().dependOn(&wasm_opt_emscripten_build.step);
+    // b.getInstallStep().dependOn(&wasm_opt_emscripten_build.step);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
