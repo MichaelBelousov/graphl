@@ -176,7 +176,7 @@ const Sample = (props: {
   useResultHack?: boolean,
 }) => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
-  const ideRef = React.useRef<Graphl.Ide>();
+  const ideRef = React.useRef<Graphl.Ide<{"main": Function}>>();
 
   React.useLayoutEffect(() => {
     if (canvasRef.current === null)
@@ -364,7 +364,7 @@ const Homepage = () => {
               1: { int: 100 },
             },
             // FIXME: doesn't work
-            //position: { x: 200, y: 500 },
+            position: { x: 200, y: 500 },
           },
           {
             id: 2,

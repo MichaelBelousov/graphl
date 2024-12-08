@@ -73,7 +73,7 @@ pub fn build(b: *std.Build) void {
         std.fmt.allocPrint(b.allocator,
             \\echo "building binaryen..."
             \\cd {0s};
-            \\emcmake cmake -DBUILD_FOR_BROWSER=ON -DBUILD_TESTS=OFF . > build.log 2>&1 || echo failed;
+            \\emcmake cmake -DBUILD_FOR_BROWSER=ON -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release . > build.log 2>&1 || echo failed;
             \\emmake make > build.log 2>&1 || echo failed;
             \\echo "finished building binaryen, see $(pwd)/build.log for details"
         , .{binaryen_dep.path("binaryen").getPath(b)}) catch unreachable,

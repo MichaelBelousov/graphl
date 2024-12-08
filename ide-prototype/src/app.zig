@@ -872,6 +872,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
     const search_input = _: {
         const text_result = try dvui.textEntry(@src(), .{}, .{});
         defer text_result.deinit();
+        // FIXME: this is very lax...
         if (dvui.firstFrame(text_result.data().id)) {
             dvui.focusWidget(text_result.data().id, null, null);
         }
@@ -1611,7 +1612,7 @@ fn renderNode(
                             }
                         }
 
-                        const entry = try dvui.textEntryNumber(@src(), T, .{ .value = &value }, .{ .id_extra = j });
+                        const entry = try dvui.textEntryNumber(@src(), T, .{ .value = &value }, .{ .max_size_content = .{ .w = 30 }, .id_extra = j });
 
                         if (entry.value == .Valid) {
                             switch (@typeInfo(T)) {

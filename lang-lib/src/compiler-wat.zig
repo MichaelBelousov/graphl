@@ -1403,13 +1403,14 @@ const Compilation = struct {
 
         const imports_src =
             //\\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_JSON_R_JSON") (param i32) (param i32) (param i32) (result i32) (result i32))
-            \\(func $callUserFunc_code_R (import "env" "callUserFunc_code_R") (param i32) (param i32) (param i32))
-            \\(func $callUserFunc_string_R (import "env" "callUserFunc_string_R") (param i32) (param i32) (param i32))
-            \\(func $callUserFunc_R (import "env" "callUserFunc_R") (param i32))
-            \\(func $callUserFunc_i32_R (import "env" "callUserFunc_i32_R") (param i32) (param i32))
-            \\(func $callUserFunc_i32_R_i32 (import "env" "callUserFunc_i32_R_i32") (param i32) (param i32) (result i32))
-            \\(func $callUserFunc_i32_i32_R_i32 (import "env" "callUserFunc_i32_i32_R_i32") (param i32) (param i32) (param i32) (result i32))
-            \\(func $callUserFunc_bool_R (import "env" "callUserFunc_bool_R") (param i32) (param i32))
+            \\(import "env" "callUserFunc_code_R" (func $callUserFunc_code_R (param i32) (param i32) (param i32)))
+            \\(import "env" "callUserFunc_code_R_string" (func $callUserFunc_code_R_string (param i32) (param i32) (param i32) (result i32)))
+            \\(import "env" "callUserFunc_string_R" (func $callUserFunc_string_R (param i32) (param i32) (param i32)))
+            \\(import "env" "callUserFunc_R" (func $callUserFunc_R (param i32)))
+            \\(import "env" "callUserFunc_i32_R" (func $callUserFunc_i32_R (param i32) (param i32)))
+            \\(import "env" "callUserFunc_i32_R_i32" (func $callUserFunc_i32_R_i32 (param i32) (param i32) (result i32)))
+            \\(import "env" "callUserFunc_i32_i32_R_i32" (func $callUserFunc_i32_i32_R_i32 (param i32) (param i32) (param i32) (result i32)))
+            \\(import "env" "callUserFunc_bool_R" (func $callUserFunc_bool_R (param i32) (param i32)))
         ;
 
         // TODO: parse them at comptime and get the count that way
@@ -1501,7 +1502,7 @@ const Compilation = struct {
                 const thunk_len = (1 // func keyword
                 + 1 // function name
                 + 2 * params.len // twice in case they are all strings
-                + 1 // call binding
+                + 1 * results.len + 1 // call binding
                 );
                 try user_func_sexp.value.list.ensureTotalCapacityPrecise(thunk_len);
                 user_func_sexp.value.list.addOneAssumeCapacity().* = wat_syms.func;
@@ -1531,6 +1532,23 @@ const Compilation = struct {
 
                             i += 1;
                         }
+                    }
+                }
+
+                {
+                    var i: usize = 0;
+                    for (results) |result| {
+                        //const result_type = result.asPrimitivePin().value;
+
+                        var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
+                        wasm_param.* = Sexp.newList(alloc);
+                        try wasm_param.value.list.ensureTotalCapacityPrecise(2);
+
+                        wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.result;
+                        // FIXME/HACK: this doesn't work for many types!
+                        wasm_param.value.list.addOneAssumeCapacity().* = if (result.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
+
+                        i += 1;
                     }
                 }
 
@@ -1779,6 +1797,12 @@ test "compile big" {
         \\(func $callUserFunc_code_R
         \\      (import "env"
         \\              "callUserFunc_code_R")
+        \\      (param i32)
+        \\      (param i32)
+        \\      (param i32))
+        \\(func $callUserFunc_code_R_string
+        \\      (import "env"
+        \\              "callUserFunc_code_R_string")
         \\      (param i32)
         \\      (param i32)
         \\      (param i32))

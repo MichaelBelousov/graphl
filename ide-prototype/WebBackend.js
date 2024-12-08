@@ -552,18 +552,6 @@ export function Ide(canvasElem, opts) {
                         return funcInfo.func.impl(json1);
                     },
 
-                    callUserFunc_string_R(func_id) {
-                        const funcInfo = userFuncs.get(func_id);
-
-                        if (funcInfo === undefined
-                         || funcInfo.func.parameters.length !== 1
-                         || funcInfo.func.parameters[0].type !== Types.string
-                         || funcInfo.func.results.length !== 0
-                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
-
-                        funcInfo.func.impl();
-                    },
-
                     callUserFunc_code_R(func_id, len, ptr) {
                         const funcInfo = userFuncs.get(func_id);
 
@@ -577,6 +565,24 @@ export function Ide(canvasElem, opts) {
                         const code = JSON.parse(str);
 
                         funcInfo.func.impl(code);
+                    },
+
+                    callUserFunc_code_R_string(func_id, len, ptr) {
+                        const funcInfo = userFuncs.get(func_id);
+
+                        if (funcInfo === undefined
+                         || funcInfo.func.parameters.length !== 1
+                         || funcInfo.func.parameters[0].type !== Types.code
+                         || funcInfo.func.results.length !== 1
+                         || funcInfo.func.results[0].type !== Types.string
+                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
+
+                        const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr, len));
+                        const code = JSON.parse(str);
+
+                        const resultStr = funcInfo.func.impl(code);
+                        // FIXME: actually return strings!
+                        //utf8encoder.encodeInto(JSON.stringify(result), resultsBuffer());
                     },
 
                     callUserFunc_string_R(func_id, len, ptr) {

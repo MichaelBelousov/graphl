@@ -120,7 +120,7 @@
                     },
                     "ECSQL-exec": {
                       parameters: [{ name: "query", type: grappl.Types.code }],
-                      results: [],
+                      results: [{ name: "string", type: grappl.Types.string }],
                       impl(code) {
                         console.log('QUERY:', sexpToSql(code));
                       }
