@@ -892,20 +892,20 @@ const Compilation = struct {
                 const func = &v.items[0];
                 std.debug.assert(func.value == .symbol);
 
-                if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
+                if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr or func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
                     try result.values.ensureUnusedCapacity(v.items.len - 1);
-                    for (v.items[1..]) |*return_expr| {
-                        var compiled = try self.compileExpr(return_expr, context);
+                    for (v.items[1..]) |*expr| {
+                        var compiled = try self.compileExpr(expr, context);
                         result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, &compiled);
                         try result.values.appendSlice(compiled.values.items);
                         compiled.values.clearAndFree();
                     }
-
                     return result;
                 }
 
                 // call host functions
                 const func_node_desc = self.env.getNode(func.value.symbol) orelse {
+                    std.log.err("while in:\n{}\n", .{code_sexp});
                     std.log.err("undefined symbol1: '{}'\n", .{func});
                     return error.UndefinedSymbol;
                 };
@@ -1667,7 +1667,7 @@ pub fn compile(
 const t = std.testing;
 const SexpParser = @import("./sexp_parser.zig").Parser;
 
-test "parse" {
+test "compile big" {
     // FIXME: support expression functions
     //     \\(define (++ x) (+ x 1))
 
@@ -1762,8 +1762,8 @@ test "parse" {
         \\(define (ifs a)
         \\  (begin
         \\    (if a
-        \\        (+ 2 3)
-        \\        5)))
+        \\        (begin (+ 2 3))
+        \\        (begin 5))))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
