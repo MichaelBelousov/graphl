@@ -31,9 +31,9 @@ exports.onCreateWebpackConfig = ({ stage, actions, getConfig }) => {
           // match the requirements. When no loader matches it will fall
           // back to the "file" loader at the end of the loader list.
           oneOf: [
-            // FIXME: do this better
             {
               test: /\.wasm$/,
+              // REPORTME: why is base64'd wasm soooooo much slower at runtime, not just to load?
               type: "asset/resource"
             },
             // "url" loader works like "file" loader except that it embeds assets

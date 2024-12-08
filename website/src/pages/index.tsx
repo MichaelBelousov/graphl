@@ -49,7 +49,9 @@ const sexpToSql = (sexp: Sexp) => {
     };
 
     if (func.symbol === "SELECT") {
-      handlePrev();
+      // FIXME: this is bad
+      // ignore exec entry to SELECT
+      params.shift();
       params.forEach(p => { if (typeof p !== "string") throw Error(`bad SELECT arg: ${p}`); })
       sql += sexpToSql(func) + ' ' + params.join(',');
 
@@ -71,8 +73,11 @@ const sexpToSql = (sexp: Sexp) => {
       sql += `${sexpToSql(params[0])} LIKE ${sexpToSql(params[1])}`;
 
     } else if (func.symbol === "==") {
-      handlePrev();
+      //handlePrev();
       sql += `${sexpToSql(params[0])}=${sexpToSql(params[1])}`;
+
+    } else if (func.symbol === "make-symbol") {
+      sql += params[0];
 
       // assume it's a binary operator
     } else {
@@ -98,6 +103,9 @@ const sexpToSql = (sexp: Sexp) => {
   }
 };
 
+let fakeReadySql = "";
+let fakeReadySqlListeners = [] as ((newSql: string) => void)[];
+
 const customNodes: Record<string, Graphl.JsFunctionBinding> = {
   "Confetti": {
     parameters: [{"name": "particleCount", type: /*graphl.Types.i32*/ 0 }],
@@ -114,7 +122,13 @@ const customNodes: Record<string, Graphl.JsFunctionBinding> = {
     parameters: [{ name: "nodes", type: 5/*grappl.Types.code*/ }],
     results: [{ name: "query", type: 4/*grappl.Types.string*/}],
     impl(code) {
-      // TODO: print the formed sql query
+      // FIXME: SORRY THIS ISN'T COMPLETELY READY YET
+      const sql = sexpToSql(code);
+      fakeReadySql = sql;
+      for (const l of fakeReadySqlListeners) {
+        l(fakeReadySql);
+      }
+      return sql;
     }
   },
   // dummy nodes
@@ -172,6 +186,8 @@ const scriptImportStubs = {
 
 const Sample = (props: {
   graphInitState: Graphl.GraphInitState,
+  useFakeReadySql?: boolean,
+  resultPopoverWidth?: string,
 }) => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const ideRef = React.useRef<Graphl.Ide<{"main": Function}>>();
@@ -195,6 +211,14 @@ const Sample = (props: {
     if (canvasRef.current === null)
       throw Error("bad canvas elem");
 
+    const fakeReadySqlListener = (sql: string) => {
+      flashResult(sql)
+    };
+
+    if (props.useFakeReadySql) {
+      fakeReadySqlListeners.push(fakeReadySqlListener);
+    }
+
     // TODO: use React suspense
     graphl.then(g => {
       ideRef.current = new g.Ide(canvasRef.current!, {
@@ -205,12 +229,23 @@ const Sample = (props: {
           },
         },
         onMainResult: (res) => {
-          flashResult(res);
+          if (!props.useFakeReadySql) {
+            flashResult(res);
+          }
         },
       })
     });
 
+    return () => {
+      if (props.useFakeReadySql) {
+        const listenerIndex = fakeReadySqlListeners.findIndex(l => l === fakeReadySqlListener);
+        if (listenerIndex === -1) return;
+        fakeReadySqlListeners.splice(listenerIndex, 1);
+      }
+    };
   }, []);
+
+  const popoverWidth = props.resultPopoverWidth ?? "100px"
 
   return (
     <div
@@ -218,7 +253,7 @@ const Sample = (props: {
       style={{ position: "relative" }}
       title={"click the green play button to run\nAnd try editing it!"}
     >
-      <div ref={resultPopoverRef} className={styles.canvasPopover}>
+      <div ref={resultPopoverRef} className={styles.canvasPopover} style={{ "--width": popoverWidth }}>
         empty result
       </div>
       <canvas
@@ -319,6 +354,8 @@ const Homepage = () => {
 
   const sample3 = (
     <Sample
+      resultPopoverWidth={"300px"}
+      useFakeReadySql={true}
       graphInitState={{
         notRemovable: true,
         nodes: [
