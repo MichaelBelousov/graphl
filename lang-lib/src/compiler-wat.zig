@@ -101,7 +101,8 @@ pub const UserFunc = struct {
 };
 
 const Compilation = struct {
-    env: *const Env,
+    /// will be edited during compilation as functions are discovered
+    env: *Env,
     // TODO: have a first pass just figure out types?
     /// a list of forms that are incompletely compiled
     deferred: struct {
@@ -124,7 +125,7 @@ const Compilation = struct {
 
     pub fn init(
         alloc: std.mem.Allocator,
-        env: *const Env,
+        env: *Env,
         user_funcs: ?*std.SinglyLinkedList(UserFunc),
         in_diag: *Diagnostic,
     ) !@This() {
@@ -524,6 +525,14 @@ const Compilation = struct {
                 .result_types = func_type.result_types,
             },
         };
+
+        // TODO: do this earlier to prevent requiring order
+        // FIXME: separate non-arena alloc
+        // TODO: document need to pass env allocator
+        // _ = try self.env.addNode(self.arena.child_allocator, builtin.basicNode(.{
+        //     .name = name,
+        //     .inputs =
+        // }));
 
         {
             const export_sexp = try self.module_body.addOne();
@@ -1678,7 +1687,9 @@ pub fn compile(
     const diag = if (_in_diagnostic) |d| d else &ignored_diagnostic;
     diag.module = sexp;
 
-    var unit = try Compilation.init(a, env, user_funcs, diag);
+    var mut_env = env.spawn();
+
+    var unit = try Compilation.init(a, &mut_env, user_funcs, diag);
     defer unit.deinit();
 
     return unit.compileModule(sexp);
@@ -1966,6 +1977,136 @@ test "compile big" {
 
     var diagnostic = Diagnostic.init();
     if (compile(t.allocator, &parsed, &env, &user_funcs, &diagnostic)) |wat| {
+        // FIXME: convenience
+        var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
+        defer tmp_dir.close();
+
+        var dbg_file = try tmp_dir.createFile("compiler-test.wat", .{});
+        defer dbg_file.close();
+
+        try dbg_file.writeAll(wat);
+
+        try t.expectEqualStrings(expected, wat);
+
+        t.allocator.free(wat);
+    } else |err| {
+        std.debug.print("err {}:\n{}", .{ err, diagnostic });
+        try t.expect(false);
+    }
+}
+
+test "recurse" {
+    // FIXME: support expression functions
+    //     \\(define (++ x) (+ x 1))
+
+    var env = try Env.initDefault(t.allocator);
+    defer env.deinit(t.allocator);
+
+    // FIXME: easier in the IDE to just pass the augmented env, but probably
+    // better if the compiler can take a default env
+    _ = try env.addNode(t.allocator, builtin.basicNode(&.{
+        .name = "factorial",
+        .inputs = &.{
+            builtin.Pin{ .name = "in", .kind = .{ .primitive = .exec } },
+            builtin.Pin{ .name = "n", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+        .outputs = &.{
+            builtin.Pin{ .name = "out", .kind = .{ .primitive = .exec } },
+            builtin.Pin{ .name = "n", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+    }));
+
+    var parsed = try SexpParser.parse(t.allocator,
+        \\(typeof (factorial i32) i32)
+        \\(define (factorial n)
+        \\  (begin
+        \\    (if (<= n 1)
+        \\        (begin (return 1))
+        \\        (begin (return (* n (factorial (- n 1))))))))
+        \\
+    , null);
+    //std.debug.print("{any}\n", .{parsed});
+    defer parsed.deinit(t.allocator);
+
+    const expected = try std.fmt.allocPrint(t.allocator,
+        \\(module
+        \\(import "env"
+        \\        "callUserFunc_code_R"
+        \\        (func $callUserFunc_code_R
+        \\              (param i32)
+        \\              (param i32)
+        \\              (param i32)))
+        \\(import "env"
+        \\        "callUserFunc_code_R_string"
+        \\        (func $callUserFunc_code_R_string
+        \\              (param i32)
+        \\              (param i32)
+        \\              (param i32)
+        \\              (result i32)))
+        \\(import "env"
+        \\        "callUserFunc_string_R"
+        \\        (func $callUserFunc_string_R
+        \\              (param i32)
+        \\              (param i32)
+        \\              (param i32)))
+        \\(import "env"
+        \\        "callUserFunc_R"
+        \\        (func $callUserFunc_R
+        \\              (param i32)))
+        \\(import "env"
+        \\        "callUserFunc_i32_R"
+        \\        (func $callUserFunc_i32_R
+        \\              (param i32)
+        \\              (param i32)))
+        \\(import "env"
+        \\        "callUserFunc_i32_R_i32"
+        \\        (func $callUserFunc_i32_R_i32
+        \\              (param i32)
+        \\              (param i32)
+        \\              (result i32)))
+        \\(import "env"
+        \\        "callUserFunc_i32_i32_R_i32"
+        \\        (func $callUserFunc_i32_i32_R_i32
+        \\              (param i32)
+        \\              (param i32)
+        \\              (param i32)
+        \\              (result i32)))
+        \\(import "env"
+        \\        "callUserFunc_bool_R"
+        \\        (func $callUserFunc_bool_R
+        \\              (param i32)
+        \\              (param i32)))
+        \\(global $__grappl_vstkp
+        \\        (mut i32)
+        \\        (i32.const 4096))
+        \\;;; BEGIN INTRINSICS
+        \\{s}
+        \\;;; END INTRINSICS
+        \\(export "factorial"
+        \\        (func $factorial))
+        \\(type $typeof_factorial
+        \\      (func (param i32)
+        \\            (result i32)))
+        \\(func $factorial
+        \\      (param $param_n
+        \\             i32)
+        \\      (result i32)
+        \\      (if (result i32)
+        \\          (i32.le_s (local.get $param_n)
+        \\                    (i32.const 1))
+        \\          (then (i32.const 1))
+        \\          (else (i32.mul (local.get $param_n)
+        \\                         (call $factorial
+        \\                               (i32.sub (local.get $param_n)
+        \\                                        (i32.const 1)))))))
+        \\)
+        // TODO: clearly instead of embedding the pointer we should have a global variable
+        // so the host can set that
+    , .{intrinsics_code});
+    defer t.allocator.free(expected);
+
+    var diagnostic = Diagnostic.init();
+    if (compile(t.allocator, &parsed, &env, null, &diagnostic)) |wat| {
         // FIXME: convenience
         var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
         defer tmp_dir.close();

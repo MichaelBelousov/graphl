@@ -1082,8 +1082,7 @@ test "node types" {
 }
 
 pub const Env = struct {
-    // NOTE: probably will eventually want a "parentEnv"?
-    parentEnv: ?*Env = null,
+    parentEnv: ?*const Env = null,
 
     _types: std.StringHashMapUnmanaged(Type) = .{},
     // could be macro, function, operator
@@ -1102,7 +1101,7 @@ pub const Env = struct {
         // FIXME: destroy all created slots
     }
 
-    pub fn spawn(self: *@This()) @This() {
+    pub fn spawn(self: *const @This()) @This() {
         return @This(){
             .parentEnv = self,
         };
@@ -1143,7 +1142,7 @@ pub const Env = struct {
     }
 
     pub const TypeIterator = struct {
-        parentEnv: ?*Env,
+        parentEnv: ?*const Env,
         iter: std.StringHashMapUnmanaged(Type).ValueIterator,
 
         pub fn next(self: *@This()) ?Type {
@@ -1174,7 +1173,7 @@ pub const Env = struct {
     }
 
     pub const NodeIterator = struct {
-        parentEnv: ?*Env,
+        parentEnv: ?*const Env,
         iter: std.StringHashMapUnmanaged(*const NodeDesc).ValueIterator,
 
         pub fn next(self: *@This()) ?*const NodeDesc {
