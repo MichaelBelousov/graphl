@@ -736,12 +736,12 @@ fn runCurrentGraphs() !void {
     const sexp = try combineGraphs();
     defer sexp.deinit(gpa);
 
-    if (builtin.mode == .Debug) {
-        var bytes = std.ArrayList(u8).init(gpa);
-        defer bytes.deinit();
-        _ = try sexp.write(bytes.writer());
-        std.log.info("graph '{s}':\n{s}", .{ current_graph.name, bytes.items });
-    }
+    //if (builtin.mode == .Debug) {
+    var bytes = std.ArrayList(u8).init(gpa);
+    defer bytes.deinit();
+    _ = try sexp.write(bytes.writer());
+    std.log.info("graph '{s}':\n{s}", .{ current_graph.name, bytes.items });
+    //}
 
     var diagnostic = compiler.Diagnostic.init();
 
@@ -2165,7 +2165,7 @@ pub fn frame() !void {
                     \\Or right click in the graph to create a free node.
                     \\
                     \\Click on a socket to delete any link/edge connected to it.
-                    \\Hold Control/Cmd and left-click on any node to delete it.
+                    \\Right click on a node to bring up a menu from which you can delete it.
                     \\
                     \\
                     ,

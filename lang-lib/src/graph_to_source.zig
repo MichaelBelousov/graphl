@@ -1011,6 +1011,7 @@ test "big local built graph" {
     const set_index = try graph.addNode(a, "set!", false, null, &diagnostic);
     const confetti_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
     const return_index = try graph.addNode(a, "return", false, null, null);
+    const return2_index = try graph.addNode(a, "return", false, null, null);
 
     try graph.addLiteralInput(plus_index, 0, 0, .{ .float = 4.0 });
     try graph.addLiteralInput(plus_index, 1, 0, .{ .int = 8 });
@@ -1021,6 +1022,7 @@ test "big local built graph" {
     try graph.addEdge(entry_index, 0, if_index, 0, 0);
     try graph.addEdge(if_index, 0, set_index, 0, 0);
     try graph.addEdge(if_index, 1, confetti_index, 0, 0);
+    try graph.addEdge(confetti_index, 0, return2_index, 0, 0);
     try graph.addEdge(plus_index, 0, set_index, 2, 0);
     try graph.addEdge(set_index, 0, return_index, 0, 0);
     //try graph.addEdge(confetti_index, 0, return_index, 0, 0);
@@ -1047,7 +1049,8 @@ test "big local built graph" {
         \\                                (+ 4
         \\                                   8))
         \\                          (return 0))
-        \\                   (begin (throw-confetti 100)))))
+        \\                   (begin (throw-confetti 100)
+        \\                          (return 0)))))
         // TODO: print floating point explicitly
     , text.items);
 }
