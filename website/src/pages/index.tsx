@@ -153,7 +153,7 @@ const sharedOpts: Partial<Graphl.Ide.Options> = {
       visible: false,
     },
     compiler: {
-      watOnly: true,
+      watOnly: false,
     },
   },
 };
@@ -237,10 +237,11 @@ const Sample = (props: {
       <div
         className={styles.execContainer}
         onClick={async () => {
-          if (props.wasmGetter === undefined) return;
-          getWasm();
-          const wasm = await wasmPromise.current!;
-          const result = wasm.instance.exports.main();
+          //if (props.wasmGetter === undefined) return;
+          //getWasm();
+          //const wasm = await wasmPromise.current!;
+          //const result = wasm.instance.exports.main();
+          const result = ideRef.current?.functions.main();
 
           if (!props.useResultHack)
             flashResult(result);
@@ -362,6 +363,8 @@ const Homepage = () => {
               0: { node: 0, outPin: 0 },
               1: { int: 100 },
             },
+            // FIXME: doesn't work
+            //position: { x: 200, y: 500 },
           },
           {
             id: 2,

@@ -369,9 +369,9 @@ pub const GraphBuilder = struct {
         try self.is_join_set.resize(alloc, self.nodes.map.count(), false);
 
         // FIXME: this causes a crash in non-debug builds
-        //var analysis_arena = std.heap.ArenaAllocator.init(alloc);
-        //try self.analyzeNodes(alloc);
-        //analysis_arena.deinit();
+        var analysis_arena = std.heap.ArenaAllocator.init(alloc);
+        try self.analyzeNodes(alloc);
+        analysis_arena.deinit();
 
         var body = try self.rootToSexp(alloc);
         // FIXME: doesn't this invalidate the moved slice below? e.g. this only works cuz there are no owned strings?
@@ -712,6 +712,7 @@ pub const GraphBuilder = struct {
 
         const NodeData = struct {
             visited: u1,
+            depth: u32,
         };
 
         pub const Block = std.ArrayList(Sexp);
@@ -719,6 +720,7 @@ pub const GraphBuilder = struct {
         const Context = struct {
             node_data: std.MultiArrayList(NodeData) = .{},
             block: Block,
+            current_depth: u32 = 0,
 
             pub fn deinit(self: *@This(), a: std.mem.Allocator) void {
                 self.node_data.deinit(a);
@@ -744,17 +746,27 @@ pub const GraphBuilder = struct {
 
         pub fn onNode(self: @This(), alloc: std.mem.Allocator, node_id: NodeId, context: *Context) Error!void {
             // FIXME: not handled
-            if (context.node_data.items(.visited)[node_id] == 1)
-                return Error.CyclesNotSupported;
+            if (context.node_data.items(.visited)[node_id] == 1) {
+                if (context.node_data.items(.depth)[node_id] < context.current_depth)
+                    return error.CyclesNotSupported;
+                return;
+            }
 
             const node = self.graph.nodes.map.getPtr(node_id) orelse std.debug.panic("onNode: couldn't find node by id={}", .{node_id});
 
             context.node_data.items(.visited)[node_id] = 1;
+            context.node_data.items(.depth)[node_id] = context.current_depth;
+
+            var next_context = Context{
+                .node_data = context.node_data,
+                .block = context.block,
+                .current_depth = context.current_depth + 1,
+            };
 
             return if (node.desc().isSimpleBranch())
-                @call(debug_tail_call, onBranchNode, .{ self, alloc, node, context })
+                @call(debug_tail_call, onBranchNode, .{ self, alloc, node, &next_context })
             else
-                @call(debug_tail_call, onFunctionCallNode, .{ self, alloc, node, context });
+                @call(debug_tail_call, onFunctionCallNode, .{ self, alloc, node, &next_context });
         }
 
         // FIXME: refactor to find joins during this?
@@ -990,23 +1002,24 @@ test "big local built graph" {
     defer for (graph.locals.items) |l| a.free(l.name);
 
     const entry_index: NodeId = 0;
-    const return_index = try graph.addNode(a, "return", false, null, null);
+    const if_index = try graph.addNode(a, "if", false, null, &diagnostic);
     const plus_index = try graph.addNode(a, "+", false, null, &diagnostic);
     const set_index = try graph.addNode(a, "set!", false, null, &diagnostic);
     const confetti_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
-    const set2_index = try graph.addNode(a, "set!", false, null, &diagnostic);
+    const return_index = try graph.addNode(a, "return", false, null, null);
 
     try graph.addLiteralInput(plus_index, 0, 0, .{ .float = 4.0 });
     try graph.addLiteralInput(plus_index, 1, 0, .{ .int = 8 });
     try graph.addLiteralInput(set_index, 1, 0, .{ .symbol = "x" });
     try graph.addLiteralInput(confetti_index, 1, 0, .{ .int = 100 });
-    try graph.addLiteralInput(set2_index, 1, 0, .{ .symbol = "x" });
-    try graph.addLiteralInput(set2_index, 2, 0, .{ .int = 10 });
-    try graph.addEdge(entry_index, 0, set2_index, 0, 0);
-    try graph.addEdge(set2_index, 0, confetti_index, 0, 0);
-    try graph.addEdge(confetti_index, 0, set_index, 0, 0);
+    try graph.addLiteralInput(if_index, 1, 0, .{ .bool = false });
+
+    try graph.addEdge(entry_index, 0, if_index, 0, 0);
+    try graph.addEdge(if_index, 0, set_index, 0, 0);
+    try graph.addEdge(if_index, 1, confetti_index, 0, 0);
     try graph.addEdge(plus_index, 0, set_index, 2, 0);
     try graph.addEdge(set_index, 0, return_index, 0, 0);
+    //try graph.addEdge(confetti_index, 0, return_index, 0, 0);
 
     const sexp = graph.compile(a, "main") catch |e| {
         std.debug.print("\ncompile error: {}\n", .{e});
@@ -1025,13 +1038,12 @@ test "big local built graph" {
         \\        (begin (typeof x
         \\                       i32)
         \\               (define x)
-        \\               (set! x
-        \\                     10)
-        \\               (throw-confetti 100)
-        \\               (set! x
-        \\                     (+ 4
-        \\                        8))
-        \\               (return 0)))
+        \\               (if #f
+        \\                   (begin (set! x
+        \\                                (+ 4
+        \\                                   8))
+        \\                          (return 0))
+        \\                   (throw-confetti 100))))
         // TODO: print floating point explicitly
     , text.items);
 }

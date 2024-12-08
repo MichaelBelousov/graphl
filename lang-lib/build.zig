@@ -38,6 +38,11 @@ pub fn build(b: *std.Build) void {
     const intrinsics_wat_file = intrinsics_to_wat_step.addOutputFileArg("grappl-intrinsics.wat");
     intrinsics_to_wat_step.step.dependOn(&intrinsics.step);
 
+    // don't include
+    const disable_compiler = b.option(bool, "disable_compiler", "don't include code for display-only scenarios, e.g. don't include the compiler") orelse false;
+    const lib_opts = b.addOptions();
+    lib_opts.addOption(bool, "disable_compiler", disable_compiler);
+
     // TODO: reuse this in lib
     const grappl_core_mod = b.addModule("grappl_core", .{
         .root_source_file = b.path("src/main.zig"),
@@ -50,11 +55,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .target = web_target,
     });
-
-    // don't include
-    const disable_compiler = b.option(bool, "disable_compiler", "don't include code for display-only scenarios, e.g. don't include the compiler") orelse false;
-    const lib_opts = b.addOptions();
-    lib_opts.addOption(bool, "disable_compiler", disable_compiler);
+    grappl_core_mod.addOptions("build_opts", lib_opts);
 
     const lib = b.addStaticLibrary(.{
         .name = "graph-lang",
@@ -63,7 +64,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .pic = true,
     });
-    lib.root_module.addOptions("build_opts", lib_opts);
     lib.root_module.addImport("core", grappl_core_mod);
     lib.step.dependOn(&intrinsics_to_wat_step.step);
 

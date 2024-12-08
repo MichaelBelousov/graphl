@@ -26,6 +26,8 @@ export fn runCurrentWat(ptr: ?[*]const u8, len: usize) void {
     std.debug.print("runCurrentWat:\n{s}\n", .{ptr.?[0..len]});
 }
 
+export fn onClickReportIssue() void {}
+
 export fn onRequestLoadSource() void {}
 
 // FIXME:
