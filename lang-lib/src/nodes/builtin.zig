@@ -1128,7 +1128,7 @@ pub const Env = struct {
             try env._nodes.ensureTotalCapacity(alloc, @intCast(nodes_decls.len));
             inline for (nodes_decls) |n| {
                 const node = @field(nodes, n.name);
-                try env._nodes.put(alloc, node.name(), &node);
+                try env._nodes.put(alloc, node.name(), &@field(nodes, n.name));
             }
         }
 

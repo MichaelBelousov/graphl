@@ -161,6 +161,7 @@ pub const GraphBuilder = struct {
         self.locals.deinit(alloc);
         self.imports.deinit(alloc);
 
+        self.branch_joiner_map.deinit(alloc);
         self.is_join_set.deinit(alloc);
         {
             var node_iter = self.nodes.map.iterator();
@@ -1046,7 +1047,7 @@ test "big local built graph" {
         \\                                (+ 4
         \\                                   8))
         \\                          (return 0))
-        \\                   (throw-confetti 100))))
+        \\                   (begin (throw-confetti 100)))))
         // TODO: print floating point explicitly
     , text.items);
 }
