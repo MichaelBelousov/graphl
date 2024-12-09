@@ -58,10 +58,17 @@ fn funcSourceToGraph(
 
     {
         graph.grappl_graph.entry_node_basic_desc.outputs = try a.realloc(graph.grappl_graph.entry_node_basic_desc.outputs, param_names.len);
-        for (param_names, param_types, graph.grappl_graph.entry_node_basic_desc.outputs) |param_name, param_type_name, *output_desc| {
+        try graph.grappl_graph.params.resize(a, param_names.len);
+        for (param_names, param_types, graph.grappl_graph.entry_node_basic_desc.outputs, 0..) |param_name, param_type_name, *output_desc, i| {
             output_desc.name = try a.dupe(u8, param_name.value.symbol);
             const param_type = env.getType(param_type_name.value.symbol) orelse unreachable;
             output_desc.kind = .{ .primitive = .{ .value = param_type } };
+            // there is no "exec" param, so skip it
+            if (i >= 1) {
+                const param_binding = &graph.grappl_graph.params.items[i - 1];
+                param_binding.name = output_desc.name;
+                param_binding.type_ = param_type;
+            }
         }
     }
 
