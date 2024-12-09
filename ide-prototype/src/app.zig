@@ -422,7 +422,11 @@ fn _addUserFuncOutput(func_id: usize, index: u32, name: []const u8, output_type_
 }
 
 //const gpa = gpa_instance.allocator();
-var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
+var gpa_instance = std.heap.GeneralPurposeAllocator(.{
+    //.retain_metadata = true,
+    //.never_unmap = true,
+    //.verbose_log = true,
+}){};
 
 pub const gpa = if (builtin.cpu.arch.isWasm())
     std.heap.wasm_allocator
@@ -2197,7 +2201,7 @@ pub fn frame() !void {
 
             const add_clicked = (try dvui.buttonIcon(@src(), "add-graph", entypo.plus, .{}, .{})).clicked;
             if (add_clicked) {
-                _ = try addGraph("new-func", false);
+                _ = try addGraph(try std.fmt.allocPrint(gpa, "new-func-{}", .{next_graph_index}), false);
             }
         }
 
@@ -2475,38 +2479,42 @@ pub fn frame() !void {
                         // TODO: nodes should not be guaranteed to have the same amount of links as their
                         // definition has pins
                         // FIXME: we can avoid a linear scan!
-                        for (current_graph.grappl_graph.nodes.map.values()) |*node| {
-                            // FIXME: we need to run this across ALL graphs, not just the current one
-                            if (node.desc() == info.node_desc) {
-                                const pins = @field(node, info.pin_dir);
-                                @field(node, info.pin_dir) = try gpa.realloc(pins, pins.len + 1);
-                                switch (info.type) {
-                                    .params => {
-                                        pins[pins.len - 1] = null;
-                                    },
-                                    .results => {
-                                        pins[pins.len - 1] = .{
-                                            .value = grappl.Value{ .int = 0 },
-                                        };
-                                    },
-                                    else => unreachable,
+                        var next = graphs.first;
+                        while (next) |current| : (next = current.next) {
+                            for (current.data.grappl_graph.nodes.map.values()) |*node| {
+                                if (node.desc() == info.node_desc) {
+                                    const old_pins = @field(node, info.pin_dir);
+                                    @field(node, info.pin_dir) = try gpa.realloc(old_pins, old_pins.len + 1);
+                                    const pins = @field(node, info.pin_dir);
+                                    switch (info.type) {
+                                        .params => {
+                                            pins[pins.len - 1] = null;
+                                        },
+                                        .results => {
+                                            pins[pins.len - 1] = .{
+                                                .value = grappl.Value{ .int = 0 },
+                                            };
+                                        },
+                                        else => unreachable,
+                                    }
+                                } else if (node.desc() == current.data.call_desc) {
+                                    const old_pins = @field(node, opposite_dir);
+                                    @field(node, opposite_dir) = try gpa.realloc(old_pins, old_pins.len + 1);
+                                    const pins = @field(node, opposite_dir);
+                                    switch (info.type) {
+                                        .params => {
+                                            pins[pins.len - 1] = .{
+                                                .value = grappl.Value{ .int = 0 },
+                                            };
+                                        },
+                                        .results => {
+                                            pins[pins.len - 1] = null;
+                                        },
+                                        else => unreachable,
+                                    }
+                                } else {
+                                    continue;
                                 }
-                            } else if (node.desc() == current_graph.call_desc) {
-                                const pins = @field(node, opposite_dir);
-                                @field(node, opposite_dir) = try gpa.realloc(pins, pins.len + 1);
-                                switch (info.type) {
-                                    .params => {
-                                        pins[pins.len - 1] = .{
-                                            .value = grappl.Value{ .int = 0 },
-                                        };
-                                    },
-                                    .results => {
-                                        pins[pins.len - 1] = null;
-                                    },
-                                    else => unreachable,
-                                }
-                            } else {
-                                continue;
                             }
                         }
                     }
