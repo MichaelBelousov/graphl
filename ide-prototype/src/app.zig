@@ -2571,7 +2571,9 @@ pub fn frame() !void {
                                         },
                                         else => unreachable,
                                     }
-                                } else if (node.desc() == current.data.call_desc) {
+                                    // the current graph is the one we're adding a param to, so this is checking if other graphs
+                                    // have calls to this one
+                                } else if (node.desc() == current_graph.call_desc) {
                                     const old_pins = @field(node, opposite_dir);
                                     @field(node, opposite_dir) = try gpa.realloc(old_pins, old_pins.len + 1);
                                     const pins = @field(node, opposite_dir);
