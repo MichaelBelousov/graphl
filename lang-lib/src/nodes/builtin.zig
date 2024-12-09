@@ -150,7 +150,7 @@ pub const Point = struct {
 };
 
 pub const Binding = struct {
-    name: []const u8,
+    name: []u8,
     type_: Type,
     comment: ?[]u8 = null,
     default: ?Sexp = null,

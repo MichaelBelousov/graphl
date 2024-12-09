@@ -66,17 +66,13 @@ pub const GraphBuilder = struct {
 
     // FIXME: who owns these?
     imports: std.ArrayListUnmanaged(Sexp) = .{},
-
     locals: std.ArrayListUnmanaged(Binding) = .{},
-
-    /// must be in sync with entry_node!
-    /// primarily exists just to hold free nodes for accessing params
-    params: std.ArrayListUnmanaged(Binding) = .{},
 
     // FIXME: consolidate input nodes with types and structs
     result_node_basic_desc: *BasicMutNodeDesc,
     result_node: *const NodeDesc,
     entry_node_basic_desc: *BasicMutNodeDesc,
+    // FIXME: rename to NodeDesc
     entry_node: *const NodeDesc,
 
     const Self = @This();
@@ -164,7 +160,6 @@ pub const GraphBuilder = struct {
 
         self.locals.deinit(alloc);
         self.imports.deinit(alloc);
-        self.params.deinit(alloc);
 
         self.branch_joiner_map.deinit(alloc);
         self.is_join_set.deinit(alloc);
