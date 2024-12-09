@@ -2473,8 +2473,24 @@ pub fn frame() !void {
                     @field(node_basic_desc, info.pin_dir) = pin_descs;
                     @field(current_graph.call_basic_desc, opposite_dir) = pin_descs;
 
-                    // FIXME: leak
-                    const new_name = try std.fmt.allocPrint(gpa, "a{}", .{pin_descs.len - 1});
+                    var name_suffix = pin_descs.len - 1;
+
+                    while (true) : (name_suffix += 1) {
+                        var buf: [MAX_FUNC_NAME]u8 = undefined;
+
+                        const getter_name_attempt = try std.fmt.bufPrint(&buf, "get_a{}", .{name_suffix});
+                        if (current_graph.env._nodes.contains(getter_name_attempt))
+                            continue;
+
+                        const setter_name_attempt = try std.fmt.bufPrint(&buf, "set_a{}", .{name_suffix});
+                        if (current_graph.env._nodes.contains(setter_name_attempt))
+                            continue;
+
+                        // break shouldn't hit the continue above, since we now know it's a good suffix
+                        break;
+                    }
+
+                    const new_name = try std.fmt.allocPrint(gpa, "a{}", .{name_suffix});
 
                     pin_descs[pin_descs.len - 1] = .{
                         .name = new_name,
@@ -2500,12 +2516,12 @@ pub fn frame() !void {
 
                         (try current_graph.param_getters.addOne(gpa)).* = param_get_slot;
 
-                        _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot));
+                        _ = current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot)) catch unreachable;
 
                         const param_set_slot = try gpa.create(helpers.BasicMutNodeDesc);
                         param_set_slot.* = .{
                             .name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name}),
-                            .special = .get,
+                            .special = .set,
                             .inputs = try gpa.alloc(helpers.Pin, 2),
                             .outputs = try gpa.alloc(helpers.Pin, 2),
                         };
@@ -2530,7 +2546,7 @@ pub fn frame() !void {
 
                         (try current_graph.param_setters.addOne(gpa)).* = param_set_slot;
 
-                        _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot));
+                        _ = current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot)) catch unreachable;
                     }
 
                     {
@@ -2587,11 +2603,23 @@ pub fn frame() !void {
                 const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = id_extra });
                 if (text_entry.text_changed) {
                     var buf: [MAX_FUNC_NAME]u8 = undefined;
-                    std.debug.assert(current_graph.env._nodes.remove(try std.fmt.bufPrint(&buf, "get_{s}", .{pin_desc.name})));
-                    std.debug.assert(current_graph.env._nodes.remove(try std.fmt.bufPrint(&buf, "set_{s}", .{pin_desc.name})));
-                    pin_desc.name = text_entry.getText();
+
+                    const old_get_name = try std.fmt.bufPrint(&buf, "get_{s}", .{pin_desc.name});
+                    std.debug.assert(current_graph.env._nodes.remove(old_get_name));
+                    const old_set_name = try std.fmt.bufPrint(&buf, "set_{s}", .{pin_desc.name});
+                    std.debug.assert(current_graph.env._nodes.remove(old_set_name));
+
+                    gpa.free(pin_desc.name);
+                    pin_desc.name = try gpa.dupe(u8, text_entry.getText());
+
                     const param_get_slot = current_graph.param_setters.items[j - 1];
+                    gpa.free(param_get_slot.name);
+                    param_get_slot.name = try std.fmt.allocPrint(gpa, "get_{s}", .{pin_desc.name});
+
                     const param_set_slot = current_graph.param_getters.items[j - 1];
+                    gpa.free(param_set_slot.name);
+                    param_set_slot.name = try std.fmt.allocPrint(gpa, "set_{s}", .{pin_desc.name});
+
                     _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot));
                     _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot));
                 }
