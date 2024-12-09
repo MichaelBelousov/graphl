@@ -443,6 +443,10 @@ pub const Graph = struct {
     call_basic_desc: grappl.helpers.BasicMutNodeDesc,
     call_desc: *grappl.NodeDesc,
 
+    // FIXME: does this belong here?
+    param_getters: std.ArrayListUnmanaged(*grappl.helpers.BasicMutNodeDesc) = .{},
+    param_setters: std.ArrayListUnmanaged(*grappl.helpers.BasicMutNodeDesc) = .{},
+
     grappl_graph: grappl.GraphBuilder,
     // FIXME: merge with visual graph
     visual_graph: VisualGraph,
@@ -503,6 +507,8 @@ pub const Graph = struct {
 
     pub fn deinit(self: *@This()) void {
         std.debug.assert(shared_env._nodes.remove(self.call_basic_desc.name));
+        self.param_getters.deinit(gpa);
+        self.param_setters.deinit(gpa);
         self.visual_graph.deinit(gpa);
         self.grappl_graph.deinit(gpa);
         gpa.free(self.name);
@@ -1005,7 +1011,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
             for (current_graph.grappl_graph.entry_node_basic_desc.outputs, 0..) |binding, j| {
                 var buf: [MAX_FUNC_NAME]u8 = undefined;
                 const name = try std.fmt.bufPrint(&buf, "set_{s}", .{binding.name});
-                const node_desc = current_graph.env.getNode(binding.name) orelse unreachable;
+                const node_desc = current_graph.env.getNode(name) orelse unreachable;
 
                 var valid_socket_index: ?u16 = null;
                 if (maybe_create_from_type) |create_from_type| {
@@ -2467,13 +2473,65 @@ pub fn frame() !void {
                     @field(node_basic_desc, info.pin_dir) = pin_descs;
                     @field(current_graph.call_basic_desc, opposite_dir) = pin_descs;
 
+                    // FIXME: leak
+                    const new_name = try std.fmt.allocPrint(gpa, "a{}", .{pin_descs.len - 1});
+
                     pin_descs[pin_descs.len - 1] = .{
-                        .name = "a",
+                        .name = new_name,
                         // i32 is default param for now
                         .kind = .{ .primitive = .{
                             .value = grappl.primitive_types.i32_,
                         } },
                     };
+
+                    if (info.type == .params) {
+                        const param_get_slot = try gpa.create(helpers.BasicMutNodeDesc);
+                        param_get_slot.* = .{
+                            .name = try std.fmt.allocPrint(gpa, "get_{s}", .{new_name}),
+                            .special = .get,
+                            .inputs = &.{},
+                            .outputs = try gpa.alloc(helpers.Pin, 1),
+                        };
+
+                        param_get_slot.outputs[0] = .{
+                            .name = new_name,
+                            .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
+                        };
+
+                        (try current_graph.param_getters.addOne(gpa)).* = param_get_slot;
+
+                        _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot));
+
+                        const param_set_slot = try gpa.create(helpers.BasicMutNodeDesc);
+                        param_set_slot.* = .{
+                            .name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name}),
+                            .special = .get,
+                            .inputs = try gpa.alloc(helpers.Pin, 2),
+                            .outputs = try gpa.alloc(helpers.Pin, 2),
+                        };
+
+                        param_set_slot.inputs[0] = .{
+                            .name = "in",
+                            .kind = .{ .primitive = .exec },
+                        };
+                        param_set_slot.inputs[1] = .{
+                            .name = new_name,
+                            .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
+                        };
+
+                        param_set_slot.outputs[0] = .{
+                            .name = "out",
+                            .kind = .{ .primitive = .exec },
+                        };
+                        param_set_slot.outputs[1] = .{
+                            .name = new_name,
+                            .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
+                        };
+
+                        (try current_graph.param_setters.addOne(gpa)).* = param_set_slot;
+
+                        _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot));
+                    }
 
                     {
                         // TODO: nodes should not be guaranteed to have the same amount of links as their
@@ -2528,7 +2586,14 @@ pub fn frame() !void {
 
                 const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = id_extra });
                 if (text_entry.text_changed) {
+                    var buf: [MAX_FUNC_NAME]u8 = undefined;
+                    std.debug.assert(current_graph.env._nodes.remove(try std.fmt.bufPrint(&buf, "get_{s}", .{pin_desc.name})));
+                    std.debug.assert(current_graph.env._nodes.remove(try std.fmt.bufPrint(&buf, "set_{s}", .{pin_desc.name})));
                     pin_desc.name = text_entry.getText();
+                    const param_get_slot = current_graph.param_setters.items[j - 1];
+                    const param_set_slot = current_graph.param_getters.items[j - 1];
+                    _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot));
+                    _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot));
                 }
                 // must occur after text_changed check or this operation will set it
                 if (dvui.firstFrame(text_entry.data().id)) {
@@ -2565,7 +2630,13 @@ pub fn frame() !void {
                 });
                 if (option_clicked) {
                     const selected_name = type_options[type_choice_index];
-                    pin_desc.kind.primitive = .{ .value = current_graph.grappl_graph.env.getType(selected_name) orelse unreachable };
+                    const type_ = current_graph.grappl_graph.env.getType(selected_name) orelse unreachable;
+                    pin_desc.kind.primitive = .{ .value = type_ };
+                    if (info.type == .params) {
+                        current_graph.param_getters.items[j - 1].outputs[0].kind.primitive.value = type_;
+                        current_graph.param_setters.items[j - 1].inputs[1].kind.primitive.value = type_;
+                        current_graph.param_setters.items[j - 1].outputs[1].kind.primitive.value = type_;
+                    }
                 }
             }
         }
