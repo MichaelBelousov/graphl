@@ -101,6 +101,7 @@ pub const GraphBuilder = struct {
                 .hidden = true,
                 .inputs = inputs,
                 .outputs = outputs,
+                .kind = .entry,
             };
 
             break :_ result;
@@ -123,6 +124,7 @@ pub const GraphBuilder = struct {
                 .hidden = false,
                 .inputs = inputs,
                 .outputs = outputs,
+                .kind = .return_,
             };
 
             break :_ result;
@@ -847,9 +849,9 @@ pub const GraphBuilder = struct {
             // FIXME: this must be unified with nodeInputTreeToSexp!
             call_sexp.* = switch (node._desc.kind) {
                 .get => Sexp{ .value = .{ .symbol = name } },
-                .set, .func => Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } },
+                // NOTE: probably handle return differently
+                .set, .func, .return_ => Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } },
                 .entry => std.debug.panic("nodeInputTreeToSexp should ignore entry nodes", .{}),
-                .return_ => std.debug.panic("not possible to connect to a result output", .{}),
             };
 
             (try call_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
@@ -889,8 +891,7 @@ pub const GraphBuilder = struct {
                         .entry => {
                             break :_ Sexp{ .value = .{ .symbol = node.desc().getOutputs()[v.?.pin_index].name } };
                         },
-                        .return_ => @panic("not possible to connect a return node as an input"),
-                        .set, .func => {},
+                        .set, .func, .return_ => {},
                     }
 
                     var result = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };

@@ -2352,7 +2352,7 @@ pub fn frame() !void {
                     const node_descs = try gpa.alloc(grappl.helpers.BasicMutNodeDesc, 2);
                     node_descs[0] = grappl.helpers.BasicMutNodeDesc{
                         .name = try std.fmt.allocPrint(gpa, "get_{s}", .{name}),
-                        .special = .get,
+                        .kind = .get,
                         .inputs = try gpa.dupe(helpers.Pin, &getter_inputs),
                         .outputs = try gpa.dupe(helpers.Pin, &getter_outputs),
                     };
@@ -2362,7 +2362,7 @@ pub fn frame() !void {
                     node_descs[1] = grappl.helpers.BasicMutNodeDesc{
                         // FIXME: leaks
                         .name = try std.fmt.allocPrint(gpa, "set_{s}", .{name}),
-                        .special = .set,
+                        .kind = .set,
                         .inputs = try gpa.dupe(helpers.Pin, &setter_inputs),
                         .outputs = try gpa.dupe(helpers.Pin, &setter_outputs),
                     };
@@ -2524,7 +2524,7 @@ pub fn frame() !void {
                         const param_get_slot = try gpa.create(helpers.BasicMutNodeDesc);
                         param_get_slot.* = .{
                             .name = try std.fmt.allocPrint(gpa, "get_{s}", .{new_name}),
-                            .special = .get,
+                            .kind = .get,
                             .inputs = &.{},
                             .outputs = try gpa.alloc(helpers.Pin, 1),
                         };
@@ -2541,7 +2541,7 @@ pub fn frame() !void {
                         const param_set_slot = try gpa.create(helpers.BasicMutNodeDesc);
                         param_set_slot.* = .{
                             .name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name}),
-                            .special = .set,
+                            .kind = .set,
                             .inputs = try gpa.alloc(helpers.Pin, 2),
                             .outputs = try gpa.alloc(helpers.Pin, 2),
                         };

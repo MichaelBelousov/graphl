@@ -330,7 +330,7 @@ pub const BasicNodeDesc = struct {
     name: []const u8,
     hidden: bool = false,
     // FIXME: remove in favor of nodes directly referencing whether they are a getter/setter
-    special: NodeDescKind = .func,
+    kind: NodeDescKind = .func,
     inputs: []const Pin = &.{},
     outputs: []const Pin = &.{},
     tags: []const []const u8 = &.{},
@@ -360,7 +360,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
     return NodeDesc{
         .context = @ptrCast(in_desc),
         .hidden = in_desc.hidden,
-        .kind = in_desc.special,
+        .kind = in_desc.kind,
         ._getInputs = BasicNodeImpl.getInputs,
         ._getOutputs = BasicNodeImpl.getOutputs,
         ._getName = BasicNodeImpl.getName,
@@ -370,7 +370,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
 pub const BasicMutNodeDesc = struct {
     name: []const u8,
     hidden: bool = false,
-    special: NodeDescKind = .func,
+    kind: NodeDescKind = .func,
     inputs: []Pin = &.{},
     outputs: []Pin = &.{},
     tags: []const []const u8 = &.{},
@@ -399,7 +399,7 @@ pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
     return NodeDesc{
         .context = @ptrCast(in_desc),
         .hidden = in_desc.hidden,
-        .kind = in_desc.special,
+        .kind = in_desc.kind,
         ._getInputs = BasicMutNodeImpl.getInputs,
         ._getOutputs = BasicMutNodeImpl.getOutputs,
         ._getName = BasicMutNodeImpl.getName,

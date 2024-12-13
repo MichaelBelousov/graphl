@@ -1698,6 +1698,64 @@ pub fn compile(
 const t = std.testing;
 const SexpParser = @import("./sexp_parser.zig").Parser;
 
+const compiled_prelude = (
+    \\module
+    \\(import "env"
+    \\        "callUserFunc_code_R"
+    \\        (func $callUserFunc_code_R
+    \\              (param i32)
+    \\              (param i32)
+    \\              (param i32)))
+    \\(import "env"
+    \\        "callUserFunc_code_R_string"
+    \\        (func $callUserFunc_code_R_string
+    \\              (param i32)
+    \\              (param i32)
+    \\              (param i32)
+    \\              (result i32)))
+    \\(import "env"
+    \\        "callUserFunc_string_R"
+    \\        (func $callUserFunc_string_R
+    \\              (param i32)
+    \\              (param i32)
+    \\              (param i32)))
+    \\(import "env"
+    \\        "callUserFunc_R"
+    \\        (func $callUserFunc_R
+    \\              (param i32)))
+    \\(import "env"
+    \\        "callUserFunc_i32_R"
+    \\        (func $callUserFunc_i32_R
+    \\              (param i32)
+    \\              (param i32)))
+    \\(import "env"
+    \\        "callUserFunc_i32_R_i32"
+    \\        (func $callUserFunc_i32_R_i32
+    \\              (param i32)
+    \\              (param i32)
+    \\              (result i32)))
+    \\(import "env"
+    \\        "callUserFunc_i32_i32_R_i32"
+    \\        (func $callUserFunc_i32_i32_R_i32
+    \\              (param i32)
+    \\              (param i32)
+    \\              (param i32)
+    \\              (result i32)))
+    \\(import "env"
+    \\        "callUserFunc_bool_R"
+    \\        (func $callUserFunc_bool_R
+    \\              (param i32)
+    \\              (param i32)))
+    \\(global $__grappl_vstkp
+    \\        (mut i32)
+    \\        (i32.const 4096))
+    \\;;; BEGIN INTRINSICS
+    \\
+++ intrinsics_code ++
+    \\
+    \\;;; END INTRINSICS
+);
+
 test "compile big" {
     // FIXME: support expression functions
     //     \\(define (++ x) (+ x 1))
@@ -1802,59 +1860,7 @@ test "compile big" {
     defer parsed.deinit(t.allocator);
 
     const expected = try std.fmt.allocPrint(t.allocator,
-        \\(module
-        \\(import "env"
-        \\        "callUserFunc_code_R"
-        \\        (func $callUserFunc_code_R
-        \\              (param i32)
-        \\              (param i32)
-        \\              (param i32)))
-        \\(import "env"
-        \\        "callUserFunc_code_R_string"
-        \\        (func $callUserFunc_code_R_string
-        \\              (param i32)
-        \\              (param i32)
-        \\              (param i32)
-        \\              (result i32)))
-        \\(import "env"
-        \\        "callUserFunc_string_R"
-        \\        (func $callUserFunc_string_R
-        \\              (param i32)
-        \\              (param i32)
-        \\              (param i32)))
-        \\(import "env"
-        \\        "callUserFunc_R"
-        \\        (func $callUserFunc_R
-        \\              (param i32)))
-        \\(import "env"
-        \\        "callUserFunc_i32_R"
-        \\        (func $callUserFunc_i32_R
-        \\              (param i32)
-        \\              (param i32)))
-        \\(import "env"
-        \\        "callUserFunc_i32_R_i32"
-        \\        (func $callUserFunc_i32_R_i32
-        \\              (param i32)
-        \\              (param i32)
-        \\              (result i32)))
-        \\(import "env"
-        \\        "callUserFunc_i32_i32_R_i32"
-        \\        (func $callUserFunc_i32_i32_R_i32
-        \\              (param i32)
-        \\              (param i32)
-        \\              (param i32)
-        \\              (result i32)))
-        \\(import "env"
-        \\        "callUserFunc_bool_R"
-        \\        (func $callUserFunc_bool_R
-        \\              (param i32)
-        \\              (param i32)))
-        \\(global $__grappl_vstkp
-        \\        (mut i32)
-        \\        (i32.const 4096))
-        \\;;; BEGIN INTRINSICS
-        \\{s}
-        \\;;; END INTRINSICS
+        \\({s}
         \\(func $sql
         \\      (param $param_0
         \\             i32)
@@ -1972,7 +1978,7 @@ test "compile big" {
         \\)
         // TODO: clearly instead of embedding the pointer we should have a global variable
         // so the host can set that
-    , .{intrinsics_code});
+    , .{compiled_prelude});
     defer t.allocator.free(expected);
 
     var diagnostic = Diagnostic.init();
@@ -2029,59 +2035,7 @@ test "recurse" {
     defer parsed.deinit(t.allocator);
 
     const expected = try std.fmt.allocPrint(t.allocator,
-        \\(module
-        \\(import "env"
-        \\        "callUserFunc_code_R"
-        \\        (func $callUserFunc_code_R
-        \\              (param i32)
-        \\              (param i32)
-        \\              (param i32)))
-        \\(import "env"
-        \\        "callUserFunc_code_R_string"
-        \\        (func $callUserFunc_code_R_string
-        \\              (param i32)
-        \\              (param i32)
-        \\              (param i32)
-        \\              (result i32)))
-        \\(import "env"
-        \\        "callUserFunc_string_R"
-        \\        (func $callUserFunc_string_R
-        \\              (param i32)
-        \\              (param i32)
-        \\              (param i32)))
-        \\(import "env"
-        \\        "callUserFunc_R"
-        \\        (func $callUserFunc_R
-        \\              (param i32)))
-        \\(import "env"
-        \\        "callUserFunc_i32_R"
-        \\        (func $callUserFunc_i32_R
-        \\              (param i32)
-        \\              (param i32)))
-        \\(import "env"
-        \\        "callUserFunc_i32_R_i32"
-        \\        (func $callUserFunc_i32_R_i32
-        \\              (param i32)
-        \\              (param i32)
-        \\              (result i32)))
-        \\(import "env"
-        \\        "callUserFunc_i32_i32_R_i32"
-        \\        (func $callUserFunc_i32_i32_R_i32
-        \\              (param i32)
-        \\              (param i32)
-        \\              (param i32)
-        \\              (result i32)))
-        \\(import "env"
-        \\        "callUserFunc_bool_R"
-        \\        (func $callUserFunc_bool_R
-        \\              (param i32)
-        \\              (param i32)))
-        \\(global $__grappl_vstkp
-        \\        (mut i32)
-        \\        (i32.const 4096))
-        \\;;; BEGIN INTRINSICS
-        \\{s}
-        \\;;; END INTRINSICS
+        \\({s}
         \\(export "factorial"
         \\        (func $factorial))
         \\(type $typeof_factorial
@@ -2102,7 +2056,89 @@ test "recurse" {
         \\)
         // TODO: clearly instead of embedding the pointer we should have a global variable
         // so the host can set that
-    , .{intrinsics_code});
+    , .{compiled_prelude});
+    defer t.allocator.free(expected);
+
+    var diagnostic = Diagnostic.init();
+    if (compile(t.allocator, &parsed, &env, null, &diagnostic)) |wat| {
+        // FIXME: convenience
+        var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
+        defer tmp_dir.close();
+
+        var dbg_file = try tmp_dir.createFile("compiler-test.wat", .{});
+        defer dbg_file.close();
+
+        try dbg_file.writeAll(wat);
+
+        try t.expectEqualStrings(expected, wat);
+
+        t.allocator.free(wat);
+    } else |err| {
+        std.debug.print("err {}:\n{}", .{ err, diagnostic });
+        try t.expect(false);
+    }
+}
+
+test "double" {
+    // FIXME: support expression functions
+    //     \\(define (++ x) (+ x 1))
+
+    var env = try Env.initDefault(t.allocator);
+    defer env.deinit(t.allocator);
+
+    // FIXME: easier in the IDE to just pass the augmented env, but probably
+    // better if the compiler can take a default env
+    _ = try env.addNode(t.allocator, builtin.basicNode(&.{
+        .name = "double",
+        .inputs = &.{
+            builtin.Pin{ .name = "in", .kind = .{ .primitive = .exec } },
+            builtin.Pin{ .name = "n", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+        .outputs = &.{
+            builtin.Pin{ .name = "out", .kind = .{ .primitive = .exec } },
+            builtin.Pin{ .name = "n", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+    }));
+
+    var parsed = try SexpParser.parse(t.allocator,
+        \\(typeof (main)
+        \\        i32)
+        \\(define (main)
+        \\        (begin (double 2)
+        \\               (return (double start
+        \\                               2))))
+        \\(typeof (double i32)
+        \\        i32)
+        \\(define (double a1)
+        \\        (begin (return (* a1
+        \\                          2))))
+    , null);
+    //std.debug.print("{any}\n", .{parsed});
+    defer parsed.deinit(t.allocator);
+
+    const expected = try std.fmt.allocPrint(t.allocator,
+        \\({s}
+        \\(export "factorial"
+        \\        (func $factorial))
+        \\(type $typeof_factorial
+        \\      (func (param i32)
+        \\            (result i32)))
+        \\(func $factorial
+        \\      (param $param_n
+        \\             i32)
+        \\      (result i32)
+        \\      (if (result i32)
+        \\          (i32.le_s (local.get $param_n)
+        \\                    (i32.const 1))
+        \\          (then (i32.const 1))
+        \\          (else (i32.mul (local.get $param_n)
+        \\                         (call $factorial
+        \\                               (i32.sub (local.get $param_n)
+        \\                                        (i32.const 1)))))))
+        \\)
+        // TODO: clearly instead of embedding the pointer we should have a global variable
+        // so the host can set that
+    , .{compiled_prelude});
     defer t.allocator.free(expected);
 
     var diagnostic = Diagnostic.init();
