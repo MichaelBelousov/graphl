@@ -1049,8 +1049,8 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
         while (node_iter.next()) |node_desc| {
             const node_name = node_desc.name();
 
-            switch (node_desc.special) {
-                .none => {},
+            switch (node_desc.kind) {
+                .func, .return_, .entry => {},
                 .get, .set => continue, // handled separately above
             }
 
@@ -1545,8 +1545,8 @@ fn renderNode(
 
     // FIXME: do this better
     // FIXME: maybe remove node.kind since we need a desc anyway?
-    switch (node.desc().special) {
-        .none => try dvui.label(@src(), "{s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
+    switch (node.desc().kind) {
+        .func, .entry, .return_ => try dvui.label(@src(), "{s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
         .get => try dvui.label(@src(), "Get {s}", .{node.desc().name()[4..]}, .{ .font_style = .title_3 }),
         .set => try dvui.label(@src(), "Set {s}", .{node.desc().name()[4..]}, .{ .font_style = .title_3 }),
     }

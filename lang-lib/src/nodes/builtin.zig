@@ -63,8 +63,10 @@ pub const Pin = struct {
     }
 };
 
-pub const NodeSpecialInfo = union(enum) {
-    none: void,
+pub const NodeDescKind = union(enum) {
+    func: void,
+    return_: void,
+    entry: void,
     get: void,
     set: void,
 };
@@ -72,8 +74,7 @@ pub const NodeSpecialInfo = union(enum) {
 pub const NodeDesc = struct {
     hidden: bool = false,
 
-    // FIXME: horrible
-    special: NodeSpecialInfo = .none,
+    kind: NodeDescKind = .func,
 
     tags: []const []const u8 = &.{},
     context: *const anyopaque,
@@ -179,35 +180,19 @@ pub const GraphTypes = struct {
     const empty_inputs: []Input = &.{};
     const empty_outputs: []?Output = &.{};
 
-    pub const NodeDescKind = union(enum) {
-        desc: *const NodeDesc,
-        get: struct {
-            binding: *Binding,
-            desc: *const NodeDesc,
-            basic_desc: *BasicMutNodeDesc,
-        },
-        set: struct {
-            binding: *Binding,
-            desc: *const NodeDesc,
-            basic_desc: *BasicMutNodeDesc,
-        },
-    };
-
     pub const Node = struct {
         id: NodeId,
-        kind: NodeDescKind,
         position: Point = .{},
         comment: ?[]const u8 = null,
         // FIMXE: how do we handle default inputs?
         inputs: []Input = empty_inputs,
         outputs: []?Output = empty_outputs,
 
+        // TODO: rename and remove function
+        _desc: *const NodeDesc,
+
         pub fn desc(self: *const @This()) *const NodeDesc {
-            return switch (self.kind) {
-                .desc => |v| v,
-                .get => |v| v.desc,
-                .set => |v| v.desc,
-            };
+            return self._desc;
         }
 
         pub fn initEmptyPins(
@@ -220,8 +205,7 @@ pub const GraphTypes = struct {
         ) !@This() {
             const result = @This(){
                 .id = args.id,
-                // FIXME: this should check args.desc.special
-                .kind = .{ .desc = args.desc },
+                ._desc = args.desc,
                 .comment = args.comment,
                 // TODO: default to zero literal
                 // TODO: handle variadic
@@ -346,7 +330,7 @@ pub const BasicNodeDesc = struct {
     name: []const u8,
     hidden: bool = false,
     // FIXME: remove in favor of nodes directly referencing whether they are a getter/setter
-    special: NodeSpecialInfo = .none,
+    special: NodeDescKind = .func,
     inputs: []const Pin = &.{},
     outputs: []const Pin = &.{},
     tags: []const []const u8 = &.{},
@@ -376,7 +360,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
     return NodeDesc{
         .context = @ptrCast(in_desc),
         .hidden = in_desc.hidden,
-        .special = in_desc.special,
+        .kind = in_desc.special,
         ._getInputs = BasicNodeImpl.getInputs,
         ._getOutputs = BasicNodeImpl.getOutputs,
         ._getName = BasicNodeImpl.getName,
@@ -386,7 +370,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
 pub const BasicMutNodeDesc = struct {
     name: []const u8,
     hidden: bool = false,
-    special: NodeSpecialInfo = .none,
+    special: NodeDescKind = .func,
     inputs: []Pin = &.{},
     outputs: []Pin = &.{},
     tags: []const []const u8 = &.{},
@@ -415,7 +399,7 @@ pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
     return NodeDesc{
         .context = @ptrCast(in_desc),
         .hidden = in_desc.hidden,
-        .special = in_desc.special,
+        .kind = in_desc.special,
         ._getInputs = BasicMutNodeImpl.getInputs,
         ._getOutputs = BasicMutNodeImpl.getOutputs,
         ._getName = BasicMutNodeImpl.getName,

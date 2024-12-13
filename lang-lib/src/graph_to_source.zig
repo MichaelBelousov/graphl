@@ -840,14 +840,16 @@ pub const GraphBuilder = struct {
             if (self.graph.isJoin(node))
                 return;
 
-            const name = node.desc().name();
+            const name = node._desc.name();
 
             var call_sexp = try context.block.addOne();
 
             // FIXME: this must be unified with nodeInputTreeToSexp!
-            call_sexp.* = switch (node.kind) {
+            call_sexp.* = switch (node._desc.kind) {
                 .get => Sexp{ .value = .{ .symbol = name } },
-                .set, .desc => Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } },
+                .set, .func => Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } },
+                .entry => std.debug.panic("nodeInputTreeToSexp should ignore entry nodes", .{}),
+                .return_ => std.debug.panic("not possible to connect to a result output", .{}),
             };
 
             (try call_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
@@ -880,12 +882,16 @@ pub const GraphBuilder = struct {
                     const target = if (v) |_v| _v.target else return Sexp{ .value = .void };
                     const node = self.graph.nodes.map.getPtr(target) orelse std.debug.panic("couldn't find link target id={}", .{target});
 
-                    const special_type = node.kind;
-
                     const name = node.desc().name();
 
-                    if (special_type == .get)
-                        break :_ Sexp{ .value = .{ .symbol = name } };
+                    switch (node._desc.kind) {
+                        .get => break :_ Sexp{ .value = .{ .symbol = name } },
+                        .entry => {
+                            break :_ Sexp{ .value = .{ .symbol = node.desc().getOutputs()[v.?.pin_index].name } };
+                        },
+                        .return_ => @panic("not possible to connect a return node as an input"),
+                        .set, .func => {},
+                    }
 
                     var result = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
 
