@@ -220,6 +220,7 @@ pub const GraphTypes = struct {
         ) !@This() {
             const result = @This(){
                 .id = args.id,
+                // FIXME: this should check args.desc.special
                 .kind = .{ .desc = args.desc },
                 .comment = args.comment,
                 // TODO: default to zero literal

@@ -840,18 +840,15 @@ pub const GraphBuilder = struct {
             if (self.graph.isJoin(node))
                 return;
 
-            const special_type = node.kind;
-
             const name = node.desc().name();
 
             var call_sexp = try context.block.addOne();
 
             // FIXME: this must be unified with nodeInputTreeToSexp!
-            call_sexp.* =
-                if (special_type == .get)
-                Sexp{ .value = .{ .symbol = name } }
-            else
-                Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            call_sexp.* = switch (node.kind) {
+                .get => Sexp{ .value = .{ .symbol = name } },
+                .set, .desc => Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } },
+            };
 
             (try call_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
 

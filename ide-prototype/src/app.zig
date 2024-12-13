@@ -931,11 +931,12 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                             if (!matches_search) continue;
                         }
 
-                        var label_buf: [MAX_FUNC_NAME]u8 = undefined;
-                        const label = try std.fmt.bufPrint(&label_buf, "Get {s}", .{binding.name});
+                        var buf: [MAX_FUNC_NAME]u8 = undefined;
+                        const label = try std.fmt.bufPrint(&buf, "Get {s}", .{binding.name});
 
                         if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = id_extra }) != null) {
-                            _ = try Local.addNode(binding.name, maybe_create_from, pt_in_graph, 0);
+                            const getter_name = try std.fmt.bufPrint(&buf, "get_{s}", .{binding.name});
+                            _ = try Local.addNode(getter_name, maybe_create_from, pt_in_graph, 0);
                             subfw.close();
                         }
                     }
@@ -950,7 +951,10 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     const id_extra = (j << 8) | i;
                     var buf: [MAX_FUNC_NAME]u8 = undefined;
                     const name = try std.fmt.bufPrint(&buf, "set_{s}", .{binding.name});
-                    const node_desc = current_graph.env.getNode(binding.name) orelse unreachable;
+                    const node_desc = current_graph.env.getNode(name) orelse {
+                        std.log.err("couldn't get node by binding: '{s}'", .{binding.name});
+                        unreachable;
+                    };
 
                     var valid_socket_index: ?u16 = null;
                     if (maybe_create_from_type) |create_from_type| {
@@ -982,7 +986,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                 var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
                 defer subfw.deinit();
 
-                for (current_graph.grappl_graph.entry_node_basic_desc.outputs, 0..) |binding, j| {
+                for (current_graph.grappl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
                     std.debug.assert(binding.asPrimitivePin() == .value);
                     if (maybe_create_from_type != null and !std.meta.eql(maybe_create_from_type.?, binding.asPrimitivePin())) {
                         continue;
@@ -997,7 +1001,9 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     const label = try std.fmt.bufPrint(&label_buf, "Get {s}", .{binding.name});
 
                     if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = j }) != null) {
-                        _ = try Local.addNode(binding.name, maybe_create_from, pt_in_graph, 0);
+                        var buf: [MAX_FUNC_NAME]u8 = undefined;
+                        const name = try std.fmt.bufPrint(&buf, "get_{s}", .{binding.name});
+                        _ = try Local.addNode(name, maybe_create_from, pt_in_graph, 0);
                         subfw.close();
                     }
                 }
@@ -1008,7 +1014,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
             var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
             defer subfw.deinit();
 
-            for (current_graph.grappl_graph.entry_node_basic_desc.outputs, 0..) |binding, j| {
+            for (current_graph.grappl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
                 var buf: [MAX_FUNC_NAME]u8 = undefined;
                 const name = try std.fmt.bufPrint(&buf, "set_{s}", .{binding.name});
                 const node_desc = current_graph.env.getNode(name) orelse unreachable;
@@ -1076,6 +1082,8 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
 
 fn renderGraph(canvas: *dvui.BoxWidget) !void {
     _ = canvas;
+
+    errdefer if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
 
     if (options.preferences.graph.origin) |origin| {
         ScrollData.origin = origin;
@@ -1535,265 +1543,273 @@ fn renderNode(
 
     const result = box.data().rectScale().r; // already has origin added (already in scroll coords)
 
-    switch (node.kind) {
-        .desc => |desc| try dvui.label(@src(), "{s}", .{desc.name()}, .{ .font_style = .title_3 }),
-        .get => |v| try dvui.label(@src(), "Get {s}", .{v.binding.name}, .{ .font_style = .title_3 }),
-        .set => |v| try dvui.label(@src(), "Set {s}", .{v.binding.name}, .{ .font_style = .title_3 }),
+    // FIXME: do this better
+    // FIXME: maybe remove node.kind since we need a desc anyway?
+    switch (node.desc().special) {
+        .none => try dvui.label(@src(), "{s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
+        .get => try dvui.label(@src(), "Get {s}", .{node.desc().name()[4..]}, .{ .font_style = .title_3 }),
+        .set => try dvui.label(@src(), "Set {s}", .{node.desc().name()[4..]}, .{ .font_style = .title_3 }),
     }
+
+    // switch (node.kind) {
+    //     .desc => |desc| try dvui.label(@src(), "{s}", .{desc.name()}, .{ .font_style = .title_3 }),
+    //     .get => |v| try dvui.label(@src(), "Get {s}", .{v.binding.name}, .{ .font_style = .title_3 }),
+    //     .set => |v| try dvui.label(@src(), "Set {s}", .{v.binding.name}, .{ .font_style = .title_3 }),
+    // }
 
     var hbox = try dvui.box(@src(), .horizontal, .{});
     defer hbox.deinit();
 
-    var inputs_vbox = try dvui.box(@src(), .vertical, .{});
+    {
+        var inputs_vbox = try dvui.box(@src(), .vertical, .{});
+        defer inputs_vbox.deinit();
+        for (node.desc().getInputs(), node.inputs, 0..) |*input_desc, *input, j| {
+            var input_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
+            defer input_box.deinit();
 
-    for (node.desc().getInputs(), node.inputs, 0..) |*input_desc, *input, j| {
-        var input_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
-        defer input_box.deinit();
+            const socket = Socket{ .node_id = node.id, .kind = .input, .index = @intCast(j) };
 
-        const socket = Socket{ .node_id = node.id, .kind = .input, .index = @intCast(j) };
+            const color = if (input_desc.kind == .primitive and input_desc.kind.primitive == .value)
+                try colorForType(input_desc.kind.primitive.value)
+            else
+                exec_color;
 
-        const color = if (input_desc.kind == .primitive and input_desc.kind.primitive == .value)
-            try colorForType(input_desc.kind.primitive.value)
-        else
-            exec_color;
+            const icon_opts = dvui.Options{
+                .min_size_content = .{ .h = 20, .w = 20 },
+                .gravity_y = 0.5,
+                .id_extra = j,
+                .color_fill = .{ .color = color },
+                .color_fill_hover = .{ .color = .{ .r = color.r, .g = color.g, .b = color.b, .a = 0x88 } },
+                .debug = true,
+                .border = dvui.Rect{},
+                .background = true,
+            };
 
-        const icon_opts = dvui.Options{
-            .min_size_content = .{ .h = 20, .w = 20 },
-            .gravity_y = 0.5,
-            .id_extra = j,
-            .color_fill = .{ .color = color },
-            .color_fill_hover = .{ .color = .{ .r = color.r, .g = color.g, .b = color.b, .a = 0x88 } },
-            .debug = true,
-            .border = dvui.Rect{},
-            .background = true,
-        };
+            const socket_point: dvui.Point = if (
+            //
+            input_desc.kind.primitive == .exec
+            //
+            or input_desc.kind.primitive.value == helpers.primitive_types.code
+            //
+            ) _: {
+                var icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
+                const socket_center = considerSocketForHover(&icon_res, socket);
+                if (icon_res.clicked) {
+                    input.* = .{ .link = null };
+                }
 
-        const socket_point: dvui.Point = if (
-        //
-        input_desc.kind.primitive == .exec
-        //
-        or input_desc.kind.primitive.value == helpers.primitive_types.code
-        //
-        ) _: {
-            var icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
-            const socket_center = considerSocketForHover(&icon_res, socket);
-            if (icon_res.clicked) {
-                input.* = .{ .link = null };
-            }
+                break :_ socket_center;
+            } else _: {
+                // FIXME: make non interactable/hoverable
 
-            break :_ socket_center;
-        } else _: {
-            // FIXME: make non interactable/hoverable
+                var icon_res = try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
+                const socket_center = considerSocketForHover(&icon_res, socket);
+                if (icon_res.clicked) {
+                    input.* = .{ .value = .{ .int = 0 } };
+                }
 
-            var icon_res = try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
-            const socket_center = considerSocketForHover(&icon_res, socket);
-            if (icon_res.clicked) {
-                input.* = .{ .value = .{ .int = 0 } };
-            }
+                // FIXME: report compiler bug
+                // } else switch (i.kind.primitive.value) {
+                //     grappl.primitive_types.i32_ => {
+                if (input.* != .link) {
+                    // TODO: handle all possible types using switch or something
+                    var handled = false;
 
-            // FIXME: report compiler bug
-            // } else switch (i.kind.primitive.value) {
-            //     grappl.primitive_types.i32_ => {
-            if (input.* != .link) {
-                // TODO: handle all possible types using switch or something
-                var handled = false;
-
-                inline for (.{ i32, i64, u32, u64, f32, f64 }) |T| {
-                    const primitive_type = @field(grappl.primitive_types, @typeName(T) ++ "_");
-                    if (input_desc.kind.primitive.value == primitive_type) {
-                        var value: T = undefined;
-                        // FIXME: why even do this if we're about to overwrite it
-                        // with the entry info?
-                        if (input.* == .value) {
-                            switch (input.value) {
-                                .float => |v| {
-                                    value = if (@typeInfo(T) == .Int)
-                                        @intFromFloat(v)
-                                    else
-                                        @floatCast(v);
-                                },
-                                .int => |v| {
-                                    value = if (@typeInfo(T) == .Int)
-                                        @intCast(v)
-                                    else
-                                        @floatFromInt(v);
-                                },
-                                else => value = 0,
+                    inline for (.{ i32, i64, u32, u64, f32, f64 }) |T| {
+                        const primitive_type = @field(grappl.primitive_types, @typeName(T) ++ "_");
+                        if (input_desc.kind.primitive.value == primitive_type) {
+                            var value: T = undefined;
+                            // FIXME: why even do this if we're about to overwrite it
+                            // with the entry info?
+                            if (input.* == .value) {
+                                switch (input.value) {
+                                    .float => |v| {
+                                        value = if (@typeInfo(T) == .Int)
+                                            @intFromFloat(v)
+                                        else
+                                            @floatCast(v);
+                                    },
+                                    .int => |v| {
+                                        value = if (@typeInfo(T) == .Int)
+                                            @intCast(v)
+                                        else
+                                            @floatFromInt(v);
+                                    },
+                                    else => value = 0,
+                                }
                             }
+
+                            const entry = try dvui.textEntryNumber(@src(), T, .{ .value = &value }, .{ .max_size_content = .{ .w = 30 }, .id_extra = j });
+
+                            if (entry.value == .Valid) {
+                                switch (@typeInfo(T)) {
+                                    .Int => {
+                                        input.* = .{ .value = .{ .int = @intCast(entry.value.Valid) } };
+                                    },
+                                    .Float => {
+                                        input.* = .{ .value = .{ .float = @floatCast(entry.value.Valid) } };
+                                    },
+                                    inline else => std.debug.panic("unhandled input type='{s}'", .{@tagName(input.value)}),
+                                }
+                            }
+
+                            handled = true;
+                        }
+                    }
+
+                    if (input_desc.kind.primitive.value == grappl.primitive_types.bool_ and input.* == .value) {
+                        //node.inputs[j] = .{.literal}
+                        if (input.* != .value or input.value != .bool) {
+                            input.* = .{ .value = .{ .bool = false } };
                         }
 
-                        const entry = try dvui.textEntryNumber(@src(), T, .{ .value = &value }, .{ .max_size_content = .{ .w = 30 }, .id_extra = j });
-
-                        if (entry.value == .Valid) {
-                            switch (@typeInfo(T)) {
-                                .Int => {
-                                    input.* = .{ .value = .{ .int = @intCast(entry.value.Valid) } };
-                                },
-                                .Float => {
-                                    input.* = .{ .value = .{ .float = @floatCast(entry.value.Valid) } };
-                                },
-                                inline else => std.debug.panic("unhandled input type='{s}'", .{@tagName(input.value)}),
-                            }
-                        }
-
+                        _ = try dvui.checkbox(@src(), &input.value.bool, null, .{ .id_extra = j });
                         handled = true;
                     }
-                }
 
-                if (input_desc.kind.primitive.value == grappl.primitive_types.bool_ and input.* == .value) {
-                    //node.inputs[j] = .{.literal}
-                    if (input.* != .value or input.value != .bool) {
-                        input.* = .{ .value = .{ .bool = false } };
-                    }
-
-                    _ = try dvui.checkbox(@src(), &input.value.bool, null, .{ .id_extra = j });
-                    handled = true;
-                }
-
-                if (input_desc.kind.primitive.value == grappl.primitive_types.symbol and input.* == .value) {
-                    if (current_graph.grappl_graph.locals.items.len > 0) {
-                        //node.inputs[j] = .{.literal}
-                        if (input.* != .value or input.value != .symbol) {
-                            input.* = .{ .value = .{ .symbol = "" } };
-                        }
-
-                        // TODO: use stack buffer with reasonable max options?
-                        const local_options: [][]const u8 = try gpa.alloc([]const u8, current_graph.grappl_graph.locals.items.len);
-                        defer gpa.free(local_options);
-
-                        var local_choice: usize = 0;
-
-                        for (current_graph.grappl_graph.locals.items, local_options, 0..) |local, *local_opt, k| {
-                            local_opt.* = local.name;
-                            // FIXME: symbol interning
-                            if (std.mem.eql(u8, local.name, input.value.symbol)) {
-                                local_choice = k;
+                    if (input_desc.kind.primitive.value == grappl.primitive_types.symbol and input.* == .value) {
+                        if (current_graph.grappl_graph.locals.items.len > 0) {
+                            //node.inputs[j] = .{.literal}
+                            if (input.* != .value or input.value != .symbol) {
+                                input.* = .{ .value = .{ .symbol = "" } };
                             }
-                        }
 
-                        const opt_clicked = try dvui.dropdown(@src(), local_options, &local_choice, .{ .id_extra = j });
-                        if (opt_clicked) {
-                            input.value = .{ .symbol = current_graph.grappl_graph.locals.items[local_choice].name };
+                            // TODO: use stack buffer with reasonable max options?
+                            const local_options: [][]const u8 = try gpa.alloc([]const u8, current_graph.grappl_graph.locals.items.len);
+                            defer gpa.free(local_options);
+
+                            var local_choice: usize = 0;
+
+                            for (current_graph.grappl_graph.locals.items, local_options, 0..) |local, *local_opt, k| {
+                                local_opt.* = local.name;
+                                // FIXME: symbol interning
+                                if (std.mem.eql(u8, local.name, input.value.symbol)) {
+                                    local_choice = k;
+                                }
+                            }
+
+                            const opt_clicked = try dvui.dropdown(@src(), local_options, &local_choice, .{ .id_extra = j });
+                            if (opt_clicked) {
+                                input.value = .{ .symbol = current_graph.grappl_graph.locals.items[local_choice].name };
+                            }
+                        } else {
+                            try dvui.label(@src(), "No locals", .{}, .{ .id_extra = j });
                         }
-                    } else {
-                        try dvui.label(@src(), "No locals", .{}, .{ .id_extra = j });
+                        handled = true;
                     }
-                    handled = true;
-                }
 
-                inline for (.{
-                    .{
-                        .type = grappl.primitive_types.string,
-                        .tag = .string,
-                    },
-                    .{
-                        .type = grappl.primitive_types.symbol,
-                        .tag = .symbol,
-                    },
-                }, 0..) |info, k| {
-                    const id_extra = (j << 1) | k;
-                    if (input_desc.kind.primitive.value == info.type and input.* == .value) {
-                        const empty = "";
-                        if (input.* != .value or input.value != info.tag) {
-                            input.* = .{ .value = @unionInit(grappl.Value, @tagName(info.tag), empty) };
+                    inline for (.{
+                        .{
+                            .type = grappl.primitive_types.string,
+                            .tag = .string,
+                        },
+                        .{
+                            .type = grappl.primitive_types.symbol,
+                            .tag = .symbol,
+                        },
+                    }, 0..) |info, k| {
+                        const id_extra = (j << 1) | k;
+                        if (input_desc.kind.primitive.value == info.type and input.* == .value) {
+                            const empty = "";
+                            if (input.* != .value or input.value != info.tag) {
+                                input.* = .{ .value = @unionInit(grappl.Value, @tagName(info.tag), empty) };
+                            }
+
+                            const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{} } }, .{ .id_extra = id_extra });
+                            defer text_result.deinit();
+                            if (dvui.firstFrame(text_result.data().id)) {
+                                text_result.textTyped(@field(input.value, @tagName(info.tag)));
+                            }
+                            // TODO: don't dupe this memory! use a dynamic buffer instead
+                            if (text_result.text_changed) {
+                                if (@field(input.value, @tagName(info.tag)).ptr != empty.ptr)
+                                    gpa.free(@field(input.value, @tagName(info.tag)));
+                                @field(input.value, @tagName(info.tag)) = try gpa.dupe(u8, text_result.getText());
+                            }
+
+                            handled = true;
+                        }
+                    }
+
+                    if (input_desc.kind.primitive.value == grappl.primitive_types.char_ and input.* == .value) {
+                        const empty_str = "";
+                        if (input.* != .value or input.value != .string) {
+                            input.* = .{ .value = .{ .string = empty_str } };
                         }
 
-                        const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{} } }, .{ .id_extra = id_extra });
+                        const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{ .limit = 1 } } }, .{ .id_extra = j });
                         defer text_result.deinit();
-                        if (dvui.firstFrame(text_result.data().id)) {
-                            text_result.textTyped(@field(input.value, @tagName(info.tag)));
-                        }
                         // TODO: don't dupe this memory! use a dynamic buffer instead
                         if (text_result.text_changed) {
-                            if (@field(input.value, @tagName(info.tag)).ptr != empty.ptr)
-                                gpa.free(@field(input.value, @tagName(info.tag)));
-                            @field(input.value, @tagName(info.tag)) = try gpa.dupe(u8, text_result.getText());
+                            if (input.value.string.ptr != empty_str.ptr)
+                                gpa.free(input.value.string);
+                            input.value.string = try gpa.dupe(u8, text_result.getText());
                         }
 
                         handled = true;
                     }
+
+                    if (!handled)
+                        try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .id_extra = j });
                 }
 
-                if (input_desc.kind.primitive.value == grappl.primitive_types.char_ and input.* == .value) {
-                    const empty_str = "";
-                    if (input.* != .value or input.value != .string) {
-                        input.* = .{ .value = .{ .string = empty_str } };
-                    }
+                break :_ socket_center;
+            };
 
-                    const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{ .limit = 1 } } }, .{ .id_extra = j });
-                    defer text_result.deinit();
-                    // TODO: don't dupe this memory! use a dynamic buffer instead
-                    if (text_result.text_changed) {
-                        if (input.value.string.ptr != empty_str.ptr)
-                            gpa.free(input.value.string);
-                        input.value.string = try gpa.dupe(u8, text_result.getText());
-                    }
+            try socket_positions.put(gpa, socket, socket_point);
 
-                    handled = true;
-                }
-
-                if (!handled)
-                    try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .id_extra = j });
-            }
-
-            break :_ socket_center;
-        };
-
-        try socket_positions.put(gpa, socket, socket_point);
-
-        _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .font_style = .heading, .id_extra = j });
-    }
-
-    inputs_vbox.deinit();
-
-    var outputs_vbox = try dvui.box(@src(), .vertical, .{});
-
-    for (node.desc().getOutputs(), node.outputs, 0..) |output_desc, *output, j| {
-        var output_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j, .gravity_x = 1.0 });
-        defer output_box.deinit();
-
-        const socket = Socket{ .node_id = node.id, .kind = .output, .index = @intCast(j) };
-
-        const color = if (output_desc.kind == .primitive and output_desc.kind.primitive == .value)
-            try colorForType(output_desc.kind.primitive.value)
-        else
-            dvui.Color{ .a = 0x55 };
-
-        const icon_opts = dvui.Options{
-            .min_size_content = .{ .h = 20, .w = 20 },
-            .gravity_y = 0.5,
-            .id_extra = j,
-            //
-            .debug = true,
-            .border = dvui.Rect{},
-            .color_fill = .{ .color = color },
-            .color_fill_hover = .{ .color = .{ .r = color.r, .g = color.g, .b = color.b, .a = 0x88 } },
-            .background = true,
-        };
-
-        _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .id_extra = j });
-
-        var icon_res = if (output_desc.kind.primitive == .exec)
-            try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts)
-        else
-            try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
-
-        if (icon_res.clicked) {
-            if (output.*) |o| {
-                const target_node = current_graph.grappl_graph.nodes.map.getPtr(o.link.target);
-                if (target_node) |target| {
-                    // FIXME: need a function for resetting pins of any type, they probably default to 0
-                    target.inputs[o.link.pin_index] = .{ .value = .{ .int = 0 } };
-                }
-            }
-            output.* = null;
+            _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .font_style = .heading, .id_extra = j });
         }
-
-        const socket_center = considerSocketForHover(&icon_res, socket);
-        try socket_positions.put(gpa, socket, socket_center);
     }
 
-    outputs_vbox.deinit();
+    {
+        var outputs_vbox = try dvui.box(@src(), .vertical, .{});
+        defer outputs_vbox.deinit();
+        for (node.desc().getOutputs(), node.outputs, 0..) |output_desc, *output, j| {
+            var output_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j, .gravity_x = 1.0 });
+            defer output_box.deinit();
+
+            const socket = Socket{ .node_id = node.id, .kind = .output, .index = @intCast(j) };
+
+            const color = if (output_desc.kind == .primitive and output_desc.kind.primitive == .value)
+                try colorForType(output_desc.kind.primitive.value)
+            else
+                dvui.Color{ .a = 0x55 };
+
+            const icon_opts = dvui.Options{
+                .min_size_content = .{ .h = 20, .w = 20 },
+                .gravity_y = 0.5,
+                .id_extra = j,
+                //
+                .debug = true,
+                .border = dvui.Rect{},
+                .color_fill = .{ .color = color },
+                .color_fill_hover = .{ .color = .{ .r = color.r, .g = color.g, .b = color.b, .a = 0x88 } },
+                .background = true,
+            };
+
+            _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .id_extra = j });
+
+            var icon_res = if (output_desc.kind.primitive == .exec)
+                try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts)
+            else
+                try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
+
+            if (icon_res.clicked) {
+                if (output.*) |o| {
+                    const target_node = current_graph.grappl_graph.nodes.map.getPtr(o.link.target);
+                    if (target_node) |target| {
+                        // FIXME: need a function for resetting pins of any type, they probably default to 0
+                        target.inputs[o.link.pin_index] = .{ .value = .{ .int = 0 } };
+                    }
+                }
+                output.* = null;
+            }
+
+            const socket_center = considerSocketForHover(&icon_res, socket);
+            try socket_positions.put(gpa, socket, socket_center);
+        }
+    }
 
     var ctrl_down = dvui.dataGet(null, box.data().id, "_ctrl", bool) orelse false;
 
@@ -2285,13 +2301,13 @@ pub fn frame() !void {
                 if (add_clicked) {
                     var name_buf: [MAX_FUNC_NAME]u8 = undefined;
 
-                    // FIXME: leak
                     // FIXME: obviously this could be faster by keeping track of state
                     const name = try gpa.dupe(u8, for (0..10_000) |j| {
-                        const name = try std.fmt.bufPrint(&name_buf, "new{}", .{j});
+                        const getter_name = try std.fmt.bufPrint(&name_buf, "get_new{}", .{j});
                         // FIXME: use contains
-                        if (current_graph.env.getNode(name) != null)
+                        if (current_graph.env.getNode(getter_name) != null)
                             continue;
+                        const name = try std.fmt.bufPrint(&name_buf, "new{}", .{j});
                         break name;
                     } else {
                         return error.MaxItersFindingFreeBindingName;
@@ -2335,13 +2351,14 @@ pub fn frame() !void {
 
                     const node_descs = try gpa.alloc(grappl.helpers.BasicMutNodeDesc, 2);
                     node_descs[0] = grappl.helpers.BasicMutNodeDesc{
-                        // FIXME: leaks
-                        .name = name,
+                        .name = try std.fmt.allocPrint(gpa, "get_{s}", .{name}),
                         .special = .get,
                         .inputs = try gpa.dupe(helpers.Pin, &getter_inputs),
                         .outputs = try gpa.dupe(helpers.Pin, &getter_outputs),
                     };
                     errdefer gpa.free(node_descs[0].name);
+                    errdefer gpa.free(node_descs[0].inputs);
+                    errdefer gpa.free(node_descs[0].outputs);
                     node_descs[1] = grappl.helpers.BasicMutNodeDesc{
                         // FIXME: leaks
                         .name = try std.fmt.allocPrint(gpa, "set_{s}", .{name}),
@@ -2350,6 +2367,8 @@ pub fn frame() !void {
                         .outputs = try gpa.dupe(helpers.Pin, &setter_outputs),
                     };
                     errdefer gpa.free(node_descs[1].name);
+                    errdefer gpa.free(node_descs[1].inputs);
+                    errdefer gpa.free(node_descs[1].outputs);
 
                     // FIXME: move all this to "addLocal" and "addParam" functions
                     // of the graph which manage the nodes for you
@@ -2388,7 +2407,7 @@ pub fn frame() !void {
                         // TODO: REPORT ME... allocator doesn't seem to return right slice len
                         // when freeing right before resetting?
                         const old_get_node_name = get_node.name;
-                        get_node.name = new_name;
+                        get_node.name = try std.fmt.allocPrint(gpa, "get_{s}", .{new_name});
                         const old_set_node_name = set_node.name;
                         set_node.name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name});
                         // FIXME: should be able to use removeByPtr here to avoid look up?
@@ -2440,13 +2459,14 @@ pub fn frame() !void {
         }
 
         const params_results_bindings = &.{
-            .{
-                .node_desc = current_graph.grappl_graph.result_node,
-                .node_basic_desc = current_graph.grappl_graph.result_node_basic_desc,
-                .name = "Results",
-                .pin_dir = "inputs",
-                .type = .results,
-            },
+            // FIXME: uncomment to allow editing results
+            // .{
+            //     .node_desc = current_graph.grappl_graph.result_node,
+            //     .node_basic_desc = current_graph.grappl_graph.result_node_basic_desc,
+            //     .name = "Results",
+            //     .pin_dir = "inputs",
+            //     .type = .results,
+            // },
             .{
                 .node_desc = current_graph.grappl_graph.entry_node,
                 .node_basic_desc = current_graph.grappl_graph.entry_node_basic_desc,
@@ -2614,13 +2634,16 @@ pub fn frame() !void {
                     gpa.free(pin_desc.name);
                     pin_desc.name = try gpa.dupe(u8, text_entry.getText());
 
-                    const param_get_slot = current_graph.param_setters.items[j - 1];
+                    const param_get_slot = current_graph.param_getters.items[j - 1];
                     gpa.free(param_get_slot.name);
                     param_get_slot.name = try std.fmt.allocPrint(gpa, "get_{s}", .{pin_desc.name});
+                    param_get_slot.outputs[0].name = pin_desc.name;
 
-                    const param_set_slot = current_graph.param_getters.items[j - 1];
+                    const param_set_slot = current_graph.param_setters.items[j - 1];
                     gpa.free(param_set_slot.name);
                     param_set_slot.name = try std.fmt.allocPrint(gpa, "set_{s}", .{pin_desc.name});
+                    param_set_slot.inputs[1].name = pin_desc.name;
+                    param_set_slot.outputs[1].name = pin_desc.name;
 
                     _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot));
                     _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot));
