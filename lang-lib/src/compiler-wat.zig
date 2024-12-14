@@ -2079,7 +2079,7 @@ test "recurse" {
     }
 }
 
-test "double" {
+test "compile double" {
     // FIXME: support expression functions
     //     \\(define (++ x) (+ x 1))
 
@@ -2105,8 +2105,7 @@ test "double" {
         \\        i32)
         \\(define (main)
         \\        (begin (double 2)
-        \\               (return (double start
-        \\                               2))))
+        \\               (return (double 2))))
         \\(typeof (double i32)
         \\        i32)
         \\(define (double a1)

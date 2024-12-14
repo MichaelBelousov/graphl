@@ -844,36 +844,41 @@ pub const GraphBuilder = struct {
 
             const name = node._desc.name();
 
-            var call_sexp = try context.block.addOne();
-
-            // FIXME: this must be unified with nodeInputTreeToSexp!
-            call_sexp.* = switch (node._desc.kind) {
-                .get => Sexp{ .value = .{ .symbol = name } },
-                // NOTE: probably handle return differently
-                .set, .func, .return_ => Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } },
-                .entry => std.debug.panic("nodeInputTreeToSexp should ignore entry nodes", .{}),
-            };
-
-            (try call_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
+            var sexp = try context.block.addOne();
 
             // FIXME: doesn't work for variadics
-            for (node.inputs, node.desc().getInputs()) |input, input_desc| {
-                std.debug.assert(input_desc.kind == .primitive);
-                switch (input_desc.kind.primitive) {
-                    .exec => {},
-                    .value => {
-                        const input_tree = try self.nodeInputTreeToSexp(alloc, input);
-                        (try call_sexp.value.list.addOne()).* = input_tree;
-                    },
-                }
-            }
+            // FIXME: this must be unified with nodeInputTreeToSexp!
+            switch (node.desc().kind) {
+                .get => {
+                    sexp.* = Sexp{ .value = .{ .symbol = name } };
+                },
+                .entry => std.debug.panic("nodeInputTreeToSexp should ignore entry nodes", .{}),
+                .set, .func, .return_ => {
+                    std.log.info("onFunctionCall kind={s}, node={s}", .{ @tagName(node.desc().kind), name });
+                    sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                    try sexp.value.list.ensureTotalCapacityPrecise(1 + node.inputs.len - 1);
+                    (try sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
 
-            for (node.outputs, node.desc().getOutputs()) |output, output_desc| {
-                // FIXME: tail call where possible?
-                //return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
-                if (output != null and output_desc.kind.primitive == .exec) {
-                    try self.onNode(alloc, output.?.link.target, context);
-                }
+                    for (node.inputs, node.desc().getInputs()) |input, input_desc| {
+                        std.debug.assert(input_desc.kind == .primitive);
+                        switch (input_desc.kind.primitive) {
+                            .exec => {},
+                            .value => {
+                                const input_tree = try self.nodeInputTreeToSexp(alloc, input);
+                                std.log.info("node={s}, func input: {}", .{ node._desc.name(), input_tree });
+                                (try sexp.value.list.addOne()).* = input_tree;
+                            },
+                        }
+                    }
+
+                    for (node.outputs, node.desc().getOutputs()) |output, output_desc| {
+                        // FIXME: tail call where possible?
+                        //return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
+                        if (output != null and output_desc.kind.primitive == .exec) {
+                            try self.onNode(alloc, output.?.link.target, context);
+                        }
+                    }
+                },
             }
         }
 
@@ -891,20 +896,25 @@ pub const GraphBuilder = struct {
                         .entry => {
                             break :_ Sexp{ .value = .{ .symbol = node.desc().getOutputs()[v.?.pin_index].name } };
                         },
-                        .set, .func, .return_ => {},
+                        .set, .func, .return_ => {
+                            var result = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+
+                            try result.value.list.ensureTotalCapacityPrecise(node.inputs.len + 1);
+
+                            result.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
+
+                            // HACK, skip control flow inputs for function calls (currently math is marked as a function but
+                            // should be marked as pure)
+                            const inputs = if (node._desc.getOutputs()[0].isExec()) node.inputs[1..] else node.inputs;
+
+                            // skip the control flow input
+                            for (inputs) |input| {
+                                result.value.list.addOneAssumeCapacity().* = try self.nodeInputTreeToSexp(alloc, input);
+                            }
+
+                            break :_ result;
+                        },
                     }
-
-                    var result = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-
-                    try result.value.list.ensureTotalCapacityPrecise(node.inputs.len + 1);
-
-                    (try result.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
-
-                    for (node.inputs) |input| {
-                        (try result.value.list.addOne()).* = try self.nodeInputTreeToSexp(alloc, input);
-                    }
-
-                    break :_ result;
                 },
                 // FIXME: move to own func for Value=>Sexp?, or just make Value==Sexp now...
                 .value => |v| switch (v) {
