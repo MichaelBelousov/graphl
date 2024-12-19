@@ -796,9 +796,10 @@ pub fn deinit() void {
     var maybe_cursor = graphs.first;
     while (maybe_cursor) |cursor| {
         maybe_cursor = cursor.next;
-        gpa.destroy(&cursor.data);
+        gpa.destroy(cursor);
     }
     graphs.first = null;
+    _ = gpa_instance.deinit();
 }
 
 const SocketType = enum(u1) { input, output };
@@ -809,74 +810,74 @@ const Socket = struct {
     index: u16,
 };
 
+const NodeAdder = struct {
+    pub fn validSocketIndex(
+        node_desc: *const grappl.NodeDesc,
+        create_from_socket: Socket,
+        create_from_type: grappl.PrimitivePin,
+    ) !?u16 {
+        var valid_socket_index: ?u16 = null;
+
+        const pins = switch (create_from_socket.kind) {
+            .input => node_desc.getOutputs(),
+            .output => node_desc.getInputs(),
+        };
+
+        if (pins.len > std.math.maxInt(u16))
+            return error.TooManyPins;
+
+        for (pins, 0..) |pin_desc, j| {
+            if (std.meta.eql(pin_desc.asPrimitivePin(), create_from_type)
+            //
+            or std.meta.eql(pin_desc.asPrimitivePin(), helpers.PrimitivePin{ .value = helpers.primitive_types.code })
+            //
+            ) {
+                valid_socket_index = @intCast(j);
+                break;
+            }
+        }
+
+        return valid_socket_index;
+    }
+
+    pub fn addNode(
+        node_name: []const u8,
+        _maybe_create_from: ?Socket,
+        _pt_in_graph: dvui.Point,
+        valid_socket_index: ?u16,
+    ) !u32 {
+        // TODO: use diagnostic
+        const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null, _pt_in_graph);
+
+        if (_maybe_create_from) |create_from| {
+            switch (create_from.kind) {
+                .input => {
+                    try current_graph.addEdge(
+                        new_node_id,
+                        valid_socket_index orelse 0,
+                        create_from.node_id,
+                        create_from.index,
+                        0,
+                    );
+                },
+                .output => {
+                    try current_graph.addEdge(
+                        create_from.node_id,
+                        create_from.index,
+                        new_node_id,
+                        valid_socket_index orelse 0,
+                        0,
+                    );
+                },
+            }
+        }
+
+        return new_node_id;
+    }
+};
+
 fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from: ?Socket) !void {
     // TODO: handle defocus event
-    const Local = struct {
-        pub fn validSocketIndex(
-            node_desc: *const grappl.NodeDesc,
-            create_from_socket: Socket,
-            create_from_type: grappl.PrimitivePin,
-        ) !?u16 {
-            var valid_socket_index: ?u16 = null;
-
-            const pins = switch (create_from_socket.kind) {
-                .input => node_desc.getOutputs(),
-                .output => node_desc.getInputs(),
-            };
-
-            if (pins.len > std.math.maxInt(u16))
-                return error.TooManyPins;
-
-            for (pins, 0..) |pin_desc, j| {
-                if (std.meta.eql(pin_desc.asPrimitivePin(), create_from_type)
-                //
-                or std.meta.eql(pin_desc.asPrimitivePin(), helpers.PrimitivePin{ .value = helpers.primitive_types.code })
-                //
-                ) {
-                    valid_socket_index = @intCast(j);
-                    break;
-                }
-            }
-
-            return valid_socket_index;
-        }
-
-        pub fn addNode(
-            node_name: []const u8,
-            _maybe_create_from: ?Socket,
-            _pt_in_graph: dvui.Point,
-            valid_socket_index: ?u16,
-        ) !u32 {
-            // TODO: use diagnostic
-            const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null, _pt_in_graph);
-
-            if (_maybe_create_from) |create_from| {
-                switch (create_from.kind) {
-                    .input => {
-                        try current_graph.addEdge(
-                            new_node_id,
-                            valid_socket_index orelse 0,
-                            create_from.node_id,
-                            create_from.index,
-                            0,
-                        );
-                    },
-                    .output => {
-                        try current_graph.addEdge(
-                            create_from.node_id,
-                            create_from.index,
-                            new_node_id,
-                            valid_socket_index orelse 0,
-                            0,
-                        );
-                    },
-                }
-            }
-
-            return new_node_id;
-        }
-    };
-
     var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
     defer fw.deinit();
 
@@ -937,7 +938,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
 
                         if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = id_extra }) != null) {
                             const getter_name = try std.fmt.bufPrint(&buf, "get_{s}", .{binding.name});
-                            _ = try Local.addNode(getter_name, maybe_create_from, pt_in_graph, 0);
+                            _ = try NodeAdder.addNode(getter_name, maybe_create_from, pt_in_graph, 0);
                             subfw.close();
                         }
                     }
@@ -959,7 +960,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
 
                     var valid_socket_index: ?u16 = null;
                     if (maybe_create_from_type) |create_from_type| {
-                        valid_socket_index = try Local.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
+                        valid_socket_index = try NodeAdder.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
                         if (valid_socket_index == null)
                             continue;
                     }
@@ -973,7 +974,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     const label = try std.fmt.bufPrint(&label_buf, "Set {s}", .{binding.name});
 
                     if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = id_extra }) != null) {
-                        _ = try Local.addNode(name, maybe_create_from, pt_in_graph, valid_socket_index);
+                        _ = try NodeAdder.addNode(name, maybe_create_from, pt_in_graph, valid_socket_index);
                         subfw.close();
                     }
                 }
@@ -1004,7 +1005,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = j }) != null) {
                         var buf: [MAX_FUNC_NAME]u8 = undefined;
                         const name = try std.fmt.bufPrint(&buf, "get_{s}", .{binding.name});
-                        _ = try Local.addNode(name, maybe_create_from, pt_in_graph, 0);
+                        _ = try NodeAdder.addNode(name, maybe_create_from, pt_in_graph, 0);
                         subfw.close();
                     }
                 }
@@ -1022,7 +1023,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
 
                 var valid_socket_index: ?u16 = null;
                 if (maybe_create_from_type) |create_from_type| {
-                    valid_socket_index = try Local.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
+                    valid_socket_index = try NodeAdder.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
                     if (valid_socket_index == null)
                         continue;
                 }
@@ -1036,7 +1037,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                 const label = try std.fmt.bufPrint(&label_buf, "Set {s}", .{binding.name});
 
                 if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = j }) != null) {
-                    _ = try Local.addNode(name, maybe_create_from, pt_in_graph, valid_socket_index);
+                    _ = try NodeAdder.addNode(name, maybe_create_from, pt_in_graph, valid_socket_index);
                     subfw.close();
                 }
             }
@@ -1062,7 +1063,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
             var valid_socket_index: ?u16 = null;
 
             if (maybe_create_from_type) |create_from_type| {
-                valid_socket_index = try Local.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
+                valid_socket_index = try NodeAdder.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
                 if (valid_socket_index == null)
                     continue;
             }
@@ -1073,7 +1074,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
             }
 
             if ((try dvui.menuItemLabel(@src(), node_name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
-                _ = try Local.addNode(node_name, maybe_create_from, pt_in_graph, valid_socket_index);
+                _ = try NodeAdder.addNode(node_name, maybe_create_from, pt_in_graph, valid_socket_index);
                 fw.close();
             }
             i += 1;
@@ -2137,9 +2138,178 @@ pub const VisualGraph = struct {
     }
 };
 
+fn addParamOrResult(
+    /// graph entry if param, graph return if result
+    node_desc: *const helpers.NodeDesc,
+    /// graph entry if param, graph return if result
+    node_basic_desc: *helpers.BasicMutNodeDesc,
+    comptime kind: enum { params, results },
+) !void {
+    const pin_dir = comptime if (kind == .params) "outputs" else "inputs";
+    var pin_descs = @field(node_basic_desc, pin_dir);
+    const opposite_dir = if (kind == .params) "inputs" else "outputs";
+
+    pin_descs = try gpa.realloc(pin_descs, pin_descs.len + 1);
+    @field(node_basic_desc, pin_dir) = pin_descs;
+    @field(current_graph.call_basic_desc, opposite_dir) = pin_descs;
+
+    var name_suffix = pin_descs.len - 1;
+
+    while (true) : (name_suffix += 1) {
+        var buf: [MAX_FUNC_NAME]u8 = undefined;
+
+        const getter_name_attempt = try std.fmt.bufPrint(&buf, "get_a{}", .{name_suffix});
+        if (current_graph.env._nodes.contains(getter_name_attempt))
+            continue;
+
+        const setter_name_attempt = try std.fmt.bufPrint(&buf, "set_a{}", .{name_suffix});
+        if (current_graph.env._nodes.contains(setter_name_attempt))
+            continue;
+
+        // break shouldn't hit the continue above, since we now know it's a good suffix
+        break;
+    }
+
+    const new_name = try std.fmt.allocPrint(gpa, "a{}", .{name_suffix});
+
+    pin_descs[pin_descs.len - 1] = .{
+        .name = new_name,
+        // i32 is default param for now
+        .kind = .{ .primitive = .{
+            .value = grappl.primitive_types.i32_,
+        } },
+    };
+
+    if (kind == .params) {
+        const param_get_slot = try gpa.create(helpers.BasicMutNodeDesc);
+        param_get_slot.* = .{
+            .name = try std.fmt.allocPrint(gpa, "get_{s}", .{new_name}),
+            .kind = .get,
+            .inputs = &.{},
+            .outputs = try gpa.alloc(helpers.Pin, 1),
+        };
+
+        param_get_slot.outputs[0] = .{
+            .name = new_name,
+            .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
+        };
+
+        (try current_graph.param_getters.addOne(gpa)).* = param_get_slot;
+
+        _ = current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot)) catch unreachable;
+
+        const param_set_slot = try gpa.create(helpers.BasicMutNodeDesc);
+        param_set_slot.* = .{
+            .name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name}),
+            .kind = .set,
+            .inputs = try gpa.alloc(helpers.Pin, 2),
+            .outputs = try gpa.alloc(helpers.Pin, 2),
+        };
+
+        param_set_slot.inputs[0] = .{
+            .name = "in",
+            .kind = .{ .primitive = .exec },
+        };
+        param_set_slot.inputs[1] = .{
+            .name = new_name,
+            .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
+        };
+
+        param_set_slot.outputs[0] = .{
+            .name = "out",
+            .kind = .{ .primitive = .exec },
+        };
+        param_set_slot.outputs[1] = .{
+            .name = new_name,
+            .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
+        };
+
+        (try current_graph.param_setters.addOne(gpa)).* = param_set_slot;
+
+        _ = current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot)) catch unreachable;
+    }
+
+    {
+        // TODO: nodes should not be guaranteed to have the same amount of links as their
+        // definition has pins
+        // FIXME: we can avoid a linear scan!
+        var next = graphs.first;
+        while (next) |current| : (next = current.next) {
+            for (current.data.grappl_graph.nodes.map.values()) |*node| {
+                if (node.desc() == node_desc) {
+                    const old_pins = @field(node, pin_dir);
+                    @field(node, pin_dir) = try gpa.realloc(old_pins, old_pins.len + 1);
+                    const pins = @field(node, pin_dir);
+                    switch (kind) {
+                        .params => {
+                            pins[pins.len - 1] = null;
+                        },
+                        .results => {
+                            pins[pins.len - 1] = .{
+                                .value = grappl.Value{ .int = 0 },
+                            };
+                        },
+                    }
+                    // the current graph is the one we're adding a param to, so this is checking if other graphs
+                    // have calls to this one
+                } else if (node.desc() == current_graph.call_desc) {
+                    const old_pins = @field(node, opposite_dir);
+                    @field(node, opposite_dir) = try gpa.realloc(old_pins, old_pins.len + 1);
+                    const pins = @field(node, opposite_dir);
+                    switch (kind) {
+                        .params => {
+                            pins[pins.len - 1] = .{
+                                .value = grappl.Value{ .int = 0 },
+                            };
+                        },
+                        .results => {
+                            pins[pins.len - 1] = null;
+                        },
+                    }
+                } else {
+                    continue;
+                }
+            }
+        }
+    }
+}
+
 test "call double" {
     defer deinit();
     try init();
+
+    const main_graph = current_graph;
+
+    {
+        const double_graph = try addGraph("double", true);
+        try addParamOrResult(double_graph.grappl_graph.entry_node, double_graph.grappl_graph.entry_node_basic_desc, .params);
+        std.log.info("outputs: {}", .{double_graph.grappl_graph.entry_node.getOutputs().len});
+        const mul_node_id = try NodeAdder.addNode("*", .{ .kind = .output, .index = 1, .node_id = double_graph.grappl_graph.entry_id orelse unreachable }, .{}, 0);
+        _ = try NodeAdder.addNode("return", .{ .kind = .output, .index = 1, .node_id = 0 }, .{}, 0);
+        try double_graph.addLiteralInput(mul_node_id, 1, 0, .{ .int = 2 });
+    }
+
+    current_graph = main_graph;
+    {
+        const double_node_id = try NodeAdder.addNode("double", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
+        try main_graph.addLiteralInput(double_node_id, 1, 0, .{ .int = 10 });
+    }
+
+    var combined = try combineGraphs();
+    defer combined.deinit(gpa);
+
+    std.debug.print("combined:\n{s}\n", .{combined});
+
+    // FIXME: use testing allocator
+    var diagnostic = compiler.Diagnostic.init();
+    defer if (diagnostic.err != .None) std.debug.print("diagnostic: {}", .{diagnostic});
+
+    const compiled = try compiler.compile(gpa, &combined, &shared_env, &user_funcs, &diagnostic);
+    defer gpa.free(compiled);
+
+    try std.testing.expectEqualStrings(
+        \\(module)
+    , compiled);
 }
 
 pub fn frame() !void {
@@ -2484,8 +2654,6 @@ pub fn frame() !void {
 
         inline for (params_results_bindings, 0..) |info, i| {
             var pin_descs = @field(info.node_basic_desc, info.pin_dir);
-            const opposite_dir = if (info.type == .params) "inputs" else "outputs";
-
             {
                 var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal, .id_extra = i });
                 defer box.deinit();
@@ -2494,132 +2662,7 @@ pub fn frame() !void {
 
                 const add_clicked = (try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i })).clicked;
                 if (add_clicked) {
-                    const node_basic_desc = info.node_basic_desc;
-                    pin_descs = try gpa.realloc(pin_descs, pin_descs.len + 1);
-                    @field(node_basic_desc, info.pin_dir) = pin_descs;
-                    @field(current_graph.call_basic_desc, opposite_dir) = pin_descs;
-
-                    var name_suffix = pin_descs.len - 1;
-
-                    while (true) : (name_suffix += 1) {
-                        var buf: [MAX_FUNC_NAME]u8 = undefined;
-
-                        const getter_name_attempt = try std.fmt.bufPrint(&buf, "get_a{}", .{name_suffix});
-                        if (current_graph.env._nodes.contains(getter_name_attempt))
-                            continue;
-
-                        const setter_name_attempt = try std.fmt.bufPrint(&buf, "set_a{}", .{name_suffix});
-                        if (current_graph.env._nodes.contains(setter_name_attempt))
-                            continue;
-
-                        // break shouldn't hit the continue above, since we now know it's a good suffix
-                        break;
-                    }
-
-                    const new_name = try std.fmt.allocPrint(gpa, "a{}", .{name_suffix});
-
-                    pin_descs[pin_descs.len - 1] = .{
-                        .name = new_name,
-                        // i32 is default param for now
-                        .kind = .{ .primitive = .{
-                            .value = grappl.primitive_types.i32_,
-                        } },
-                    };
-
-                    if (info.type == .params) {
-                        const param_get_slot = try gpa.create(helpers.BasicMutNodeDesc);
-                        param_get_slot.* = .{
-                            .name = try std.fmt.allocPrint(gpa, "get_{s}", .{new_name}),
-                            .kind = .get,
-                            .inputs = &.{},
-                            .outputs = try gpa.alloc(helpers.Pin, 1),
-                        };
-
-                        param_get_slot.outputs[0] = .{
-                            .name = new_name,
-                            .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
-                        };
-
-                        (try current_graph.param_getters.addOne(gpa)).* = param_get_slot;
-
-                        _ = current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot)) catch unreachable;
-
-                        const param_set_slot = try gpa.create(helpers.BasicMutNodeDesc);
-                        param_set_slot.* = .{
-                            .name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name}),
-                            .kind = .set,
-                            .inputs = try gpa.alloc(helpers.Pin, 2),
-                            .outputs = try gpa.alloc(helpers.Pin, 2),
-                        };
-
-                        param_set_slot.inputs[0] = .{
-                            .name = "in",
-                            .kind = .{ .primitive = .exec },
-                        };
-                        param_set_slot.inputs[1] = .{
-                            .name = new_name,
-                            .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
-                        };
-
-                        param_set_slot.outputs[0] = .{
-                            .name = "out",
-                            .kind = .{ .primitive = .exec },
-                        };
-                        param_set_slot.outputs[1] = .{
-                            .name = new_name,
-                            .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
-                        };
-
-                        (try current_graph.param_setters.addOne(gpa)).* = param_set_slot;
-
-                        _ = current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot)) catch unreachable;
-                    }
-
-                    {
-                        // TODO: nodes should not be guaranteed to have the same amount of links as their
-                        // definition has pins
-                        // FIXME: we can avoid a linear scan!
-                        var next = graphs.first;
-                        while (next) |current| : (next = current.next) {
-                            for (current.data.grappl_graph.nodes.map.values()) |*node| {
-                                if (node.desc() == info.node_desc) {
-                                    const old_pins = @field(node, info.pin_dir);
-                                    @field(node, info.pin_dir) = try gpa.realloc(old_pins, old_pins.len + 1);
-                                    const pins = @field(node, info.pin_dir);
-                                    switch (info.type) {
-                                        .params => {
-                                            pins[pins.len - 1] = null;
-                                        },
-                                        .results => {
-                                            pins[pins.len - 1] = .{
-                                                .value = grappl.Value{ .int = 0 },
-                                            };
-                                        },
-                                        else => unreachable,
-                                    }
-                                    // the current graph is the one we're adding a param to, so this is checking if other graphs
-                                    // have calls to this one
-                                } else if (node.desc() == current_graph.call_desc) {
-                                    const old_pins = @field(node, opposite_dir);
-                                    @field(node, opposite_dir) = try gpa.realloc(old_pins, old_pins.len + 1);
-                                    const pins = @field(node, opposite_dir);
-                                    switch (info.type) {
-                                        .params => {
-                                            pins[pins.len - 1] = .{
-                                                .value = grappl.Value{ .int = 0 },
-                                            };
-                                        },
-                                        .results => {
-                                            pins[pins.len - 1] = null;
-                                        },
-                                        else => unreachable,
-                                    }
-                                } else {
-                                    continue;
-                                }
-                            }
-                        }
-                    }
+                    try addParamOrResult(info.node_desc, info.node_basic_desc, info.type);
                 }
             }
 
