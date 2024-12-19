@@ -798,6 +798,7 @@ pub fn deinit() void {
         maybe_cursor = cursor.next;
         gpa.destroy(&cursor.data);
     }
+    graphs.first = null;
 }
 
 const SocketType = enum(u1) { input, output };
@@ -2135,6 +2136,11 @@ pub const VisualGraph = struct {
         }
     }
 };
+
+test "call double" {
+    defer deinit();
+    try init();
+}
 
 pub fn frame() !void {
     // file menu

@@ -112,12 +112,21 @@ pub fn build(b: *std.Build) void {
 
     {
         const exe_unit_tests = b.addTest(.{
-            .root_source_file = b.path("src/web.zig"),
+            .root_source_file = b.path("src/native.zig"),
             .target = native_target,
             .optimize = optimize,
+            .strip = false,
+            .link_libc = true,
         });
 
         const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
+
+        exe_unit_tests.import_symbols = true;
+        exe_unit_tests.rdynamic = true; // https://github.com/ziglang/zig/issues/14139
+        exe_unit_tests.entry = .disabled;
+
+        exe_unit_tests.root_module.addImport("dvui", dvui_dep.module("dvui_raylib"));
+        exe_unit_tests.root_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
 
         // Similar to creating the run step earlier, this exposes a `test` step to
         // the `zig build --help` menu, providing a way for the user to request
