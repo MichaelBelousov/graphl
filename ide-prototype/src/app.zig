@@ -443,7 +443,7 @@ pub const Graph = struct {
     call_basic_desc: grappl.helpers.BasicMutNodeDesc,
     call_desc: *grappl.NodeDesc,
 
-    // FIXME: does this belong here?
+    // FIXME: singly-linked list?
     param_getters: std.ArrayListUnmanaged(*grappl.helpers.BasicMutNodeDesc) = .{},
     param_setters: std.ArrayListUnmanaged(*grappl.helpers.BasicMutNodeDesc) = .{},
 
@@ -507,8 +507,26 @@ pub const Graph = struct {
 
     pub fn deinit(self: *@This()) void {
         std.debug.assert(shared_env._nodes.remove(self.call_basic_desc.name));
+
+        for (self.param_getters.items) |param_getter| {
+            // FIXME: these should be easier to manage the memory of!
+            gpa.free(param_getter.name);
+            gpa.free(param_getter.inputs);
+            gpa.free(param_getter.outputs);
+            // FIXME: leak
+            //gpa.free(param_getter.outputs[0].name);
+            gpa.destroy(param_getter);
+        }
         self.param_getters.deinit(gpa);
+
+        for (self.param_setters.items) |param_setter| {
+            gpa.free(param_setter.name);
+            gpa.free(param_setter.inputs);
+            gpa.free(param_setter.outputs);
+            gpa.destroy(param_setter);
+        }
         self.param_setters.deinit(gpa);
+
         self.visual_graph.deinit(gpa);
         self.grappl_graph.deinit(gpa);
         gpa.free(self.name);
@@ -553,8 +571,9 @@ fn combineGraphs() !Sexp {
     var maybe_cursor = graphs.first;
     while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
         var graph_sexp = try cursor.data.grappl_graph.compile(gpa, cursor.data.name);
+        defer graph_sexp.value.module.clearAndFree();
         std.debug.assert(graph_sexp.value == .module);
-        try result.value.module.appendSlice(try graph_sexp.toOwnedSlice());
+        try result.value.module.appendSlice(graph_sexp.value.module.items);
     }
 
     return result;
@@ -793,12 +812,14 @@ fn exportCurrentCompiled() !void {
 }
 
 pub fn deinit() void {
-    var maybe_cursor = graphs.first;
-    while (maybe_cursor) |cursor| {
-        maybe_cursor = cursor.next;
+    while (graphs.popFirst()) |cursor| {
+        //std.debug.print("CURSOR: {}\n", .{cursor});
+        //std.debug.print("GRAPH: {*},{*}\n", .{ &cursor.data, cursor.next });
+        cursor.data.deinit();
         gpa.destroy(cursor);
     }
     graphs.first = null;
+    shared_env.deinit(gpa);
     _ = gpa_instance.deinit();
 }
 
