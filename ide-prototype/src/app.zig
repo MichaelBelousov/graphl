@@ -510,11 +510,10 @@ pub const Graph = struct {
 
         for (self.param_getters.items) |param_getter| {
             // FIXME: these should be easier to manage the memory of!
+            gpa.free(param_getter.outputs[0].name);
             gpa.free(param_getter.name);
             gpa.free(param_getter.inputs);
             gpa.free(param_getter.outputs);
-            // FIXME: leak
-            //gpa.free(param_getter.outputs[0].name);
             gpa.destroy(param_getter);
         }
         self.param_getters.deinit(gpa);
@@ -2304,22 +2303,36 @@ test "call double" {
     {
         const double_graph = try addGraph("double", true);
         try addParamOrResult(double_graph.grappl_graph.entry_node, double_graph.grappl_graph.entry_node_basic_desc, .params);
-        std.log.info("outputs: {}", .{double_graph.grappl_graph.entry_node.getOutputs().len});
         const mul_node_id = try NodeAdder.addNode("*", .{ .kind = .output, .index = 1, .node_id = double_graph.grappl_graph.entry_id orelse unreachable }, .{}, 0);
-        _ = try NodeAdder.addNode("return", .{ .kind = .output, .index = 1, .node_id = 0 }, .{}, 0);
+        const return_id = try NodeAdder.addNode("return", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
         try double_graph.addLiteralInput(mul_node_id, 1, 0, .{ .int = 2 });
+        try double_graph.addEdge(mul_node_id, 0, return_id, 1, 0);
     }
 
     current_graph = main_graph;
     {
         const double_node_id = try NodeAdder.addNode("double", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
         try main_graph.addLiteralInput(double_node_id, 1, 0, .{ .int = 10 });
+        const return_id = try NodeAdder.addNode("return", .{ .kind = .output, .index = 0, .node_id = double_node_id }, .{}, 0);
+        try main_graph.addEdge(double_node_id, 1, return_id, 1, 0);
     }
 
     var combined = try combineGraphs();
     defer combined.deinit(gpa);
 
-    std.debug.print("combined:\n{s}\n", .{combined});
+    errdefer std.debug.print("combined:\n{s}\n", .{combined});
+
+    try std.testing.expectFmt(
+        \\(typeof (main)
+        \\        i32)
+        \\(define (main)
+        \\        (begin (double 10)))
+        \\(typeof (double i32)
+        \\        i32)
+        \\(define (double a1)
+        \\        (begin (return (* a1
+        \\                          2))))
+    , "{}", .{combined});
 
     // FIXME: use testing allocator
     var diagnostic = compiler.Diagnostic.init();
@@ -2328,9 +2341,31 @@ test "call double" {
     const compiled = try compiler.compile(gpa, &combined, &shared_env, &user_funcs, &diagnostic);
     defer gpa.free(compiled);
 
-    try std.testing.expectEqualStrings(
-        \\(module)
-    , compiled);
+    const expected = std.fmt.comptimePrint(
+        \\({s}
+        \\(export "main"
+        \\        (func $main))
+        \\(type $typeof_main
+        \\      (func (result i32)))
+        \\(func $main
+        \\      (result i32)
+        \\      (call $double
+        \\            (i32.const 10)))
+        \\(export "double"
+        \\        (func $double))
+        \\(type $typeof_double
+        \\      (func (param i32)
+        \\            (result i32)))
+        \\(func $double
+        \\      (param $param_a1
+        \\             i32)
+        \\      (result i32)
+        \\      (i32.mul (local.get $param_a1)
+        \\               (i32.const 2)))
+        \\)
+    , .{compiler.compiled_prelude});
+
+    try std.testing.expectEqualStrings(expected, compiled);
 }
 
 pub fn frame() !void {

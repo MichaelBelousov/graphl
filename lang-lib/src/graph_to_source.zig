@@ -87,6 +87,37 @@ pub const GraphBuilder = struct {
         return self.is_join_set.isSet(node.id);
     }
 
+    pub fn format(
+        self: *const @This(),
+        comptime fmt_str: []const u8,
+        fmt_opts: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        _ = fmt_str;
+        _ = fmt_opts;
+
+        var node_iter = self.nodes.map.iterator();
+        while (node_iter.next()) |pair| {
+            try writer.print("node#{} '{s}': ", .{ pair.key_ptr.*, pair.value_ptr._desc.name() });
+            for (pair.value_ptr.inputs) |input| {
+                switch (input) {
+                    .link => |link_| if (link_) |v| try writer.print("{}/{}->.", .{ v.target, v.pin_index }) else std.debug.print("!!", .{}),
+                    .value => |v| try writer.print("{}", .{v}),
+                }
+                try writer.print(", ", .{});
+            }
+
+            try writer.print("; ", .{});
+
+            for (pair.value_ptr.outputs) |output| {
+                if (output) |o| try writer.print(".->{}/{}", .{ o.link.target, o.link.pin_index }) else try writer.print("!!", .{});
+                try writer.print(", ", .{});
+            }
+
+            try writer.print("\n", .{});
+        }
+    }
+
     // FIXME: remove buildFromJson and just do it all in init?
     pub fn init(alloc: std.mem.Allocator, env: *Env) !Self {
         const entry_node_basic_desc = _: {

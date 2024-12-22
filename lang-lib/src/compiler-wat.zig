@@ -1698,7 +1698,7 @@ pub fn compile(
 const t = std.testing;
 const SexpParser = @import("./sexp_parser.zig").Parser;
 
-const compiled_prelude = (
+pub const compiled_prelude = (
     \\module
     \\(import "env"
     \\        "callUserFunc_code_R"
