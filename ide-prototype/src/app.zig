@@ -2318,6 +2318,7 @@ test "call double" {
     }
 
     current_graph = main_graph;
+
     {
         const double_node_id = try NodeAdder.addNode("double", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
         try main_graph.addLiteralInput(double_node_id, 1, 0, .{ .int = 10 });
@@ -2331,6 +2332,19 @@ test "call double" {
     errdefer std.debug.print("combined:\n{s}\n", .{combined});
 
     try std.testing.expectFmt(
+    // what it should be (almost):
+    // \\(typeof (main)
+    // \\        i32)
+    // \\(define (main)
+    // \\        (double 10) #!doubled
+    // \\        (begin (return #doubled)))
+    // \\        ;;; even better:
+    // \\        #doubled)
+    // \\(typeof (double i32)
+    // \\        i32)
+    // \\(define (double a1)
+    // \\        (begin (return (* a1
+    // \\                          2))))
         \\(typeof (main)
         \\        i32)
         \\(define (main)
