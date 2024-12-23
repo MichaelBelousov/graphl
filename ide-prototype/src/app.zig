@@ -569,7 +569,11 @@ fn combineGraphs() !Sexp {
 
     var maybe_cursor = graphs.first;
     while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-        var graph_sexp = try cursor.data.grappl_graph.compile(gpa, cursor.data.name);
+        var diagnostic = grappl.GraphBuilder.Diagnostics.init();
+        var graph_sexp = cursor.data.grappl_graph.compile(gpa, cursor.data.name, &diagnostic) catch |e| {
+            std.log.err("diagnostic: {}\n", .{diagnostic.contextualize(&cursor.data.grappl_graph)});
+            return e;
+        };
         defer graph_sexp.value.module.clearAndFree();
         std.debug.assert(graph_sexp.value == .module);
         try result.value.module.appendSlice(graph_sexp.value.module.items);
@@ -588,7 +592,11 @@ fn combineGraphsText() !std.ArrayList(u8) {
             try bytes.append('\n');
         maybe_cursor = cursor.next;
     }) {
-        const sexp = try cursor.data.grappl_graph.compile(gpa, cursor.data.name);
+        var diagnostic = grappl.GraphBuilder.Diagnostics.init();
+        const sexp = cursor.data.grappl_graph.compile(gpa, cursor.data.name, &diagnostic) catch |e| {
+            std.log.err("diagnostic: {}\n", .{diagnostic.contextualize(&cursor.data.grappl_graph)});
+            return e;
+        };
         defer sexp.deinit(gpa);
 
         _ = try sexp.write(bytes.writer());
@@ -2336,7 +2344,7 @@ test "call double" {
 
     // FIXME: use testing allocator
     var diagnostic = compiler.Diagnostic.init();
-    defer if (diagnostic.err != .None) std.debug.print("diagnostic: {}", .{diagnostic});
+    errdefer if (diagnostic.err != .None) std.debug.print("diagnostic: {}", .{diagnostic});
 
     const compiled = try compiler.compile(gpa, &combined, &shared_env, &user_funcs, &diagnostic);
     defer gpa.free(compiled);

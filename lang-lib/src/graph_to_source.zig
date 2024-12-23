@@ -78,6 +78,136 @@ pub const GraphBuilder = struct {
     const Self = @This();
     const Types = GraphTypes;
 
+    pub const Diagnostic = union(enum(u16)) {
+        None = 0,
+        DuplicateNode: i64,
+        MultipleEntries: i64,
+        UnknownNodeType: []const u8,
+        DoesntReturn: NodeId,
+
+        const Code = error{
+            DuplicateNode,
+            MultipleEntries,
+            UnknownNodeType,
+            DoesntReturn,
+        };
+
+        pub fn init() @This() {
+            return .None;
+        }
+
+        pub fn code(self: @This()) Code {
+            return switch (self) {
+                .None => unreachable,
+                .DuplicateNode => Code.DuplicateNode,
+                .MultipleEntries => Code.MultipleEntries,
+                .UnknownNodeType => Code.UnknownNodeType,
+                .DoesntReturn => Code.DoesntReturn,
+            };
+        }
+
+        pub fn format(
+            self: @This(),
+            comptime fmt_str: []const u8,
+            fmt_opts: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            _ = fmt_str;
+            _ = fmt_opts;
+            switch (self) {
+                .None => _ = try writer.write("Not an error"),
+                .DuplicateNode => |v| try writer.print("Duplicate node found. First duplicate id={}", .{v}),
+                .MultipleEntries => |v| try writer.print("Multiple entries found. Second entry id={}", .{v}),
+                .UnknownNodeType => |v| try writer.print("Unknown node type '{s}'", .{v}),
+                .DoesntReturn => |v| try writer.print("Expected return at end of control flow but found node#{}", .{v}),
+            }
+        }
+
+        pub const Contextualized = struct {
+            inner: *const Diagnostic,
+            graph: *const GraphBuilder,
+
+            pub fn format(
+                self: @This(),
+                comptime fmt_str: []const u8,
+                fmt_opts: std.fmt.FormatOptions,
+                writer: anytype,
+            ) @TypeOf(writer).Error!void {
+                _ = fmt_str;
+                _ = fmt_opts;
+                switch (self.inner.*) {
+                    .None => _ = try writer.write("Not an error"),
+                    .DuplicateNode => |v| try writer.print("Duplicate node found. First duplicate id={}", .{v}),
+                    .MultipleEntries => |v| try writer.print("Multiple entries found. Second entry id={}", .{v}),
+                    .UnknownNodeType => |v| try writer.print("Unknown node type '{s}'", .{v}),
+                    .DoesntReturn => |v| {
+                        const bad_node = self.graph.nodes.map.getPtr(v) orelse unreachable;
+                        try writer.print(
+                            \\Expected return node at end of control flow,
+                            \\but instead node#{} is of type '{s}'
+                        , .{ v, bad_node._desc.name() });
+                    },
+                }
+            }
+        };
+
+        pub fn contextualize(self: *const @This(), graph: *const GraphBuilder) Contextualized {
+            return Contextualized{ .inner = self, .graph = graph };
+        }
+    };
+
+    // TODO: make errors stable somehow
+    pub const Diagnostics = struct {
+        // NOTE: this means they are read backwards, consider a reverse singly linked list
+        list: std.SinglyLinkedList(Diagnostic) = .{},
+        arena: std.heap.ArenaAllocator,
+
+        pub fn init() @This() {
+            return .{
+                // FIXME: test if this is efficient
+                .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
+            };
+        }
+
+        pub fn deinit(self: *@This()) void {
+            const alloc = self.arena.allocator();
+            while (self.list.popFirst()) |item| {
+                alloc.destroy(item);
+            }
+            self.arena.deinit();
+        }
+
+        pub fn addDiagnostic(self: *@This(), diagnostic: Diagnostic) std.mem.Allocator.Error!void {
+            const alloc = self.arena.allocator();
+            const new_node = try alloc.create(std.SinglyLinkedList(Diagnostic).Node);
+            new_node.* = .{ .data = diagnostic };
+            self.list.prepend(new_node);
+        }
+
+        pub const Contextualized = struct {
+            inner: *const Diagnostics,
+            graph: *const GraphBuilder,
+
+            pub fn format(
+                self: @This(),
+                comptime fmt_str: []const u8,
+                fmt_opts: std.fmt.FormatOptions,
+                writer: anytype,
+            ) @TypeOf(writer).Error!void {
+                _ = fmt_str;
+                _ = fmt_opts;
+                var next = self.inner.list.first;
+                while (next) |curr| : (next = curr.next) {
+                    _ = try writer.print("{}\n\n", .{curr.data.contextualize(self.graph)});
+                }
+            }
+        };
+
+        pub fn contextualize(self: *const @This(), graph: *const GraphBuilder) Contextualized {
+            return Contextualized{ .inner = self, .graph = graph };
+        }
+    };
+
     pub fn entry(self: *const @This()) ?*IndexedNode {
         return if (self.entry_id) |entry_id| self.nodes.map.getPtr(entry_id) orelse unreachable else null;
     }
@@ -226,10 +356,6 @@ pub const GraphBuilder = struct {
         }
         return entry_exec;
     }
-
-    pub const BuildFromJsonDiagnostic = PopulateAndReturnEntryDiagnostic;
-
-    pub const Diagnostic = BuildFromJsonDiagnostic;
 
     // HACK: remove force_node_id
     pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?NodeId, diag: ?*Diagnostic) !NodeId {
@@ -398,7 +524,7 @@ pub const GraphBuilder = struct {
 
     // FIXME: emit move name to the graph
     /// NOTE: the outer module is a sexp list
-    pub fn compile(self: *@This(), alloc: std.mem.Allocator, name: []const u8) !Sexp {
+    pub fn compile(self: *@This(), alloc: std.mem.Allocator, name: []const u8, diagnostic: ?*Diagnostics) !Sexp {
         try self.branch_joiner_map.ensureTotalCapacity(alloc, self.branch_count);
         try self.is_join_set.resize(alloc, self.nodes.map.count(), false);
 
@@ -407,7 +533,7 @@ pub const GraphBuilder = struct {
         try self.analyzeNodes(alloc);
         analysis_arena.deinit();
 
-        var body = try self.rootToSexp(alloc);
+        var body = try self.rootToSexp(alloc, diagnostic);
         // FIXME: doesn't this invalidate the moved slice below? e.g. this only works cuz there are no owned strings?
         defer body.deinit(alloc);
         std.debug.assert(body.value == .list);
@@ -506,45 +632,6 @@ pub const GraphBuilder = struct {
     //     try self.link(alloc, json_graph);
     //     return self.rootToSexp(alloc);
     // }
-
-    // TODO: make errors stable somehow
-    const PopulateAndReturnEntryDiagnostic = union(enum(u16)) {
-        None = 0,
-        DuplicateNode: i64,
-        MultipleEntries: i64,
-        UnknownNodeType: []const u8,
-
-        const Code = error{
-            DuplicateNode,
-            MultipleEntries,
-            UnknownNodeType,
-        };
-
-        pub fn code(self: @This()) Code {
-            return switch (self) {
-                .None => unreachable,
-                .DuplicateNode => Code.DuplicateNode,
-                .MultipleEntries => Code.MultipleEntries,
-                .UnknownNodeType => Code.UnknownNodeType,
-            };
-        }
-
-        pub fn format(
-            self: @This(),
-            comptime fmt_str: []const u8,
-            fmt_opts: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
-            _ = fmt_str;
-            _ = fmt_opts;
-            switch (self) {
-                .None => _ = try writer.write("Not an error"),
-                .DuplicateNode => |v| try writer.print("Duplicate node found. First duplicate id={}", .{v}),
-                .MultipleEntries => |v| try writer.print("Multiple entries found. Second entry id={}", .{v}),
-                .UnknownNodeType => |v| try writer.print("Unknown node type '{s}'", .{v}),
-            }
-        }
-    };
 
     pub fn link(self: @This(), alloc: std.mem.Allocator, graph_json: GraphDoc) !void {
         var nodes_iter = self.nodes.map.iterator();
@@ -736,13 +823,11 @@ pub const GraphBuilder = struct {
         }
     }
 
-    /// overall algorithm:
-    /// 1. allocate a "block" for the path
-    /// 2. traverse the exec tree starting at the entry, stopping before any join nodes
-    /// 3. when encountering a branch, recurse on the paths starting with the consequence and alternative
-    ///    to build the branch expression, then continue the path starting from its join
+    /// FIXME: document overall algorithm:
     const ToSexp = struct {
         graph: *const GraphBuilder,
+        // FIXME: this should be multiple diagnostics!
+        diagnostics: *Diagnostics,
 
         const NodeData = packed struct {
             visited: u1,
@@ -777,8 +862,10 @@ pub const GraphBuilder = struct {
 
         pub fn toSexp(self: @This(), alloc: std.mem.Allocator, node_id: NodeId) !Sexp {
             var block = Block.init(alloc);
-            defer for (block.items) |member| member.deinit(alloc);
-            defer block.deinit();
+            defer {
+                for (block.items) |member| member.deinit(alloc);
+                block.deinit();
+            }
             var ctx = try Context.init(alloc, &block, self.graph.nodes.map.count());
             defer ctx.deinit(alloc);
 
@@ -789,7 +876,7 @@ pub const GraphBuilder = struct {
         const Error = error{
             CyclesNotSupported,
             OutOfMemory,
-        };
+        } || Diagnostic.Code;
 
         pub fn onNode(self: @This(), alloc: std.mem.Allocator, node_id: NodeId, context: *Context) Error!void {
             // FIXME: not handled
@@ -902,12 +989,20 @@ pub const GraphBuilder = struct {
                         }
                     }
 
+                    var has_next = false;
                     for (node.outputs, node.desc().getOutputs()) |output, output_desc| {
-                        // FIXME: tail call where possible?
+                        // FIXME: refactor to always have exactly one output in the non-pure function call case
+                        // so we can tail call
                         //return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
                         if (output != null and output_desc.kind.primitive == .exec) {
                             try self.onNode(alloc, output.?.link.target, context);
+                            has_next = true;
                         }
+                    }
+
+                    if (!has_next and node.desc().kind != .return_) {
+                        try self.diagnostics.addDiagnostic(.{ .DoesntReturn = node.id });
+                        return Diagnostic.Code.DoesntReturn;
                     }
                 },
             }
@@ -962,7 +1057,7 @@ pub const GraphBuilder = struct {
         }
     };
 
-    fn rootToSexp(self: *@This(), alloc: std.mem.Allocator) !Sexp {
+    fn rootToSexp(self: *@This(), alloc: std.mem.Allocator, diagnostics: ?*Diagnostics) !Sexp {
         if (self.entry_id == null) {
             return error.NoEntryOrNotYetSet;
         }
@@ -973,7 +1068,9 @@ pub const GraphBuilder = struct {
             return Sexp.newList(alloc);
 
         const after_entry_id = self.entry().?.outputs[0].?.link.target;
-        return (ToSexp{ .graph = self }).toSexp(alloc, after_entry_id);
+        var if_empty_diag = Diagnostics.init();
+        const diag = if (diagnostics) |d| d else &if_empty_diag;
+        return (ToSexp{ .graph = self, .diagnostics = diag }).toSexp(alloc, after_entry_id);
     }
 };
 
@@ -985,13 +1082,13 @@ const GraphToSourceErr = union(enum(u16)) {
     // TODO: remove
     IoErr: anyerror,
 
-    Compile: GraphBuilder.BuildFromJsonDiagnostic,
+    Compile: GraphBuilder.Diagnostics,
     Read: json.Diagnostics,
 
     const Code = error{
         IoErr,
         OutOfMemory,
-    } || GraphBuilder.BuildFromJsonDiagnostic.Code || json.Error;
+    } || GraphBuilder.Diagnostics.Code || json.Error;
 
     pub fn from(err: error{OutOfMemory}) GraphToSourceErr {
         return switch (err) {
@@ -1029,8 +1126,6 @@ const GraphToSourceErr = union(enum(u16)) {
     }
 };
 
-pub const GraphToSourceDiagnostic = GraphToSourceErr;
-
 test "big local built graph" {
     const a = testing.allocator;
 
@@ -1048,7 +1143,7 @@ test "big local built graph" {
         },
     }));
 
-    var diagnostic: GraphBuilder.Diagnostic = .None;
+    var diagnostic: GraphBuilder.Diagnostics = .None;
     errdefer std.debug.print("DIAGNOSTIC:\n{}\n", .{diagnostic});
     var graph = GraphBuilder.init(a, &env) catch |e| {
         std.debug.print("\nERROR: {}\n", .{e});
