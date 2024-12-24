@@ -30,5 +30,6 @@ test {
     // FIXME:
     std.testing.refAllDeclsRecursive(compiler);
     std.testing.refAllDeclsRecursive(@import("./graph_to_source.zig"));
+    std.testing.refAllDeclsRecursive(@import("./sexp_parser.zig"));
     //std.testing.refAllDeclsRecursive(@This());
 }

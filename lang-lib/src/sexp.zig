@@ -19,6 +19,7 @@ comptime {
 }
 
 pub const Sexp = struct {
+    label: ?[]const u8 = null,
     comment: ?[]const u8 = null,
     value: union(enum) {
         module: std.ArrayList(Sexp),
@@ -122,7 +123,7 @@ pub const Sexp = struct {
 
     fn _write(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
         // TODO: calculate stack space requirements?
-        return switch (self.value) {
+        const write_state_or_err: @TypeOf(writer).Error!WriteState = switch (self.value) {
             .module => |v| writeModule(v, writer, state),
             .list => |v| writeList(v, writer, state),
             inline .float, .int => |v| _: {
@@ -151,6 +152,13 @@ pub const Sexp = struct {
                 break :_ .{ .depth = v.len };
             },
         };
+
+        const write_state = try write_state_or_err;
+
+        if (self.label) |label|
+            _ = try writer.print(" {s}", .{label});
+
+        return write_state;
     }
 
     pub fn write(self: Self, writer: anytype) !usize {
@@ -173,6 +181,12 @@ pub const Sexp = struct {
             return false;
 
         if (!std.meta.eql(self.comment, other.comment))
+            return false;
+
+        if ((self.label == null) != (other.label == null))
+            return false;
+
+        if (self.label != null and other.label != null and !std.mem.eql(u8, self.label.?, other.label.?))
             return false;
 
         switch (self.value) {
@@ -266,6 +280,7 @@ pub const syms = struct {
     pub const @"true" = Sexp{ .value = .{ .symbol = "#t" } };
     pub const @"false" = Sexp{ .value = .{ .symbol = "#f" } };
     pub const @"void" = Sexp{ .value = .{ .symbol = "#void" } };
+    pub const quote = Sexp{ .value = .{ .symbol = "quote" } };
 
     const builtin_nodes = @import("./nodes/builtin.zig").builtin_nodes;
 

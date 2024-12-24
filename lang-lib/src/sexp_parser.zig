@@ -65,7 +65,6 @@ pub const Parser = struct {
             };
         }
 
-        /// returned slice must be freed by the passed in allocator
         pub fn contextualize(self: @This(), writer: anytype) @TypeOf(writer).Error!void {
             return switch (self.result) {
                 .none => _ = try writer.write("NotAnError"),
@@ -123,10 +122,20 @@ pub const Parser = struct {
             integer,
             float,
             float_fraction_start,
-            bool,
-            char,
-            bool_or_char_or_void,
+
+            hashed_tok_start,
+            label,
             void,
+            bool,
+            char, // FIXME: use 'a' instead of classic scheme char?
+
+            // // NOTE: in graphl, ' is a quasiquote
+            // quote,
+            // // hardquote is a classic lisp quote, aka not quasiquote ('')
+            // hardquote,
+            // unquote, // NOTE: uses $ not ',' like in classic lisps
+            // unquote_splicing, // NOTE: uses ... not ',@' like in classic lisps
+
             string,
             string_escaped_quote,
             between,
@@ -157,6 +166,7 @@ pub const Parser = struct {
                 self.stack.deinit(self.alloc);
             }
 
+            /// figure out what to do right after having digested a token, based on the character after
             fn onNextCharAfterTok(self: *@This(), algo_diag: *Diagnostic) Error!void {
                 const c = self.p_src[self.loc.index];
                 switch (c) {
@@ -181,16 +191,24 @@ pub const Parser = struct {
                     },
                     ' ', '\t', '\n' => self.state = .between,
                     '"' => {
+                        // FIXME: hack
                         self.tok_start = self.loc.index + 1;
                         self.state = .string;
                     },
                     '#' => {
                         self.tok_start = self.loc.index;
-                        self.state = .bool_or_char_or_void;
+                        self.state = .hashed_tok_start;
                     },
                     ';' => {
                         self.tok_start = self.loc.index;
                         self.state = .line_comments;
+                    },
+                    '\'' => {
+                        const top = try self.stack.addOne(self.alloc);
+                        // FIXME/HACK: replace with a native quote variant in the enum
+                        top.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.alloc) } };
+                        (try top.value.list.addOne()).* = syms.quote;
+                        self.state = .between;
                     },
                     else => {
                         self.tok_start = self.loc.index;
@@ -233,6 +251,7 @@ pub const Parser = struct {
                 },
                 .symbol => switch (c) {
                     ' ', '\n', '\t', ')', '(' => {
+                        // FIXME: remove this awkwardness
                         const top = peek(&algo_state.stack) orelse unreachable;
                         const last = try top.value.list.addOne();
 
@@ -298,10 +317,12 @@ pub const Parser = struct {
                     },
                 },
                 .float => algo_state.unimplemented("float literals"),
-                .bool_or_char_or_void => switch (c) {
+                .hashed_tok_start => switch (c) {
                     't', 'f' => algo_state.state = .bool,
                     'v' => algo_state.state = .void,
                     '\\' => algo_state.state = .char,
+                    '|' => algo_state.state = .multiline_comment,
+                    '!' => algo_state.state = .label,
                     else => {
                         out_diag.*.result = .{ .unknownToken = algo_state.loc };
                         return Error.UnknownToken;
@@ -315,7 +336,7 @@ pub const Parser = struct {
 
                         {
                             // TODO: can this be less awkward?
-                            // skip "oid"
+                            // skip "voi", the continue of the loop will skip "d"
                             for (0..3) |_| algo_state.loc.increment(src[algo_state.loc.index]);
                             if (algo_state.loc.index >= src.len)
                                 break;
@@ -332,7 +353,9 @@ pub const Parser = struct {
                     ' ', '\n', '\t', '(', ')' => {
                         const top = peek(&algo_state.stack) orelse unreachable;
                         const last = try top.value.list.addOne();
-                        last.* = if (c == 't') sexp.syms.true else sexp.syms.false;
+                        // WTF how does this work
+                        const prev = src[algo_state.loc.index - 1];
+                        last.* = if (prev == 't') sexp.syms.true else sexp.syms.false;
                         try algo_state.onNextCharAfterTok(out_diag);
                     }, // TODO: use token
                     else => {
@@ -340,8 +363,37 @@ pub const Parser = struct {
                         return Error.UnknownToken;
                     },
                 },
-                .char => algo_state.unimplemented("char literals"),
-                else => algo_state.unimplemented("unhandled case"),
+                .char => {
+                    const top = peek(&algo_state.stack) orelse unreachable;
+                    const last = try top.value.list.addOne();
+                    // FIXME: use a dedicated char sexp type?
+                    last.* = Sexp{ .value = .{ .borrowedString = src[algo_state.loc.index..algo_state.loc.index] } };
+                },
+                .multiline_comment => switch (c) {
+                    '|' => {
+                        if (algo_state.loc.index + 1 < src.len and src[algo_state.loc.index + 1] == '#') {
+                            algo_state.state = .between;
+                            algo_state.tok_start = algo_state.loc.index + 1;
+                            // skip the |
+                            algo_state.loc.increment(src[algo_state.loc.index]);
+                        }
+                    },
+                    else => {},
+                },
+                .label => switch (c) {
+                    // FIXME: remove this awkwardness
+                    ' ', '\n', '\t', ')', '(' => {
+                        const top = peek(&algo_state.stack) orelse unreachable;
+                        const last = if (top.value.list.items.len > 0)
+                            &top.value.list.items[top.value.list.items.len - 1]
+                        else
+                            top;
+                        last.label = tok_slice;
+                        algo_state.tok_start = algo_state.loc.index;
+                        try algo_state.onNextCharAfterTok(out_diag);
+                    },
+                    else => {},
+                },
             }
         }
 
@@ -355,10 +407,10 @@ const t = std.testing;
 
 test "parse 1" {
     var expected = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(t.allocator) } };
-    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .int = 0 } };
+    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .int = 0 }, .label = "#!label1" };
     (try expected.value.module.addOne()).* = Sexp{ .value = .{ .int = 2 } };
-    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .borrowedString = "hel\\\"lo\nworld" } };
-    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
+    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .borrowedString = "hel\\\"lo\nworld" }, .label = "#!label2" };
+    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) }, .label = "#!label3" };
     (try expected.value.module.items[3].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "+" } };
     (try expected.value.module.items[3].value.list.addOne()).* = Sexp{ .value = .{ .int = 3 } };
     (try expected.value.module.items[3].value.list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
@@ -366,15 +418,21 @@ test "parse 1" {
     (try expected.value.module.items[3].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 210 } };
     (try expected.value.module.items[3].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 5 } };
     (try expected.value.module.addOne()).* = syms.void;
+    (try expected.value.module.addOne()).* = syms.true;
+    (try expected.value.module.addOne()).* = syms.false;
     defer expected.deinit(t.allocator);
 
     const source =
         \\0
+        \\#!label1
         \\2
         \\"hel\"lo
-        \\world" ;; comment
-        \\(+ 3(- 210 5))
+        \\world" #!label2 ;; comment
+        \\(+ 3(- 210 5)
+        \\) #!label3
         \\#void
+        \\#t
+        \\#f
     ;
 
     var diag = Parser.Diagnostic{ .source = source };
@@ -387,19 +445,17 @@ test "parse 1" {
     const result = expected.recursive_eq(actual);
 
     if (!result) {
-        std.debug.print("\n{any}\n", .{actual});
-        std.debug.print("=========================\n", .{});
-        for (actual.value.module.items) |expr| {
-            _ = try expr.write(std.io.getStdErr().writer());
-            std.debug.print("\n", .{});
-        }
+        std.debug.print("====== ACTUAL ===========\n", .{});
+        std.debug.print("{any}\n", .{actual});
+        std.debug.print("====== EXPECTED =========\n", .{});
+        std.debug.print("{any}\n", .{expected});
         std.debug.print("=========================\n", .{});
     }
 
     try t.expect(result);
 }
 
-test "parse recovery" {
+test "parse recover unmatched closing paren" {
     const source =
         \\
         \\(+ ('extra 5)))
@@ -412,15 +468,35 @@ test "parse recovery" {
     }
     try t.expectError(error.UnmatchedCloser, actual);
 
-    var buf: [4096]u8 = undefined;
-    const err_str = try std.fmt.bufPrint(&buf, "{}", .{diagnostic});
-
-    try t.expectEqualStrings(
+    try t.expectFmt(
         \\Closing parenthesis with no opener:
         \\ at unknown:2:15
         \\  | (+ ('extra 5)))
         \\                  ^
-    , err_str);
+    , "{}", .{diagnostic});
+}
+
+test "parse recover unmatched open paren" {
+    if (true) return error.SkipZigTest;
+
+    const source =
+        \\
+        \\(+ ('extra 5)
+    ;
+
+    var diagnostic: Parser.Diagnostic = undefined;
+    const actual = Parser.parse(t.allocator, source, &diagnostic);
+    defer {
+        if (actual) |a| a.deinit(t.allocator) else |_| {}
+    }
+    try t.expectError(error.UnmatchedCloser, actual);
+
+    try t.expectFmt(
+        \\Opening parenthesis with no closer:
+        \\ at unknown:2:1
+        \\  | (+ ('extra 5)
+        \\    ^
+    , "{}", .{diagnostic});
 }
 
 test "simple error1" {
