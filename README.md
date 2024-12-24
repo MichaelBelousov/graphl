@@ -1,34 +1,34 @@
-## ideas
+## Graphl
 
-- immutable expressions can be out of order
-- reroute nodes are variables
-- node comments are variable names
-- use single quotes to delimit variables? (to allow for arbitrary text for variable names)
-- arrays of size 4 or less automatically have the rgba and xyzw swizzle attributes ala GLSL
-- you can sync node graphs
-- needs to have a graph layout algorithm for generating a graph from text rather than syncing
-- needs to have deterministic automatic naming for node graphs
-- maybe fold symmetric expressions
-- need an isomorphism for groups but still with the ability to access variables between them
-  - or just global variables...
+Graphl is a programming language and associated embeddable visual IDE.
+Currently the main execution backend is a compiler to [WebAssembly](https://webassembly.org/).
 
-## docs
+It is very early and experimental but capable and we'd be happy to help you make it work for you!
 
-[glossary](./GLOSSARY.md)
+## [Try it out](https://graphl.tech/app)
 
-## things we need
+## [Website](https://graphl.tech)
 
-- a VM for executing lisp expressions
-- a package manager
-- C ffi/binding API
-- an IDE (https://github.com/jnmaloney/WebGui) (also see IMNodes)
+## [Documentation](https://graphl.tech/blog/docs)
 
-## things I need to do now
+## Goals:
 
-- write a program that reads the language and outputs json node types for all top level
-  definitions
+- two-way conversion from text to visual and back
+- authoritative formatter for both textual and visual representation
+- lisp-like macros over graphs for things like:
+    - emulating other graph-based scripting systems or workflow engines
+    - visual SQL query building
+    - etc
+- lightweight backends for browser use
+- embed easily anywhere: web applications, native applications, etc
+- package manager
+- easy interop with other webassembly binaries
 
-## Potential names
+## Non goals:
 
-- graph lang
-- Noder
+- the best programming language to work in textually
+
+## WIP:
+
+- standard library
+- a lot
