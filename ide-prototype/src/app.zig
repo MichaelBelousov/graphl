@@ -820,13 +820,22 @@ fn exportCurrentCompiled() !void {
 
 pub fn deinit() void {
     while (graphs.popFirst()) |cursor| {
-        //std.debug.print("CURSOR: {}\n", .{cursor});
-        //std.debug.print("GRAPH: {*},{*}\n", .{ &cursor.data, cursor.next });
         cursor.data.deinit();
         gpa.destroy(cursor);
     }
     graphs.first = null;
+
     shared_env.deinit(gpa);
+
+    while (user_funcs.popFirst()) |cursor| {
+        gpa.free(cursor.data.node.name);
+        for (cursor.data.node.inputs[1..]) |input| gpa.free(input.name);
+        gpa.free(cursor.data.node.inputs);
+        for (cursor.data.node.outputs[1..]) |output| gpa.free(output.name);
+        gpa.free(cursor.data.node.outputs);
+        gpa.destroy(cursor);
+    }
+
     _ = gpa_instance.deinit();
 }
 
@@ -2303,6 +2312,9 @@ fn addParamOrResult(
 }
 
 test "call double" {
+    const confetti_func_id = try _createUserFunc("confetti", 1, 0);
+    try _addUserFuncInput(confetti_func_id, 0, "particleCount", .i32_);
+
     defer deinit();
     try init();
 
@@ -2320,7 +2332,9 @@ test "call double" {
     current_graph = main_graph;
 
     {
-        const double_node_id = try NodeAdder.addNode("double", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
+        const confetti_node_id = try NodeAdder.addNode("confetti", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
+        try main_graph.addLiteralInput(confetti_node_id, 1, 0, .{ .int = 100 });
+        const double_node_id = try NodeAdder.addNode("double", .{ .kind = .output, .index = 0, .node_id = confetti_node_id }, .{}, 0);
         try main_graph.addLiteralInput(double_node_id, 1, 0, .{ .int = 10 });
         const return_id = try NodeAdder.addNode("return", .{ .kind = .output, .index = 0, .node_id = double_node_id }, .{}, 0);
         try main_graph.addEdge(double_node_id, 1, return_id, 1, 0);
@@ -2332,23 +2346,12 @@ test "call double" {
     errdefer std.debug.print("combined:\n{s}\n", .{combined});
 
     try std.testing.expectFmt(
-    // what it should be (almost):
-    // \\(typeof (main)
-    // \\        i32)
-    // \\(define (main)
-    // \\        (double 10) #!doubled
-    // \\        (begin (return #doubled)))
-    // \\        ;;; even better:
-    // \\        #doubled)
-    // \\(typeof (double i32)
-    // \\        i32)
-    // \\(define (double a1)
-    // \\        (begin (return (* a1
-    // \\                          2))))
         \\(typeof (main)
         \\        i32)
         \\(define (main)
-        \\        (begin (double 10)))
+        \\        (begin (double 10) #!__x1
+        \\               (confetti 100)
+        \\               (return __x1)))
         \\(typeof (double i32)
         \\        i32)
         \\(define (double a1)

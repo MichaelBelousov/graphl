@@ -162,6 +162,10 @@ pub const GraphBuilder = struct {
         list: std.SinglyLinkedList(Diagnostic) = .{},
         arena: std.heap.ArenaAllocator,
 
+        pub fn hasError(self: *const @This()) bool {
+            return self.list.first != null;
+        }
+
         pub fn init() @This() {
             return .{
                 // FIXME: test if this is efficient
@@ -1143,7 +1147,7 @@ test "big local built graph" {
         },
     }));
 
-    var diagnostic: GraphBuilder.Diagnostics = .None;
+    var diagnostic = GraphBuilder.Diagnostic.init();
     errdefer std.debug.print("DIAGNOSTIC:\n{}\n", .{diagnostic});
     var graph = GraphBuilder.init(a, &env) catch |e| {
         std.debug.print("\nERROR: {}\n", .{e});
@@ -1179,7 +1183,9 @@ test "big local built graph" {
     try graph.addEdge(set_index, 0, return_index, 0, 0);
     //try graph.addEdge(confetti_index, 0, return_index, 0, 0);
 
-    const sexp = graph.compile(a, "main") catch |e| {
+    var diagnostics = GraphBuilder.Diagnostics.init();
+    errdefer if (diagnostics.hasError()) std.debug.print("DIAGNOSTICS:\n{}\n", .{diagnostics});
+    const sexp = graph.compile(a, "main", &diagnostics) catch |e| {
         std.debug.print("\ncompile error: {}\n", .{e});
         return e;
     };
@@ -1280,13 +1286,13 @@ test "empty graph twice" {
     const return_node = try graph.addNode(a, "return", false, null, null);
     try graph.addEdge(0, 0, return_node, 0, 0);
 
-    const first_sexp = graph.compile(a, "main") catch |e| {
+    const first_sexp = graph.compile(a, "main", null) catch |e| {
         std.debug.print("\ncompile error: {}\n", .{e});
         return e;
     };
     first_sexp.deinit(a);
 
-    const second_sexp = graph.compile(a, "main") catch |e| {
+    const second_sexp = graph.compile(a, "main", null) catch |e| {
         std.debug.print("\ncompile error: {}\n", .{e});
         return e;
     };
