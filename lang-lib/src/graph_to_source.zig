@@ -1162,15 +1162,18 @@ test "big local built graph" {
     defer for (graph.locals.items) |l| a.free(l.name);
 
     const entry_index: NodeId = 0;
+    const plus1_index = try graph.addNode(a, "+", false, null, &diagnostic);
     const if_index = try graph.addNode(a, "if", false, null, &diagnostic);
-    const plus_index = try graph.addNode(a, "+", false, null, &diagnostic);
+    const plus2_index = try graph.addNode(a, "+", false, null, &diagnostic);
     const set_index = try graph.addNode(a, "set!", false, null, &diagnostic);
     const confetti_index = try graph.addNode(a, "throw-confetti", false, null, &diagnostic);
     const return_index = try graph.addNode(a, "return", false, null, null);
     const return2_index = try graph.addNode(a, "return", false, null, null);
 
-    try graph.addLiteralInput(plus_index, 0, 0, .{ .float = 4.0 });
-    try graph.addLiteralInput(plus_index, 1, 0, .{ .int = 8 });
+    try graph.addLiteralInput(plus1_index, 0, 0, .{ .float = 2.0 });
+    try graph.addLiteralInput(plus1_index, 1, 0, .{ .float = 3.0 });
+    try graph.addLiteralInput(plus2_index, 0, 0, .{ .float = 4.0 });
+    try graph.addLiteralInput(plus2_index, 1, 0, .{ .int = 8 });
     try graph.addLiteralInput(set_index, 1, 0, .{ .symbol = "x" });
     try graph.addLiteralInput(confetti_index, 1, 0, .{ .int = 100 });
     try graph.addLiteralInput(if_index, 1, 0, .{ .bool = false });
@@ -1179,8 +1182,10 @@ test "big local built graph" {
     try graph.addEdge(if_index, 0, set_index, 0, 0);
     try graph.addEdge(if_index, 1, confetti_index, 0, 0);
     try graph.addEdge(confetti_index, 0, return2_index, 0, 0);
-    try graph.addEdge(plus_index, 0, set_index, 2, 0);
+    try graph.addEdge(plus1_index, 0, return2_index, 1, 0);
+    try graph.addEdge(plus2_index, 0, set_index, 2, 0);
     try graph.addEdge(set_index, 0, return_index, 0, 0);
+    try graph.addEdge(plus1_index, 0, return_index, 1, 0);
     //try graph.addEdge(confetti_index, 0, return_index, 0, 0);
 
     var diagnostics = GraphBuilder.Diagnostics.init();
@@ -1202,13 +1207,14 @@ test "big local built graph" {
         \\        (begin (typeof x
         \\                       i32)
         \\               (define x)
+        \\               (+ 2 3) #!__x1
         \\               (if #f
         \\                   (begin (set! x
         \\                                (+ 4
         \\                                   8))
-        \\                          (return 0))
+        \\                          (return __x1))
         \\                   (begin (throw-confetti 100)
-        \\                          (return 0)))))
+        \\                          (return __x1)))))
         // TODO: print floating point explicitly
     , text.items);
 }

@@ -2061,6 +2061,8 @@ test "recurse" {
 
     var diagnostic = Diagnostic.init();
     if (compile(t.allocator, &parsed, &env, null, &diagnostic)) |wat| {
+        defer t.allocator.free(wat);
+
         // FIXME: convenience
         var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
         defer tmp_dir.close();
@@ -2072,90 +2074,69 @@ test "recurse" {
 
         try t.expectEqualStrings(expected, wat);
 
-        t.allocator.free(wat);
+        const wat2wasm_run = try std.process.Child.run(.{
+            .allocator = t.allocator,
+            .argv = &.{ "wat2wasm", "/tmp/compiler-test.wat", "-o", "/tmp/compiler-test.wasm" },
+        });
+        defer t.allocator.free(wat2wasm_run.stdout);
+        defer t.allocator.free(wat2wasm_run.stderr);
+
+        var dbg_wasm_file = try tmp_dir.openFile("compiler-test.wasm", .{});
+        defer dbg_wasm_file.close();
+        var buff: [65536]u8 = undefined;
+        const wasm_data_size = try dbg_wasm_file.readAll(&buff);
+
+        const wasm_data = buff[0..wasm_data_size];
+
+        const module_def = try bytebox.createModuleDefinition(t.allocator, .{});
+        defer module_def.destroy();
+
+        try module_def.decode(wasm_data);
+
+        const module_instance = try bytebox.createModuleInstance(.Stack, module_def, t.allocator);
+        defer module_instance.destroy();
+
+        const Local = struct {
+            fn nullHostFunc(user_data: ?*anyopaque, _module: *bytebox.ModuleInstance, _params: [*]const bytebox.Val, _returns: [*]bytebox.Val) void {
+                _ = user_data;
+                _ = _module;
+                _ = _params;
+                _ = _returns;
+            }
+        };
+
+        var imports = try bytebox.ModuleImportPackage.init("env", null, null, t.allocator);
+        defer imports.deinit();
+
+        inline for (&.{
+            .{ "callUserFunc_code_R", &.{ .I32, .I32, .I32 }, &.{} },
+            .{ "callUserFunc_code_R_string", &.{ .I32, .I32, .I32 }, &.{.I32} },
+            .{ "callUserFunc_string_R", &.{ .I32, .I32, .I32 }, &.{} },
+            .{ "callUserFunc_R", &.{.I32}, &.{} },
+            .{ "callUserFunc_i32_R", &.{ .I32, .I32 }, &.{} },
+            .{ "callUserFunc_i32_R_i32", &.{ .I32, .I32 }, &.{.I32} },
+            .{ "callUserFunc_i32_i32_R_i32", &.{ .I32, .I32, .I32 }, &.{.I32} },
+            .{ "callUserFunc_bool_R", &.{ .I32, .I32 }, &.{} },
+        }) |import_desc| {
+            const name, const params, const results = import_desc;
+            try imports.addHostFunction(name, params, results, Local.nullHostFunc, null);
+        }
+
+        try module_instance.instantiate(.{
+            .imports = &.{imports},
+        });
+
+        const factorial_handle = try module_instance.getFunctionHandle("factorial");
+        const factorial_args = [_]bytebox.Val{bytebox.Val{ .I32 = 3 }};
+        var factorial_results = [_]bytebox.Val{bytebox.Val{ .I32 = 0 }};
+        factorial_results[0] = bytebox.Val{ .I32 = 0 }; // FIXME:
+        try module_instance.invoke(factorial_handle, &factorial_args, &factorial_results, .{});
+
+        try std.testing.expectEqual(factorial_results[0].I32, 6);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);
     }
 }
 
-test "compile double" {
-    // FIXME: support expression functions
-    //     \\(define (++ x) (+ x 1))
-
-    var env = try Env.initDefault(t.allocator);
-    defer env.deinit(t.allocator);
-
-    // FIXME: easier in the IDE to just pass the augmented env, but probably
-    // better if the compiler can take a default env
-    _ = try env.addNode(t.allocator, builtin.basicNode(&.{
-        .name = "double",
-        .inputs = &.{
-            builtin.Pin{ .name = "in", .kind = .{ .primitive = .exec } },
-            builtin.Pin{ .name = "n", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
-        },
-        .outputs = &.{
-            builtin.Pin{ .name = "out", .kind = .{ .primitive = .exec } },
-            builtin.Pin{ .name = "n", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
-        },
-    }));
-
-    var parsed = try SexpParser.parse(t.allocator,
-        \\(typeof (main)
-        \\        i32)
-        \\(define (main)
-        \\        (begin (double 2)
-        \\               (return (double 2))))
-        \\(typeof (double i32)
-        \\        i32)
-        \\(define (double a1)
-        \\        (begin (return (* a1
-        \\                          2))))
-    , null);
-    //std.debug.print("{any}\n", .{parsed});
-    defer parsed.deinit(t.allocator);
-
-    const expected = try std.fmt.allocPrint(t.allocator,
-        \\({s}
-        \\(export "factorial"
-        \\        (func $factorial))
-        \\(type $typeof_factorial
-        \\      (func (param i32)
-        \\            (result i32)))
-        \\(func $factorial
-        \\      (param $param_n
-        \\             i32)
-        \\      (result i32)
-        \\      (if (result i32)
-        \\          (i32.le_s (local.get $param_n)
-        \\                    (i32.const 1))
-        \\          (then (i32.const 1))
-        \\          (else (i32.mul (local.get $param_n)
-        \\                         (call $factorial
-        \\                               (i32.sub (local.get $param_n)
-        \\                                        (i32.const 1)))))))
-        \\)
-        // TODO: clearly instead of embedding the pointer we should have a global variable
-        // so the host can set that
-    , .{compiled_prelude});
-    defer t.allocator.free(expected);
-
-    var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &env, null, &diagnostic)) |wat| {
-        // FIXME: convenience
-        var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
-        defer tmp_dir.close();
-
-        var dbg_file = try tmp_dir.createFile("compiler-test.wat", .{});
-        defer dbg_file.close();
-
-        try dbg_file.writeAll(wat);
-
-        try t.expectEqualStrings(expected, wat);
-
-        t.allocator.free(wat);
-    } else |err| {
-        std.debug.print("err {}:\n{}", .{ err, diagnostic });
-        try t.expect(false);
-    }
-}
+const bytebox = @import("bytebox");

@@ -10,6 +10,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run library tests");
 
     //const binaryen_dep = b.dependency("binaryen-zig", .{});
+    const bytebox_dep = b.dependency("bytebox", .{});
 
     const web_target_query = CrossTarget.parse(.{
         .arch_os_abi = "wasm32-freestanding",
@@ -57,6 +58,8 @@ pub fn build(b: *std.Build) void {
     });
     grappl_core_mod.addOptions("build_opts", lib_opts);
 
+    grappl_core_mod.addImport("bytebox", bytebox_dep.module("bytebox"));
+
     const lib = b.addStaticLibrary(.{
         .name = "graph-lang",
         .root_source_file = null,
@@ -69,7 +72,7 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(lib);
 
-    const test_filter_opt = b.option([]const u8, "test-filter", "filter-for-tests");
+    const test_filter_opt = b.option([]const u8, "test_filter", "filter-for-tests");
     const test_filters = if (test_filter_opt) |test_filter| (&[_][]const u8{test_filter}) else &[_][]const u8{};
 
     const main_tests = b.addTest(.{
@@ -85,6 +88,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .target = web_target,
     });
+    main_tests.root_module.addImport("bytebox", bytebox_dep.module("bytebox"));
     main_tests.root_module.addOptions("build_opts", lib_opts);
 
     // FIXME: rename to graphltc
