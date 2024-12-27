@@ -310,7 +310,7 @@ pub const GraphBuilder = struct {
         const entry_id = self.addNode(alloc, self.entry_node_basic_desc.name, true, 0, null) catch unreachable;
         _ = entry_id;
         //const return_id = self.addNode(alloc, self.result_node_basic_desc.name, false, null, null) catch unreachable;
-        //self.addEdge(entry_id, 0, return_id, 0, 0) catch unreachable;
+        //self.addEdge(alloc, entry_id, 0, return_id, 0, 0) catch unreachable;
 
         return self;
     }
@@ -337,28 +337,6 @@ pub const GraphBuilder = struct {
             }
         }
         self.nodes.deinit(alloc);
-    }
-
-    const GetSingleExecFromEntryError = error{
-        EntryNodeNoConnectedExecPins,
-        ExecNodeMultiExecPin,
-    };
-
-    // FIXME: need to codify how this works, this gets the *first*, doesn't verify that it's singular
-    pub fn getSingleExecFromEntry(in_entry: *const IndexedNode) GetSingleExecFromEntryError!GraphTypes.Outputs {
-        var entry_exec: GetSingleExecFromEntryError!GraphTypes.Outputs = error.EntryNodeNoConnectedExecPins;
-        for (in_entry.outputs, 0..) |output, i| {
-            if (output == null)
-                continue;
-            const out_type = in_entry.desc().getOutputs()[i];
-            if (out_type.kind == .primitive and out_type.kind.primitive == .exec) {
-                if (entry_exec != error.EntryNodeNoConnectedExecPins) {
-                    return error.ExecNodeMultiExecPin;
-                }
-                entry_exec = output.?;
-            }
-        }
-        return entry_exec;
     }
 
     // HACK: remove force_node_id
@@ -450,7 +428,7 @@ pub const GraphBuilder = struct {
 
     // TODO: rename to source/target
     /// end_subindex should be 0 if you don't know it
-    pub fn addEdge(self: @This(), start_id: NodeId, start_index: u16, end_id: NodeId, end_index: u16, end_subindex: u16) !void {
+    pub fn addEdge(self: @This(), alloc: std.mem.Allocator, start_id: NodeId, start_index: u16, end_id: NodeId, end_index: u16, end_subindex: u16) !void {
         const start = self.nodes.map.getPtr(start_id) orelse return error.SourceNodeNotFound;
         const end = self.nodes.map.getPtr(end_id) orelse return error.TargetNodeNotFound;
 
@@ -463,7 +441,7 @@ pub const GraphBuilder = struct {
 
         if (start_index >= start.outputs.len) {
             // TODO: return diagnostic
-            std.log.err("start_index {} not valid, only {} available inputs\n", .{ start_index, start.outputs.len });
+            std.log.err("start_index {} not valid, only {} available outputs\n", .{ start_index, start.outputs.len });
             return error.SourceIndexInvalid;
         }
 
@@ -473,11 +451,11 @@ pub const GraphBuilder = struct {
             return error.TargetIndexInvalid;
         }
 
-        start.outputs[start_index] = .{ .link = .{
+        try start.outputs[start_index].links.append(alloc, .{
             .target = end_id,
             .pin_index = end_index,
             .sub_index = end_subindex,
-        } };
+        });
 
         end.inputs[end_index] = .{ .link = .{
             .target = start_id,
@@ -509,7 +487,15 @@ pub const GraphBuilder = struct {
             return error.TargetIndexInvalid;
         }
 
-        start.outputs[start_index] = null;
+        {
+            var iter = start.outputs[start_index].links.iterator(0);
+            while (iter.next()) |link| {
+                if (link.target == end_id and link.sub_index == end_index) {
+                    link.* = helpers.GraphTypes.dead_outlink;
+                    break;
+                }
+            }
+        }
 
         // FIXME: should have a function to choose the default for a disconnected pin
         end.inputs[end_index] = .{ .value = .{ .int = 0 } };
@@ -622,62 +608,6 @@ pub const GraphBuilder = struct {
         }
 
         return module;
-    }
-
-    // // FIXME: this should return a separate object
-    // pub fn buildFromJson(
-    //     self: *Self,
-    //     alloc: std.mem.Allocator,
-    //     json_graph: GraphDoc,
-    //     diagnostic: ?*BuildFromJsonDiagnostic,
-    // ) !Sexp {
-    //     const entry_node = try self.populateFromJsonAndReturnEntry(alloc, json_graph, diagnostic);
-    //     self.entry_id = entry_node.id;
-    //     try self.link(alloc, json_graph);
-    //     return self.rootToSexp(alloc);
-    // }
-
-    pub fn link(self: @This(), alloc: std.mem.Allocator, graph_json: GraphDoc) !void {
-        var nodes_iter = self.nodes.map.iterator();
-        var json_nodes_iter = graph_json.nodes.map.iterator();
-        std.debug.assert(nodes_iter.len == json_nodes_iter.len);
-
-        while (nodes_iter.next()) |node_entry| {
-            const node = node_entry.value_ptr;
-
-            const json_node_entry = json_nodes_iter.next() orelse unreachable;
-            const json_node = json_node_entry.value_ptr;
-
-            try self.linkNode(alloc, json_node.*, node);
-        }
-    }
-
-    /// link with other empty nodes in a graph
-    pub fn linkNode(self: @This(), alloc: std.mem.Allocator, json_node: JsonNode, node: *IndexedNode) !void {
-        _ = self;
-        // FIXME: this leaks the already existing inputs, must free those first!
-        node.inputs = try alloc.alloc(GraphTypes.Input, json_node.inputs.len);
-        errdefer alloc.free(node.inputs);
-
-        for (node.inputs, json_node.inputs) |*input, maybe_json_input| {
-            input.* = switch (maybe_json_input orelse JsonNodeInput{ .value = .null }) {
-                .handle => |h| .{ .link = .{
-                    .target = h.nodeId,
-                    .pin_index = h.handleIndex,
-                } },
-                .value => |v| .{ .value = v },
-            };
-        }
-
-        node.outputs = try alloc.alloc(?GraphTypes.Outputs, json_node.outputs.len);
-        errdefer alloc.free(node.outputs);
-
-        for (node.outputs, json_node.outputs) |*output, maybe_json_output| {
-            output.* = if (maybe_json_output) |json_output| .{ .link = .{
-                .target = json_output.nodeId,
-                .pin_index = json_output.handleIndex,
-            } } else null;
-        }
     }
 
     const NodeAnalysisResult = struct {
@@ -804,11 +734,12 @@ pub const GraphBuilder = struct {
                         try new_collapsed_node_layer.put(alloc, joiner, {});
                     }
                 } else {
-                    for (collapsed_node.outputs, collapsed_node.desc().getOutputs()) |maybe_output, output_desc| {
+                    for (collapsed_node.outputs, collapsed_node.desc().getOutputs()) |outputs, output_desc| {
                         if (!output_desc.isExec()) continue;
-                        if (maybe_output == null) continue;
-                        const output = maybe_output.?;
-                        const target = self.nodes.map.getPtr(output.link.target) orelse unreachable;
+                        std.debug.assert(outputs.links.len <= 1);
+                        if (outputs.links.len == 0) continue;
+                        const output = outputs.getExecOutput();
+                        const target = self.nodes.map.getPtr(output.target) orelse unreachable;
                         try new_collapsed_node_layer.put(alloc, target, {});
                     }
                 }
@@ -914,7 +845,11 @@ pub const GraphBuilder = struct {
             var consequence_sexp: Sexp = undefined;
             var alternative_sexp: Sexp = undefined;
 
-            if (node.outputs[0]) |consequence| {
+            // FIXME: nodes with these constraints should be specialized!
+            // TODO: (nodes should also be SoA and EoA'd)
+            std.debug.assert(node.outputs[0].links.len <= 1);
+            if (node.outputs[0].links.len == 1) {
+                const consequence = node.outputs[1].links.at(0);
                 var block = Block.init(alloc);
                 var consequence_ctx = Context{
                     .node_data = context.node_data,
@@ -922,11 +857,13 @@ pub const GraphBuilder = struct {
                 };
                 // FIXME: only add `begin` if it's multiple expressions
                 (try consequence_ctx.block.addOne()).* = syms.begin;
-                try self.onNode(alloc, consequence.links.target, &consequence_ctx);
+                try self.onNode(alloc, consequence.target, &consequence_ctx);
                 consequence_sexp = Sexp{ .value = .{ .list = block } };
             }
 
-            if (node.outputs[1]) |alternative| {
+            std.debug.assert(node.outputs[1].links.len <= 1);
+            if (node.outputs[1].links.len == 1) {
+                const alternative = node.outputs[1].links.at(0);
                 var block = Block.init(alloc);
                 var alternative_ctx = Context{
                     .node_data = context.node_data,
@@ -934,7 +871,7 @@ pub const GraphBuilder = struct {
                 };
                 // FIXME: only add `begin` if it's multiple expressions
                 (try alternative_ctx.block.addOne()).* = syms.begin;
-                try self.onNode(alloc, alternative.links.target, &alternative_ctx);
+                try self.onNode(alloc, alternative.target, &alternative_ctx);
                 alternative_sexp = Sexp{ .value = .{ .list = block } };
             }
 
@@ -993,21 +930,25 @@ pub const GraphBuilder = struct {
                         }
                     }
 
-                    var has_next = false;
+                    var next_node: ?NodeId = null;
                     for (node.outputs, node.desc().getOutputs()) |output, output_desc| {
-                        // FIXME: refactor to always have exactly one output in the non-pure function call case
-                        // so we can tail call
-                        //return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
-                        if (output != null and output_desc.kind.primitive == .exec) {
-                            try self.onNode(alloc, output.?.links.target, context);
-                            has_next = true;
+                        if (output_desc.kind.primitive == .exec)
+                            std.debug.assert(output.links.len <= 1);
+                        if (output.links.len == 1 and output_desc.kind.primitive == .exec) {
+                            next_node = output.links.uncheckedAt(0).target;
                         }
                     }
 
-                    if (!has_next and node.desc().kind != .return_) {
+                    if (next_node == null and node.desc().kind != .return_) {
                         try self.diagnostics.addDiagnostic(.{ .DoesntReturn = node.id });
                         return Diagnostic.Code.DoesntReturn;
                     }
+
+                    // FIXME: refactor to always have exactly one output in the non-pure function call case
+                    // so we can tail call
+                    //return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
+                    if (next_node) |next_id|
+                        try self.onNode(alloc, next_id, context);
                 },
             }
         }
@@ -1068,10 +1009,13 @@ pub const GraphBuilder = struct {
 
         std.debug.assert(self.entry().?.desc().getOutputs()[0].isExec());
 
-        if (self.entry().?.outputs[0] == null)
+        if (self.entry().?.outputs[0].links.len == 0)
             return Sexp.newList(alloc);
 
-        const after_entry_id = self.entry().?.outputs[0].?.links.target;
+        if (self.entry().?.outputs[0].links.len > 1)
+            return error.ExecCannotBeMultiConnected;
+
+        const after_entry_id = self.entry().?.outputs[0].links.uncheckedAt(0).target;
         var if_empty_diag = Diagnostics.init();
         const diag = if (diagnostics) |d| d else &if_empty_diag;
         return (ToSexp{ .graph = self, .diagnostics = diag }).toSexp(alloc, after_entry_id);
@@ -1178,15 +1122,15 @@ test "big local built graph" {
     try graph.addLiteralInput(confetti_index, 1, 0, .{ .int = 100 });
     try graph.addLiteralInput(if_index, 1, 0, .{ .bool = false });
 
-    try graph.addEdge(entry_index, 0, if_index, 0, 0);
-    try graph.addEdge(if_index, 0, set_index, 0, 0);
-    try graph.addEdge(if_index, 1, confetti_index, 0, 0);
-    try graph.addEdge(confetti_index, 0, return2_index, 0, 0);
-    try graph.addEdge(plus1_index, 0, return2_index, 1, 0);
-    try graph.addEdge(plus2_index, 0, set_index, 2, 0);
-    try graph.addEdge(set_index, 0, return_index, 0, 0);
-    try graph.addEdge(plus1_index, 0, return_index, 1, 0);
-    //try graph.addEdge(confetti_index, 0, return_index, 0, 0);
+    try graph.addEdge(a, entry_index, 0, if_index, 0, 0);
+    try graph.addEdge(a, if_index, 0, set_index, 0, 0);
+    try graph.addEdge(a, if_index, 1, confetti_index, 0, 0);
+    try graph.addEdge(a, confetti_index, 0, return2_index, 0, 0);
+    try graph.addEdge(a, plus1_index, 0, return2_index, 1, 0);
+    try graph.addEdge(a, plus2_index, 0, set_index, 2, 0);
+    try graph.addEdge(a, set_index, 0, return_index, 0, 0);
+    try graph.addEdge(a, plus1_index, 0, return_index, 1, 0);
+    //try graph.addEdge(a, confetti_index, 0, return_index, 0, 0);
 
     var diagnostics = GraphBuilder.Diagnostics.init();
     errdefer if (diagnostics.hasError()) std.debug.print("DIAGNOSTICS:\n{}\n", .{diagnostics});
@@ -1252,9 +1196,9 @@ test "big local built graph" {
 
 //     try graph.addLiteralInput(confetti_index, 1, 0, .{ .int = 100 });
 //     try graph.addLiteralInput(confetti2_index, 1, 0, .{ .int = 200 });
-//     try graph.addEdge(entry_index, 0, confetti_index, 0, 0);
-//     try graph.addEdge(confetti_index, 0, confetti2_index, 0, 0);
-//     try graph.addEdge(confetti2_index, 0, return_index, 0, 0);
+//     try graph.addEdge(a, entry_index, 0, confetti_index, 0, 0);
+//     try graph.addEdge(a, confetti_index, 0, confetti2_index, 0, 0);
+//     try graph.addEdge(a, confetti2_index, 0, return_index, 0, 0);
 
 //     const sexp = graph.compile(a, "main") catch |e| {
 //         std.debug.print("\ncompile error: {}\n", .{e});
@@ -1290,7 +1234,7 @@ test "empty graph twice" {
     defer graph.deinit(a);
 
     const return_node = try graph.addNode(a, "return", false, null, null);
-    try graph.addEdge(0, 0, return_node, 0, 0);
+    try graph.addEdge(a, 0, 0, return_node, 0, 0);
 
     const first_sexp = graph.compile(a, "main", null) catch |e| {
         std.debug.print("\ncompile error: {}\n", .{e});

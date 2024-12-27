@@ -166,6 +166,11 @@ pub const GraphTypes = struct {
         target: NodeId,
         pin_index: u16,
         sub_index: u16 = 0,
+
+        /// used when targets are invalidated
+        pub fn isDeadOutput(self: *const Link) void {
+            return self.target == dead_outlink.target;
+        }
     };
 
     pub const Input = union(enum) {
@@ -173,12 +178,34 @@ pub const GraphTypes = struct {
         value: Value,
     };
 
+    /// used to simplify deletion of links
+    pub const dead_outlink = Link{
+        .target = 0,
+        .pin_index = 0,
+        .sub_index = 0,
+    };
+
     pub const Outputs = struct {
-        links: []Link,
+        /// N.B: might be a dead_outlink, since target=0 is invalid for an output
+        /// (entry can't be targeted by an output)
+        links: std.SegmentedList(Link, 2) = .{},
+
+        pub fn getExecOutput(self: *const Outputs) *const Link {
+            return self.links.uncheckedAt(0);
+        }
+
+        pub fn setExecOutput(self: *Outputs, link: Link) void {
+            self.links.uncheckedAt(0).* = link;
+        }
+
+        pub fn removeExecOutput(self: *Outputs, link: Link) void {
+            _ = link;
+            self.links.clearRetainingCapacity();
+        }
     };
 
     const empty_inputs: []Input = &.{};
-    const empty_outputs: []?Outputs = &.{};
+    const empty_outputs: []Outputs = &.{};
 
     pub const Node = struct {
         id: NodeId,
@@ -186,7 +213,7 @@ pub const GraphTypes = struct {
         comment: ?[]const u8 = null,
         // FIMXE: how do we handle default inputs?
         inputs: []Input = empty_inputs,
-        outputs: []?Outputs = empty_outputs,
+        outputs: []Outputs = empty_outputs,
 
         // TODO: rename and remove function
         _desc: *const NodeDesc,
@@ -210,7 +237,7 @@ pub const GraphTypes = struct {
                 // TODO: default to zero literal
                 // TODO: handle variadic
                 .inputs = if (args.desc.maybeStaticInputsLen()) |v| try a.alloc(Input, v) else @panic("non static inputs not supported"),
-                .outputs = if (args.desc.maybeStaticOutputsLen()) |v| try a.alloc(?Outputs, v) else @panic("non static outputs not supported"),
+                .outputs = if (args.desc.maybeStaticOutputsLen()) |v| try a.alloc(Outputs, v) else @panic("non static outputs not supported"),
             };
 
             for (result.inputs, args.desc.getInputs()) |*i, i_desc| {
@@ -226,7 +253,7 @@ pub const GraphTypes = struct {
                 _ = i_desc;
                 i.* = .{ .value = .{ .float = 0.0 } };
             }
-            for (result.outputs) |*o| o.* = null;
+            for (result.outputs) |*o| o.* = .{};
 
             return result;
         }
