@@ -345,8 +345,8 @@ pub const GraphBuilder = struct {
     };
 
     // FIXME: need to codify how this works, this gets the *first*, doesn't verify that it's singular
-    pub fn getSingleExecFromEntry(in_entry: *const IndexedNode) GetSingleExecFromEntryError!GraphTypes.Output {
-        var entry_exec: GetSingleExecFromEntryError!GraphTypes.Output = error.EntryNodeNoConnectedExecPins;
+    pub fn getSingleExecFromEntry(in_entry: *const IndexedNode) GetSingleExecFromEntryError!GraphTypes.Outputs {
+        var entry_exec: GetSingleExecFromEntryError!GraphTypes.Outputs = error.EntryNodeNoConnectedExecPins;
         for (in_entry.outputs, 0..) |output, i| {
             if (output == null)
                 continue;
@@ -669,7 +669,7 @@ pub const GraphBuilder = struct {
             };
         }
 
-        node.outputs = try alloc.alloc(?GraphTypes.Output, json_node.outputs.len);
+        node.outputs = try alloc.alloc(?GraphTypes.Outputs, json_node.outputs.len);
         errdefer alloc.free(node.outputs);
 
         for (node.outputs, json_node.outputs) |*output, maybe_json_output| {
@@ -922,7 +922,7 @@ pub const GraphBuilder = struct {
                 };
                 // FIXME: only add `begin` if it's multiple expressions
                 (try consequence_ctx.block.addOne()).* = syms.begin;
-                try self.onNode(alloc, consequence.link.target, &consequence_ctx);
+                try self.onNode(alloc, consequence.links.target, &consequence_ctx);
                 consequence_sexp = Sexp{ .value = .{ .list = block } };
             }
 
@@ -934,7 +934,7 @@ pub const GraphBuilder = struct {
                 };
                 // FIXME: only add `begin` if it's multiple expressions
                 (try alternative_ctx.block.addOne()).* = syms.begin;
-                try self.onNode(alloc, alternative.link.target, &alternative_ctx);
+                try self.onNode(alloc, alternative.links.target, &alternative_ctx);
                 alternative_sexp = Sexp{ .value = .{ .list = block } };
             }
 
@@ -999,7 +999,7 @@ pub const GraphBuilder = struct {
                         // so we can tail call
                         //return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
                         if (output != null and output_desc.kind.primitive == .exec) {
-                            try self.onNode(alloc, output.?.link.target, context);
+                            try self.onNode(alloc, output.?.links.target, context);
                             has_next = true;
                         }
                     }
@@ -1071,7 +1071,7 @@ pub const GraphBuilder = struct {
         if (self.entry().?.outputs[0] == null)
             return Sexp.newList(alloc);
 
-        const after_entry_id = self.entry().?.outputs[0].?.link.target;
+        const after_entry_id = self.entry().?.outputs[0].?.links.target;
         var if_empty_diag = Diagnostics.init();
         const diag = if (diagnostics) |d| d else &if_empty_diag;
         return (ToSexp{ .graph = self, .diagnostics = diag }).toSexp(alloc, after_entry_id);

@@ -173,12 +173,12 @@ pub const GraphTypes = struct {
         value: Value,
     };
 
-    pub const Output = struct {
-        link: Link,
+    pub const Outputs = struct {
+        links: []Link,
     };
 
     const empty_inputs: []Input = &.{};
-    const empty_outputs: []?Output = &.{};
+    const empty_outputs: []?Outputs = &.{};
 
     pub const Node = struct {
         id: NodeId,
@@ -186,7 +186,7 @@ pub const GraphTypes = struct {
         comment: ?[]const u8 = null,
         // FIMXE: how do we handle default inputs?
         inputs: []Input = empty_inputs,
-        outputs: []?Output = empty_outputs,
+        outputs: []?Outputs = empty_outputs,
 
         // TODO: rename and remove function
         _desc: *const NodeDesc,
@@ -210,7 +210,7 @@ pub const GraphTypes = struct {
                 // TODO: default to zero literal
                 // TODO: handle variadic
                 .inputs = if (args.desc.maybeStaticInputsLen()) |v| try a.alloc(Input, v) else @panic("non static inputs not supported"),
-                .outputs = if (args.desc.maybeStaticOutputsLen()) |v| try a.alloc(?Output, v) else @panic("non static outputs not supported"),
+                .outputs = if (args.desc.maybeStaticOutputsLen()) |v| try a.alloc(?Outputs, v) else @panic("non static outputs not supported"),
             };
 
             for (result.inputs, args.desc.getInputs()) |*i, i_desc| {
