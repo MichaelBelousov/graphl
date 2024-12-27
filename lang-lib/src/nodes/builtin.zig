@@ -168,7 +168,7 @@ pub const GraphTypes = struct {
         sub_index: u16 = 0,
 
         /// used when targets are invalidated
-        pub fn isDeadOutput(self: *const Link) void {
+        pub fn isDeadOutput(self: *const Link) bool {
             return self.target == dead_outlink.target;
         }
     };
@@ -189,6 +189,26 @@ pub const GraphTypes = struct {
         /// N.B: might be a dead_outlink, since target=0 is invalid for an output
         /// (entry can't be targeted by an output)
         links: std.SegmentedList(Link, 2) = .{},
+
+        pub fn first(self: *const Outputs) ?*const Link {
+            var iter = self.links.constIterator(0);
+            while (iter.next()) |link| {
+                if (!link.isDeadOutput())
+                    return link;
+            }
+            return null;
+        }
+
+        pub fn append(self: *Outputs, a: std.mem.Allocator, link: Link) std.mem.Allocator.Error!void {
+            var iter = self.links.iterator(0);
+            while (iter.next()) |curr| {
+                if (curr.isDeadOutput()) {
+                    curr.* = link;
+                    return;
+                }
+            }
+            return self.links.append(a, link);
+        }
 
         pub fn getExecOutput(self: *const Outputs) *const Link {
             return self.links.uncheckedAt(0);

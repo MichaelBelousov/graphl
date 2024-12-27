@@ -451,7 +451,7 @@ pub const GraphBuilder = struct {
             return error.TargetIndexInvalid;
         }
 
-        try start.outputs[start_index].links.append(alloc, .{
+        try start.outputs[start_index].append(alloc, .{
             .target = end_id,
             .pin_index = end_index,
             .sub_index = end_subindex,
@@ -499,6 +499,26 @@ pub const GraphBuilder = struct {
 
         // FIXME: should have a function to choose the default for a disconnected pin
         end.inputs[end_index] = .{ .value = .{ .int = 0 } };
+    }
+
+    pub fn removeOutputLinks(self: *@This(), node_id: NodeId, output_index: u16) !void {
+        const node = self.nodes.map.getPtr(node_id) orelse return error.SourceNodeNotFound;
+        var output = if (output_index >= node.outputs.len) return error.SourceIndexInvalid else node.outputs[output_index];
+
+        var iter = output.links.iterator(0);
+        var i: u32 = 0;
+        while (iter.next()) |link| : (i += 1) {
+            if (link.isDeadOutput()) continue;
+            // TODO: diagnostic
+            const target_node = self.nodes.map.getPtr(node_id) orelse {
+                std.log.err("TargetNodeNotFound={}", .{i});
+                return error.TargetNodeNotFound;
+            };
+            // FIXME: need a function for resetting pins of any type, they probably default to 0
+            target_node.inputs[link.pin_index] = .{ .value = .{ .int = 0 } };
+        }
+
+        output.links.clearRetainingCapacity();
     }
 
     // NOTE: consider renaming to "setLiteralInput"

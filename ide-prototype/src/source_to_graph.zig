@@ -174,10 +174,11 @@ fn funcSourceToGraph(
         const new_node = graph.grappl_graph.nodes.map.getPtr(new_node_id) orelse unreachable;
         assert(new_node.desc().getInputs()[0].isExec());
         assert(prev_node.desc().getOutputs()[0].isExec());
-        prev_node.outputs[0] = .{ .link = .{
+        prev_node.outputs[0] = .{};
+        try prev_node.outputs[0].append(a, .{
             .target = new_node_id,
             .pin_index = 0,
-        } };
+        });
         new_node.inputs[0] = .{ .link = .{ .target = prev_node.id, .pin_index = 0 } };
         // FIXME: won't work for if duh
         try Local.attachArgs(a, new_node, args, env, &graph);

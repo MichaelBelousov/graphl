@@ -540,8 +540,8 @@ pub const Graph = struct {
         return self.visual_graph.removeNode(node_id);
     }
 
-    pub fn addEdge(self: *@This(), start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
-        return self.visual_graph.addEdge(start_id, start_index, end_id, end_index, end_subindex);
+    pub fn addEdge(self: *@This(), a: std.mem.Allocator, start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
+        return self.visual_graph.addEdge(a, start_id, start_index, end_id, end_index, end_subindex);
     }
 
     pub fn removeEdge(self: *@This(), start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
@@ -550,6 +550,10 @@ pub const Graph = struct {
 
     pub fn addLiteralInput(self: @This(), node_id: grappl.NodeId, pin_index: u16, subpin_index: u16, value: grappl.Value) !void {
         return self.visual_graph.addLiteralInput(node_id, pin_index, subpin_index, value);
+    }
+
+    pub fn removeOutputLinks(self: *@This(), node_id: grappl.NodeId, output_index: u16) !void {
+        return self.grappl_graph.removeOutputLinks(node_id, output_index);
     }
 };
 
@@ -722,7 +726,7 @@ pub fn init() !void {
                     const input_desc = input_entry.value_ptr;
                     switch (input_desc.*) {
                         .node => |v| {
-                            try graph.addEdge(@intCast(v.id), @intCast(v.out_pin), node_id, input_id, 0);
+                            try graph.addEdge(gpa, @intCast(v.id), @intCast(v.out_pin), node_id, input_id, 0);
                         },
                         .int => |v| {
                             try graph.addLiteralInput(node_id, input_id, 0, .{ .int = v });
@@ -747,25 +751,6 @@ pub fn init() !void {
     } else {
         _ = try addGraph("main", true);
     }
-
-    // we know the entry is set by addGraph
-    //const entry_index = first_graph.grappl_graph.entry_id orelse unreachable;
-    //const plus_index = first_graph.addNode(gpa, "+", false, null, null) catch unreachable;
-    //const set_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
-    // const set2_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
-    // const set3_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
-    // const set4_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
-    // const set5_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
-    // const set6_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
-    // const set7_index = first_graph.addNode(gpa, "set!", false, null, null) catch unreachable;
-    //first_graph.addEdge(set_index, 0, entry_index, 0, 0) catch unreachable;
-    //first_graph.addEdge(plus_index, 0, entry_index, 1, 0) catch unreachable;
-    // first_graph.addEdge(set_index, 0, set2_index, 0, 0) catch unreachable;
-    // first_graph.addEdge(set2_index, 0, set3_index, 0, 0) catch unreachable;
-    // first_graph.addEdge(set3_index, 0, set4_index, 0, 0) catch unreachable;
-    // first_graph.addEdge(set4_index, 0, set5_index, 0, 0) catch unreachable;
-    // first_graph.addEdge(set5_index, 0, set6_index, 0, 0) catch unreachable;
-    // first_graph.addEdge(set6_index, 0, set7_index, 0, 0) catch unreachable;
 }
 
 fn runCurrentGraphs() !void {
@@ -889,22 +874,10 @@ const NodeAdder = struct {
         if (_maybe_create_from) |create_from| {
             switch (create_from.kind) {
                 .input => {
-                    try current_graph.addEdge(
-                        new_node_id,
-                        valid_socket_index orelse 0,
-                        create_from.node_id,
-                        create_from.index,
-                        0,
-                    );
+                    try current_graph.addEdge(gpa, new_node_id, valid_socket_index orelse 0, create_from.node_id, create_from.index, 0);
                 },
                 .output => {
-                    try current_graph.addEdge(
-                        create_from.node_id,
-                        create_from.index,
-                        new_node_id,
-                        valid_socket_index orelse 0,
-                        0,
-                    );
+                    try current_graph.addEdge(gpa, create_from.node_id, create_from.index, new_node_id, valid_socket_index orelse 0, 0);
                 },
             }
         }
@@ -1279,6 +1252,7 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
                     // FIXME: why am I assuming edge_drag_start exists?
                     // TODO: maybe use unreachable instead of try?
                     try current_graph.addEdge(
+                        gpa,
                         edge.source.node_id,
                         edge.source.index,
                         edge.target.node_id,
@@ -1805,6 +1779,8 @@ fn renderNode(
         var outputs_vbox = try dvui.box(@src(), .vertical, .{});
         defer outputs_vbox.deinit();
         for (node.desc().getOutputs(), node.outputs, 0..) |output_desc, *output, j| {
+            _ = output;
+
             var output_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j, .gravity_x = 1.0 });
             defer output_box.deinit();
 
@@ -1835,14 +1811,8 @@ fn renderNode(
                 try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
 
             if (icon_res.clicked) {
-                if (output.*) |o| {
-                    const target_node = current_graph.grappl_graph.nodes.map.getPtr(o.link.target);
-                    if (target_node) |target| {
-                        // FIXME: need a function for resetting pins of any type, they probably default to 0
-                        target.inputs[o.link.pin_index] = .{ .value = .{ .int = 0 } };
-                    }
-                }
-                output.* = null;
+                // NOTE: hopefully this gets inlined...
+                try current_graph.removeOutputLinks(node.id, @intCast(j));
             }
 
             const socket_center = considerSocketForHover(&icon_res, socket);
@@ -1981,8 +1951,8 @@ pub const VisualGraph = struct {
         return self.graph.removeNode(node_id);
     }
 
-    pub fn addEdge(self: *@This(), start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
-        const result = try self.graph.addEdge(start_id, start_index, end_id, end_index, end_subindex);
+    pub fn addEdge(self: *@This(), a: std.mem.Allocator, start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
+        const result = try self.graph.addEdge(a, start_id, start_index, end_id, end_index, end_subindex);
         // FIXME: (note that if edge did any "replacing", that also needs to be restored!)
         // errdefer self.graph.removeEdge(result);
         // FIXME: re-enable after demo
@@ -2061,7 +2031,7 @@ pub const VisualGraph = struct {
                                 .link => |v| if (v != null) v.? else continue,
                                 else => continue,
                             },
-                            .output => (maybe_socket orelse continue).link,
+                            .output => maybe_socket.first() orelse continue,
                         };
 
                         const was_visited = visited.isSet(@intCast(link.target));
@@ -2183,31 +2153,33 @@ fn addParamOrResult(
     comptime kind: enum { params, results },
 ) !void {
     const pin_dir = comptime if (kind == .params) "outputs" else "inputs";
-    var pin_descs = @field(node_basic_desc, pin_dir);
-    const opposite_dir = if (kind == .params) "inputs" else "outputs";
+    const opposite_dir = comptime if (kind == .params) "inputs" else "outputs";
 
+    var pin_descs = @field(node_basic_desc, pin_dir);
     pin_descs = try gpa.realloc(pin_descs, pin_descs.len + 1);
     @field(node_basic_desc, pin_dir) = pin_descs;
     @field(current_graph.call_basic_desc, opposite_dir) = pin_descs;
 
-    var name_suffix = pin_descs.len - 1;
+    const new_name = _: {
+        var name_suffix = pin_descs.len - 1;
 
-    while (true) : (name_suffix += 1) {
-        var buf: [MAX_FUNC_NAME]u8 = undefined;
+        while (true) : (name_suffix += 1) {
+            var buf: [MAX_FUNC_NAME]u8 = undefined;
 
-        const getter_name_attempt = try std.fmt.bufPrint(&buf, "get_a{}", .{name_suffix});
-        if (current_graph.env._nodes.contains(getter_name_attempt))
-            continue;
+            const getter_name_attempt = try std.fmt.bufPrint(&buf, "get_a{}", .{name_suffix});
+            if (current_graph.env._nodes.contains(getter_name_attempt))
+                continue;
 
-        const setter_name_attempt = try std.fmt.bufPrint(&buf, "set_a{}", .{name_suffix});
-        if (current_graph.env._nodes.contains(setter_name_attempt))
-            continue;
+            const setter_name_attempt = try std.fmt.bufPrint(&buf, "set_a{}", .{name_suffix});
+            if (current_graph.env._nodes.contains(setter_name_attempt))
+                continue;
 
-        // break shouldn't hit the continue above, since we now know it's a good suffix
-        break;
-    }
+            // break shouldn't hit the continue above, since we now know it's a good suffix
+            break;
+        }
 
-    const new_name = try std.fmt.allocPrint(gpa, "a{}", .{name_suffix});
+        break :_ try std.fmt.allocPrint(gpa, "a{}", .{name_suffix});
+    };
 
     pin_descs[pin_descs.len - 1] = .{
         .name = new_name,
@@ -2279,7 +2251,7 @@ fn addParamOrResult(
                     const pins = @field(node, pin_dir);
                     switch (kind) {
                         .params => {
-                            pins[pins.len - 1] = null;
+                            pins[pins.len - 1] = .{};
                         },
                         .results => {
                             pins[pins.len - 1] = .{
@@ -2312,6 +2284,8 @@ fn addParamOrResult(
 }
 
 test "call double" {
+    const a = std.testing.allocator;
+
     const confetti_func_id = try _createUserFunc("confetti", 1, 0);
     try _addUserFuncInput(confetti_func_id, 0, "particleCount", .i32_);
 
@@ -2326,7 +2300,7 @@ test "call double" {
         const mul_node_id = try NodeAdder.addNode("*", .{ .kind = .output, .index = 1, .node_id = double_graph.grappl_graph.entry_id orelse unreachable }, .{}, 0);
         const return_id = try NodeAdder.addNode("return", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
         try double_graph.addLiteralInput(mul_node_id, 1, 0, .{ .int = 2 });
-        try double_graph.addEdge(mul_node_id, 0, return_id, 1, 0);
+        try double_graph.addEdge(a, mul_node_id, 0, return_id, 1, 0);
     }
 
     current_graph = main_graph;
@@ -2337,7 +2311,7 @@ test "call double" {
         const double_node_id = try NodeAdder.addNode("double", .{ .kind = .output, .index = 0, .node_id = confetti_node_id }, .{}, 0);
         try main_graph.addLiteralInput(double_node_id, 1, 0, .{ .int = 10 });
         const return_id = try NodeAdder.addNode("return", .{ .kind = .output, .index = 0, .node_id = double_node_id }, .{}, 0);
-        try main_graph.addEdge(double_node_id, 1, return_id, 1, 0);
+        try main_graph.addEdge(a, double_node_id, 1, return_id, 1, 0);
     }
 
     var combined = try combineGraphs();
@@ -2358,6 +2332,75 @@ test "call double" {
         \\        (begin (return (* a1
         \\                          2))))
     , "{}", .{combined});
+
+    // FIXME: use testing allocator
+    var diagnostic = compiler.Diagnostic.init();
+    errdefer if (diagnostic.err != .None) std.debug.print("diagnostic: {}", .{diagnostic});
+
+    const compiled = try compiler.compile(gpa, &combined, &shared_env, &user_funcs, &diagnostic);
+    defer gpa.free(compiled);
+
+    const expected = std.fmt.comptimePrint(
+        \\({s}
+        \\(export "main"
+        \\        (func $main))
+        \\(type $typeof_main
+        \\      (func (result i32)))
+        \\(func $main
+        \\      (result i32)
+        \\      (call $double
+        \\            (i32.const 10)))
+        \\(export "double"
+        \\        (func $double))
+        \\(type $typeof_double
+        \\      (func (param i32)
+        \\            (result i32)))
+        \\(func $double
+        \\      (param $param_a1
+        \\             i32)
+        \\      (result i32)
+        \\      (i32.mul (local.get $param_a1)
+        \\               (i32.const 2)))
+        \\)
+    , .{compiler.compiled_prelude});
+
+    try std.testing.expectEqualStrings(expected, compiled);
+}
+
+test "open file" {
+    const confetti_func_id = try _createUserFunc("confetti", 1, 0);
+    try _addUserFuncInput(confetti_func_id, 0, "particleCount", .i32_);
+
+    defer deinit();
+    try init();
+
+    const file_content =
+        \\(typeof (main)
+        \\        i32)
+        \\(define (main)
+        \\        (begin (typeof x
+        \\                       i32)
+        \\               (define x)
+        \\               (+ 2 3) #!__x1
+        \\               (if #f
+        \\                   (begin (set! x
+        \\                                (+ 4
+        \\                                   8))
+        \\                          (return __x1))
+        \\                   (begin (throw-confetti 100)
+        \\                          (return __x1)))))
+    ;
+
+    onReceiveLoadedSource(file_content.ptr, file_content.len);
+
+    // FIXME: assert graph contents
+
+    var combined = try combineGraphs();
+    defer combined.deinit(gpa);
+
+    errdefer std.debug.print("combined:\n{s}\n", .{combined});
+
+    try std.testing.expectFmt(file_content, "{}", .{combined});
 
     // FIXME: use testing allocator
     var diagnostic = compiler.Diagnostic.init();
