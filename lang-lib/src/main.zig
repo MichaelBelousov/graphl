@@ -26,6 +26,10 @@ pub const syms = @import("./sexp.zig").syms;
 pub const SexpParser = @import("./sexp_parser.zig").Parser;
 pub const compiler = @import("./compiler-wat.zig");
 
+pub const testing = struct {
+    pub const expectWasmOutput = compiler.expectWasmOutput;
+};
+
 test {
     // FIXME:
     std.testing.refAllDeclsRecursive(compiler);

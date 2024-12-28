@@ -1256,14 +1256,13 @@ test "big local built graph" {
         \\        (begin (typeof x
         \\                       i32)
         \\               (define x)
-        \\               (+ 2 3) #!__x1
         \\               (if #f
         \\                   (begin (set! x
         \\                                (+ 4
         \\                                   8))
-        \\                          (return __x1))
+        \\                          (return (+ 2 3)))
         \\                   (begin (throw-confetti 100)
-        \\                          (return __x1)))))
+        \\                          (return (+ 2 3))))))
         // TODO: print floating point explicitly
     , text.items);
 }

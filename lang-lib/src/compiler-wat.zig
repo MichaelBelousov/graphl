@@ -2034,17 +2034,7 @@ test "compile big" {
 
     var diagnostic = Diagnostic.init();
     if (compile(t.allocator, &parsed, &env, &user_funcs, &diagnostic)) |wat| {
-        // FIXME: convenience
-        var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
-        defer tmp_dir.close();
-
-        var dbg_file = try tmp_dir.createFile("compiler-test.wat", .{});
-        defer dbg_file.close();
-
-        try dbg_file.writeAll(wat);
-
         try t.expectEqualStrings(expected, wat);
-
         t.allocator.free(wat);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
@@ -2113,81 +2103,98 @@ test "recurse" {
     var diagnostic = Diagnostic.init();
     if (compile(t.allocator, &parsed, &env, null, &diagnostic)) |wat| {
         defer t.allocator.free(wat);
-
-        // FIXME: convenience
-        var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
-        defer tmp_dir.close();
-
-        var dbg_file = try tmp_dir.createFile("compiler-test.wat", .{});
-        defer dbg_file.close();
-
-        try dbg_file.writeAll(wat);
-
         try t.expectEqualStrings(expected, wat);
-
-        const wat2wasm_run = try std.process.Child.run(.{
-            .allocator = t.allocator,
-            .argv = &.{ "wat2wasm", "/tmp/compiler-test.wat", "-o", "/tmp/compiler-test.wasm" },
-        });
-        defer t.allocator.free(wat2wasm_run.stdout);
-        defer t.allocator.free(wat2wasm_run.stderr);
-
-        var dbg_wasm_file = try tmp_dir.openFile("compiler-test.wasm", .{});
-        defer dbg_wasm_file.close();
-        var buff: [65536]u8 = undefined;
-        const wasm_data_size = try dbg_wasm_file.readAll(&buff);
-
-        const wasm_data = buff[0..wasm_data_size];
-
-        const module_def = try bytebox.createModuleDefinition(t.allocator, .{});
-        defer module_def.destroy();
-
-        try module_def.decode(wasm_data);
-
-        const module_instance = try bytebox.createModuleInstance(.Stack, module_def, t.allocator);
-        defer module_instance.destroy();
-
-        const Local = struct {
-            fn nullHostFunc(user_data: ?*anyopaque, _module: *bytebox.ModuleInstance, _params: [*]const bytebox.Val, _returns: [*]bytebox.Val) void {
-                _ = user_data;
-                _ = _module;
-                _ = _params;
-                _ = _returns;
-            }
-        };
-
-        var imports = try bytebox.ModuleImportPackage.init("env", null, null, t.allocator);
-        defer imports.deinit();
-
-        inline for (&.{
-            .{ "callUserFunc_code_R", &.{ .I32, .I32, .I32 }, &.{} },
-            .{ "callUserFunc_code_R_string", &.{ .I32, .I32, .I32 }, &.{.I32} },
-            .{ "callUserFunc_string_R", &.{ .I32, .I32, .I32 }, &.{} },
-            .{ "callUserFunc_R", &.{.I32}, &.{} },
-            .{ "callUserFunc_i32_R", &.{ .I32, .I32 }, &.{} },
-            .{ "callUserFunc_i32_R_i32", &.{ .I32, .I32 }, &.{.I32} },
-            .{ "callUserFunc_i32_i32_R_i32", &.{ .I32, .I32, .I32 }, &.{.I32} },
-            .{ "callUserFunc_bool_R", &.{ .I32, .I32 }, &.{} },
-        }) |import_desc| {
-            const name, const params, const results = import_desc;
-            try imports.addHostFunction(name, params, results, Local.nullHostFunc, null);
-        }
-
-        try module_instance.instantiate(.{
-            .imports = &.{imports},
-        });
-
-        const factorial_handle = try module_instance.getFunctionHandle("factorial");
-        const factorial_args = [_]bytebox.Val{bytebox.Val{ .I32 = 3 }};
-        var factorial_results = [_]bytebox.Val{bytebox.Val{ .I32 = 0 }};
-        factorial_results[0] = bytebox.Val{ .I32 = 0 }; // FIXME:
-        try module_instance.invoke(factorial_handle, &factorial_args, &factorial_results, .{});
-
-        try std.testing.expectEqual(factorial_results[0].I32, 6);
+        try expectWasmOutput(6, wat, "factorial", .{3});
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);
     }
+}
+
+pub fn expectWasmOutput(
+    comptime expected: anytype,
+    wat: []const u8,
+    entry: []const u8,
+    comptime in_args: anytype,
+) !void {
+    // FIXME: convenience
+    var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
+    defer tmp_dir.close();
+
+    var dbg_file = try tmp_dir.createFile("compiler-test.wat", .{});
+    defer dbg_file.close();
+
+    try dbg_file.writeAll(wat);
+
+    const wat2wasm_run = try std.process.Child.run(.{
+        .allocator = t.allocator,
+        .argv = &.{ "wat2wasm", "/tmp/compiler-test.wat", "-o", "/tmp/compiler-test.wasm" },
+    });
+    defer t.allocator.free(wat2wasm_run.stdout);
+    defer t.allocator.free(wat2wasm_run.stderr);
+    if (wat2wasm_run.term != .Exited or wat2wasm_run.term.Exited != 0) {
+        std.debug.print("wat2wasm exited with {any}:\n{s}\n", .{ wat2wasm_run.term, wat2wasm_run.stderr });
+        return error.FailTest;
+    }
+
+    var dbg_wasm_file = try tmp_dir.openFile("compiler-test.wasm", .{});
+    defer dbg_wasm_file.close();
+    var buff: [65536]u8 = undefined;
+    const wasm_data_size = try dbg_wasm_file.readAll(&buff);
+
+    const wasm_data = buff[0..wasm_data_size];
+
+    const module_def = try bytebox.createModuleDefinition(t.allocator, .{});
+    defer module_def.destroy();
+
+    try module_def.decode(wasm_data);
+
+    const module_instance = try bytebox.createModuleInstance(.Stack, module_def, t.allocator);
+    defer module_instance.destroy();
+
+    const Local = struct {
+        fn nullHostFunc(user_data: ?*anyopaque, _module: *bytebox.ModuleInstance, _params: [*]const bytebox.Val, _returns: [*]bytebox.Val) void {
+            _ = user_data;
+            _ = _module;
+            _ = _params;
+            _ = _returns;
+        }
+    };
+
+    var imports = try bytebox.ModuleImportPackage.init("env", null, null, t.allocator);
+    defer imports.deinit();
+
+    inline for (&.{
+        .{ "callUserFunc_code_R", &.{ .I32, .I32, .I32 }, &.{} },
+        .{ "callUserFunc_code_R_string", &.{ .I32, .I32, .I32 }, &.{.I32} },
+        .{ "callUserFunc_string_R", &.{ .I32, .I32, .I32 }, &.{} },
+        .{ "callUserFunc_R", &.{.I32}, &.{} },
+        .{ "callUserFunc_i32_R", &.{ .I32, .I32 }, &.{} },
+        .{ "callUserFunc_i32_R_i32", &.{ .I32, .I32 }, &.{.I32} },
+        .{ "callUserFunc_i32_i32_R_i32", &.{ .I32, .I32, .I32 }, &.{.I32} },
+        .{ "callUserFunc_bool_R", &.{ .I32, .I32 }, &.{} },
+    }) |import_desc| {
+        const name, const params, const results = import_desc;
+        try imports.addHostFunction(name, params, results, Local.nullHostFunc, null);
+    }
+
+    try module_instance.instantiate(.{
+        .imports = &.{imports},
+    });
+
+    const handle = try module_instance.getFunctionHandle(entry);
+
+    comptime var args: [in_args.len]bytebox.Val = undefined;
+    inline for (in_args, &args) |in_arg, *arg| {
+        arg.* = bytebox.Val{ .I32 = in_arg };
+    }
+    const ready_args = args;
+
+    var results = [_]bytebox.Val{bytebox.Val{ .I32 = 0 }};
+    results[0] = bytebox.Val{ .I32 = 0 }; // FIXME:
+    try module_instance.invoke(handle, &ready_args, &results, .{});
+
+    try std.testing.expectEqual(results[0].I32, expected);
 }
 
 const bytebox = @import("bytebox");

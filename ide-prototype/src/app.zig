@@ -2386,6 +2386,8 @@ test "call double" {
     , .{compiler.compiled_prelude});
 
     try std.testing.expectEqualStrings(expected, compiled);
+
+    try grappl.testing.expectWasmOutput(20, compiled, "main", .{});
 }
 
 test "open file" {
