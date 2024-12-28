@@ -623,26 +623,35 @@ const Compilation = struct {
             const additional_locals_index = impl_sexp.value.list.items.len;
 
             std.debug.assert(func_decl.body_exprs.len >= 1);
-            for (func_decl.body_exprs) |body_expr| {
-                var prologue = std.ArrayList(Sexp).init(alloc);
-                defer prologue.deinit();
-                var post_analysis_locals = std.ArrayList(Sexp).init(alloc);
-                defer post_analysis_locals.deinit();
 
-                // FIXME: make next_local automatic in the expression context
-                // probably possible by separating the global expr_ctx from the type context
-                // which can change
-                var next_local: usize = 0;
-                var expr_ctx = ExprContext{
-                    .locals_sexp = &post_analysis_locals,
-                    .local_names = func_decl.local_names,
-                    .local_types = func_decl.local_types,
-                    .param_names = func_decl.param_names,
-                    .param_types = func_type.param_types,
-                    .prologue = &prologue,
-                    .frame = .{},
-                    .next_local = &next_local,
-                };
+            var label_to_fragment = std.StringHashMap(Fragment).init(alloc);
+            defer label_to_fragment.deinit();
+
+            var prologue = std.ArrayList(Sexp).init(alloc);
+            defer prologue.deinit();
+            var post_analysis_locals = std.ArrayList(Sexp).init(alloc);
+            defer post_analysis_locals.deinit();
+
+            // FIXME: make next_local automatic in the expression context
+            // probably possible by separating the global expr_ctx from the type context
+            // which can change
+            var next_local: usize = 0;
+
+            var expr_ctx = ExprContext{
+                .locals_sexp = &post_analysis_locals,
+                .label_to_fragment = &label_to_fragment,
+                .local_names = func_decl.local_names,
+                .local_types = func_decl.local_types,
+                .param_names = func_decl.param_names,
+                .param_types = func_type.param_types,
+                .prologue = &prologue,
+                .frame = .{},
+                .next_local = &next_local,
+            };
+            // FIXME: fix this but it's ok cuz it's in an arena
+            // defer expr_ctx.deinit(alloc);
+
+            for (func_decl.body_exprs) |body_expr| {
                 var body_fragment = try self.compileExpr(&body_expr, &expr_ctx);
                 errdefer body_fragment.deinit(alloc);
 
@@ -674,9 +683,19 @@ const Compilation = struct {
         values: std.ArrayList(Sexp),
         /// offset in the stack frame for the value in this fragment
         frame_offset: u32 = 0,
-        resolved_type: Type,
+        resolved_type: Type = builtin.empty_type,
+        labeled: bool = false,
 
         pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+            if (self.labeled) {
+                return;
+            } else {
+                (Sexp{ .value = .{ .list = self.values } }).deinit(alloc);
+            }
+        }
+
+        /// for de-initing labeled nodes, done by the owning context
+        pub fn forceDeinit(self: *@This(), alloc: std.mem.Allocator) void {
             (Sexp{ .value = .{ .list = self.values } }).deinit(alloc);
         }
     };
@@ -829,6 +848,7 @@ const Compilation = struct {
         locals_sexp: *std.ArrayList(Sexp),
         /// to append setup code to
         prologue: *std.ArrayList(Sexp),
+        label_to_fragment: *std.StringHashMap(Fragment),
 
         /// sometimes, e.g. when creating a vstack slot, we need a local to
         /// hold the pointer to it
@@ -851,6 +871,13 @@ const Compilation = struct {
 
             return sym;
         }
+
+        pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+            var iter = self.label_to_fragment.valueIterator();
+            while (iter.next()) |fragment| {
+                fragment.forceDeinit(alloc);
+            }
+        }
     };
 
     // TODO: take a diagnostic
@@ -860,11 +887,29 @@ const Compilation = struct {
         /// not const because we may be expanding the frame to include this value
         context: *ExprContext,
     ) !Fragment {
+        // this inner wrapper marks labeled nodes to not free their contents until the context is ready
+        var fragment = try self._compileExpr(code_sexp, context);
+        if (code_sexp.label) |label| {
+            fragment.labeled = true;
+            // HACK: we know the label is "#!{s}"
+            const entry = try context.label_to_fragment.getOrPut(label[2..]);
+            std.debug.assert(!entry.found_existing);
+            entry.value_ptr.* = fragment;
+            return fragment;
+        }
+        return fragment;
+    }
+
+    fn _compileExpr(
+        self: *@This(),
+        code_sexp: *const Sexp,
+        /// not const because we may be expanding the frame to include this value
+        context: *ExprContext,
+    ) !Fragment {
         const alloc = self.arena.allocator();
 
         var result = Fragment{
             .values = std.ArrayList(Sexp).init(alloc),
-            .resolved_type = builtin.empty_type,
         };
 
         if (context.type != null and context.type.? == primitive_types.code) {
@@ -904,7 +949,7 @@ const Compilation = struct {
                 if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr or func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
                     try result.values.ensureUnusedCapacity(v.items.len - 1);
                     for (v.items[1..]) |*expr| {
-                        var compiled = try self.compileExpr(expr, context);
+                        var compiled = try self._compileExpr(expr, context);
                         result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, &compiled);
                         try result.values.appendSlice(compiled.values.items);
                         compiled.values.clearAndFree();
@@ -920,6 +965,7 @@ const Compilation = struct {
                 };
 
                 const arg_fragments = try alloc.alloc(Fragment, v.items.len - 1);
+                // TODO: also undo context state
                 errdefer for (arg_fragments) |*frag| frag.deinit(alloc);
                 defer alloc.free(arg_fragments);
 
@@ -963,8 +1009,9 @@ const Compilation = struct {
                         .locals_sexp = context.locals_sexp,
                         .frame = context.frame,
                         .next_local = context.next_local,
+                        .label_to_fragment = context.label_to_fragment,
                     };
-                    arg_fragment.* = try self.compileExpr(&arg_src, &subcontext);
+                    arg_fragment.* = try self._compileExpr(&arg_src, &subcontext);
                 }
 
                 if (func.value.symbol.ptr == syms.@"set!".value.symbol.ptr) {
@@ -1260,6 +1307,10 @@ const Compilation = struct {
                     // FIXME: these are backwards for some reason?
                     result.values.items[0].value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 1 } };
                     return result;
+                }
+
+                if (context.label_to_fragment.get(v)) |fragment| {
+                    return fragment;
                 }
 
                 // FIXME: use hashmap instead

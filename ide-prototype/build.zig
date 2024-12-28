@@ -99,6 +99,7 @@ pub fn build(b: *std.Build) void {
     cb_run.addFileArg(exe.getEmittedBin());
     const output = cb_run.captureStdOut();
 
+    // FIXME: this would be much smaller than binaryen!
     // const wat2wasm = addWat2Wasm(b, optimize);
     // const install_wat2wasm = b.addInstallArtifact(wat2wasm, .{
     //     .dest_dir = .{ .override = .{ .custom = "bin" } },
@@ -185,7 +186,7 @@ fn addWat2Wasm(b: *std.Build, optimize: std.builtin.OptimizeMode) *std.Build.Ste
     // FIXME: rename to wasi
     const web_target_query = std.Target.Query{
         .cpu_arch = .wasm32,
-        .os_tag = .wasi, // can't use freestanding cuz binaryen
+        .os_tag = .wasi,
         //.abi = .musl,
         // https://github.com/ziglang/zig/pull/16207
         .cpu_features_add = std.Target.wasm.featureSet(&.{

@@ -2334,8 +2334,8 @@ test "call double" {
         \\(typeof (main)
         \\        i32)
         \\(define (main)
-        \\        (begin (double 10) #!__label1
-        \\               (confetti 100)
+        \\        (begin (confetti 100)
+        \\               (double 10) #!__label1
         \\               (return __label1)))
         \\(typeof (double i32)
         \\        i32)
@@ -2353,12 +2353,22 @@ test "call double" {
 
     const expected = std.fmt.comptimePrint(
         \\({s}
+        \\(func $confetti
+        \\      (param $param_0
+        \\             i32)
+        \\      (call $callUserFunc_i32_R
+        \\            (i32.const 0)
+        \\            (local.get $param_0)))
         \\(export "main"
         \\        (func $main))
         \\(type $typeof_main
         \\      (func (result i32)))
         \\(func $main
         \\      (result i32)
+        \\      (call $confetti
+        \\            (i32.const 100))
+        \\      (call $double
+        \\            (i32.const 10))
         \\      (call $double
         \\            (i32.const 10)))
         \\(export "double"

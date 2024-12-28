@@ -782,7 +782,6 @@ pub const GraphBuilder = struct {
     /// FIXME: document overall algorithm:
     const ToSexp = struct {
         graph: *const GraphBuilder,
-        // FIXME: this should be multiple diagnostics!
         diagnostics: *Diagnostics,
 
         const NodeData = packed struct {
@@ -793,19 +792,26 @@ pub const GraphBuilder = struct {
         pub const Block = std.ArrayList(Sexp);
 
         const Context = struct {
-            // FIXME: um isn't not using a pointer (I copy this context a lot) a bug?
-            node_data: std.MultiArrayList(NodeData) = .{},
-            block: *Block,
-            current_depth: u32 = 0,
+            node_data: *std.MultiArrayList(NodeData),
             label_counter: u32 = 1,
+            node_labels: *std.AutoHashMap(NodeId, []const u8),
 
-            pub fn init(alloc: std.mem.Allocator, in_block: *Block, node_count: usize) !@This() {
+            pub fn init(
+                alloc: std.mem.Allocator,
+                args: struct {
+                    node_count: usize,
+                    node_data: *std.MultiArrayList(NodeData),
+                    // TODO: could create a perfect hash map for the node set upfront...
+                    node_labels: *std.AutoHashMap(NodeId, []const u8),
+                },
+            ) !@This() {
                 var self = @This(){
-                    .block = in_block,
+                    .node_data = args.node_data,
+                    .node_labels = args.node_labels,
                 };
 
                 // TODO: can this be done better?
-                try self.node_data.resize(alloc, node_count);
+                try self.node_data.resize(alloc, args.node_count);
                 var slices = self.node_data.slice();
                 @memset(slices.items(.visited)[0..self.node_data.len], 0);
                 @memset(slices.items(.depth)[0..self.node_data.len], 0);
@@ -813,8 +819,29 @@ pub const GraphBuilder = struct {
                 return self;
             }
 
+            pub fn getNextLabel(self: *@This(), alloc: std.mem.Allocator, node_id: NodeId, sexp: *const Sexp) ![]const u8 {
+                // FIXME: generate name from sexp, and recommend people explicitly specify labels
+                _ = sexp;
+                const label = try std.fmt.allocPrint(alloc, "#!__label{}", .{self.label_counter});
+                try self.node_labels.putNoClobber(node_id, label);
+                self.label_counter += 1;
+                return label;
+            }
+
             pub fn deinit(self: *@This(), a: std.mem.Allocator) void {
-                self.node_data.deinit(a);
+                _ = self;
+                _ = a;
+            }
+        };
+
+        const State = struct {
+            depth: u32 = 0,
+            block: *Block,
+
+            pub fn init(in_block: *Block) !@This() {
+                return @This(){
+                    .block = in_block,
+                };
             }
         };
 
@@ -824,11 +851,25 @@ pub const GraphBuilder = struct {
                 for (block.items) |member| member.deinit(alloc);
                 block.deinit();
             }
-            var ctx = try Context.init(alloc, &block, self.graph.nodes.map.count());
-            defer ctx.deinit(alloc);
 
-            try self.onNode(alloc, node_id, &ctx);
-            return Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try ctx.block.toOwnedSlice()) } };
+            var node_data = std.MultiArrayList(NodeData){};
+            defer node_data.deinit(alloc);
+
+            var node_labels = std.AutoHashMap(NodeId, []const u8).init(alloc);
+            defer node_labels.deinit();
+
+            var ctx = try Context.init(alloc, .{
+                .node_count = self.graph.nodes.map.count(),
+                .node_data = &node_data,
+                .node_labels = &node_labels,
+            });
+
+            const state = State{
+                .block = &block,
+            };
+
+            try self.onNode(alloc, node_id, state, &ctx);
+            return Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try state.block.toOwnedSlice()) } };
         }
 
         const Error = error{
@@ -836,10 +877,10 @@ pub const GraphBuilder = struct {
             OutOfMemory,
         } || Diagnostic.Code;
 
-        pub fn onNode(self: @This(), alloc: std.mem.Allocator, node_id: NodeId, context: *Context) Error!void {
+        pub fn onNode(self: @This(), alloc: std.mem.Allocator, node_id: NodeId, state: State, context: *Context) Error!void {
             // FIXME: not handled
             if (context.node_data.items(.visited)[node_id] == 1) {
-                if (context.node_data.items(.depth)[node_id] < context.current_depth)
+                if (context.node_data.items(.depth)[node_id] < state.depth)
                     return error.CyclesNotSupported;
                 return;
             }
@@ -847,22 +888,21 @@ pub const GraphBuilder = struct {
             const node = self.graph.nodes.map.getPtr(node_id) orelse std.debug.panic("onNode: couldn't find node by id={}", .{node_id});
 
             context.node_data.items(.visited)[node_id] = 1;
-            context.node_data.items(.depth)[node_id] = context.current_depth;
+            context.node_data.items(.depth)[node_id] = state.depth;
 
-            var next_context = Context{
-                .node_data = context.node_data,
-                .block = context.block,
-                .current_depth = context.current_depth + 1,
+            const next_state = State{
+                .block = state.block,
+                .depth = state.depth + 1,
             };
 
             return if (node.desc().isSimpleBranch())
-                @call(debug_tail_call, onBranchNode, .{ self, alloc, node, &next_context })
+                @call(debug_tail_call, onBranchNode, .{ self, alloc, node, next_state, context })
             else
-                @call(debug_tail_call, onFunctionCallNode, .{ self, alloc, node, &next_context });
+                @call(debug_tail_call, onFunctionCallNode, .{ self, alloc, node, next_state, context });
         }
 
         // FIXME: refactor to find joins during this?
-        pub fn onBranchNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, context: *Context) !void {
+        pub fn onBranchNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, state: State, context: *Context) !void {
             std.debug.assert(node.desc().isSimpleBranch());
 
             var consequence_sexp: Sexp = undefined;
@@ -874,13 +914,13 @@ pub const GraphBuilder = struct {
             if (node.outputs[0].links.len == 1) {
                 const consequence = node.outputs[1].links.at(0);
                 var block = Block.init(alloc);
-                var consequence_ctx = Context{
-                    .node_data = context.node_data,
+                // FIXME: why not take state depth?
+                const consequence_state = State{
                     .block = &block,
                 };
                 // FIXME: only add `begin` if it's multiple expressions
-                (try consequence_ctx.block.addOne()).* = syms.begin;
-                try self.onNode(alloc, consequence.target, &consequence_ctx);
+                (try consequence_state.block.addOne()).* = syms.begin;
+                try self.onNode(alloc, consequence.target, consequence_state, context);
                 consequence_sexp = Sexp{ .value = .{ .list = block } };
             }
 
@@ -888,17 +928,16 @@ pub const GraphBuilder = struct {
             if (node.outputs[1].links.len == 1) {
                 const alternative = node.outputs[1].links.at(0);
                 var block = Block.init(alloc);
-                var alternative_ctx = Context{
-                    .node_data = context.node_data,
+                const alternative_state = State{
                     .block = &block,
                 };
                 // FIXME: only add `begin` if it's multiple expressions
-                (try alternative_ctx.block.addOne()).* = syms.begin;
-                try self.onNode(alloc, alternative.target, &alternative_ctx);
+                (try alternative_state.block.addOne()).* = syms.begin;
+                try self.onNode(alloc, alternative.target, alternative_state, context);
                 alternative_sexp = Sexp{ .value = .{ .list = block } };
             }
 
-            var branch_sexp = try context.block.addOne();
+            var branch_sexp = try state.block.addOne();
             errdefer branch_sexp.deinit(alloc);
 
             branch_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
@@ -907,7 +946,7 @@ pub const GraphBuilder = struct {
             (try branch_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc().name() } };
 
             // condition
-            const condition_sexp = try self.nodeInputTreeToSexp(alloc, node.inputs[1], context);
+            const condition_sexp = try self.nodeInputTreeToSexp(alloc, node.inputs[1], state, context);
             (try branch_sexp.value.list.addOne()).* = condition_sexp;
             // consequence
             (try branch_sexp.value.list.addOne()).* = consequence_sexp;
@@ -916,11 +955,11 @@ pub const GraphBuilder = struct {
 
             // FIXME: remove this double hash map fetch
             if (self.graph.branch_joiner_map.get(node.id)) |join| {
-                return @call(debug_tail_call, onNode, .{ self, alloc, join, context });
+                return @call(debug_tail_call, onNode, .{ self, alloc, join, state, context });
             }
         }
 
-        pub fn onFunctionCallNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, context: *Context) !void {
+        pub fn onFunctionCallNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, state: State, context: *Context) !void {
             if (self.graph.isJoin(node)) // FIXME: why?
                 return;
 
@@ -928,13 +967,13 @@ pub const GraphBuilder = struct {
 
             // FIXME/HACK: use a linked list cuz this shit is cray cray
             // pointer can be invalidated by array mutation so we need to keep it somehow...
-            try context.block.append(Sexp{ .value = .{ .int = @bitCast(@intFromPtr(node)) } });
+            try state.block.append(Sexp{ .value = .{ .int = @bitCast(@intFromPtr(node)) } });
 
             // FIXME: doesn't work for variadics
             // FIXME: this must be unified with nodeInputTreeToSexp!
             const sexp = switch (node.desc().kind) {
                 .get => Sexp{ .value = .{ .symbol = name } },
-                .entry => std.debug.panic("nodeInputTreeToSexp should ignore entry nodes", .{}),
+                .entry => std.debug.panic("onFunctionCallNode should ignore entry nodes", .{}),
                 .set, .func, .return_ => _: {
                     var list_sexp = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                     const list = &list_sexp.value.list;
@@ -947,19 +986,27 @@ pub const GraphBuilder = struct {
                         switch (input_desc.kind.primitive) {
                             .exec => {},
                             .value => {
-                                const input_tree = try self.nodeInputTreeToSexp(alloc, input, context);
+                                const input_tree = try self.nodeInputTreeToSexp(alloc, input, state, context);
                                 try list.append(input_tree);
                             },
                         }
                     }
 
+                    // TODO: impure functions should always have an optional next_node at first output
                     var next_node: ?NodeId = null;
+                    var needs_label = false;
                     for (node.outputs, node.desc().getOutputs()) |output, output_desc| {
                         if (output_desc.kind.primitive == .exec)
                             std.debug.assert(output.links.len <= 1);
+                        if (output_desc.kind.primitive == .value and output.len() > 0)
+                            needs_label = true;
                         if (output.links.len == 1 and output_desc.kind.primitive == .exec) {
-                            next_node = output.links.uncheckedAt(0).target;
+                            next_node = output.getExecOutput().target;
                         }
+                    }
+
+                    if (needs_label) {
+                        list_sexp.label = try context.getNextLabel(alloc, node.id, &list_sexp);
                     }
 
                     if (next_node == null and node.desc().kind != .return_) {
@@ -967,20 +1014,20 @@ pub const GraphBuilder = struct {
                         return Diagnostic.Code.DoesntReturn;
                     }
 
-                    // FIXME: refactor to always have exactly one output in the non-pure function call case
+                    // FIXME: refactor to always have exactly one output in the impure function call case
                     // so we can tail call
                     //return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
                     if (next_node) |next_id|
-                        try self.onNode(alloc, next_id, context);
+                        try self.onNode(alloc, next_id, state, context);
 
                     break :_ list_sexp;
                 },
             };
 
             {
-                var i = context.block.items.len;
+                var i = state.block.items.len;
                 while (i > 0) : (i -= 1) {
-                    const item = &context.block.items[i - 1];
+                    const item = &state.block.items[i - 1];
                     if (item.value == .int and item.value.int == @as(i64, @bitCast(@intFromPtr(node)))) {
                         item.* = sexp;
                         break;
@@ -989,10 +1036,21 @@ pub const GraphBuilder = struct {
             }
         }
 
-        fn nodeInputTreeToSexp(self: @This(), alloc: std.mem.Allocator, in_link: GraphTypes.Input, context: *Context) !Sexp {
+        fn nodeInputTreeToSexp(self: @This(), alloc: std.mem.Allocator, in_link: GraphTypes.Input, state: State, context: *Context) !Sexp {
             switch (in_link) {
                 .link => |link| {
-                    const source_node = self.graph.nodes.map.getPtr(link.target) orelse std.debug.panic("couldn't find link target id={}", .{link.target});
+                    const source_id = link.target;
+                    const source_node = self.graph.nodes.map.getPtr(source_id) orelse std.debug.panic("couldn't find link target id={}", .{link.target});
+
+                    // FIXME: need better purity design
+                    const is_pure = source_node._desc.kind == .entry or _: {
+                        const outputs_descs = source_node._desc.getOutputs();
+                        break :_ if (outputs_descs.len >= 1) !outputs_descs[0].isExec() else true;
+                    };
+
+                    if (!is_pure) if (context.node_labels.getPtr(source_id)) |label| {
+                        return Sexp{ .value = .{ .symbol = label.*[2..] } };
+                    };
 
                     var sexp = _: {
                         const name = source_node.desc().name();
@@ -1015,7 +1073,7 @@ pub const GraphBuilder = struct {
 
                                 // skip the control flow input
                                 for (inputs) |input| {
-                                    result.value.list.addOneAssumeCapacity().* = try self.nodeInputTreeToSexp(alloc, input, context);
+                                    result.value.list.addOneAssumeCapacity().* = try self.nodeInputTreeToSexp(alloc, input, state, context);
                                 }
 
                                 break :_ result;
@@ -1023,39 +1081,17 @@ pub const GraphBuilder = struct {
                         }
                     };
 
-                    // NOTE: can we use the fact that we know there's at least one output?
-                    // FIXME: there must be a better way to do this...
-                    var output_count: enum { zero, one, many } = .zero;
-                    // FIXME: hack
-                    const outputs = switch (source_node._desc.kind) {
-                        .entry => source_node.outputs[1..],
-                        else => source_node.outputs,
-                    };
-                    for (outputs) |out| {
-                        output_count = switch (out.len()) {
-                            0 => .zero,
-                            1 => switch (output_count) {
-                                .zero => .one,
-                                .one, .many => .many,
-                            },
-                            else => .many,
-                        };
-                        if (output_count == .many) break;
-                    }
-
-                    if (output_count == .many) {
-                        // FIXME: generate name from user, and recommend people choose a label
-                        const label = std.fmt.allocPrint(alloc, "#!__label{}", .{context.label_counter}) catch unreachable;
+                    if (is_pure) {
+                        // FIXME: memoize already translated sections!
+                        return sexp;
+                    } else {
+                        const label = try context.getNextLabel(alloc, source_id, &sexp);
                         sexp.label = label;
                         // FIXME: horrible performance! maybe a linked list would be better?
-                        context.block.insert(0, sexp) catch unreachable;
+                        state.block.insert(0, sexp) catch unreachable;
 
-                        const label_ref = std.fmt.allocPrint(alloc, "__label{}", .{context.label_counter}) catch unreachable;
-
-                        context.label_counter += 1;
-                        return Sexp{ .value = .{ .symbol = label_ref } };
-                    } else {
-                        return sexp;
+                        // HACK
+                        return Sexp{ .value = .{ .symbol = label[2..] } };
                     }
                 },
                 // FIXME: move to own func for Value=>Sexp?, or just make Value==Sexp now...
