@@ -18,6 +18,7 @@ comptime {
     }
 }
 
+// consider making `.x` a special syntax which accesses .x from an object
 pub const Sexp = struct {
     label: ?[]const u8 = null,
     comment: ?[]const u8 = null,
@@ -48,6 +49,8 @@ pub const Sexp = struct {
             },
             .void, .int, .float, .bool, .borrowedString, .symbol => {},
         }
+        if (self.label) |l|
+            alloc.free(l);
     }
 
     /// returns an empty Sexp list

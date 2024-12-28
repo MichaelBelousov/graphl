@@ -2296,6 +2296,10 @@ test "call double" {
     const main_graph = current_graph;
 
     {
+        // entry ----------> return
+        //    a1 -.    * --> .
+        //         `-> .
+        //             2
         const double_graph = try addGraph("double", true);
         try addParamOrResult(double_graph.grappl_graph.entry_node, double_graph.grappl_graph.entry_node_basic_desc, .params);
         const mul_node_id = try NodeAdder.addNode("*", .{ .kind = .output, .index = 1, .node_id = double_graph.grappl_graph.entry_id orelse unreachable }, .{}, 0);
@@ -2307,6 +2311,8 @@ test "call double" {
     current_graph = main_graph;
 
     {
+        // entry --> confetti --> double --------> return
+        //           100          10   . --------> .
         const confetti_node_id = try NodeAdder.addNode("confetti", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
         try main_graph.addLiteralInput(confetti_node_id, 1, 0, .{ .int = 100 });
         const double_node_id = try NodeAdder.addNode("double", .{ .kind = .output, .index = 0, .node_id = confetti_node_id }, .{}, 0);
@@ -2320,13 +2326,17 @@ test "call double" {
 
     errdefer std.debug.print("combined:\n{s}\n", .{combined});
 
+    // ;;; so why not this?
+    //        (begin (confetti 100)
+    //               (return (double 10))))
+    // ;;; because I'm not ready to specify how pure functions work
     try std.testing.expectFmt(
         \\(typeof (main)
         \\        i32)
         \\(define (main)
-        \\        (begin (double 10) #!__x1
+        \\        (begin (double 10) #!__label1
         \\               (confetti 100)
-        \\               (return __x1)))
+        \\               (return __label1)))
         \\(typeof (double i32)
         \\        i32)
         \\(define (double a1)

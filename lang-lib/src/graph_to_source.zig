@@ -797,7 +797,7 @@ pub const GraphBuilder = struct {
             node_data: std.MultiArrayList(NodeData) = .{},
             block: *Block,
             current_depth: u32 = 0,
-            label_counter: u32 = 0,
+            label_counter: u32 = 1,
 
             pub fn init(alloc: std.mem.Allocator, in_block: *Block, node_count: usize) !@This() {
                 var self = @This(){
@@ -926,19 +926,21 @@ pub const GraphBuilder = struct {
 
             const name = node._desc.name();
 
-            var sexp = try context.block.addOne();
+            // FIXME/HACK: use a linked list cuz this shit is cray cray
+            // pointer can be invalidated by array mutation so we need to keep it somehow...
+            try context.block.append(Sexp{ .value = .{ .int = @bitCast(@intFromPtr(node)) } });
 
             // FIXME: doesn't work for variadics
             // FIXME: this must be unified with nodeInputTreeToSexp!
-            switch (node.desc().kind) {
-                .get => {
-                    sexp.* = Sexp{ .value = .{ .symbol = name } };
-                },
+            const sexp = switch (node.desc().kind) {
+                .get => Sexp{ .value = .{ .symbol = name } },
                 .entry => std.debug.panic("nodeInputTreeToSexp should ignore entry nodes", .{}),
-                .set, .func, .return_ => {
-                    sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                    try sexp.value.list.ensureTotalCapacityPrecise(1 + node.inputs.len - 1);
-                    (try sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
+                .set, .func, .return_ => _: {
+                    var list_sexp = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                    const list = &list_sexp.value.list;
+
+                    try list.ensureTotalCapacityPrecise(1 + node.inputs.len - 1);
+                    try list.append(Sexp{ .value = .{ .symbol = name } });
 
                     for (node.inputs, node.desc().getInputs()) |input, input_desc| {
                         std.debug.assert(input_desc.kind == .primitive);
@@ -946,8 +948,7 @@ pub const GraphBuilder = struct {
                             .exec => {},
                             .value => {
                                 const input_tree = try self.nodeInputTreeToSexp(alloc, input, context);
-                                std.log.info("node={s}, func input: {}", .{ node._desc.name(), input_tree });
-                                (try sexp.value.list.addOne()).* = input_tree;
+                                try list.append(input_tree);
                             },
                         }
                     }
@@ -971,7 +972,20 @@ pub const GraphBuilder = struct {
                     //return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
                     if (next_node) |next_id|
                         try self.onNode(alloc, next_id, context);
+
+                    break :_ list_sexp;
                 },
+            };
+
+            {
+                var i = context.block.items.len;
+                while (i > 0) : (i -= 1) {
+                    const item = &context.block.items[i - 1];
+                    if (item.value == .int and item.value.int == @as(i64, @bitCast(@intFromPtr(node)))) {
+                        item.* = sexp;
+                        break;
+                    }
+                }
             }
         }
 
@@ -1009,11 +1023,32 @@ pub const GraphBuilder = struct {
                         }
                     };
 
-                    if (source_node.outputs[link.pin_index].len() > 1) {
+                    // NOTE: can we use the fact that we know there's at least one output?
+                    // FIXME: there must be a better way to do this...
+                    var output_count: enum { zero, one, many } = .zero;
+                    // FIXME: hack
+                    const outputs = switch (source_node._desc.kind) {
+                        .entry => source_node.outputs[1..],
+                        else => source_node.outputs,
+                    };
+                    for (outputs) |out| {
+                        output_count = switch (out.len()) {
+                            0 => .zero,
+                            1 => switch (output_count) {
+                                .zero => .one,
+                                .one, .many => .many,
+                            },
+                            else => .many,
+                        };
+                        if (output_count == .many) break;
+                    }
+
+                    if (output_count == .many) {
                         // FIXME: generate name from user, and recommend people choose a label
                         const label = std.fmt.allocPrint(alloc, "#!__label{}", .{context.label_counter}) catch unreachable;
                         sexp.label = label;
-                        context.block.append(sexp) catch unreachable;
+                        // FIXME: horrible performance! maybe a linked list would be better?
+                        context.block.insert(0, sexp) catch unreachable;
 
                         const label_ref = std.fmt.allocPrint(alloc, "__label{}", .{context.label_counter}) catch unreachable;
 
