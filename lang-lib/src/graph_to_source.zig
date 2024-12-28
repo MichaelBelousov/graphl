@@ -492,6 +492,7 @@ pub const GraphBuilder = struct {
             while (iter.next()) |link| {
                 if (link.target == end_id and link.sub_index == end_index) {
                     link.* = helpers.GraphTypes.dead_outlink;
+                    start.outputs[start_index].dead_count += 1;
                     break;
                 }
             }
@@ -792,9 +793,11 @@ pub const GraphBuilder = struct {
         pub const Block = std.ArrayList(Sexp);
 
         const Context = struct {
+            // FIXME: um isn't not using a pointer (I copy this context a lot) a bug?
             node_data: std.MultiArrayList(NodeData) = .{},
             block: *Block,
             current_depth: u32 = 0,
+            label_counter: u32 = 0,
 
             pub fn init(alloc: std.mem.Allocator, in_block: *Block, node_count: usize) !@This() {
                 var self = @This(){
@@ -904,7 +907,7 @@ pub const GraphBuilder = struct {
             (try branch_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc().name() } };
 
             // condition
-            const condition_sexp = try self.nodeInputTreeToSexp(alloc, node.inputs[1]);
+            const condition_sexp = try self.nodeInputTreeToSexp(alloc, node.inputs[1], context);
             (try branch_sexp.value.list.addOne()).* = condition_sexp;
             // consequence
             (try branch_sexp.value.list.addOne()).* = consequence_sexp;
@@ -918,7 +921,7 @@ pub const GraphBuilder = struct {
         }
 
         pub fn onFunctionCallNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, context: *Context) !void {
-            if (self.graph.isJoin(node))
+            if (self.graph.isJoin(node)) // FIXME: why?
                 return;
 
             const name = node._desc.name();
@@ -933,7 +936,6 @@ pub const GraphBuilder = struct {
                 },
                 .entry => std.debug.panic("nodeInputTreeToSexp should ignore entry nodes", .{}),
                 .set, .func, .return_ => {
-                    std.log.info("onFunctionCall kind={s}, node={s}", .{ @tagName(node.desc().kind), name });
                     sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                     try sexp.value.list.ensureTotalCapacityPrecise(1 + node.inputs.len - 1);
                     (try sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = name } };
@@ -943,7 +945,7 @@ pub const GraphBuilder = struct {
                         switch (input_desc.kind.primitive) {
                             .exec => {},
                             .value => {
-                                const input_tree = try self.nodeInputTreeToSexp(alloc, input);
+                                const input_tree = try self.nodeInputTreeToSexp(alloc, input, context);
                                 std.log.info("node={s}, func input: {}", .{ node._desc.name(), input_tree });
                                 (try sexp.value.list.addOne()).* = input_tree;
                             },
@@ -973,52 +975,64 @@ pub const GraphBuilder = struct {
             }
         }
 
-        fn nodeInputTreeToSexp(self: @This(), alloc: std.mem.Allocator, in_link: GraphTypes.Input) !Sexp {
-            const sexp = switch (in_link) {
-                .link => |v| _: {
-                    // FIXME: is void really correct?
-                    const target = if (v) |_v| _v.target else return Sexp{ .value = .void };
-                    const node = self.graph.nodes.map.getPtr(target) orelse std.debug.panic("couldn't find link target id={}", .{target});
+        fn nodeInputTreeToSexp(self: @This(), alloc: std.mem.Allocator, in_link: GraphTypes.Input, context: *Context) !Sexp {
+            switch (in_link) {
+                .link => |link| {
+                    const source_node = self.graph.nodes.map.getPtr(link.target) orelse std.debug.panic("couldn't find link target id={}", .{link.target});
 
-                    const name = node.desc().name();
+                    var sexp = _: {
+                        const name = source_node.desc().name();
 
-                    switch (node._desc.kind) {
-                        .get => break :_ Sexp{ .value = .{ .symbol = name } },
-                        .entry => {
-                            break :_ Sexp{ .value = .{ .symbol = node.desc().getOutputs()[v.?.pin_index].name } };
-                        },
-                        .set, .func, .return_ => {
-                            var result = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                        switch (source_node._desc.kind) {
+                            .get => break :_ Sexp{ .value = .{ .symbol = name } },
+                            .entry => {
+                                break :_ Sexp{ .value = .{ .symbol = source_node.desc().getOutputs()[link.pin_index].name } };
+                            },
+                            .set, .func, .return_ => {
+                                var result = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
 
-                            try result.value.list.ensureTotalCapacityPrecise(node.inputs.len + 1);
+                                try result.value.list.ensureTotalCapacityPrecise(source_node.inputs.len + 1);
 
-                            result.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
+                                result.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
 
-                            // HACK, skip control flow inputs for function calls (currently math is marked as a function but
-                            // should be marked as pure)
-                            const inputs = if (node._desc.getOutputs()[0].isExec()) node.inputs[1..] else node.inputs;
+                                // HACK, skip control flow inputs for function calls (currently math is marked as a function but
+                                // should be marked as pure)
+                                const inputs = if (source_node._desc.getOutputs()[0].isExec()) source_node.inputs[1..] else source_node.inputs;
 
-                            // skip the control flow input
-                            for (inputs) |input| {
-                                result.value.list.addOneAssumeCapacity().* = try self.nodeInputTreeToSexp(alloc, input);
-                            }
+                                // skip the control flow input
+                                for (inputs) |input| {
+                                    result.value.list.addOneAssumeCapacity().* = try self.nodeInputTreeToSexp(alloc, input, context);
+                                }
 
-                            break :_ result;
-                        },
+                                break :_ result;
+                            },
+                        }
+                    };
+
+                    if (source_node.outputs[link.pin_index].len() > 1) {
+                        // FIXME: generate name from user, and recommend people choose a label
+                        const label = std.fmt.allocPrint(alloc, "#!__label{}", .{context.label_counter}) catch unreachable;
+                        sexp.label = label;
+                        context.block.append(sexp) catch unreachable;
+
+                        const label_ref = std.fmt.allocPrint(alloc, "__label{}", .{context.label_counter}) catch unreachable;
+
+                        context.label_counter += 1;
+                        return Sexp{ .value = .{ .symbol = label_ref } };
+                    } else {
+                        return sexp;
                     }
                 },
                 // FIXME: move to own func for Value=>Sexp?, or just make Value==Sexp now...
                 .value => |v| switch (v) {
-                    .int => |u| Sexp{ .value = .{ .int = u } },
-                    .float => |u| Sexp{ .value = .{ .float = u } },
-                    .string => |u| Sexp{ .value = .{ .borrowedString = u } },
-                    .bool => |u| Sexp{ .value = .{ .bool = u } },
-                    .null => Sexp{ .value = .void },
-                    .symbol => |u| Sexp{ .value = .{ .symbol = u } },
+                    .int => |u| return Sexp{ .value = .{ .int = u } },
+                    .float => |u| return Sexp{ .value = .{ .float = u } },
+                    .string => |u| return Sexp{ .value = .{ .borrowedString = u } },
+                    .bool => |u| return Sexp{ .value = .{ .bool = u } },
+                    .null => return Sexp{ .value = .void },
+                    .symbol => |u| return Sexp{ .value = .{ .symbol = u } },
                 },
-            };
-
-            return sexp;
+            }
         }
     };
 

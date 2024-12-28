@@ -174,7 +174,7 @@ pub const GraphTypes = struct {
     };
 
     pub const Input = union(enum) {
-        link: ?Link,
+        link: Link,
         value: Value,
     };
 
@@ -189,6 +189,7 @@ pub const GraphTypes = struct {
         /// N.B: might be a dead_outlink, since target=0 is invalid for an output
         /// (entry can't be targeted by an output)
         links: std.SegmentedList(Link, 2) = .{},
+        dead_count: u32 = 0,
 
         pub fn first(self: *const Outputs) ?*const Link {
             var iter = self.links.constIterator(0);
@@ -208,6 +209,11 @@ pub const GraphTypes = struct {
                 }
             }
             return self.links.append(a, link);
+        }
+
+        // TODO: make faster
+        pub fn len(self: *const Outputs) usize {
+            return self.links.len - self.dead_count;
         }
 
         pub fn getExecOutput(self: *const Outputs) *const Link {
@@ -230,6 +236,7 @@ pub const GraphTypes = struct {
     pub const Node = struct {
         id: NodeId,
         position: Point = .{},
+        label: ?[]const u8 = null,
         comment: ?[]const u8 = null,
         // FIMXE: how do we handle default inputs?
         inputs: []Input = empty_inputs,

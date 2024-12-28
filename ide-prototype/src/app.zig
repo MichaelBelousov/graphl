@@ -1180,7 +1180,7 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
             const node = entry.value_ptr;
 
             for (node.inputs, 0..) |input, input_index| {
-                if (input != .link or input.link == null)
+                if (input != .link)
                     continue;
 
                 const target = Socket{
@@ -1195,9 +1195,9 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
                 };
 
                 const source = Socket{
-                    .node_id = input.link.?.target,
+                    .node_id = input.link.target,
                     .kind = .output,
-                    .index = input.link.?.pin_index,
+                    .index = input.link.pin_index,
                 };
 
                 const target_pos = socket_positions.get(source) orelse {
@@ -1608,7 +1608,8 @@ fn renderNode(
                 var icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
                 const socket_center = considerSocketForHover(&icon_res, socket);
                 if (icon_res.clicked) {
-                    input.* = .{ .link = null };
+                    // FIXME: add an "input" reset
+                    input.* = .{ .value = .{ .float = 0.0 } };
                 }
 
                 break :_ socket_center;
@@ -2028,7 +2029,7 @@ pub const VisualGraph = struct {
                     for (sockets, 0..) |maybe_socket, i| {
                         const link = switch (socket_type) {
                             .input => switch (maybe_socket) {
-                                .link => |v| if (v != null) v.? else continue,
+                                .link => |v| v,
                                 else => continue,
                             },
                             .output => maybe_socket.first() orelse continue,
