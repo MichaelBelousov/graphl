@@ -967,7 +967,7 @@ pub const GraphBuilder = struct {
 
             // FIXME/HACK: use a linked list cuz this shit is cray cray
             // pointer can be invalidated by array mutation so we need to keep it somehow...
-            try state.block.append(Sexp{ .value = .{ .int = @bitCast(@intFromPtr(node)) } });
+            try state.block.append(Sexp{ .value = .{ .int = @intCast(@intFromPtr(node)) } });
 
             // FIXME: doesn't work for variadics
             // FIXME: this must be unified with nodeInputTreeToSexp!
@@ -1028,7 +1028,7 @@ pub const GraphBuilder = struct {
                 var i = state.block.items.len;
                 while (i > 0) : (i -= 1) {
                     const item = &state.block.items[i - 1];
-                    if (item.value == .int and item.value.int == @as(i64, @bitCast(@intFromPtr(node)))) {
+                    if (item.value == .int and item.value.int == @as(i64, @intCast(@intFromPtr(node)))) {
                         item.* = sexp;
                         break;
                     }
