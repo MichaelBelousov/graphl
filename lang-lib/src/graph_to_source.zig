@@ -511,7 +511,7 @@ pub const GraphBuilder = struct {
         while (iter.next()) |link| : (i += 1) {
             if (link.isDeadOutput()) continue;
             // TODO: diagnostic
-            const target_node = self.nodes.map.getPtr(node_id) orelse {
+            const target_node = self.nodes.map.getPtr(link.target) orelse {
                 std.log.err("TargetNodeNotFound={}", .{i});
                 return error.TargetNodeNotFound;
             };
@@ -758,8 +758,7 @@ pub const GraphBuilder = struct {
                     for (collapsed_node.outputs, collapsed_node.desc().getOutputs()) |outputs, output_desc| {
                         if (!output_desc.isExec()) continue;
                         std.debug.assert(outputs.links.len <= 1);
-                        if (outputs.links.len == 0) continue;
-                        const output = outputs.getExecOutput();
+                        const output = outputs.getExecOutput() orelse continue;
                         const target = self.nodes.map.getPtr(output.target) orelse unreachable;
                         try new_collapsed_node_layer.put(alloc, target, {});
                     }
@@ -911,8 +910,7 @@ pub const GraphBuilder = struct {
             // FIXME: nodes with these constraints should be specialized!
             // TODO: (nodes should also be SoA and EoA'd)
             std.debug.assert(node.outputs[0].len() <= 1);
-            if (node.outputs[0].len() == 1) {
-                const consequence = node.outputs[0].getExecOutput();
+            if (node.outputs[0].getExecOutput()) |consequence| {
                 var block = Block.init(alloc);
                 // FIXME: why not take state depth?
                 const consequence_state = State{
@@ -925,8 +923,7 @@ pub const GraphBuilder = struct {
             }
 
             std.debug.assert(node.outputs[1].links.len <= 1);
-            if (node.outputs[1].len() == 1) {
-                const alternative = node.outputs[1].getExecOutput();
+            if (node.outputs[1].getExecOutput()) |alternative| {
                 var block = Block.init(alloc);
                 const alternative_state = State{
                     .block = &block,
@@ -1000,8 +997,8 @@ pub const GraphBuilder = struct {
                             std.debug.assert(output.links.len <= 1);
                         if (output_desc.kind.primitive == .value and output.len() > 0)
                             needs_label = true;
-                        if (output.links.len == 1 and output_desc.kind.primitive == .exec) {
-                            next_node = output.getExecOutput().target;
+                        if (output.getExecOutput() != null and output_desc.kind.primitive == .exec) {
+                            next_node = output.getExecOutput().?.target;
                         }
                     }
 
@@ -1114,11 +1111,8 @@ pub const GraphBuilder = struct {
 
         std.debug.assert(self.entry().?.desc().getOutputs()[0].isExec());
 
-        if (self.entry().?.outputs[0].links.len == 0)
+        if (self.entry().?.outputs[0].getExecOutput() != null)
             return Sexp.newList(alloc);
-
-        if (self.entry().?.outputs[0].links.len > 1)
-            return error.ExecCannotBeMultiConnected;
 
         const after_entry_id = self.entry().?.outputs[0].links.uncheckedAt(0).target;
         var if_empty_diag = Diagnostics.init();

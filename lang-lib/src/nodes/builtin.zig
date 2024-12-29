@@ -216,8 +216,9 @@ pub const GraphTypes = struct {
             return self.links.len - self.dead_count;
         }
 
-        pub fn getExecOutput(self: *const Outputs) *const Link {
-            return self.links.uncheckedAt(0);
+        pub fn getExecOutput(self: *const Outputs) ?*const Link {
+            std.debug.assert(self.links.len <= 1);
+            return if (self.links.len == 0) self.links.uncheckedAt(0) else null;
         }
 
         pub fn setExecOutput(self: *Outputs, link: Link) void {
