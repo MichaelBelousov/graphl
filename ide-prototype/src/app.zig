@@ -2028,61 +2028,72 @@ pub const VisualGraph = struct {
                 inline for (.{ SocketType.input, SocketType.output }) |socket_type| {
                     const sockets = @field(cursor.data.node, @tagName(socket_type) ++ "s");
                     for (sockets, 0..) |maybe_socket, i| {
-                        const link = switch (socket_type) {
+                        const links = switch (socket_type) {
                             .input => switch (maybe_socket) {
-                                .link => |v| v,
+                                .link => |v| _: {
+                                    var link = std.SegmentedList(grappl.Link, 2){};
+                                    // TODO: pass failing allocator
+                                    link.append(alloc, v) catch unreachable;
+                                    break :_ link;
+                                },
                                 else => continue,
                             },
-                            .output => maybe_socket.first() orelse continue,
+                            .output => maybe_socket.links,
                         };
 
-                        const was_visited = visited.isSet(@intCast(link.target));
+                        var link_iter = links.constIterator(0);
+                        while (link_iter.next()) |link| {
+                            if (socket_type == .output and link.isDeadOutput())
+                                continue;
 
-                        if (was_visited) continue;
+                            const was_visited = visited.isSet(@intCast(link.target));
 
-                        visited.set(@intCast(link.target));
+                            if (was_visited) continue;
 
-                        const maybe_next_col = switch (socket_type) {
-                            .input => column.prev,
-                            .output => column.next,
-                        };
+                            visited.set(@intCast(link.target));
 
-                        if (maybe_next_col == null) {
-                            const new_next_col = try alloc.create(Grid.Node);
-                            new_next_col.* = Grid.Node{ .data = Col{} };
-                            switch (socket_type) {
-                                .input => grid.prepend(new_next_col),
-                                .output => grid.append(new_next_col),
+                            const maybe_next_col = switch (socket_type) {
+                                .input => column.prev,
+                                .output => column.next,
+                            };
+
+                            if (maybe_next_col == null) {
+                                const new_next_col = try alloc.create(Grid.Node);
+                                new_next_col.* = Grid.Node{ .data = Col{} };
+                                switch (socket_type) {
+                                    .input => grid.prepend(new_next_col),
+                                    .output => grid.append(new_next_col),
+                                }
                             }
-                        }
 
-                        const next_col = switch (socket_type) {
-                            .input => column.prev.?,
-                            .output => column.next.?,
-                        };
+                            const next_col = switch (socket_type) {
+                                .input => column.prev.?,
+                                .output => column.next.?,
+                            };
 
-                        const new_cell = try alloc.create(Col.Node);
+                            const new_cell = try alloc.create(Col.Node);
 
-                        const node = self.graph.nodes.map.getPtr(link.target) orelse unreachable;
+                            const node = self.graph.nodes.map.getPtr(link.target) orelse unreachable;
 
-                        new_cell.* = Col.Node{
-                            .data = .{
-                                .node = node,
-                                .pos = .{
-                                    // FIXME: this is wrong, and not even used
-                                    // each column should have an "offset" value
-                                    .x = cursor.data.pos.x + switch (socket_type) {
-                                        .input => -1,
-                                        .output => 1,
+                            new_cell.* = Col.Node{
+                                .data = .{
+                                    .node = node,
+                                    .pos = .{
+                                        // FIXME: this is wrong, and not even used
+                                        // each column should have an "offset" value
+                                        .x = cursor.data.pos.x + switch (socket_type) {
+                                            .input => -1,
+                                            .output => 1,
+                                        },
+                                        .y = @intCast(i),
                                     },
-                                    .y = @intCast(i),
                                 },
-                            },
-                        };
+                            };
 
-                        next_col.data.append(new_cell);
+                            next_col.data.append(new_cell);
 
-                        try impl(self, alloc, grid, visited, next_col, new_cell);
+                            try impl(self, alloc, grid, visited, next_col, new_cell);
+                        }
                     }
                 }
             }
