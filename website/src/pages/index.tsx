@@ -283,6 +283,8 @@ const Homepage = () => {
   };
 
   const sample1 = (
+    // TODO: e2e test these, for now it's being tested with manual duplication
+    // in the ide-prototype dir
     <Sample
       graphInitState={{
         notRemovable: true,
@@ -447,17 +449,17 @@ const Homepage = () => {
           Try it
         </ShinyButton>
 
-        <div className="center">
-          <p style={mediumText} {...classNames(styles["fadeInText_2"])}>
-            Throw away 60 years of text editing baggage and
-            <br/>
-            write code <strong> without writing code</strong>.
-            <br/>
-            Experience the programming language that feels like a <strong>workflow engine</strong>.
-            <br/>
-            Then export to WebAssembly and <strong>run anywhere</strong>.
-          </p>
-        </div>
+        <p style={{...mediumText, margin: "0.5em"}} {...classNames(styles["fadeInText_2"], "center")}>
+          Throw away 60 years of text editing baggage and
+          <br/>
+          write code <strong> without writing code</strong>.
+        </p>
+        <p style={{...mediumText, margin: "0.5em"}} {...classNames(styles["fadeInText_2"], "center")}>
+          Experience the programming language that feels like a <strong>workflow engine</strong>.
+        </p>
+        <p style={mediumText} {...classNames(styles["fadeInText_2"], "center")}>
+          Then export to WebAssembly and <strong>run anywhere</strong>.
+        </p>
 
       </div>
 
