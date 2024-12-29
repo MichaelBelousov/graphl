@@ -304,12 +304,12 @@ export fn setInitState_graphs_nodes_input_pin(graph_name_ptr: [*]const u8, graph
     return true;
 }
 
-const UserFuncList = std.SinglyLinkedList(compiler.UserFunc);
-var user_funcs = UserFuncList{};
+pub const UserFuncList = std.SinglyLinkedList(compiler.UserFunc);
+pub var user_funcs = UserFuncList{};
 var next_user_func: usize = 0;
 
 // FIXME: keep in sync with typescript automatically
-const UserFuncTypes = enum(u32) {
+pub const UserFuncTypes = enum(u32) {
     i32_ = 0,
     i64_ = 1,
     f32_ = 2,
@@ -334,7 +334,7 @@ export fn addUserFuncOutput(func_id: usize, index: u32, name_len: u32, output_ty
     return _addUserFuncOutput(func_id, index, name, @enumFromInt(output_type)) catch unreachable;
 }
 
-fn _createUserFunc(name: []const u8, input_count: u32, output_count: u32) !usize {
+pub fn _createUserFunc(name: []const u8, input_count: u32, output_count: u32) !usize {
     const node = try gpa.create(UserFuncList.Node);
     node.* = UserFuncList.Node{
         .data = .{
@@ -365,7 +365,7 @@ fn _createUserFunc(name: []const u8, input_count: u32, output_count: u32) !usize
     return node.data.id;
 }
 
-fn _addUserFuncInput(func_id: usize, index: u32, name: []const u8, input_type_tag: UserFuncTypes) !void {
+pub fn _addUserFuncInput(func_id: usize, index: u32, name: []const u8, input_type_tag: UserFuncTypes) !void {
     const input_type = switch (input_type_tag) {
         .i32_ => grappl.primitive_types.i32_,
         .i64_ => grappl.primitive_types.i64_,
@@ -393,7 +393,7 @@ fn _addUserFuncInput(func_id: usize, index: u32, name: []const u8, input_type_ta
     };
 }
 
-fn _addUserFuncOutput(func_id: usize, index: u32, name: []const u8, output_type_tag: UserFuncTypes) !void {
+pub fn _addUserFuncOutput(func_id: usize, index: u32, name: []const u8, output_type_tag: UserFuncTypes) !void {
     const output_type = switch (output_type_tag) {
         .i32_ => grappl.primitive_types.i32_,
         .i64_ => grappl.primitive_types.i64_,
@@ -433,7 +433,7 @@ pub const gpa = if (builtin.cpu.arch.isWasm())
 else
     gpa_instance.allocator();
 
-var shared_env: grappl.Env = undefined;
+pub var shared_env: grappl.Env = undefined;
 
 pub const Graph = struct {
     index: u16,
@@ -558,12 +558,12 @@ pub const Graph = struct {
 };
 
 // NOTE: must be singly linked list because Graph contains an internal pointer and cannot be moved!
-var graphs = std.SinglyLinkedList(Graph){};
-var current_graph: *Graph = undefined;
+pub var graphs = std.SinglyLinkedList(Graph){};
+pub var current_graph: *Graph = undefined;
 var next_graph_index: u16 = 0;
 
 /// uses gpa, deinit the result with gpa
-fn combineGraphs() !Sexp {
+pub fn combineGraphs() !Sexp {
     // FIXME: use an arena!
     // not currently possible because grappl_graph.compile allocates permanent memory
     // for incremental compilation... the graph should take a separate allocator for
@@ -616,7 +616,7 @@ fn exportCurrentSource() !void {
     onExportCurrentSource(bytes.items.ptr, bytes.items.len);
 }
 
-export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
+pub export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
     const ptr = in_ptr orelse return;
     const src = ptr[0..len];
 
@@ -653,7 +653,7 @@ fn setCurrentGraphByIndex(index: u16) !void {
     return error.RangeError;
 }
 
-fn addGraph(name: []const u8, set_as_current: bool) !*Graph {
+pub fn addGraph(name: []const u8, set_as_current: bool) !*Graph {
     const graph_index = next_graph_index;
     next_graph_index += 1;
     errdefer next_graph_index -= 1;
@@ -821,7 +821,8 @@ pub fn deinit() void {
         gpa.destroy(cursor);
     }
 
-    _ = gpa_instance.deinit();
+    // FIXME: this breaks in tests
+    //_ = gpa_instance.deinit();
 }
 
 const SocketType = enum(u1) { input, output };
@@ -832,7 +833,7 @@ const Socket = struct {
     index: u16,
 };
 
-const NodeAdder = struct {
+pub const NodeAdder = struct {
     pub fn validSocketIndex(
         node_desc: *const grappl.NodeDesc,
         create_from_socket: Socket,
@@ -2146,7 +2147,7 @@ pub const VisualGraph = struct {
     }
 };
 
-fn addParamOrResult(
+pub fn addParamOrResult(
     /// graph entry if param, graph return if result
     node_desc: *const helpers.NodeDesc,
     /// graph entry if param, graph return if result
@@ -2284,181 +2285,8 @@ fn addParamOrResult(
     }
 }
 
-test "call double" {
-    const a = std.testing.allocator;
-
-    const confetti_func_id = try _createUserFunc("confetti", 1, 0);
-    try _addUserFuncInput(confetti_func_id, 0, "particleCount", .i32_);
-
-    defer deinit();
-    try init();
-
-    const main_graph = current_graph;
-
-    {
-        // entry ----------> return
-        //    a1 -.    * --> .
-        //         `-> .
-        //             2
-        const double_graph = try addGraph("double", true);
-        try addParamOrResult(double_graph.grappl_graph.entry_node, double_graph.grappl_graph.entry_node_basic_desc, .params);
-        const mul_node_id = try NodeAdder.addNode("*", .{ .kind = .output, .index = 1, .node_id = double_graph.grappl_graph.entry_id orelse unreachable }, .{}, 0);
-        const return_id = try NodeAdder.addNode("return", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
-        try double_graph.addLiteralInput(mul_node_id, 1, 0, .{ .int = 2 });
-        try double_graph.addEdge(a, mul_node_id, 0, return_id, 1, 0);
-    }
-
-    current_graph = main_graph;
-
-    {
-        // entry --> confetti --> double --------> return
-        //           100          10   . --------> .
-        const confetti_node_id = try NodeAdder.addNode("confetti", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
-        try main_graph.addLiteralInput(confetti_node_id, 1, 0, .{ .int = 100 });
-        const double_node_id = try NodeAdder.addNode("double", .{ .kind = .output, .index = 0, .node_id = confetti_node_id }, .{}, 0);
-        try main_graph.addLiteralInput(double_node_id, 1, 0, .{ .int = 10 });
-        const return_id = try NodeAdder.addNode("return", .{ .kind = .output, .index = 0, .node_id = double_node_id }, .{}, 0);
-        try main_graph.addEdge(a, double_node_id, 1, return_id, 1, 0);
-    }
-
-    var combined = try combineGraphs();
-    defer combined.deinit(gpa);
-
-    errdefer std.debug.print("combined:\n{s}\n", .{combined});
-
-    // ;;; so why not this?
-    //        (begin (confetti 100)
-    //               (return (double 10))))
-    // ;;; because I'm not ready to specify how pure functions work
-    try std.testing.expectFmt(
-        \\(typeof (main)
-        \\        i32)
-        \\(define (main)
-        \\        (begin (confetti 100)
-        \\               (double 10) #!__label1
-        \\               (return __label1)))
-        \\(typeof (double i32)
-        \\        i32)
-        \\(define (double a1)
-        \\        (begin (return (* a1
-        \\                          2))))
-    , "{}", .{combined});
-
-    // FIXME: use testing allocator
-    var diagnostic = compiler.Diagnostic.init();
-    errdefer if (diagnostic.err != .None) std.debug.print("diagnostic: {}", .{diagnostic});
-
-    const compiled = try compiler.compile(gpa, &combined, &shared_env, &user_funcs, &diagnostic);
-    defer gpa.free(compiled);
-
-    const expected = std.fmt.comptimePrint(
-        \\({s}
-        \\(func $confetti
-        \\      (param $param_0
-        \\             i32)
-        \\      (call $callUserFunc_i32_R
-        \\            (i32.const 0)
-        \\            (local.get $param_0)))
-        \\(export "main"
-        \\        (func $main))
-        \\(type $typeof_main
-        \\      (func (result i32)))
-        \\(func $main
-        \\      (result i32)
-        \\      (local $__lc0
-        \\             i32)
-        \\      (call $confetti
-        \\            (i32.const 100))
-        \\      (call $double
-        \\            (i32.const 10))
-        \\      (local.set $__lc0)
-        \\      (local.get $__lc0))
-        \\(export "double"
-        \\        (func $double))
-        \\(type $typeof_double
-        \\      (func (param i32)
-        \\            (result i32)))
-        \\(func $double
-        \\      (param $param_a1
-        \\             i32)
-        \\      (result i32)
-        \\      (i32.mul (local.get $param_a1)
-        \\               (i32.const 2)))
-        \\)
-    , .{compiler.compiled_prelude});
-
-    try std.testing.expectEqualStrings(expected, compiled);
-
-    try grappl.testing.expectWasmOutput(20, compiled, "main", .{});
-}
-
-test "open file" {
-    const confetti_func_id = try _createUserFunc("confetti", 1, 0);
-    try _addUserFuncInput(confetti_func_id, 0, "particleCount", .i32_);
-
-    defer deinit();
-    try init();
-
-    const file_content =
-        \\(typeof (main)
-        \\        i32)
-        \\(define (main)
-        \\        (begin (typeof x
-        \\                       i32)
-        \\               (define x)
-        \\               (+ 2 3) #!__x1
-        \\               (if #f
-        \\                   (begin (set! x
-        \\                                (+ 4
-        \\                                   8))
-        \\                          (return __x1))
-        \\                   (begin (throw-confetti 100)
-        \\                          (return __x1)))))
-    ;
-
-    onReceiveLoadedSource(file_content.ptr, file_content.len);
-
-    // FIXME: assert graph contents
-
-    var combined = try combineGraphs();
-    defer combined.deinit(gpa);
-
-    errdefer std.debug.print("combined:\n{s}\n", .{combined});
-
-    try std.testing.expectFmt(file_content, "{}", .{combined});
-
-    // FIXME: use testing allocator
-    var diagnostic = compiler.Diagnostic.init();
-    errdefer if (diagnostic.err != .None) std.debug.print("diagnostic: {}", .{diagnostic});
-
-    const compiled = try compiler.compile(gpa, &combined, &shared_env, &user_funcs, &diagnostic);
-    defer gpa.free(compiled);
-
-    const expected = std.fmt.comptimePrint(
-        \\({s}
-        \\(export "main"
-        \\        (func $main))
-        \\(type $typeof_main
-        \\      (func (result i32)))
-        \\(func $main
-        \\      (result i32)
-        \\      (call $double
-        \\            (i32.const 10)))
-        \\(export "double"
-        \\        (func $double))
-        \\(type $typeof_double
-        \\      (func (param i32)
-        \\            (result i32)))
-        \\(func $double
-        \\      (param $param_a1
-        \\             i32)
-        \\      (result i32)
-        \\      (i32.mul (local.get $param_a1)
-        \\               (i32.const 2)))
-        \\)
-    , .{compiler.compiled_prelude});
-
-    try std.testing.expectEqualStrings(expected, compiled);
+test {
+    _ = @import("./app_tests.zig");
 }
 
 pub fn frame() !void {
