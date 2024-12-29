@@ -666,14 +666,14 @@ const Compilation = struct {
                     //return error.ReturnTypeMismatch;
                 }
 
-                try impl_sexp.value.list.insertSlice(additional_locals_index, post_analysis_locals.items);
-                try impl_sexp.value.list.appendSlice(prologue.items);
-
                 // FIXME: what about the rest of the code?
                 // NOTE: inserting fragments must occur after inserting the locals!
                 try impl_sexp.value.list.appendSlice(try body_fragment.values.toOwnedSlice());
                 body_fragment.values.clearAndFree();
             }
+
+            try impl_sexp.value.list.insertSlice(additional_locals_index, post_analysis_locals.items);
+            try impl_sexp.value.list.appendSlice(prologue.items);
         }
     }
 
@@ -887,16 +887,42 @@ const Compilation = struct {
         /// not const because we may be expanding the frame to include this value
         context: *ExprContext,
     ) !Fragment {
+        const alloc = self.arena.allocator();
+
         // this inner wrapper marks labeled nodes to not free their contents until the context is ready
         var fragment = try self._compileExpr(code_sexp, context);
         if (code_sexp.label) |label| {
-            fragment.labeled = true;
+            // FIXME: remove labeled force deinit
+            //fragment.labeled = true;
+
             // HACK: we know the label is "#!{s}"
             const entry = try context.label_to_fragment.getOrPut(label[2..]);
             std.debug.assert(!entry.found_existing);
-            entry.value_ptr.* = fragment;
-            return fragment;
+            const local_ptr_sym = try context.addLocal(alloc, fragment.resolved_type);
+
+            try fragment.values.ensureUnusedCapacity(1);
+            const set = fragment.values.addOneAssumeCapacity();
+            set.* = Sexp.newList(alloc);
+            try set.value.list.ensureTotalCapacityPrecise(2);
+            set.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
+            set.value.list.appendAssumeCapacity(local_ptr_sym);
+
+            var ref_code = std.ArrayList(Sexp).init(alloc);
+            try ref_code.ensureTotalCapacityPrecise(1);
+            const get = ref_code.addOneAssumeCapacity();
+            get.* = Sexp.newList(alloc);
+            try get.value.list.ensureTotalCapacityPrecise(2);
+            get.value.list.appendAssumeCapacity(wat_syms.ops.@"local.get");
+            get.value.list.appendAssumeCapacity(local_ptr_sym);
+
+            const ref_code_fragment = Fragment{
+                .values = ref_code,
+                .resolved_type = fragment.resolved_type,
+            };
+
+            entry.value_ptr.* = ref_code_fragment;
         }
+
         return fragment;
     }
 
@@ -2132,7 +2158,7 @@ pub fn expectWasmOutput(
     });
     defer t.allocator.free(wat2wasm_run.stdout);
     defer t.allocator.free(wat2wasm_run.stderr);
-    if (wat2wasm_run.term != .Exited or wat2wasm_run.term.Exited != 0) {
+    if (!std.meta.eql(wat2wasm_run.term, .{ .Exited = 0 })) {
         std.debug.print("wat2wasm exited with {any}:\n{s}\n", .{ wat2wasm_run.term, wat2wasm_run.stderr });
         return error.FailTest;
     }

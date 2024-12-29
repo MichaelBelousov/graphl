@@ -2365,12 +2365,14 @@ test "call double" {
         \\      (func (result i32)))
         \\(func $main
         \\      (result i32)
+        \\      (local $__lc0
+        \\             i32)
         \\      (call $confetti
         \\            (i32.const 100))
         \\      (call $double
         \\            (i32.const 10))
-        \\      (call $double
-        \\            (i32.const 10)))
+        \\      (local.set $__lc0)
+        \\      (local.get $__lc0))
         \\(export "double"
         \\        (func $double))
         \\(type $typeof_double
