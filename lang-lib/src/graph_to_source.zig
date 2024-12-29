@@ -451,11 +451,20 @@ pub const GraphBuilder = struct {
             return error.TargetIndexInvalid;
         }
 
-        try start.outputs[start_index].append(alloc, .{
+        // FIXME: hack
+        const is_exec = start._desc.getOutputs()[start_index].isExec();
+
+        const out_link = GraphTypes.Link{
             .target = end_id,
             .pin_index = end_index,
             .sub_index = end_subindex,
-        });
+        };
+
+        if (is_exec) {
+            start.outputs[start_index].setExecOutput(out_link);
+        } else {
+            try start.outputs[start_index].append(alloc, out_link);
+        }
 
         end.inputs[end_index] = .{ .link = .{
             .target = start_id,
@@ -909,7 +918,6 @@ pub const GraphBuilder = struct {
 
             // FIXME: nodes with these constraints should be specialized!
             // TODO: (nodes should also be SoA and EoA'd)
-            std.debug.assert(node.outputs[0].len() <= 1);
             if (node.outputs[0].getExecOutput()) |consequence| {
                 var block = Block.init(alloc);
                 // FIXME: why not take state depth?
@@ -922,7 +930,6 @@ pub const GraphBuilder = struct {
                 consequence_sexp = Sexp{ .value = .{ .list = block } };
             }
 
-            std.debug.assert(node.outputs[1].links.len <= 1);
             if (node.outputs[1].getExecOutput()) |alternative| {
                 var block = Block.init(alloc);
                 const alternative_state = State{
@@ -993,8 +1000,6 @@ pub const GraphBuilder = struct {
                     var next_node: ?NodeId = null;
                     var needs_label = false;
                     for (node.outputs, node.desc().getOutputs()) |output, output_desc| {
-                        if (output_desc.kind.primitive == .exec)
-                            std.debug.assert(output.links.len <= 1);
                         if (output_desc.kind.primitive == .value and output.len() > 0)
                             needs_label = true;
                         if (output.getExecOutput() != null and output_desc.kind.primitive == .exec) {
@@ -1111,10 +1116,8 @@ pub const GraphBuilder = struct {
 
         std.debug.assert(self.entry().?.desc().getOutputs()[0].isExec());
 
-        if (self.entry().?.outputs[0].getExecOutput() != null)
-            return Sexp.newList(alloc);
-
-        const after_entry_id = self.entry().?.outputs[0].links.uncheckedAt(0).target;
+        const first_link = self.entry().?.outputs[0].getExecOutput() orelse return Sexp.newList(alloc);
+        const after_entry_id = first_link.target;
         var if_empty_diag = Diagnostics.init();
         const diag = if (diagnostics) |d| d else &if_empty_diag;
         return (ToSexp{ .graph = self, .diagnostics = diag }).toSexp(alloc, after_entry_id);
