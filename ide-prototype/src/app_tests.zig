@@ -183,9 +183,6 @@ test "call double" {
 test "sample1 (if)" {
     const a = std.testing.allocator;
 
-    const confetti_func_id = try app._createUserFunc("confetti", 1, 0);
-    try app._addUserFuncInput(confetti_func_id, 0, "particleCount", .i32_);
-
     defer app.deinit();
     try app.init();
 
@@ -201,13 +198,13 @@ test "sample1 (if)" {
         //                            1
         const if_node_id = try app.NodeAdder.addNode("if", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
         try main_graph.addLiteralInput(if_node_id, 1, 0, .{ .bool = true });
-        const plus_node_id = try app.NodeAdder.addNode("+", .{ .kind = .output, .index = 0, .node_id = if_node_id }, .{}, 0);
-        try main_graph.addLiteralInput(plus_node_id, 0, 0, .{ .int = 2 });
-        try main_graph.addLiteralInput(plus_node_id, 1, 0, .{ .int = 3 });
         const return1_id = try app.NodeAdder.addNode("return", .{ .kind = .output, .index = 0, .node_id = if_node_id }, .{}, 0);
-        try main_graph.addEdge(a, plus_node_id, 1, return1_id, 1, 0);
         const return2_id = try app.NodeAdder.addNode("return", .{ .kind = .output, .index = 1, .node_id = if_node_id }, .{}, 0);
         try main_graph.addLiteralInput(return2_id, 1, 0, .{ .int = 1 });
+        const plus_node_id = try app.NodeAdder.addNode("+", null, .{}, 0);
+        try main_graph.addLiteralInput(plus_node_id, 0, 0, .{ .int = 2 });
+        try main_graph.addLiteralInput(plus_node_id, 1, 0, .{ .int = 3 });
+        try main_graph.addEdge(a, plus_node_id, 0, return1_id, 1, 0);
     }
 
     var combined = try app.combineGraphs();
@@ -234,34 +231,23 @@ test "sample1 (if)" {
 
     const expected = std.fmt.comptimePrint(
         \\({s}
-        \\(func $confetti
-        \\      (param $param_0
-        \\             i32)
-        \\      (call $callUserFunc_i32_R
-        \\            (i32.const 0)
-        \\            (local.get $param_0)))
         \\(export "main"
         \\        (func $main))
         \\(type $typeof_main
         \\      (func (result i32)))
         \\(func $main
-        \\      (param $param_n
-        \\             i32)
         \\      (result i32)
         \\      (if (result i32)
-        \\          (i32.le_s (local.get $param_n)
-        \\                    (i32.const 1))
-        \\          (then (i32.const 1))
-        \\          (else (i32.mul (local.get $param_n)
-        \\                         (call $factorial
-        \\                               (i32.sub (local.get $param_n)
-        \\                                        (i32.const 1)))))))
+        \\          (i32.const 1)
+        \\          (then (i32.add (i32.const 2)
+        \\                         (i32.const 3)))
+        \\          (else (i32.const 1))))
         \\)
     , .{grappl.compiler.compiled_prelude});
 
     try std.testing.expectEqualStrings(expected, compiled);
 
-    try grappl.testing.expectWasmOutput(20, compiled, "main", .{});
+    try grappl.testing.expectWasmOutput(5, compiled, "main", .{});
 }
 
 // graphInitState={{

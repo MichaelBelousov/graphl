@@ -910,9 +910,9 @@ pub const GraphBuilder = struct {
 
             // FIXME: nodes with these constraints should be specialized!
             // TODO: (nodes should also be SoA and EoA'd)
-            std.debug.assert(node.outputs[0].links.len <= 1);
-            if (node.outputs[0].links.len == 1) {
-                const consequence = node.outputs[1].links.at(0);
+            std.debug.assert(node.outputs[0].len() <= 1);
+            if (node.outputs[0].len() == 1) {
+                const consequence = node.outputs[0].getExecOutput();
                 var block = Block.init(alloc);
                 // FIXME: why not take state depth?
                 const consequence_state = State{
@@ -925,8 +925,8 @@ pub const GraphBuilder = struct {
             }
 
             std.debug.assert(node.outputs[1].links.len <= 1);
-            if (node.outputs[1].links.len == 1) {
-                const alternative = node.outputs[1].links.at(0);
+            if (node.outputs[1].len() == 1) {
+                const alternative = node.outputs[1].getExecOutput();
                 var block = Block.init(alloc);
                 const alternative_state = State{
                     .block = &block,
