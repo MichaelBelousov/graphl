@@ -950,7 +950,7 @@ pub const GraphBuilder = struct {
             (try branch_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc().name() } };
 
             // condition
-            const condition_sexp = try self.nodeInputTreeToSexp(alloc, node.inputs[1], state, context);
+            const condition_sexp = try self.nodeInputTreeToSexp(alloc, node.inputs[1], state, context, false);
             (try branch_sexp.value.list.addOne()).* = condition_sexp;
             // consequence
             (try branch_sexp.value.list.addOne()).* = consequence_sexp;
@@ -974,7 +974,6 @@ pub const GraphBuilder = struct {
             try state.block.append(Sexp{ .value = .{ .int = @intCast(@intFromPtr(node)) } });
 
             // FIXME: doesn't work for variadics
-            // FIXME: this must be unified with nodeInputTreeToSexp!
             const sexp = switch (node.desc().kind) {
                 .get => Sexp{ .value = .{ .symbol = name } },
                 .entry => std.debug.panic("onFunctionCallNode should ignore entry nodes", .{}),
@@ -985,15 +984,16 @@ pub const GraphBuilder = struct {
                     try list.ensureTotalCapacityPrecise(1 + node.inputs.len - 1);
                     try list.append(Sexp{ .value = .{ .symbol = name } });
 
-                    for (node.inputs, node.desc().getInputs()) |input, input_desc| {
-                        std.debug.assert(input_desc.kind == .primitive);
-                        switch (input_desc.kind.primitive) {
-                            .exec => {},
-                            .value => {
-                                const input_tree = try self.nodeInputTreeToSexp(alloc, input, state, context);
-                                try list.append(input_tree);
-                            },
-                        }
+                    for (node.inputs[1..], node.desc().getInputs()[1..]) |input, input_desc| {
+                        std.debug.assert(input_desc.kind == .primitive and input_desc.kind.primitive == .value);
+                        const input_tree = try self.nodeInputTreeToSexp(
+                            alloc,
+                            input,
+                            state,
+                            context,
+                            input_desc.asPrimitivePin().value == helpers.primitive_types.code,
+                        );
+                        try list.append(input_tree);
                     }
 
                     // TODO: impure functions should always have an optional next_node at first output
@@ -1038,7 +1038,15 @@ pub const GraphBuilder = struct {
             }
         }
 
-        fn nodeInputTreeToSexp(self: @This(), alloc: std.mem.Allocator, in_link: GraphTypes.Input, state: State, context: *Context) !Sexp {
+        fn nodeInputTreeToSexp(
+            self: @This(),
+            alloc: std.mem.Allocator,
+            in_link: GraphTypes.Input,
+            state: State,
+            context: *Context,
+            // FIXME/HACK: gross implementation...
+            is_macro: bool,
+        ) !Sexp {
             switch (in_link) {
                 .link => |link| {
                     const source_id = link.target;
@@ -1047,7 +1055,8 @@ pub const GraphBuilder = struct {
                     // FIXME: need better purity design
                     const is_pure = source_node._desc.kind == .entry or _: {
                         const outputs_descs = source_node._desc.getOutputs();
-                        break :_ if (outputs_descs.len >= 1) !outputs_descs[0].isExec() else true;
+                        if (outputs_descs.len == 0) break :_ true;
+                        break :_ !outputs_descs[0].isExec();
                     };
 
                     if (!is_pure) if (context.node_labels.getPtr(source_id)) |label| {
@@ -1071,11 +1080,12 @@ pub const GraphBuilder = struct {
 
                                 // HACK, skip control flow inputs for function calls (currently math is marked as a function but
                                 // should be marked as pure)
-                                const inputs = if (source_node._desc.getOutputs()[0].isExec()) source_node.inputs[1..] else source_node.inputs;
+                                const source_is_pure = source_node._desc.getOutputs()[0].isExec();
+                                const inputs = if (source_is_pure and !is_macro) source_node.inputs[1..] else source_node.inputs;
 
                                 // skip the control flow input
                                 for (inputs) |input| {
-                                    result.value.list.addOneAssumeCapacity().* = try self.nodeInputTreeToSexp(alloc, input, state, context);
+                                    result.value.list.addOneAssumeCapacity().* = try self.nodeInputTreeToSexp(alloc, input, state, context, is_macro);
                                 }
 
                                 break :_ result;

@@ -274,9 +274,9 @@ test "sample1 (if)" {
 // }}
 
 test "sample3 (sql)" {
-    const print_query_func_id = try app._createUserFunc("print-query", 1, 1);
-    try app._addUserFuncInput(print_query_func_id, 0, "nodes", .code);
-    try app._addUserFuncOutput(print_query_func_id, 0, "query", .string);
+    const print_query_func_id = try app._createUserFunc("print-query", 1, 0);
+    try app._addUserFuncInput(print_query_func_id, 0, "query", .code);
+    //try app._addUserFuncOutput(print_query_func_id, 0, "string", .string);
 
     const select_func_id = try app._createUserFunc("SELECT", 1, 0);
     try app._addUserFuncInput(select_func_id, 0, "column", .string);
@@ -315,14 +315,15 @@ test "sample3 (sql)" {
     try std.testing.expectFmt(
         \\(typeof (main)
         \\        i32)
-        \\(typeof (main)
-        \\        i32)
         \\(define (main)
-        \\        (begin (WHERE (FROM table
-        \\                            (SELECT col1))
+        \\        (begin (WHERE __label2
         \\                      (== (make-symbol "col1")
-        \\                          2)) #!__label1
-        \\               (print-query __label1)
+        \\                          2)) #!__label3
+        \\               (FROM __label1
+        \\                     "table") #!__label2
+        \\               (SELECT 0
+        \\                       "col1") #!__label1
+        \\               (print-query __label3)
         \\               (return 0)))
     , "{}", .{combined});
 
@@ -333,23 +334,58 @@ test "sample3 (sql)" {
     const compiled = try grappl.compiler.compile(gpa, &combined, &app.shared_env, &app.user_funcs, &diagnostic);
     defer gpa.free(compiled);
 
-    const expected = std.fmt.comptimePrint(
-        \\({s}
+    const expected = (
+        \\(
+    ++ grappl.compiler.compiled_prelude ++ "\n" ++
+        \\(func $FROM
+        \\      (param $param_0
+        \\             i32)
+        \\      (param $param_1
+        \\             i32)
+        \\      (call $callUserFunc_string_R
+        \\            (i32.const 3)
+        \\            (local.get $param_0)
+        \\            (local.get $param_1)))
+        \\(func $WHERE
+        \\      (param $param_0
+        \\             i32)
+        \\      (call $callUserFunc_bool_R
+        \\            (i32.const 2)
+        \\            (local.get $param_0)))
+        \\(func $SELECT
+        \\      (param $param_0
+        \\             i32)
+        \\      (param $param_1
+        \\             i32)
+        \\      (call $callUserFunc_string_R
+        \\            (i32.const 1)
+        \\            (local.get $param_0)
+        \\            (local.get $param_1)))
+        \\(func $print-query
+        \\      (param $param_0
+        \\             i32)
+        \\      (param $param_1
+        \\             i32)
+        \\      (call $callUserFunc_code_R
+        \\            (i32.const 0)
+        \\            (local.get $param_0)
+        \\            (local.get $param_1)))
         \\(export "main"
         \\        (func $main))
         \\(type $typeof_main
-        \\      (func (result i32)))
+        \\      (func (result f64)))
         \\(func $main
-        \\      (result i32)
-        \\      (if (result i32)
-        \\          (i32.const 1)
-        \\          (then (i32.add (i32.const 2)
-        \\                         (i32.const 3)))
-        \\          (else (i32.const 1))))
+        \\      (result f64)
+        \\      (call $print-query
+        \\            (i32.const 330)
+        \\            (i32.const 8))
+        \\      (f64.const 0))
+        \\(data (i32.const 0)
+        \\      "J\01\00\00\00\00\00\00{\22entry\22:[{\22symbol\22:\22WHERE\22},{\22symbol\22:\22__label2\22},[{\22symbol\22:\22==\22},[{\22symbol\22:\22make-symbol\22},\22col1\22],2]],\22labels\22:{\22__label2\22:[{\22symbol\22:\22FROM\22},{\22symbol\22:\22__label1\22},\22table\22],\22__label3\22:[{\22symbol\22:\22WHERE\22},{\22symbol\22:\22__label2\22},[{\22symbol\22:\22==\22},[{\22symbol\22:\22make-symbol\22},\22col1\22],2]],\22__label1\22:[{\22symbol\22:\22SELECT\22},0e0,\22col1\22]}}")
         \\)
-    , .{grappl.compiler.compiled_prelude});
+    );
 
     try std.testing.expectEqualStrings(expected, compiled);
 
-    try grappl.testing.expectWasmOutput(5, compiled, "main", .{});
+    try grappl.testing.expectWasmOutput(0, compiled, "main", .{});
 }

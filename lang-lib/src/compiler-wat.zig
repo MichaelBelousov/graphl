@@ -9,6 +9,7 @@
 const zig_builtin = @import("builtin");
 const build_opts = @import("build_opts");
 const std = @import("std");
+const json = std.json;
 const Sexp = @import("./sexp.zig").Sexp;
 const syms = @import("./sexp.zig").syms;
 const primitive_type_syms = @import("./sexp.zig").primitive_type_syms;
@@ -648,28 +649,29 @@ const Compilation = struct {
                 .frame = .{},
                 .next_local = &next_local,
             };
-            // FIXME: fix this but it's ok cuz it's in an arena
-            // defer expr_ctx.deinit(alloc);
 
-            for (func_decl.body_exprs) |body_expr| {
-                var body_fragment = try self.compileExpr(&body_expr, &expr_ctx);
-                errdefer body_fragment.deinit(alloc);
+            for (func_decl.body_exprs) |*body_expr| {
+                var expr_fragment = try self.compileExpr(body_expr, &expr_ctx);
+                errdefer expr_fragment.deinit(alloc);
 
-                func_type_result_sexp.* = Sexp{ .value = .{ .symbol = body_fragment.resolved_type.wasm_type.? } };
-                func_result_sexp.* = func_type_result_sexp.*;
+                // FIXME: only do this on the last one and require it have a wasm_type
+                if (expr_fragment.resolved_type.wasm_type) |wasm_type| {
+                    func_type_result_sexp.* = Sexp{ .value = .{ .symbol = wasm_type } };
+                    func_result_sexp.* = func_type_result_sexp.*;
+                }
 
                 std.debug.assert(func_type.result_types.len == 1);
-                if (body_fragment.resolved_type != func_type.result_types[0]) {
-                    std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = body_fragment.values } }});
-                    std.log.warn("type: '{s}' doesn't match '{s}'", .{ body_fragment.resolved_type.name, func_type.result_types[0].name });
+                if (expr_fragment.resolved_type != func_type.result_types[0]) {
+                    std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = expr_fragment.values } }});
+                    std.log.warn("type: '{s}' doesn't match '{s}'", .{ expr_fragment.resolved_type.name, func_type.result_types[0].name });
                     // FIXME/HACK: re-enable but disabling now to allow for type promotion
                     //return error.ReturnTypeMismatch;
                 }
 
                 // FIXME: what about the rest of the code?
                 // NOTE: inserting fragments must occur after inserting the locals!
-                try impl_sexp.value.list.appendSlice(try body_fragment.values.toOwnedSlice());
-                body_fragment.values.clearAndFree();
+                try impl_sexp.value.list.appendSlice(try expr_fragment.values.toOwnedSlice());
+                expr_fragment.values.clearAndFree();
             }
 
             try impl_sexp.value.list.insertSlice(additional_locals_index, post_analysis_locals.items);
@@ -870,6 +872,7 @@ const Compilation = struct {
         }
     };
 
+    // TODO: figure out how to ergonomically skip compiling labeled exprs until they are referenced...
     // TODO: take a diagnostic
     fn compileExpr(
         self: *@This(),
@@ -879,8 +882,40 @@ const Compilation = struct {
     ) !Fragment {
         const alloc = self.arena.allocator();
 
-        // this inner wrapper marks labeled nodes to not free their contents until the context is ready
+        // HACK: oh god this is bad...
+        if (code_sexp.label != null and code_sexp.value == .list
+        //
+        and code_sexp.value.list.items.len > 0
+        //
+        and code_sexp.value.list.items[0].value == .symbol
+        //
+        and _: {
+            const sym = code_sexp.value.list.items[0].value.symbol;
+            inline for (&.{ "SELECT", "WHERE", "FROM" }) |hack| {
+                if (std.mem.eql(u8, sym, hack))
+                    break :_ true;
+            }
+            break :_ false;
+        }) {
+            const fragment = Fragment{
+                .values = std.ArrayList(Sexp).init(alloc),
+                .resolved_type = primitive_types.code,
+            };
+
+            const entry = try context.label_map.getOrPut(code_sexp.label.?[2..]);
+            std.debug.assert(!entry.found_existing);
+
+            entry.value_ptr.* = .{
+                .fragment = fragment,
+                .sexp = code_sexp,
+            };
+
+            return fragment;
+        }
+
         var fragment = try self._compileExpr(code_sexp, context);
+
+        // this inner wrapper marks labeled nodes to not free their contents until the context is ready
         if (code_sexp.label) |label| {
             // HACK: we know the label is "#!{s}"
             const entry = try context.label_map.getOrPut(label[2..]);
@@ -940,10 +975,24 @@ const Compilation = struct {
                 else => null,
             } orelse code_sexp;
 
+            var quote_json_root = json.ObjectMap.init(alloc);
+            defer quote_json_root.deinit();
+
+            try quote_json_root.put("entry", try expr_sexp.jsonValue(alloc));
+
+            var labels_json = json.ObjectMap.init(alloc);
+            defer labels_json.deinit();
+            {
+                var label_iter = context.label_map.iterator();
+                while (label_iter.next()) |entry| {
+                    try labels_json.put(entry.key_ptr.*, try entry.value_ptr.sexp.jsonValue(alloc));
+                }
+            }
+            try quote_json_root.put("labels", json.Value{ .object = labels_json });
+
             // FIXME: wasteful to translate to an in-memory jsonValue, just write it directly as JSON to the stream
-            const json_value = try expr_sexp.jsonValue(alloc);
             var jws = std.json.writeStream(bytes.writer(), .{ .escape_unicode = true });
-            try json_value.jsonStringify(&jws);
+            try (json.Value{ .object = quote_json_root }).jsonStringify(&jws);
 
             const data_offset = try self.addReadonlyData(bytes.items);
 
