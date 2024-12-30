@@ -222,6 +222,8 @@ pub const GraphTypes = struct {
         }
 
         pub fn setExecOutput(self: *Outputs, link: Link) void {
+            // FIXME: do something more sane
+            self.links.len = 1;
             self.links.uncheckedAt(0).* = link;
         }
 
