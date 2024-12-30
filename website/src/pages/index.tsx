@@ -8,7 +8,6 @@ import { classNames } from '../react-utils';
 import type * as Graphl from "@graphl/ide";
 import Logo from "../images/GraphlAnimation.inline.svg";
 import { confetti } from '@tsparticles/confetti';
-import { useStaticQuery, graphql } from 'gatsby';
 
 // unbundled cuz stupid webpack
 const graphl = import("@graphl/ide");
@@ -33,74 +32,84 @@ const ShinyButton = (btnProps: React.HTMLProps<HTMLAnchorElement>) => {
 
 type Sexp = number | string | {symbol: string} | Sexp[];
 
-const sexpToSql = (sexp: Sexp) => {
-  if (Array.isArray(sexp)) {
-    let sql = "";
+const sexpToSql = (root: any) => {
+  const inner = (sexp: Sexp) => {
+    if (Array.isArray(sexp)) {
+      let sql = "";
 
-    const [func, ...params] = sexp as [{symbol: string}, ...Sexp[]];
+      const [func, ...params] = sexp as [{symbol: string}, ...Sexp[]];
 
-    const handlePrev = () => {
-      if (!Array.isArray(params[0]))
-        return;
-      const execParam = params.shift() as Sexp;
-      const prev = sexpToSql(execParam);
-      sql += prev;
-      sql += '\n';
-    };
+      for (let i = 0; i < params.length; ++i) {
+        const param = params[i];
+        if (typeof param === "object" && "symbol" in param && param.symbol in root.labels)
+          params[i] = root.labels[param.symbol];
+      }
 
-    if (func.symbol === "SELECT") {
-      // FIXME: this is bad
-      // ignore exec entry to SELECT
-      params.shift();
-      params.forEach(p => { if (typeof p !== "string") throw Error(`bad SELECT arg: ${p}`); })
-      sql += sexpToSql(func) + ' ' + params.join(',');
+      const handlePrev = () => {
+        if (!Array.isArray(params[0]))
+          return;
+        const execParam = params.shift() as Sexp;
+        const prev = inner(execParam);
+        sql += prev;
+        sql += '\n';
+      };
 
-    } else if (func.symbol === "WHERE") {
-      handlePrev();
-      sql += sexpToSql(func) + ' ' + params.map(sexpToSql).join(',');
+      if (func.symbol === "SELECT") {
+        // FIXME: this is bad
+        // ignore exec entry to SELECT
+        params.shift();
+        params.forEach(p => { if (typeof p !== "string") throw Error(`bad SELECT arg: ${p}`); })
+        sql += inner(func) + ' ' + params.join(',');
 
-    } else if (func.symbol === "FROM") {
-      handlePrev();
-      params.forEach(p => { if (typeof p !== "string") throw Error(`bad FROM arg: ${p}`); })
-      sql += sexpToSql(func) + ' ' + params.join(',');
+      } else if (func.symbol === "WHERE") {
+        handlePrev();
+        sql += inner(func) + ' ' + params.map(inner).join(',');
 
-    } else if (func.symbol === "string-equal") {
-      handlePrev();
-      sql += `${sexpToSql(params[0])} = ${sexpToSql(params[1])}`;
+      } else if (func.symbol === "FROM") {
+        handlePrev();
+        params.forEach(p => { if (typeof p !== "string") throw Error(`bad FROM arg: ${p}`); })
+        sql += inner(func) + ' ' + params.join(',');
 
-    } else if (func.symbol === "like") {
-      handlePrev();
-      sql += `${sexpToSql(params[0])} LIKE ${sexpToSql(params[1])}`;
+      } else if (func.symbol === "string-equal") {
+        handlePrev();
+        sql += `${inner(params[0])} = ${inner(params[1])}`;
 
-    } else if (func.symbol === "==") {
-      //handlePrev();
-      sql += `${sexpToSql(params[0])}=${sexpToSql(params[1])}`;
+      } else if (func.symbol === "like") {
+        handlePrev();
+        sql += `${inner(params[0])} LIKE ${inner(params[1])}`;
 
-    } else if (func.symbol === "make-symbol") {
-      sql += params[0];
+      } else if (func.symbol === "==") {
+        //handlePrev();
+        sql += `${inner(params[0])}=${inner(params[1])}`;
 
-      // assume it's a binary operator
+      } else if (func.symbol === "make-symbol") {
+        sql += params[0];
+
+        // assume it's a binary operator
+      } else {
+        handlePrev();
+        sql += `${inner(params[0])} ${inner(func)} ${inner(params[1])}`;
+
+      }
+
+      return sql;
+
+    } else if (typeof sexp === "object" && "symbol" in sexp) {
+      return sexp.symbol;
+
+    } else if (typeof sexp === "string") {
+      return `'${sexp}'`
+
+    } else if (typeof sexp === "number") {
+      return `${sexp}`
+
     } else {
-      handlePrev();
-      sql += `${sexpToSql(params[0])} ${sexpToSql(func)} ${sexpToSql(params[1])}`;
-
+      console.error(sexp);
+      throw Error(`unexpected value: ${sexp}`);
     }
+  };
 
-    return sql;
-
-  } else if (typeof sexp === "object" && "symbol" in sexp) {
-    return sexp.symbol;
-
-  } else if (typeof sexp === "string") {
-    return `'${sexp}'`
-
-  } else if (typeof sexp === "number") {
-    return `${sexp}`
-
-  } else {
-    console.error(sexp);
-    throw Error("unexpected value:");
-  }
+  return inner(root.entry)
 };
 
 let fakeReadySql = "";
@@ -118,11 +127,11 @@ const customNodes: Record<string, Graphl.JsFunctionBinding> = {
       });
     }
   },
-  "query-string": {
-    parameters: [{ name: "nodes", type: 5/*grappl.Types.code*/ }],
-    results: [{ name: "query", type: 4/*grappl.Types.string*/}],
+  "print-query": {
+    parameters: [{ name: "query", type: 5/*grappl.Types.code*/ }],
+    results: [],
     impl(code) {
-      // FIXME: SORRY THIS ISN'T COMPLETELY READY YET
+      // FIXME: SORRY THIS ISN'T COMPLETELY READY YET, I PROMISE IT'S WITHIN REACH
       const sql = sexpToSql(code);
       fakeReadySql = sql;
       for (const l of fakeReadySqlListeners) {
@@ -401,10 +410,18 @@ const Homepage = () => {
           },
           {
             id: 1,
-            type: "query-string",
+            type: "print-query",
             inputs: {
               0: { node: 0, outPin: 0 },
               1: { node: 6, outPin: 0 },
+            },
+          },
+          {
+            id: 7,
+            type: "return",
+            inputs: {
+              0: { node: 1, outPin: 0 },
+              1: { int: 0 },
             },
           },
         ],
@@ -508,7 +525,7 @@ const Homepage = () => {
 
       <p style={{ textAlign: "center" }}>
         Questions?
-        Reach out to us at <a href={`mailto:me@mikemikeb.com`}>support@graphl.tech</a>
+        Reach out to us at <a href={`mailto:me@mikemikeb.com`}>me@mikemikeb.com</a>
       </p>
 
     </Layout>
