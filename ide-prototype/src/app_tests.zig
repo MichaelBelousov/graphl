@@ -273,54 +273,83 @@ test "sample1 (if)" {
 //   ],
 // }}
 
-// graphInitState={{
-//   notRemovable: true,
-//   nodes: [
-//     {
-//       id: 2,
-//       type: "SELECT",
-//       inputs: {
-//         1: { string: "col1" },
-//       },
-//     },
-//     {
-//       id: 3,
-//       type: "FROM",
-//       inputs: {
-//         0: { node: 2, outPin: 0 },
-//         1: { string: "table" },
-//       },
-//     },
-//     {
-//       id: 4,
-//       type: "make-symbol",
-//       inputs: {
-//         0: { string: "col1" },
-//       },
-//     },
-//     {
-//       id: 5,
-//       type: "==",
-//       inputs: {
-//         0: { node: 4, outPin: 0 },
-//         1: { int: 2 },
-//       },
-//     },
-//     {
-//       id: 6,
-//       type: "WHERE",
-//       inputs: {
-//         0: { node: 3, outPin: 0 },
-//         1: { node: 5, outPin: 0 },
-//       },
-//     },
-//     {
-//       id: 1,
-//       type: "query-string",
-//       inputs: {
-//         0: { node: 0, outPin: 0 },
-//         1: { node: 6, outPin: 0 },
-//       },
-//     },
-//   ],
-// }}
+test "sample3 (sql)" {
+    const print_query_func_id = try app._createUserFunc("print-query", 1, 1);
+    try app._addUserFuncInput(print_query_func_id, 0, "nodes", .code);
+    try app._addUserFuncOutput(print_query_func_id, 0, "query", .string);
+
+    const select_func_id = try app._createUserFunc("SELECT", 1, 0);
+    try app._addUserFuncInput(select_func_id, 0, "column", .string);
+
+    const where_func_id = try app._createUserFunc("WHERE", 1, 0);
+    try app._addUserFuncInput(where_func_id, 0, "condition", .bool);
+
+    const from_func_id = try app._createUserFunc("FROM", 1, 0);
+    try app._addUserFuncInput(from_func_id, 0, "table", .string);
+
+    defer app.deinit();
+    try app.init();
+
+    const main_graph = app.current_graph;
+
+    {
+        const print_query_id = try app.NodeAdder.addNode("print-query", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
+        const return_id = try app.NodeAdder.addNode("return", .{ .kind = .output, .index = 0, .node_id = print_query_id }, .{}, 0);
+        _ = return_id;
+        const where_id = try app.NodeAdder.addNode("WHERE", .{ .kind = .input, .index = 1, .node_id = print_query_id }, .{}, 0);
+        const eq_id = try app.NodeAdder.addNode("==", .{ .kind = .input, .index = 1, .node_id = where_id }, .{}, 0);
+        try main_graph.addLiteralInput(eq_id, 1, 0, .{ .int = 2 });
+        const make_sym_id = try app.NodeAdder.addNode("make-symbol", .{ .kind = .input, .index = 0, .node_id = eq_id }, .{}, 0);
+        try main_graph.addLiteralInput(make_sym_id, 0, 0, .{ .string = "col1" });
+        const from_id = try app.NodeAdder.addNode("FROM", .{ .kind = .input, .index = 0, .node_id = where_id }, .{}, 0);
+        try main_graph.addLiteralInput(from_id, 1, 0, .{ .string = "table" });
+        const select_id = try app.NodeAdder.addNode("SELECT", .{ .kind = .input, .index = 0, .node_id = from_id }, .{}, 0);
+        try main_graph.addLiteralInput(select_id, 1, 0, .{ .string = "col1" });
+    }
+
+    var combined = try app.combineGraphs();
+    defer combined.deinit(gpa);
+
+    errdefer std.debug.print("combined:\n{s}\n", .{combined});
+
+    try std.testing.expectFmt(
+        \\(typeof (main)
+        \\        i32)
+        \\(typeof (main)
+        \\        i32)
+        \\(define (main)
+        \\        (begin (WHERE (FROM table
+        \\                            (SELECT col1))
+        \\                      (== (make-symbol "col1")
+        \\                          2)) #!__label1
+        \\               (print-query __label1)
+        \\               (return 0)))
+    , "{}", .{combined});
+
+    // FIXME: use testing allocator
+    var diagnostic = grappl.compiler.Diagnostic.init();
+    errdefer if (diagnostic.err != .None) std.debug.print("diagnostic: {}", .{diagnostic});
+
+    const compiled = try grappl.compiler.compile(gpa, &combined, &app.shared_env, &app.user_funcs, &diagnostic);
+    defer gpa.free(compiled);
+
+    const expected = std.fmt.comptimePrint(
+        \\({s}
+        \\(export "main"
+        \\        (func $main))
+        \\(type $typeof_main
+        \\      (func (result i32)))
+        \\(func $main
+        \\      (result i32)
+        \\      (if (result i32)
+        \\          (i32.const 1)
+        \\          (then (i32.add (i32.const 2)
+        \\                         (i32.const 3)))
+        \\          (else (i32.const 1))))
+        \\)
+    , .{grappl.compiler.compiled_prelude});
+
+    try std.testing.expectEqualStrings(expected, compiled);
+
+    try grappl.testing.expectWasmOutput(5, compiled, "main", .{});
+}

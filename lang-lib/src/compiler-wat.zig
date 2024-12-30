@@ -624,8 +624,8 @@ const Compilation = struct {
 
             std.debug.assert(func_decl.body_exprs.len >= 1);
 
-            var label_to_fragment = std.StringHashMap(Fragment).init(alloc);
-            defer label_to_fragment.deinit();
+            var label_map = std.StringHashMap(ExprContext.LabelData).init(alloc);
+            defer label_map.deinit();
 
             var prologue = std.ArrayList(Sexp).init(alloc);
             defer prologue.deinit();
@@ -639,7 +639,7 @@ const Compilation = struct {
 
             var expr_ctx = ExprContext{
                 .locals_sexp = &post_analysis_locals,
-                .label_to_fragment = &label_to_fragment,
+                .label_map = &label_map,
                 .local_names = func_decl.local_names,
                 .local_types = func_decl.local_types,
                 .param_names = func_decl.param_names,
@@ -684,18 +684,8 @@ const Compilation = struct {
         /// offset in the stack frame for the value in this fragment
         frame_offset: u32 = 0,
         resolved_type: Type = builtin.empty_type,
-        labeled: bool = false,
 
         pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-            if (self.labeled) {
-                return;
-            } else {
-                (Sexp{ .value = .{ .list = self.values } }).deinit(alloc);
-            }
-        }
-
-        /// for de-initing labeled nodes, done by the owning context
-        pub fn forceDeinit(self: *@This(), alloc: std.mem.Allocator) void {
             (Sexp{ .value = .{ .list = self.values } }).deinit(alloc);
         }
     };
@@ -848,7 +838,14 @@ const Compilation = struct {
         locals_sexp: *std.ArrayList(Sexp),
         /// to append setup code to
         prologue: *std.ArrayList(Sexp),
-        label_to_fragment: *std.StringHashMap(Fragment),
+        /// to hold label references
+        label_map: *std.StringHashMap(LabelData),
+
+        const LabelData = struct {
+            fragment: Fragment,
+            /// needed e.g. if it's a macro context
+            sexp: *const Sexp,
+        };
 
         /// sometimes, e.g. when creating a vstack slot, we need a local to
         /// hold the pointer to it
@@ -871,13 +868,6 @@ const Compilation = struct {
 
             return sym;
         }
-
-        pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-            var iter = self.label_to_fragment.valueIterator();
-            while (iter.next()) |fragment| {
-                fragment.forceDeinit(alloc);
-            }
-        }
     };
 
     // TODO: take a diagnostic
@@ -892,11 +882,8 @@ const Compilation = struct {
         // this inner wrapper marks labeled nodes to not free their contents until the context is ready
         var fragment = try self._compileExpr(code_sexp, context);
         if (code_sexp.label) |label| {
-            // FIXME: remove labeled force deinit
-            //fragment.labeled = true;
-
             // HACK: we know the label is "#!{s}"
-            const entry = try context.label_to_fragment.getOrPut(label[2..]);
+            const entry = try context.label_map.getOrPut(label[2..]);
             std.debug.assert(!entry.found_existing);
             const local_ptr_sym = try context.addLocal(alloc, fragment.resolved_type);
 
@@ -920,7 +907,10 @@ const Compilation = struct {
                 .resolved_type = fragment.resolved_type,
             };
 
-            entry.value_ptr.* = ref_code_fragment;
+            entry.value_ptr.* = .{
+                .fragment = ref_code_fragment,
+                .sexp = code_sexp,
+            };
         }
 
         return fragment;
@@ -938,12 +928,20 @@ const Compilation = struct {
             .values = std.ArrayList(Sexp).init(alloc),
         };
 
+        // FIXME: replace nullable context.type with empty_type
         if (context.type != null and context.type.? == primitive_types.code) {
             var bytes = std.ArrayList(u8).init(alloc);
             defer bytes.deinit();
 
+            const expr_sexp = switch (code_sexp.value) {
+                .symbol => |sym| _: {
+                    break :_ if (context.label_map.get(sym)) |label| label.sexp else null;
+                },
+                else => null,
+            } orelse code_sexp;
+
             // FIXME: wasteful to translate to an in-memory jsonValue, just write it directly as JSON to the stream
-            const json_value = try code_sexp.jsonValue(alloc);
+            const json_value = try expr_sexp.jsonValue(alloc);
             var jws = std.json.writeStream(bytes.writer(), .{ .escape_unicode = true });
             try json_value.jsonStringify(&jws);
 
@@ -1035,7 +1033,7 @@ const Compilation = struct {
                         .locals_sexp = context.locals_sexp,
                         .frame = context.frame,
                         .next_local = context.next_local,
-                        .label_to_fragment = context.label_to_fragment,
+                        .label_map = context.label_map,
                     };
                     arg_fragment.* = try self._compileExpr(&arg_src, &subcontext);
                 }
@@ -1335,8 +1333,8 @@ const Compilation = struct {
                     return result;
                 }
 
-                if (context.label_to_fragment.get(v)) |fragment| {
-                    return fragment;
+                if (context.label_map.get(v)) |label_data| {
+                    return label_data.fragment;
                 }
 
                 // FIXME: use hashmap instead
