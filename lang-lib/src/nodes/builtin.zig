@@ -218,17 +218,18 @@ pub const GraphTypes = struct {
 
         pub fn getExecOutput(self: *const Outputs) ?*const Link {
             std.debug.assert(self.links.len <= 1);
-            return if (self.links.len == 0) self.links.uncheckedAt(0) else null;
+            return if (self.links.len == 1) self.links.uncheckedAt(0) else null;
         }
 
         pub fn setExecOutput(self: *Outputs, link: Link) void {
-            // FIXME: do something more sane
+            std.debug.assert(self.links.len <= 1);
             self.links.len = 1;
             self.links.uncheckedAt(0).* = link;
         }
 
-        pub fn removeExecOutput(self: *Outputs, link: Link) void {
-            _ = link;
+        // FIXME: remove in place of setExecOutput taking an output
+        pub fn removeExecOutput(self: *Outputs) void {
+            std.debug.assert(self.links.len <= 1);
             self.links.clearRetainingCapacity();
         }
     };
