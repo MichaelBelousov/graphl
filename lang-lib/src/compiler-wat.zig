@@ -513,6 +513,8 @@ const Compilation = struct {
     };
 
     fn finishCompileTypedFunc(self: *@This(), name: []const u8, func_decl: DeferredFuncDeclInfo, func_type: DeferredFuncTypeInfo) !void {
+        // TODO: configure std.log.debug
+        //std.log.debug("compile func: '{s}'\n", .{name});
         const alloc = self.arena.allocator();
 
         const complete_func_type_desc = TypeInfo{
@@ -872,6 +874,8 @@ const Compilation = struct {
         }
     };
 
+    const CompileExprError = std.mem.Allocator.Error || error{UndefinedSymbol};
+
     // TODO: figure out how to ergonomically skip compiling labeled exprs until they are referenced...
     // TODO: take a diagnostic
     fn compileExpr(
@@ -879,8 +883,10 @@ const Compilation = struct {
         code_sexp: *const Sexp,
         /// not const because we may be expanding the frame to include this value
         context: *ExprContext,
-    ) !Fragment {
+    ) CompileExprError!Fragment {
         const alloc = self.arena.allocator();
+
+        //std.log.debug("compile expr: '{s}'\n", .{code_sexp});
 
         // HACK: oh god this is bad...
         if (code_sexp.label != null and code_sexp.value == .list
@@ -956,7 +962,7 @@ const Compilation = struct {
         code_sexp: *const Sexp,
         /// not const because we may be expanding the frame to include this value
         context: *ExprContext,
-    ) !Fragment {
+    ) CompileExprError!Fragment {
         const alloc = self.arena.allocator();
 
         var result = Fragment{
@@ -1022,7 +1028,7 @@ const Compilation = struct {
                 if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr or func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
                     try result.values.ensureUnusedCapacity(v.items.len - 1);
                     for (v.items[1..]) |*expr| {
-                        var compiled = try self._compileExpr(expr, context);
+                        var compiled = try self.compileExpr(expr, context);
                         result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, &compiled);
                         try result.values.appendSlice(compiled.values.items);
                         compiled.values.clearAndFree();
@@ -1084,7 +1090,7 @@ const Compilation = struct {
                         .next_local = context.next_local,
                         .label_map = context.label_map,
                     };
-                    arg_fragment.* = try self._compileExpr(&arg_src, &subcontext);
+                    arg_fragment.* = try self.compileExpr(&arg_src, &subcontext);
                 }
 
                 if (func.value.symbol.ptr == syms.@"set!".value.symbol.ptr) {
@@ -1405,7 +1411,7 @@ const Compilation = struct {
                         }
                     }
 
-                    std.log.err("undefined symbol2: '{s}'", .{v});
+                    std.log.err("undefined symbol2 '{s}'", .{v});
                     return error.UndefinedSymbol;
                 };
 

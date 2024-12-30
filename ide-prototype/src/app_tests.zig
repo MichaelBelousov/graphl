@@ -43,8 +43,6 @@ test "call double" {
     var combined = try app.combineGraphs();
     defer combined.deinit(gpa);
 
-    errdefer std.debug.print("combined:\n{s}\n", .{combined});
-
     // ;;; so why not this?
     //        (begin (confetti 100)
     //               (return (double 10))))
@@ -111,6 +109,117 @@ test "call double" {
     try grappl.testing.expectWasmOutput(20, compiled, "main", .{});
 }
 
+test "call factorial" {
+    const a = std.testing.allocator;
+
+    defer app.deinit();
+    try app.init();
+
+    const main_graph = app.current_graph;
+
+    {
+        const factorial_graph = try app.addGraph("factorial", true);
+
+        const if_node_id = try app.NodeAdder.addNode("if", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
+        try app.addParamOrResult(factorial_graph.grappl_graph.entry_node, factorial_graph.grappl_graph.entry_node_basic_desc, .params);
+        const lessthaneq_id = try app.NodeAdder.addNode("<=", .{ .kind = .output, .index = 1, .node_id = 0 }, .{}, 0);
+        try factorial_graph.addLiteralInput(lessthaneq_id, 1, 0, .{ .int = 1 });
+        try factorial_graph.addEdge(a, lessthaneq_id, 0, if_node_id, 1, 0);
+        const return1_id = try app.NodeAdder.addNode("return", .{ .kind = .output, .index = 0, .node_id = if_node_id }, .{}, 0);
+        try factorial_graph.addLiteralInput(return1_id, 1, 0, .{ .int = 1 });
+
+        const recurse_id = try app.NodeAdder.addNode("factorial", .{ .kind = .output, .index = 1, .node_id = if_node_id }, .{}, 0);
+        const return2_id = try app.NodeAdder.addNode("return", .{ .kind = .output, .index = 0, .node_id = recurse_id }, .{}, 0);
+
+        const mul_node_id = try app.NodeAdder.addNode("*", .{ .kind = .output, .index = 1, .node_id = recurse_id }, .{}, 0);
+        try factorial_graph.addEdge(a, mul_node_id, 0, return2_id, 1, 0);
+        const sub_id = try app.NodeAdder.addNode("-", .{ .kind = .input, .index = 1, .node_id = recurse_id }, .{}, 0);
+        _ = try app.NodeAdder.addNode("get_a1", .{ .kind = .input, .index = 0, .node_id = sub_id }, .{}, 0);
+        try factorial_graph.addLiteralInput(sub_id, 1, 0, .{ .int = 1 });
+
+        _ = try app.NodeAdder.addNode("get_a1", .{ .kind = .input, .index = 1, .node_id = mul_node_id }, .{}, 0);
+    }
+
+    app.current_graph = main_graph;
+
+    {
+        const factorial_node_id = try app.NodeAdder.addNode("factorial", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
+        try main_graph.addLiteralInput(factorial_node_id, 1, 0, .{ .int = 10 });
+        const return_id = try app.NodeAdder.addNode("return", .{ .kind = .output, .index = 0, .node_id = factorial_node_id }, .{}, 0);
+        try main_graph.addEdge(a, factorial_node_id, 1, return_id, 1, 0);
+    }
+
+    var combined = try app.combineGraphs();
+    defer combined.deinit(gpa);
+
+    try std.testing.expectFmt(
+        \\(typeof (main)
+        \\        i32)
+        \\(define (main)
+        \\        (begin (factorial 10) #!__label1
+        \\               (return __label1)))
+        \\(typeof (factorial i32)
+        \\        i32)
+        \\(define (factorial a1)
+        \\        (begin (if (<= a1
+        \\                       1)
+        \\                   (begin (return 1))
+        \\                   (begin (factorial (- a1
+        \\                                        1)) #!__label1
+        \\                          (return (* __label1
+        \\                                     a1))))))
+    , "{}", .{combined});
+
+    // FIXME: use testing allocator
+    var diagnostic = grappl.compiler.Diagnostic.init();
+    errdefer if (diagnostic.err != .None) std.debug.print("diagnostic: {}", .{diagnostic});
+
+    const compiled = try grappl.compiler.compile(gpa, &combined, &app.shared_env, &app.user_funcs, &diagnostic);
+    defer gpa.free(compiled);
+
+    const expected = std.fmt.comptimePrint(
+        \\({s}
+        \\(export "main"
+        \\        (func $main))
+        \\(type $typeof_main
+        \\      (func (result i32)))
+        \\(func $main
+        \\      (result i32)
+        \\      (local $__lc0
+        \\             i32)
+        \\      (call $factorial
+        \\            (i32.const 10))
+        \\      (local.set $__lc0)
+        \\      (local.get $__lc0))
+        \\(export "factorial"
+        \\        (func $factorial))
+        \\(type $typeof_factorial
+        \\      (func (param i32)
+        \\            (result i32)))
+        \\(func $factorial
+        \\      (param $param_a1
+        \\             i32)
+        \\      (result i32)
+        \\      (local $__lc0
+        \\             i32)
+        \\      (if (result i32)
+        \\          (i32.le_s (local.get $param_a1)
+        \\                    (i32.const 1))
+        \\          (then (i32.const 1))
+        \\          (else (call $factorial
+        \\                      (i32.sub (local.get $param_a1)
+        \\                               (i32.const 1)))
+        \\                (local.set $__lc0)
+        \\                (i32.mul (local.get $__lc0)
+        \\                         (local.get $param_a1)))))
+        \\)
+    , .{grappl.compiler.compiled_prelude});
+
+    try std.testing.expectEqualStrings(expected, compiled);
+
+    try grappl.testing.expectWasmOutput(3_628_800, compiled, "main", .{});
+}
+
 // test "open file" {
 //     const confetti_func_id = try app._createUserFunc("confetti", 1, 0);
 //     try app._addUserFuncInput(confetti_func_id, 0, "particleCount", .i32_);
@@ -141,8 +250,6 @@ test "call double" {
 
 //     var combined = try app.combineGraphs();
 //     defer combined.deinit(gpa);
-
-//     errdefer std.debug.print("combined:\n{s}\n", .{combined});
 
 //     try std.testing.expectFmt(file_content, "{}", .{combined});
 
@@ -209,8 +316,6 @@ test "sample1 (if)" {
 
     var combined = try app.combineGraphs();
     defer combined.deinit(gpa);
-
-    errdefer std.debug.print("combined:\n{s}\n", .{combined});
 
     try std.testing.expectFmt(
         \\(typeof (main)
@@ -309,8 +414,6 @@ test "sample3 (sql)" {
 
     var combined = try app.combineGraphs();
     defer combined.deinit(gpa);
-
-    errdefer std.debug.print("combined:\n{s}\n", .{combined});
 
     try std.testing.expectFmt(
         \\(typeof (main)

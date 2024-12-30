@@ -58,6 +58,7 @@ pub const GraphBuilder = struct {
     branch_joiner_map: std.AutoHashMapUnmanaged(NodeId, NodeId) = .{},
     is_join_set: std.DynamicBitSetUnmanaged,
 
+    // use a comptime struct member instead cuz this should always be 0
     entry_id: ?NodeId = null,
 
     branch_count: u32 = 0,
@@ -967,7 +968,11 @@ pub const GraphBuilder = struct {
             if (self.graph.isJoin(node)) // FIXME: why?
                 return;
 
-            const name = node._desc.name();
+            const name = switch (node.desc().kind) {
+                // HACK: skip the get_/set_ prefix
+                .get, .set => node._desc.name()[4..],
+                else => node._desc.name(),
+            };
 
             // FIXME/HACK: use a linked list cuz this shit is cray cray
             // pointer can be invalidated by array mutation so we need to keep it somehow...
@@ -975,6 +980,7 @@ pub const GraphBuilder = struct {
 
             // FIXME: doesn't work for variadics
             const sexp = switch (node.desc().kind) {
+                // HACK skip the get
                 .get => Sexp{ .value = .{ .symbol = name } },
                 .entry => std.debug.panic("onFunctionCallNode should ignore entry nodes", .{}),
                 .set, .func, .return_ => _: {
@@ -1064,7 +1070,12 @@ pub const GraphBuilder = struct {
                     };
 
                     var sexp = _: {
-                        const name = source_node.desc().name();
+                        // FIXME: this should be handled better!
+                        // HACK: skip the get_/set_ prefix
+                        const name = switch (source_node.desc().kind) {
+                            .get, .set => source_node._desc.name()[4..],
+                            else => source_node._desc.name(),
+                        };
 
                         switch (source_node._desc.kind) {
                             .get => break :_ Sexp{ .value = .{ .symbol = name } },
