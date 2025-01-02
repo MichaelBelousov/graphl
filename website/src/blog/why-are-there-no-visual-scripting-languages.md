@@ -1,15 +1,12 @@
 ---
-path: "/blog/why-are-there-no-visual-scripting-languages"
-title: "Why are there no visual scripting languages?"
+path: "/blog/why-do-visual-scripting-languages-suck"
+title: "Why do visual scripting languages suck?"
 date: "2025-01-01"
 ---
 
-## Why do visual scripting languages suck?
-
-Why are there no very popular visual scripting languages?
-You may know this is kind of a trick question... there are plenty!
-
+Why are there no very popular visual scripting languages? This is a trick question... there are plenty!
 Here is a sample of some different visual scripting systems, some you may have heard of:
+
 - [Blender nodes](https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/index.html)
 - [Unreal Engine Blueprints](https://dev.epicgames.com/documentation/en-us/unreal-engine/introduction-to-blueprints-visual-scripting-in-unreal-engine)
 - [Scratch/Google Blockly](https://developers.google.com/blockly/)
@@ -18,9 +15,10 @@ Here is a sample of some different visual scripting systems, some you may have h
 - [nodezator](https://github.com/IndiePython/nodezator)
 - every no-code workflow engine ever
 
-And they don't suck, but honestly I think some parts of some of them kind of do.
-Why are they not as popular as textual programming languages like JavaScript and Python?
-A better question then is:
+And they don't suck, but honestly, I think some parts might suck... kinda.
+Why is visual programming so much less popular than textual programming languages like JavaScript and Python, anyway?
+
+Perhaps, a better question might be:
 
 <!-- TODO: different font -->
 
@@ -38,7 +36,7 @@ The answer as far as I can tell is three-fold:
    for users that are less familiar with big code-based projects.
 2. Visual scripting is usually implemented in a limited scope, with less resources,
    often with a simplistic interpreter since performance isn't a concern
-3.  Some visual scripts translate to a more common textual language (like JavaScript).
+3. Some visual scripts translate to a more common textual language (like JavaScript).
    [Rete Studio](https://studio.retejs.org/)) does this, and today they explicitly say it is in beta, recommending you
    "_verify that the obtained graph is correctly converted into code that reflects the original code"!_<a href="#footnote1"><super>1</super></a>.
 
