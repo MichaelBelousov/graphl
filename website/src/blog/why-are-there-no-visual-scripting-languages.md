@@ -145,7 +145,7 @@ how you might want to use it! I want it to be used for everything!
 <hr />
 
 Do you think I got something wrong? Please feel free to
-[email](me@mikemikeb.com) me to help me make corrections.
+[email](mike@graphl.tech) me to help me make corrections.
 
 Footnotes:
 

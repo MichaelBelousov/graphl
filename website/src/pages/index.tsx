@@ -527,7 +527,7 @@ const Homepage = () => {
 
       <p style={{ textAlign: "center" }}>
         Questions?
-        Reach out to us at <a href={`mailto:me@mikemikeb.com`}>me@mikemikeb.com</a>
+        Reach out to us at <a href={`mailto:mike@graphl.tech`}>mike@graphl.tech</a>
       </p>
 
     </Layout>

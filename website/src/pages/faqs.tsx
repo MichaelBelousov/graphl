@@ -28,7 +28,7 @@ const Faqs = () => {
           <ul>
             <li>
               <p>
-                Not a question, but, please <a href="mailto:me@mikemikeb.com">reach out to me</a> and let's discuss!
+                Not a question, but, please <a href="mailto:mike@graphl.tech">reach out to me</a> and let's discuss!
               </p>
               <p>
                 Do please read the other relevant FAQ though.

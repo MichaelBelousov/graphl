@@ -168,7 +168,7 @@ What if they refactored it to not use a state machine?
 <hr />
 
 There is a _lot_ out there, so maybe I got something wrong, please feel free to
-[email](me@mikemikeb.com) me to help me make corrections.
+[email](mike@graphl.tech) me to help me make corrections.
 
 Footnotes:
 
