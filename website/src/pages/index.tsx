@@ -461,6 +461,8 @@ const Homepage = () => {
             fontSize: "2em",
             textDecoration: "none",
             marginTop: "1em",
+            height: "0.75em",
+            paddingTop: "15px",
           }}
         >
           Try it
