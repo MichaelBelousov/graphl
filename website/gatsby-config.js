@@ -120,16 +120,5 @@ module.exports = {
         },
       },
     },
-    {
-      resolve: 'gatsby-plugin-google-gtag',
-      options: {
-        trackingIds: [
-          'G-997MJS6NFD',
-        ],
-        gtagConfig: {
-          anonymize_ip: true,
-        }
-      },
-    },
   ],
 }
