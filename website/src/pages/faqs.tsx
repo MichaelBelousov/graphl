@@ -45,21 +45,22 @@ const Faqs = () => {
           <ul>
             <li>
               <p>
+                All textual languages are. Not all IDEs are. This is more of an IDE. And the textual part of the language,
+                including the entire webassembly compiler is open source [here](https://github.com/MichaelBelousov/graphlt).
+              </p>
+              <p>
                 One of my design goals has been to make sure that the visual programs
                 can be cleanly isomorphic to a textual language, and I am committed to
                 open sourcing everything at that layer. The visual IDE though I am not
                 committed to open sourcing at the moment.
               </p>
               <p>
-                I will write more about this on my personal blog, but at its core,
-                I would love to be able to work on this full-time and feed my kids at the same time.
-                I think I can do that reasonably without making it free for commercial usage immediately.
-                I think I can do that faster this way.
-              </p>
-              <p>
-                I'd heavily consider open sourcing everything if we can achieve a sustainable
-                model for it. If you really disagree with my reasoning please reach out, I'd love
-                to chat.
+                I will write more about this on my personal blog at some point, but at its core,
+                I would love to be able to work on this full-time sooner than later.
+                I think I can do that reasonably without making it free for commercial usage immediately,
+                and then once there is enough support, I think we can plan to transition even the IDE to open source.
+                I know to some that might sound like an empty promise, but I've tried to make the initial license
+                as free as possible. If you still don't like it, please refer to the previous question.
               </p>
             </li>
           </ul>
