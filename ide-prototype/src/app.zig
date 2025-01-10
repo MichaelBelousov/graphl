@@ -2761,4 +2761,4 @@ pub fn frame() !void {
 }
 
 // TODO: also a result size global
-export const result_buffer = std.mem.zeroes([4096]u8);
+pub export var result_buffer = std.mem.zeroes([4096]u8);

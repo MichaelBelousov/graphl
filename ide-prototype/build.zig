@@ -37,6 +37,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .small_intrinsics = true,
     });
+    const bytebox_dep = b.dependency("bytebox", .{});
 
     const binaryen_dep = b.dependency("binaryen-zig", .{
         .target = web_target,
@@ -159,6 +160,7 @@ pub fn build(b: *std.Build) void {
 
         native_exe.root_module.addImport("dvui", dvui_dep.module("dvui_raylib"));
         native_exe.root_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
+        native_exe.root_module.addImport("bytebox", bytebox_dep.module("bytebox"));
 
         const native_install = b.addInstallArtifact(native_exe, .{});
 
