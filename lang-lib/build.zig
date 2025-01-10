@@ -1,5 +1,4 @@
 const std = @import("std");
-const CrossTarget = std.zig.CrossTarget;
 
 pub fn build(b: *std.Build) void {
     // Standard release options allow the person running `zig build` to select
@@ -12,10 +11,17 @@ pub fn build(b: *std.Build) void {
     //const binaryen_dep = b.dependency("binaryen-zig", .{});
     const bytebox_dep = b.dependency("bytebox", .{});
 
-    const web_target_query = CrossTarget.parse(.{
-        .arch_os_abi = "wasm32-freestanding",
-        .cpu_features = "mvp+atomics+bulk_memory",
-    }) catch unreachable;
+    const web_target_query = std.Target.Query{
+        .cpu_arch = .wasm32,
+        .os_tag = .freestanding, // can't use freestanding cuz binaryen
+        //.abi = .musl,
+        // https://github.com/ziglang/zig/pull/16207
+        .cpu_features_add = std.Target.wasm.featureSet(&.{
+            .atomics,
+            .multivalue,
+            .bulk_memory,
+        }),
+    };
     const web_target = b.resolveTargetQuery(web_target_query);
 
     const small_intrinsics = b.option(bool, "small_intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse false;

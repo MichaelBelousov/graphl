@@ -1,5 +1,4 @@
 const std = @import("std");
-const CrossTarget = std.zig.CrossTarget;
 
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
@@ -100,11 +99,11 @@ pub fn build(b: *std.Build) void {
     const output = cb_run.captureStdOut();
 
     // FIXME: this would be much smaller than binaryen!
-    // const wat2wasm = addWat2Wasm(b, optimize);
-    // const install_wat2wasm = b.addInstallArtifact(wat2wasm, .{
-    //     .dest_dir = .{ .override = .{ .custom = "bin" } },
-    // });
-    // b.getInstallStep().dependOn(&install_wat2wasm.step);
+    const wat2wasm = addWat2Wasm(b, optimize);
+    const install_wat2wasm = b.addInstallArtifact(wat2wasm, .{
+        .dest_dir = .{ .override = .{ .custom = "bin" } },
+    });
+    b.getInstallStep().dependOn(&install_wat2wasm.step);
 
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(output, .{ .custom = ".." }, "index.html").step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(binaryen_dep.path("binaryen/bin/wasm-opt.wasm"), .bin, "wasm-opt.wasm").step);
