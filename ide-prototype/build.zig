@@ -33,7 +33,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // TODO:
-    const dvui_dep = b.dependency("dvui", .{});
+    const dvui_dep = b.dependency("dvui", .{ .target = native_target, .optimize = optimize });
     const grappl_core_dep = b.dependency("grappl_core", .{
         .optimize = optimize,
         .small_intrinsics = true,
@@ -58,14 +58,15 @@ pub fn build(b: *std.Build) void {
     });
 
     const ide_module = b.addModule("ide_dvui", .{
-        .root_source_file = b.path("src/app.zig"),
+        // FIXME: select root_source_file based on target
+        .root_source_file = b.path("src/native-app.zig"),
         .target = native_target,
         .optimize = optimize,
-        .pic = true,
     });
 
     ide_module.addImport("dvui", dvui_dep.module("dvui_raylib"));
     ide_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
+    ide_module.addImport("bytebox", bytebox_dep.module("bytebox"));
 
     exe.linkLibC();
 
