@@ -32,6 +32,7 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    // TODO:
     const dvui_dep = b.dependency("dvui", .{});
     const grappl_core_dep = b.dependency("grappl_core", .{
         .optimize = optimize,
@@ -55,6 +56,16 @@ pub fn build(b: *std.Build) void {
             else => false,
         },
     });
+
+    const ide_module = b.addModule("ide_dvui", .{
+        .root_source_file = b.path("src/app.zig"),
+        .target = native_target,
+        .optimize = optimize,
+        .pic = true,
+    });
+
+    ide_module.addImport("dvui", dvui_dep.module("dvui_raylib"));
+    ide_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
 
     exe.linkLibC();
 
@@ -100,11 +111,11 @@ pub fn build(b: *std.Build) void {
     const output = cb_run.captureStdOut();
 
     // FIXME: this would be much smaller than binaryen!
-    const wat2wasm = addWat2Wasm(b, optimize);
-    const install_wat2wasm = b.addInstallArtifact(wat2wasm, .{
-        .dest_dir = .{ .override = .{ .custom = "bin" } },
-    });
-    b.getInstallStep().dependOn(&install_wat2wasm.step);
+    // const wat2wasm = addWat2Wasm(b, optimize);
+    // const install_wat2wasm = b.addInstallArtifact(wat2wasm, .{
+    //     .dest_dir = .{ .override = .{ .custom = "bin" } },
+    // });
+    // b.getInstallStep().dependOn(&install_wat2wasm.step);
 
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(output, .{ .custom = ".." }, "index.html").step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(binaryen_dep.path("binaryen/bin/wasm-opt.wasm"), .bin, "wasm-opt.wasm").step);
