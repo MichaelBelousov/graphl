@@ -48,33 +48,6 @@ const init_buff_offset: isize = switch (builtin.mode) {
 
 const grappl_real_init_buff: *const [std.wasm.page_size]u8 = @ptrCast(grappl_init_start + init_buff_offset);
 
-// FIXME: consider moving options and initState to a separate file
-
-const Orientation = enum(u32) {
-    left = 0,
-    right = 1,
-};
-
-// FIXME: generate this object and all of the setter functions in the build
-// NOTE: must correlate to WebBackend.d.ts
-var options: struct {
-    preferences: struct {
-        graph: struct {
-            origin: ?dvui.Point = null,
-            scale: ?f32 = null,
-            scrollBarsVisible: ?bool = false,
-            allowPanning: bool = true,
-        } = .{},
-        definitionsPanel: struct {
-            orientation: Orientation = .left,
-            visible: bool = true,
-        } = .{},
-        topbar: struct {
-            visible: bool = true,
-        } = .{},
-    } = .{},
-} = .{};
-
 export fn setOpt_preferences_graph_origin(x: f32, y: f32) bool {
     options.preferences.graph.origin = .{ .x = x, .y = y };
     return true;
@@ -111,31 +84,6 @@ export fn setOpt_preferences_topbar_visible(val: bool) bool {
     return true;
 }
 
-const InputInitState = union(enum) {
-    node: struct { id: usize, out_pin: usize },
-    int: i64,
-    float: f64,
-    bool: bool,
-    string: []const u8,
-    symbol: []const u8,
-};
-
-const NodeInitState = struct {
-    id: usize,
-    /// type of node "+"
-    type_: []const u8,
-    inputs: std.AutoHashMapUnmanaged(u16, InputInitState),
-    position: ?dvui.Point = null,
-};
-
-// NOTE: must correlate to WebBackend.d.ts
-var initState: struct {
-    graphs: std.StringHashMapUnmanaged(struct {
-        notRemovable: bool = false,
-        nodes: std.ArrayListUnmanaged(NodeInitState) = .{},
-    }) = .{},
-} = .{};
-
 export fn setInitState_graphs_notRemovable(
     graph_name_ptr: [*]const u8,
     graph_name_len: usize,
@@ -146,7 +94,7 @@ export fn setInitState_graphs_notRemovable(
         return false;
     };
     const graph = _: {
-        const get_or_put = initState.graphs.getOrPut(gpa, graph_name) catch |err| {
+        const get_or_put = init_opts.graphs.getOrPut(gpa, graph_name) catch |err| {
             std.log.err("failed to put graph '{s}', error={}", .{ graph_name, err });
             return false;
         };
@@ -305,21 +253,6 @@ export fn setInitState_graphs_nodes_input_pin(graph_name_ptr: [*]const u8, graph
     };
     return true;
 }
-
-pub const UserFuncList = std.SinglyLinkedList(compiler.UserFunc);
-pub var user_funcs = UserFuncList{};
-var next_user_func: usize = 0;
-
-// FIXME: keep in sync with typescript automatically
-pub const UserFuncTypes = enum(u32) {
-    i32_ = 0,
-    i64_ = 1,
-    f32_ = 2,
-    f64_ = 3,
-    string = 4,
-    code = 5,
-    bool = 6,
-};
 
 export fn createUserFunc(name_len: u32, input_count: u32, output_count: u32) usize {
     const name = grappl_real_init_buff[0..name_len];
@@ -559,11 +492,6 @@ pub const Graph = struct {
     }
 };
 
-// NOTE: must be singly linked list because Graph contains an internal pointer and cannot be moved!
-pub var graphs = std.SinglyLinkedList(Graph){};
-pub var current_graph: *Graph = undefined;
-var next_graph_index: u16 = 0;
-
 /// uses gpa, deinit the result with gpa
 pub fn combineGraphs() !Sexp {
     // FIXME: use an arena!
@@ -684,18 +612,33 @@ pub fn addGraph(name: []const u8, set_as_current: bool) !*Graph {
     return &new_graph.data;
 }
 
-var context_menu_widget_id: ?u32 = null;
-var node_menu_filter: ?Socket = null;
+
+context_menu_widget_id: ?u32 = null,
+node_menu_filter: ?Socket = null,
 
 // the start of an attempt to drag an edge out of a socket
-var edge_drag_start: ?struct {
+edge_drag_start: ?struct {
     pt: dvui.Point,
     socket: Socket,
-} = null;
+} = null,
 
-var prev_drag_state: ?dvui.Point = null;
+prev_drag_state: ?dvui.Point = null,
 
-var edge_drag_end: ?Socket = null;
+edge_drag_end: ?Socket = null,
+
+// NOTE: must be singly linked list because Graph contains an internal pointer and cannot be moved!
+graphs: std.SinglyLinkedList(Graph) = .{},
+current_graph: *Graph = undefined,
+next_graph_index: u16 = 0,
+
+// FIXME: for wasm
+//pub var user_funcs = UserFuncList{};
+//var next_user_func: usize = 0;
+
+init_opts: InitOptions = .{},
+user_funcs: UserFuncList = .{},
+
+pub const UserFuncList = std.SinglyLinkedList(compiler.UserFunc);
 
 pub const MenuOption = struct {
     name: []const u8,
@@ -706,26 +649,87 @@ pub const MenuOption = struct {
 pub const InitOptions = struct {
     menus: []const MenuOption = &.{},
     context: ?*anyopaque = null,
+    graphs: std.StringHashMapUnmanaged(struct {
+        notRemovable: bool = false,
+        nodes: std.ArrayListUnmanaged(NodeInitState) = .{},
+    }) = .{},
+    user_funcs: []const compiler.UserFunc = &.{},
 };
 
-// FIXME: make non-global!
-// FIXME: deduplicate with wasm-based init options!
-var init_opts = InitOptions{};
+// FIXME: consider moving options and initState to a separate file
 
-pub fn init(in_opts: InitOptions) !void {
-    init_opts = in_opts;
-    shared_env = try grappl.Env.initDefault(gpa);
+const Orientation = enum(u32) {
+    left = 0,
+    right = 1,
+};
+
+// FIXME: generate this object and all of the setter functions in the build
+// NOTE: must correlate to WebBackend.d.ts
+var options: struct {
+    preferences: struct {
+        graph: struct {
+            origin: ?dvui.Point = null,
+            scale: ?f32 = null,
+            scrollBarsVisible: ?bool = false,
+            allowPanning: bool = true,
+        } = .{},
+        definitionsPanel: struct {
+            orientation: Orientation = .left,
+            visible: bool = true,
+        } = .{},
+        topbar: struct {
+            visible: bool = true,
+        } = .{},
+    } = .{},
+} = .{};
+
+const InputInitState = union(enum) {
+    node: struct { id: usize, out_pin: usize },
+    int: i64,
+    float: f64,
+    bool: bool,
+    string: []const u8,
+    symbol: []const u8,
+};
+
+const NodeInitState = struct {
+    id: usize,
+    /// type of node "+"
+    type_: []const u8,
+    inputs: std.AutoHashMapUnmanaged(u16, InputInitState),
+    position: ?dvui.Point = null,
+};
+
+// FIXME: keep in sync with typescript automatically
+pub const UserFuncTypes = enum(u32) {
+    i32_ = 0,
+    i64_ = 1,
+    f32_ = 2,
+    f64_ = 3,
+    string = 4,
+    code = 5,
+    bool = 6,
+};
+
+
+pub fn init(self: *@This(), in_opts: InitOptions) !void {
+    self.* = .{
+        .init_opts = in_opts,
+        .shared_env = try grappl.Env.initDefault(gpa),
+        user_funcs = 
+    };
+
 
     {
-        var maybe_cursor = user_funcs.first;
+        var maybe_cursor = self.user_funcs.first;
         while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
             _ = try shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data.node));
         }
     }
 
     // TODO:
-    if (initState.graphs.count() > 0) {
-        var graph_iter = initState.graphs.iterator();
+    if (in_opts.graphs.count() > 0) {
+        var graph_iter = in_opts.graphs.iterator();
         while (graph_iter.next()) |entry| {
             const graph_name = entry.key_ptr;
             const graph_desc = entry.value_ptr;
@@ -771,20 +775,20 @@ pub fn init(in_opts: InitOptions) !void {
     }
 }
 
-fn runCurrentGraphs() !void {
+fn runCurrentGraphs(self: *const @This()) !void {
     const sexp = try combineGraphs();
     defer sexp.deinit(gpa);
 
-    //if (builtin.mode == .Debug) {
-    var bytes = std.ArrayList(u8).init(gpa);
-    defer bytes.deinit();
-    _ = try sexp.write(bytes.writer());
-    std.log.info("graph '{s}':\n{s}", .{ current_graph.name, bytes.items });
-    //}
+    if (builtin.mode == .Debug) {
+        var bytes = std.ArrayList(u8).init(gpa);
+        defer bytes.deinit();
+        _ = try sexp.write(bytes.writer());
+        std.log.info("graph '{s}':\n{s}", .{ self.current_graph.name, bytes.items });
+    }
 
     var diagnostic = compiler.Diagnostic.init();
 
-    if (compiler.compile(gpa, &sexp, &shared_env, &user_funcs, &diagnostic)) |module| {
+    if (compiler.compile(gpa, &sexp, &shared_env, &self.user_funcs, &diagnostic)) |module| {
         std.log.info("compile_result:\n{s}", .{module});
         runCurrentWat(module.ptr, module.len);
         gpa.free(module);
@@ -799,7 +803,7 @@ export fn _runCurrentGraphs() void {
     };
 }
 
-fn exportCurrentCompiled() !void {
+fn exportCurrentCompiled(self: *const @This()) !void {
     const sexp = try combineGraphs();
     defer sexp.deinit(gpa);
 
@@ -807,12 +811,12 @@ fn exportCurrentCompiled() !void {
         var bytes = std.ArrayList(u8).init(gpa);
         defer bytes.deinit();
         _ = try sexp.write(bytes.writer());
-        std.log.info("graph '{s}':\n{s}", .{ current_graph.name, bytes.items });
+        std.log.info("graph '{s}':\n{s}", .{ self.current_graph.name, bytes.items });
     }
 
     var diagnostic = compiler.Diagnostic.init();
 
-    if (compiler.compile(gpa, &sexp, &shared_env, &user_funcs, &diagnostic)) |module| {
+    if (compiler.compile(gpa, &sexp, &shared_env, &self.user_funcs, &diagnostic)) |module| {
         std.log.info("compile_result:\n{s}", .{module});
         onExportCompiled(module.ptr, module.len);
         gpa.free(module);
@@ -821,16 +825,16 @@ fn exportCurrentCompiled() !void {
     }
 }
 
-pub fn deinit() void {
-    while (graphs.popFirst()) |cursor| {
+pub fn deinit(self: *@This()) void {
+    while (self.graphs.popFirst()) |cursor| {
         cursor.data.deinit();
         gpa.destroy(cursor);
     }
-    graphs.first = null;
+    self.graphs.first = null;
 
     shared_env.deinit(gpa);
 
-    while (user_funcs.popFirst()) |cursor| {
+    while (self.user_funcs.popFirst()) |cursor| {
         gpa.free(cursor.data.node.name);
         for (cursor.data.node.inputs[1..]) |input| gpa.free(input.name);
         gpa.free(cursor.data.node.inputs);
