@@ -17,6 +17,8 @@ const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 
 const MAX_FUNC_NAME = 256;
 
+// FIXME: move all the externs and exports to a wasm-only file
+// and instead add all these as options `init`
 extern fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void;
 extern fn onExportCompiled(ptr: ?[*]const u8, len: usize) void;
 extern fn onRequestLoadSource() void;
@@ -695,7 +697,23 @@ var prev_drag_state: ?dvui.Point = null;
 
 var edge_drag_end: ?Socket = null;
 
-pub fn init() !void {
+pub const MenuOption = struct {
+    name: []const u8,
+    on_click: ?*const fn (ctx: ?*anyopaque) void = null,
+    submenus: []const MenuOption = &.{},
+};
+
+pub const InitOptions = struct {
+    menus: []const MenuOption = &.{},
+    context: ?*anyopaque = null,
+};
+
+// FIXME: make non-global!
+// FIXME: deduplicate with wasm-based init options!
+var init_opts = InitOptions{};
+
+pub fn init(in_opts: InitOptions) !void {
+    init_opts = in_opts;
     shared_env = try grappl.Env.initDefault(gpa);
 
     {
@@ -2363,6 +2381,26 @@ pub fn frame() !void {
             }
             if (try dvui.menuItemLabel(@src(), "Report issue", .{}, .{ .expand = .horizontal })) |_| {
                 onClickReportIssue();
+            }
+        }
+
+        for (init_opts.menus) |menu| {
+            // FIXME: must be called recursively to support any-layered submenus
+            if (try dvui.menuItemLabel(@src(), menu.name, .{ .submenu = menu.submenus.len > 0 }, .{ .expand = .none })) |r| {
+                if (menu.on_click) |on_click| {
+                    on_click(init_opts.context);
+                }
+
+                var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
+                defer fw.deinit();
+
+                for (menu.submenus) |submenu| {
+                    if (try dvui.menuItemLabel(@src(), submenu.name, .{}, .{ .expand = .horizontal })) |_| {
+                        if (submenu.on_click) |submenu_click| {
+                            submenu_click(init_opts.context);
+                        }
+                    }
+                }
             }
         }
     }

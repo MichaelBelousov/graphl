@@ -48,7 +48,7 @@ pub fn main() !void {
     var win = try dvui.Window.init(@src(), gpa, backend.backend(), .{});
     defer win.deinit();
 
-    try app.init();
+    try app.init(.{});
     defer app.deinit();
 
     // small fonts look bad on the web, so bump the default theme up
