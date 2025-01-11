@@ -118,7 +118,7 @@ const Compilation = struct {
     module_body: *std.ArrayList(Sexp),
     arena: std.heap.ArenaAllocator,
     user_context: struct {
-        funcs: *std.SinglyLinkedList(UserFunc),
+        funcs: *const std.SinglyLinkedList(UserFunc),
     },
     diag: *Diagnostic,
 
@@ -127,7 +127,7 @@ const Compilation = struct {
     pub fn init(
         alloc: std.mem.Allocator,
         env: *Env,
-        user_funcs: ?*std.SinglyLinkedList(UserFunc),
+        user_funcs: ?*const std.SinglyLinkedList(UserFunc),
         in_diag: *Diagnostic,
     ) !@This() {
         const result = @This(){
@@ -1809,7 +1809,7 @@ pub fn compile(
     a: std.mem.Allocator,
     sexp: *const Sexp,
     env: *const Env,
-    user_funcs: ?*std.SinglyLinkedList(UserFunc),
+    user_funcs: ?*const std.SinglyLinkedList(UserFunc),
     _in_diagnostic: ?*Diagnostic,
 ) ![]const u8 {
     if (build_opts.disable_compiler) unreachable;

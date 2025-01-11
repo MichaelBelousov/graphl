@@ -16,13 +16,15 @@ const Value = grappl.helpers.Value;
 const Node = grappl.Node;
 const Link = grappl.Link;
 const NodeId = grappl.NodeId;
-const Graph = @import("./app.zig").Graph;
+const App = @import("./app.zig");
+const Graph = App.Graph;
 
 const Graphs = std.SinglyLinkedList(Graph);
 
 fn funcSourceToGraph(
     // NOTE: for now this must be gpa...
     a: std.mem.Allocator,
+    app: *App,
     type_sexp: *const Sexp,
     impl_sexp: *const Sexp,
     index: u16,
@@ -51,7 +53,7 @@ fn funcSourceToGraph(
 
     const func_name = try a.dupe(u8, impl_func_name.value.symbol);
 
-    var graph = try Graph.init(index, func_name);
+    var graph = try Graph.init(app, index, func_name);
 
     const param_names = bindings.value.list.items[1..];
     const param_types = binding_types.value.list.items[1..];
@@ -189,7 +191,7 @@ fn funcSourceToGraph(
     return graph;
 }
 
-fn sexpToGraphs(a: std.mem.Allocator, sexp: *const Sexp, env: *Env) !Graphs {
+fn sexpToGraphs(a: std.mem.Allocator, app: *App, sexp: *const Sexp, env: *Env) !Graphs {
     var graphs = Graphs{};
     var index: u16 = 0;
 
@@ -207,7 +209,7 @@ fn sexpToGraphs(a: std.mem.Allocator, sexp: *const Sexp, env: *Env) !Graphs {
 
             const graph_slot = try a.create(Graphs.Node);
             graph_slot.* = .{
-                .data = try funcSourceToGraph(a, prev_typeof, top_level, index, env),
+                .data = try funcSourceToGraph(a, app, prev_typeof, top_level, index, env),
             };
             graphs.prepend(graph_slot);
             index += 1;
@@ -221,10 +223,10 @@ fn sexpToGraphs(a: std.mem.Allocator, sexp: *const Sexp, env: *Env) !Graphs {
     return graphs;
 }
 
-pub fn sourceToGraph(a: std.mem.Allocator, source: []const u8, env: *Env) !Graphs {
+pub fn sourceToGraph(a: std.mem.Allocator, app: *App, source: []const u8, env: *Env) !Graphs {
     var diag = SexpParser.Diagnostic{ .source = source };
     if (SexpParser.parse(a, source, &diag)) |sexp| {
-        return sexpToGraphs(a, &sexp, env);
+        return sexpToGraphs(a, app, &sexp, env);
     } else |err| {
         std.log.err("bad sexp:\n{}\n", .{err});
         return err;

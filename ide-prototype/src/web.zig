@@ -8,7 +8,7 @@ usingnamespace WebBackend.wasm;
 
 const dvui = @import("dvui");
 
-const app = @import("./app.zig");
+const app = @import("./web-app.zig");
 
 const WriteError = error{};
 const LogWriter = std.io.Writer(void, WriteError, writeLog);

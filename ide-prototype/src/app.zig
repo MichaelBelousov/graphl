@@ -1,5 +1,8 @@
-//! Copyright 2024, Michael Belousov
+//! Copyright 2024, Michael Belouso
 //!
+
+// TODO: rename this file to App.zig
+const App = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -13,7 +16,6 @@ const compiler = grappl.compiler;
 const SexpParser = @import("grappl_core").SexpParser;
 const Sexp = @import("grappl_core").Sexp;
 const helpers = @import("grappl_core").helpers;
-const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 
 const MAX_FUNC_NAME = 256;
 
@@ -24,337 +26,6 @@ extern fn onExportCompiled(ptr: ?[*]const u8, len: usize) void;
 extern fn onRequestLoadSource() void;
 extern fn onClickReportIssue() void;
 extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
-
-// NOTE: check if this is bad
-const grappl_init_buffer: [std.wasm.page_size]u8 = _: {
-    var result = std.mem.zeroes([std.wasm.page_size]u8);
-    result[0] = '\x1B';
-    result[1] = '\x2D';
-    result[std.wasm.page_size - 2] = '\x3E';
-    result[std.wasm.page_size - 1] = '\x4F';
-    break :_ result;
-};
-
-export const grappl_init_start: [*]const u8 = switch (builtin.mode) {
-    //.Debug => &grappl_init_buffer[0],
-    else => @ptrCast(&grappl_init_buffer[0]),
-};
-
-// fuck it just ship this crap, WTF: REPORT ME HACK FIXME
-const init_buff_offset: isize = switch (builtin.mode) {
-    .Debug => 0,
-    else => 0,
-};
-
-const grappl_real_init_buff: *const [std.wasm.page_size]u8 = @ptrCast(grappl_init_start + init_buff_offset);
-
-export fn setOpt_preferences_graph_origin(x: f32, y: f32) bool {
-    options.preferences.graph.origin = .{ .x = x, .y = y };
-    return true;
-}
-
-export fn setOpt_preferences_graph_scale(val: f32) bool {
-    options.preferences.graph.scale = val;
-    return true;
-}
-
-export fn setOpt_preferences_graph_scrollBarsVisible(val: bool) bool {
-    options.preferences.graph.scrollBarsVisible = val;
-    return true;
-}
-
-export fn setOpt_preferences_graph_allowPanning(val: bool) bool {
-    options.preferences.graph.allowPanning = val;
-    return true;
-}
-
-// FIXME: move these to web.zig?
-export fn setOpt_preferences_definitionsPanel_orientation(val: Orientation) bool {
-    options.preferences.definitionsPanel.orientation = val;
-    return true;
-}
-
-export fn setOpt_preferences_definitionsPanel_visible(val: bool) bool {
-    options.preferences.definitionsPanel.visible = val;
-    return true;
-}
-
-export fn setOpt_preferences_topbar_visible(val: bool) bool {
-    options.preferences.topbar.visible = val;
-    return true;
-}
-
-export fn setInitState_graphs_notRemovable(
-    graph_name_ptr: [*]const u8,
-    graph_name_len: usize,
-    val: bool,
-) bool {
-    const graph_name = gpa.dupe(u8, graph_name_ptr[0..graph_name_len]) catch |err| {
-        std.log.err("failed to alloc graph name '{s}', error={}", .{ graph_name_ptr[0..graph_name_len], err });
-        return false;
-    };
-    const graph = _: {
-        const get_or_put = init_opts.graphs.getOrPut(gpa, graph_name) catch |err| {
-            std.log.err("failed to put graph '{s}', error={}", .{ graph_name, err });
-            return false;
-        };
-        if (!get_or_put.found_existing) {
-            get_or_put.value_ptr.* = .{};
-        }
-        break :_ get_or_put.value_ptr;
-    };
-
-    graph.notRemovable = val;
-
-    return true;
-}
-
-export fn setInitState_graphs_nodes_type(
-    graph_name_ptr: [*]const u8,
-    graph_name_len: usize,
-    node_index: usize,
-    node_id: usize,
-    type_ptr: [*]const u8,
-    type_len: usize,
-) bool {
-    const type_ = gpa.dupe(u8, type_ptr[0..type_len]) catch |err| {
-        std.log.err("failed to put dupe type name error={}", .{err});
-        return false;
-    };
-
-    const node = _setInitState_getNode(graph_name_ptr, graph_name_len, node_index, node_id) catch {
-        return false;
-    };
-
-    node.type_ = type_;
-
-    return true;
-}
-
-export fn setInitState_graphs_nodes_pos(
-    graph_name_ptr: [*]const u8,
-    graph_name_len: usize,
-    node_index: usize,
-    node_id: usize,
-    pos_x: f32,
-    pos_y: f32,
-) bool {
-    const node = _setInitState_getNode(graph_name_ptr, graph_name_len, node_index, node_id) catch {
-        return false;
-    };
-
-    node.position = .{ .x = pos_x, .y = pos_y };
-
-    return true;
-}
-
-fn _setInitState_getNode(
-    graph_name_ptr: [*]const u8,
-    graph_name_len: usize,
-    node_index: usize,
-    node_id: usize,
-) !*NodeInitState {
-    const graph_name = try gpa.dupe(u8, graph_name_ptr[0..graph_name_len]);
-
-    const graph = _: {
-        const get_or_put = try initState.graphs.getOrPut(gpa, graph_name);
-        if (!get_or_put.found_existing) {
-            get_or_put.value_ptr.* = .{};
-        }
-        break :_ get_or_put.value_ptr;
-    };
-
-    if (node_index >= graph.nodes.items.len) {
-        const new_elems = try graph.nodes.addManyAsSlice(gpa, node_index + 1 - graph.nodes.items.len);
-        // set to 0 since it's a checked illegal entry, and we can use it to tell if this node has been set yet
-        for (new_elems) |*new_elem| new_elem.id = 0;
-    }
-
-    const node = &graph.nodes.items[node_index];
-    if (node.id == 0) {
-        node.* = .{
-            .id = node_id,
-            .type_ = "<UNSET_TYPE>",
-            .inputs = .{},
-        };
-    }
-
-    return node;
-}
-
-fn _setInitState_getInput(
-    graph_name_ptr: [*]const u8,
-    graph_name_len: usize,
-    node_index: usize,
-    node_id: usize,
-    input_id: u16,
-) !*InputInitState {
-    const node = try _setInitState_getNode(graph_name_ptr, graph_name_len, node_index, node_id);
-    const input = _: {
-        // FIXME: there's probably an API for this type of action
-        const get_or_put = try node.inputs.getOrPut(gpa, input_id);
-        break :_ get_or_put.value_ptr;
-    };
-    return input;
-}
-
-export fn setInitState_graphs_nodes_input_int(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: u16, value: i64) bool {
-    const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
-        return false;
-    };
-    input.* = .{ .int = value };
-    return true;
-}
-
-export fn setInitState_graphs_nodes_input_bool(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: u16, value: bool) bool {
-    const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
-        return false;
-    };
-    input.* = .{ .bool = value };
-    return true;
-}
-
-export fn setInitState_graphs_nodes_input_float(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: u16, value: f64) bool {
-    const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
-        return false;
-    };
-    input.* = .{ .float = value };
-    return true;
-}
-
-export fn setInitState_graphs_nodes_input_string(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: u16, value_ptr: [*]const u8, value_len: usize) bool {
-    const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
-        return false;
-    };
-    const value = gpa.dupe(u8, value_ptr[0..value_len]) catch {
-        return false;
-    };
-    input.* = .{ .string = value };
-    return true;
-}
-
-export fn setInitState_graphs_nodes_input_symbol(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: u16, value_ptr: [*]const u8, value_len: usize) bool {
-    const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
-        return false;
-    };
-    const value = gpa.dupe(u8, value_ptr[0..value_len]) catch {
-        return false;
-    };
-    input.* = .{ .symbol = value };
-    return true;
-}
-
-export fn setInitState_graphs_nodes_input_pin(graph_name_ptr: [*]const u8, graph_name_len: usize, node_index: usize, node_id: usize, input_id: u16, target_id: usize, out_pin: usize) bool {
-    const input = _setInitState_getInput(graph_name_ptr, graph_name_len, node_index, node_id, input_id) catch {
-        return false;
-    };
-    input.* = .{
-        .node = .{ .id = target_id, .out_pin = out_pin },
-    };
-    return true;
-}
-
-export fn createUserFunc(name_len: u32, input_count: u32, output_count: u32) usize {
-    const name = grappl_real_init_buff[0..name_len];
-    return _createUserFunc(name, input_count, output_count) catch unreachable;
-}
-
-export fn addUserFuncInput(func_id: usize, index: u32, name_len: u32, input_type: u32) void {
-    const name = grappl_real_init_buff[0..name_len];
-    return _addUserFuncInput(func_id, index, name, @enumFromInt(input_type)) catch unreachable;
-}
-
-export fn addUserFuncOutput(func_id: usize, index: u32, name_len: u32, output_type: u32) void {
-    const name = grappl_real_init_buff[0..name_len];
-    return _addUserFuncOutput(func_id, index, name, @enumFromInt(output_type)) catch unreachable;
-}
-
-pub fn _createUserFunc(name: []const u8, input_count: u32, output_count: u32) !usize {
-    const node = try gpa.create(UserFuncList.Node);
-    node.* = UserFuncList.Node{
-        .data = .{
-            .id = next_user_func,
-            .node = .{
-                .name = try gpa.dupe(u8, name),
-                .hidden = false,
-                .inputs = try gpa.alloc(helpers.Pin, input_count + 1), // an extra is inserted for exec
-                .outputs = try gpa.alloc(helpers.Pin, output_count + 1), // an extra is inserted for exec
-            },
-        },
-    };
-    user_funcs.prepend(node);
-
-    next_user_func += 1;
-    errdefer next_user_func -= 1;
-
-    node.data.node.inputs[0] = helpers.Pin{
-        .name = "exec",
-        .kind = .{ .primitive = .exec },
-    };
-
-    node.data.node.outputs[0] = helpers.Pin{
-        .name = "",
-        .kind = .{ .primitive = .exec },
-    };
-
-    return node.data.id;
-}
-
-pub fn _addUserFuncInput(func_id: usize, index: u32, name: []const u8, input_type_tag: UserFuncTypes) !void {
-    const input_type = switch (input_type_tag) {
-        .i32_ => grappl.primitive_types.i32_,
-        .i64_ => grappl.primitive_types.i64_,
-        .f32_ => grappl.primitive_types.f32_,
-        .f64_ => grappl.primitive_types.f64_,
-        .string => grappl.primitive_types.string,
-        .code => grappl.primitive_types.code,
-        .bool => grappl.primitive_types.bool_,
-    };
-
-    // FIXME: slow!
-    const func: *helpers.BasicMutNodeDesc = _: {
-        var cursor = user_funcs.first;
-        while (cursor) |curr| : (cursor = curr.next) {
-            if (curr.data.id == func_id)
-                break :_ &curr.data.node;
-        }
-        unreachable;
-    };
-
-    // skip the exec index
-    func.inputs[index + 1] = helpers.Pin{
-        .name = try gpa.dupe(u8, name),
-        .kind = .{ .primitive = .{ .value = input_type } },
-    };
-}
-
-pub fn _addUserFuncOutput(func_id: usize, index: u32, name: []const u8, output_type_tag: UserFuncTypes) !void {
-    const output_type = switch (output_type_tag) {
-        .i32_ => grappl.primitive_types.i32_,
-        .i64_ => grappl.primitive_types.i64_,
-        .f32_ => grappl.primitive_types.f32_,
-        .f64_ => grappl.primitive_types.f64_,
-        .string => grappl.primitive_types.string,
-        .code => grappl.primitive_types.code,
-        .bool => grappl.primitive_types.bool_,
-    };
-
-    // FIXME: slow!
-    const func: *helpers.BasicMutNodeDesc = _: {
-        var cursor = user_funcs.first;
-        while (cursor) |curr| : (cursor = curr.next) {
-            if (curr.data.id == func_id)
-                break :_ &curr.data.node;
-        }
-        unreachable;
-    };
-
-    // skip the exec index
-    func.outputs[index + 1] = helpers.Pin{
-        .name = try gpa.dupe(u8, name),
-        .kind = .{ .primitive = .{ .value = output_type } },
-    };
-}
 
 //const gpa = gpa_instance.allocator();
 var gpa_instance = std.heap.GeneralPurposeAllocator(.{
@@ -367,8 +38,6 @@ pub const gpa = if (builtin.cpu.arch.isWasm())
     std.heap.wasm_allocator
 else
     gpa_instance.allocator();
-
-pub var shared_env: grappl.Env = undefined;
 
 pub const Graph = struct {
     index: u16,
@@ -386,22 +55,24 @@ pub const Graph = struct {
     // FIXME: merge with visual graph
     visual_graph: VisualGraph,
 
+    // FIXME: why is this separate from self.grappl_graph.env
     env: grappl.Env,
+    app: *App,
 
     pub fn env(self: @This()) *const grappl.Env {
         return self.grappl_graph.env;
     }
 
     /// NOTE: copies passed in name
-    pub fn init(index: u16, in_name: []const u8) !@This() {
+    pub fn init(app: *App, index: u16, in_name: []const u8) !@This() {
         var result: @This() = undefined;
-        try result.initInPlace(index, in_name);
+        try result.initInPlace(app, index, in_name);
         return result;
     }
 
     /// NOTE: copies passed in name
-    pub fn initInPlace(self: *@This(), index: u16, in_name: []const u8) !void {
-        self.env = shared_env.spawn();
+    pub fn initInPlace(self: *@This(), app: *App, index: u16, in_name: []const u8) !void {
+        self.env = app.shared_env.spawn();
 
         const grappl_graph = try grappl.GraphBuilder.init(gpa, &self.env);
 
@@ -409,6 +80,7 @@ pub const Graph = struct {
 
         // NOTE: does this only work because of return value optimization?
         self.* = @This(){
+            .app = app,
             .name = name_copy,
             .index = index,
             .grappl_graph = grappl_graph,
@@ -425,7 +97,7 @@ pub const Graph = struct {
         };
 
         // FIXME: remove node on err
-        self.call_desc = try shared_env.addNode(
+        self.call_desc = try app.shared_env.addNode(
             gpa,
             helpers.basicMutableNode(&self.call_basic_desc),
         );
@@ -441,7 +113,7 @@ pub const Graph = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        std.debug.assert(shared_env._nodes.remove(self.call_basic_desc.name));
+        std.debug.assert(self.app.shared_env._nodes.remove(self.call_basic_desc.name));
 
         for (self.param_getters.items) |param_getter| {
             // FIXME: these should be easier to manage the memory of!
@@ -493,15 +165,17 @@ pub const Graph = struct {
 };
 
 /// uses gpa, deinit the result with gpa
-pub fn combineGraphs() !Sexp {
+pub fn combineGraphs(
+    self: *const @This(),
+) !Sexp {
     // FIXME: use an arena!
     // not currently possible because grappl_graph.compile allocates permanent memory
     // for incremental compilation... the graph should take a separate allocator for
     // such memory, or use its own system allocator
     var result = Sexp.newModule(gpa);
-    try result.value.module.ensureTotalCapacity(@intCast(next_graph_index * 2));
+    try result.value.module.ensureTotalCapacity(@intCast(self.next_graph_index * 2));
 
-    var maybe_cursor = graphs.first;
+    var maybe_cursor = self.graphs.first;
     while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
         var diagnostic = grappl.GraphBuilder.Diagnostics.init();
         var graph_sexp = cursor.data.grappl_graph.compile(gpa, cursor.data.name, &diagnostic) catch |e| {
@@ -517,10 +191,12 @@ pub fn combineGraphs() !Sexp {
 }
 
 // TODO: take an allocator once compiling allocation is fixed
-fn combineGraphsText() !std.ArrayList(u8) {
+fn combineGraphsText(
+    self: *@This(),
+) !std.ArrayList(u8) {
     var bytes = std.ArrayList(u8).init(gpa);
 
-    var maybe_cursor = graphs.first;
+    var maybe_cursor = self.graphs.first;
     while (maybe_cursor) |cursor| : ({
         if (cursor.next != null)
             try bytes.append('\n');
@@ -546,61 +222,42 @@ fn exportCurrentSource() !void {
     onExportCurrentSource(bytes.items.ptr, bytes.items.len);
 }
 
-pub export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
-    const ptr = in_ptr orelse return;
-    const src = ptr[0..len];
-
-    {
-        var maybe_cursor = graphs.first;
-        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-            cursor.data.deinit();
-            gpa.destroy(cursor);
-        }
-    }
-    // FIXME: overwriting without deallocating graphs is a leak!
-    // opting to keep for now since cleaning up isn't trivial
-    graphs = sourceToGraph(gpa, src, &shared_env) catch |err| {
-        std.log.err("sourceToGraph error: {}", .{err});
-        return;
-    };
-}
-
-fn setCurrentGraphByIndex(index: u16) !void {
-    if (index == current_graph.index)
+fn setCurrentGraphByIndex(self: *@This(), index: u16) !void {
+    if (index == self.current_graph.index)
         return;
 
-    var maybe_cursor = graphs.first;
+    var maybe_cursor = self.graphs.first;
     var i = index;
     while (maybe_cursor) |cursor| : ({
         maybe_cursor = cursor.next;
         i -= 1;
     }) {
         if (i == 0) {
-            current_graph = &cursor.data;
+            self.current_graph = &cursor.data;
             return;
         }
     }
     return error.RangeError;
 }
 
-pub fn addGraph(name: []const u8, set_as_current: bool) !*Graph {
-    const graph_index = next_graph_index;
-    next_graph_index += 1;
-    errdefer next_graph_index -= 1;
+pub fn addGraph(self: *@This(), name: []const u8, set_as_current: bool) !*Graph {
+    const graph_index = self.next_graph_index;
+    self.next_graph_index += 1;
+    errdefer self.next_graph_index -= 1;
 
     var new_graph = try gpa.create(std.SinglyLinkedList(Graph).Node);
 
     new_graph.* = .{ .data = undefined };
-    try new_graph.data.initInPlace(graph_index, name);
+    try new_graph.data.initInPlace(self, graph_index, name);
 
     if (set_as_current)
-        current_graph = &new_graph.data;
+        self.current_graph = &new_graph.data;
 
-    if (graphs.first == null) {
-        graphs.prepend(new_graph);
+    if (self.graphs.first == null) {
+        self.graphs.prepend(new_graph);
     } else {
         // FIXME: why not prepend?
-        var maybe_cursor = graphs.first;
+        var maybe_cursor = self.graphs.first;
         while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
             if (cursor.next == null) {
                 cursor.insertAfter(new_graph);
@@ -612,6 +269,8 @@ pub fn addGraph(name: []const u8, set_as_current: bool) !*Graph {
     return &new_graph.data;
 }
 
+// FIXME: should this be undefined?
+shared_env: grappl.Env = undefined,
 
 context_menu_widget_id: ?u32 = null,
 node_menu_filter: ?Socket = null,
@@ -654,18 +313,6 @@ pub const InitOptions = struct {
         nodes: std.ArrayListUnmanaged(NodeInitState) = .{},
     }) = .{},
     user_funcs: []const compiler.UserFunc = &.{},
-};
-
-// FIXME: consider moving options and initState to a separate file
-
-const Orientation = enum(u32) {
-    left = 0,
-    right = 1,
-};
-
-// FIXME: generate this object and all of the setter functions in the build
-// NOTE: must correlate to WebBackend.d.ts
-var options: struct {
     preferences: struct {
         graph: struct {
             origin: ?dvui.Point = null,
@@ -681,9 +328,20 @@ var options: struct {
             visible: bool = true,
         } = .{},
     } = .{},
-} = .{};
+};
 
-const InputInitState = union(enum) {
+// FIXME: consider moving options and initState to a separate file
+
+pub const Orientation = enum(u32) {
+    left = 0,
+    right = 1,
+};
+
+// FIXME: generate this object and all of the setter functions in the build
+// NOTE: must correlate to WebBackend.d.ts
+var options: struct {} = .{};
+
+pub const InputInitState = union(enum) {
     node: struct { id: usize, out_pin: usize },
     int: i64,
     float: f64,
@@ -692,7 +350,7 @@ const InputInitState = union(enum) {
     symbol: []const u8,
 };
 
-const NodeInitState = struct {
+pub const NodeInitState = struct {
     id: usize,
     /// type of node "+"
     type_: []const u8,
@@ -711,20 +369,18 @@ pub const UserFuncTypes = enum(u32) {
     bool = 6,
 };
 
-
 pub fn init(self: *@This(), in_opts: InitOptions) !void {
     self.* = .{
         .init_opts = in_opts,
         .shared_env = try grappl.Env.initDefault(gpa),
-        user_funcs = 
+        .user_funcs = UserFuncList{},
     };
 
-
-    {
-        var maybe_cursor = self.user_funcs.first;
-        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-            _ = try shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data.node));
-        }
+    for (in_opts.user_funcs) |user_func| {
+        const node = try gpa.create(UserFuncList.Node);
+        node.* = user_func;
+        self.user_funcs.prepend(node);
+        _ = try self.shared_env.addNode(gpa, helpers.basicMutableNode(&node.data.node));
     }
 
     // TODO:
@@ -775,8 +431,8 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
     }
 }
 
-fn runCurrentGraphs(self: *const @This()) !void {
-    const sexp = try combineGraphs();
+pub fn runCurrentGraphs(self: *const @This()) !void {
+    const sexp = try combineGraphs(self);
     defer sexp.deinit(gpa);
 
     if (builtin.mode == .Debug) {
@@ -788,19 +444,13 @@ fn runCurrentGraphs(self: *const @This()) !void {
 
     var diagnostic = compiler.Diagnostic.init();
 
-    if (compiler.compile(gpa, &sexp, &shared_env, &self.user_funcs, &diagnostic)) |module| {
+    if (compiler.compile(gpa, &sexp, &self.shared_env, &self.user_funcs, &diagnostic)) |module| {
         std.log.info("compile_result:\n{s}", .{module});
         runCurrentWat(module.ptr, module.len);
         gpa.free(module);
     } else |err| {
         std.log.err("compile_error={any}", .{err});
     }
-}
-
-export fn _runCurrentGraphs() void {
-    runCurrentGraphs() catch |e| {
-        std.log.err("Error running: {}", .{e});
-    };
 }
 
 fn exportCurrentCompiled(self: *const @This()) !void {
@@ -816,7 +466,7 @@ fn exportCurrentCompiled(self: *const @This()) !void {
 
     var diagnostic = compiler.Diagnostic.init();
 
-    if (compiler.compile(gpa, &sexp, &shared_env, &self.user_funcs, &diagnostic)) |module| {
+    if (compiler.compile(gpa, &sexp, &self.shared_env, &self.user_funcs, &diagnostic)) |module| {
         std.log.info("compile_result:\n{s}", .{module});
         onExportCompiled(module.ptr, module.len);
         gpa.free(module);
@@ -832,7 +482,7 @@ pub fn deinit(self: *@This()) void {
     }
     self.graphs.first = null;
 
-    shared_env.deinit(gpa);
+    self.shared_env.deinit(gpa);
 
     while (self.user_funcs.popFirst()) |cursor| {
         gpa.free(cursor.data.node.name);
@@ -886,21 +536,22 @@ pub const NodeAdder = struct {
     }
 
     pub fn addNode(
+        app: *App,
         node_name: []const u8,
         _maybe_create_from: ?Socket,
         _pt_in_graph: dvui.Point,
         valid_socket_index: ?u16,
     ) !u32 {
         // TODO: use diagnostic
-        const new_node_id = try current_graph.addNode(gpa, node_name, false, null, null, _pt_in_graph);
+        const new_node_id = try app.current_graph.addNode(gpa, node_name, false, null, null, _pt_in_graph);
 
         if (_maybe_create_from) |create_from| {
             switch (create_from.kind) {
                 .input => {
-                    try current_graph.addEdge(gpa, new_node_id, valid_socket_index orelse 0, create_from.node_id, create_from.index, 0);
+                    try app.addEdge(gpa, new_node_id, valid_socket_index orelse 0, create_from.node_id, create_from.index, 0);
                 },
                 .output => {
-                    try current_graph.addEdge(gpa, create_from.node_id, create_from.index, new_node_id, valid_socket_index orelse 0, 0);
+                    try app.addEdge(gpa, create_from.node_id, create_from.index, new_node_id, valid_socket_index orelse 0, 0);
                 },
             }
         }
@@ -909,7 +560,7 @@ pub const NodeAdder = struct {
     }
 };
 
-fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from: ?Socket) !void {
+fn renderAddNodeMenu(self: *const @This(), pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from: ?Socket) !void {
     // TODO: handle defocus event
     var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
     defer fw.deinit();
@@ -926,7 +577,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
     };
 
     const maybe_create_from_type: ?grappl.PrimitivePin = if (maybe_create_from) |create_from| _: {
-        const node = current_graph.grappl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
+        const node = self.current_graph.grappl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
         const pins = switch (create_from.kind) {
             .output => node.desc().getOutputs(),
             .input => node.desc().getInputs(),
@@ -941,7 +592,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
     } else null;
 
     const bindings_infos = &.{
-        .{ .data = &current_graph.grappl_graph.locals, .display = "Locals" },
+        .{ .data = &self.current_graph.grappl_graph.locals, .display = "Locals" },
     };
 
     inline for (bindings_infos, 0..) |bindings_info, i| {
@@ -971,7 +622,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
 
                         if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = id_extra }) != null) {
                             const getter_name = try std.fmt.bufPrint(&buf, "get_{s}", .{binding.name});
-                            _ = try NodeAdder.addNode(getter_name, maybe_create_from, pt_in_graph, 0);
+                            _ = try NodeAdder.addNode(self, getter_name, maybe_create_from, pt_in_graph, 0);
                             subfw.close();
                         }
                     }
@@ -986,7 +637,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     const id_extra = (j << 8) | i;
                     var buf: [MAX_FUNC_NAME]u8 = undefined;
                     const name = try std.fmt.bufPrint(&buf, "set_{s}", .{binding.name});
-                    const node_desc = current_graph.env.getNode(name) orelse {
+                    const node_desc = self.current_graph.env.getNode(name) orelse {
                         std.log.err("couldn't get node by binding: '{s}'", .{binding.name});
                         unreachable;
                     };
@@ -1007,7 +658,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     const label = try std.fmt.bufPrint(&label_buf, "Set {s}", .{binding.name});
 
                     if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = id_extra }) != null) {
-                        _ = try NodeAdder.addNode(name, maybe_create_from, pt_in_graph, valid_socket_index);
+                        _ = try NodeAdder.addNode(self, name, maybe_create_from, pt_in_graph, valid_socket_index);
                         subfw.close();
                     }
                 }
@@ -1015,13 +666,13 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
         }
     }
 
-    if (current_graph.grappl_graph.entry_node_basic_desc.outputs.len > 1) {
+    if (self.current_graph.grappl_graph.entry_node_basic_desc.outputs.len > 1) {
         if (maybe_create_from == null or maybe_create_from.?.kind == .input) {
             if (try dvui.menuItemLabel(@src(), "Get Params >", .{ .submenu = true }, .{ .expand = .horizontal })) |r| {
                 var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
                 defer subfw.deinit();
 
-                for (current_graph.grappl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
+                for (self.current_graph.grappl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
                     std.debug.assert(binding.asPrimitivePin() == .value);
                     if (maybe_create_from_type != null and !std.meta.eql(maybe_create_from_type.?, binding.asPrimitivePin())) {
                         continue;
@@ -1038,7 +689,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                     if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = j }) != null) {
                         var buf: [MAX_FUNC_NAME]u8 = undefined;
                         const name = try std.fmt.bufPrint(&buf, "get_{s}", .{binding.name});
-                        _ = try NodeAdder.addNode(name, maybe_create_from, pt_in_graph, 0);
+                        _ = try NodeAdder.addNode(self, name, maybe_create_from, pt_in_graph, 0);
                         subfw.close();
                     }
                 }
@@ -1049,10 +700,10 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
             var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
             defer subfw.deinit();
 
-            for (current_graph.grappl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
+            for (self.current_graph.grappl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
                 var buf: [MAX_FUNC_NAME]u8 = undefined;
                 const name = try std.fmt.bufPrint(&buf, "set_{s}", .{binding.name});
-                const node_desc = current_graph.env.getNode(name) orelse unreachable;
+                const node_desc = self.current_graph.env.getNode(name) orelse unreachable;
 
                 var valid_socket_index: ?u16 = null;
                 if (maybe_create_from_type) |create_from_type| {
@@ -1070,7 +721,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
                 const label = try std.fmt.bufPrint(&label_buf, "Set {s}", .{binding.name});
 
                 if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = j }) != null) {
-                    _ = try NodeAdder.addNode(name, maybe_create_from, pt_in_graph, valid_socket_index);
+                    _ = try NodeAdder.addNode(self, name, maybe_create_from, pt_in_graph, valid_socket_index);
                     subfw.close();
                 }
             }
@@ -1079,7 +730,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
 
     {
         // FIXME: replace with node iterator
-        var node_iter = current_graph.env.nodeIterator();
+        var node_iter = self.current_graph.env.nodeIterator();
         var i: u32 = 0;
         while (node_iter.next()) |node_desc| {
             const node_name = node_desc.name();
@@ -1107,7 +758,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
             }
 
             if ((try dvui.menuItemLabel(@src(), node_name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
-                _ = try NodeAdder.addNode(node_name, maybe_create_from, pt_in_graph, valid_socket_index);
+                _ = try NodeAdder.addNode(self, node_name, maybe_create_from, pt_in_graph, valid_socket_index);
                 fw.close();
             }
             i += 1;
@@ -1115,7 +766,7 @@ fn renderAddNodeMenu(pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from:
     }
 }
 
-fn renderGraph(canvas: *dvui.BoxWidget) !void {
+fn renderGraph(self: @This(), canvas: *dvui.BoxWidget) !void {
     _ = canvas;
 
     errdefer if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
@@ -1176,11 +827,11 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
     var mbbox: ?Rect = null;
 
     // set drag end to false, rendering nodes will determine if it should still be set
-    edge_drag_end = null;
+    self.edge_drag_end = null;
 
     // place nodes
     {
-        var node_iter = current_graph.grappl_graph.nodes.map.iterator();
+        var node_iter = self.current_graph.grappl_graph.nodes.map.iterator();
         while (node_iter.next()) |entry| {
             // TODO: don't iterate over unneeded keys
             //const node_id = entry.key_ptr.*;
@@ -1197,7 +848,7 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
 
     // place edges
     {
-        var node_iter = current_graph.grappl_graph.nodes.map.iterator();
+        var node_iter = self.current_graph.grappl_graph.nodes.map.iterator();
         while (node_iter.next()) |entry| {
             const node_id = entry.key_ptr.*;
             const node = entry.value_ptr;
@@ -1245,8 +896,8 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
         const cw = dvui.currentWindow();
         const maybe_drag_offset = if (cw.drag_state != .none) cw.drag_offset else null;
 
-        if (maybe_drag_offset != null and edge_drag_start != null) {
-            const drag_start = edge_drag_start.?.pt;
+        if (maybe_drag_offset != null and self.edge_drag_start != null) {
+            const drag_start = self.edge_drag_start.?.pt;
             const drag_end = mouse_pt;
             // FIXME: dedup with above edge drawing
             try dvui.pathAddPoint(drag_start);
@@ -1255,18 +906,18 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
             try dvui.pathStroke(false, 3.0, .none, stroke_color);
         }
 
-        const drag_state_changed = (prev_drag_state == null) != (maybe_drag_offset == null);
+        const drag_state_changed = (self.prev_drag_state == null) != (maybe_drag_offset == null);
 
-        const stopped_dragging = drag_state_changed and maybe_drag_offset == null and edge_drag_start != null;
+        const stopped_dragging = drag_state_changed and maybe_drag_offset == null and self.edge_drag_start != null;
 
         if (stopped_dragging) {
-            if (edge_drag_end) |end| {
+            if (self.edge_drag_end) |end| {
                 const edge = if (end.kind == .input) .{
-                    .source = edge_drag_start.?.socket,
+                    .source = self.edge_drag_start.?.socket,
                     .target = end,
                 } else .{
                     .source = end,
-                    .target = edge_drag_start.?.socket,
+                    .target = self.edge_drag_start.?.socket,
                 };
 
                 const same_edge = edge.source.node_id == edge.target.node_id;
@@ -1274,7 +925,7 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
                 if (valid_edge) {
                     // FIXME: why am I assuming edge_drag_start exists?
                     // TODO: maybe use unreachable instead of try?
-                    try current_graph.addEdge(
+                    try self.current_graph.addEdge(
                         gpa,
                         edge.source.node_id,
                         edge.source.index,
@@ -1285,18 +936,18 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
                 }
             } else {
                 drop_node_menu = true;
-                node_menu_filter = if (edge_drag_start != null) edge_drag_start.?.socket else null;
+                self.node_menu_filter = if (self.edge_drag_start != null) self.edge_drag_start.?.socket else null;
             }
 
-            edge_drag_start = null;
+            self.edge_drag_start = null;
         }
 
-        prev_drag_state = maybe_drag_offset;
+        self.prev_drag_state = maybe_drag_offset;
     }
 
     if (drop_node_menu) {
-        dvui.dataSet(null, context_menu_widget_id orelse unreachable, "_activePt", mouse_pt);
-        dvui.focusWidget(context_menu_widget_id orelse unreachable, null, null);
+        dvui.dataSet(null, self.context_menu_widget_id orelse unreachable, "_activePt", mouse_pt);
+        dvui.focusWidget(self.context_menu_widget_id orelse unreachable, null, null);
     }
 
     // set drag cursor
@@ -1441,14 +1092,14 @@ fn renderGraph(canvas: *dvui.BoxWidget) !void {
         // FIXME: get max size from this from the graph size
         const ctext = try dvui.context(@src(), .{ .rect = graph_area.data().rect }, .{ .expand = .both });
         // FIXME: shouldn't this be set before the usage?
-        context_menu_widget_id = ctext.wd.id;
+        self.context_menu_widget_id = ctext.wd.id;
 
         defer ctext.deinit();
         // render add node context menu outside the graph
         if (ctext.activePoint()) |cp| {
-            try renderAddNodeMenu(cp, pt_in_graph, node_menu_filter);
+            try renderAddNodeMenu(cp, pt_in_graph, self.node_menu_filter);
         } else {
-            node_menu_filter = null;
+            self.node_menu_filter = null;
         }
     }
 }
@@ -1489,18 +1140,18 @@ fn colorForType(t: grappl.Type) !dvui.Color {
 }
 
 // FIXME: replace with idiomatic dvui event processing
-fn considerSocketForHover(icon_res: *dvui.ButtonIconResult, socket: Socket) dvui.Point {
+fn considerSocketForHover(self: *@This(), icon_res: *dvui.ButtonIconResult, socket: Socket) dvui.Point {
     const r = icon_res.icon.wd.rectScale().r;
     const socket_center = rectCenter(r);
 
     // HACK: make this cleaner
-    const was_dragging = dvui.currentWindow().drag_state != .none or prev_drag_state != null;
+    const was_dragging = dvui.currentWindow().drag_state != .none or self.prev_drag_state != null;
 
     if (rectContainsMouse(r)) {
-        if (was_dragging and edge_drag_start != null and socket.node_id != edge_drag_start.?.socket.node_id) {
-            if (socket.kind != edge_drag_start.?.socket.kind) {
+        if (was_dragging and self.edge_drag_start != null and socket.node_id != self.edge_drag_start.?.socket.node_id) {
+            if (socket.kind != self.edge_drag_start.?.socket.kind) {
                 dvui.cursorSet(.crosshair);
-                edge_drag_end = socket;
+                self.edge_drag_end = socket;
             } else {
                 dvui.toast(@src(), .{ .message = "Can only connect inputs to outputs", .timeout = 1_000_000 }) catch unreachable;
             }
@@ -1515,7 +1166,7 @@ fn considerSocketForHover(icon_res: *dvui.ButtonIconResult, socket: Socket) dvui
                 .mouse => |me| {
                     if (me.action == .press and me.button.pointer()) {
                         dvui.cursorSet(.crosshair);
-                        edge_drag_start = .{
+                        self.edge_drag_start = .{
                             .pt = socket_center,
                             .socket = socket,
                         };
@@ -1534,6 +1185,7 @@ const exec_color = dvui.Color{ .r = 0x55, .g = 0x55, .b = 0x55, .a = 0xff };
 
 // TODO: remove need for id, it should be inside the node itself
 fn renderNode(
+    self: *@This(),
     node: *grappl.Node,
     socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Point),
     graph_area: *dvui.ScrollAreaWidget,
@@ -1542,9 +1194,9 @@ fn renderNode(
     const root_id_extra: usize = @intCast(node.id);
 
     // FIXME:  this is temp, go back to auto graph formatting
-    var maybe_viz_data = current_graph.visual_graph.node_data.getPtr(node.id);
+    var maybe_viz_data = self.current_graph.visual_graph.node_data.getPtr(node.id);
     if (maybe_viz_data == null) {
-        const putresult = try current_graph.visual_graph.node_data.getOrPutValue(gpa, node.id, .{
+        const putresult = try self.current_graph.visual_graph.node_data.getOrPutValue(gpa, node.id, .{
             .position = dvui.Point{},
             .position_override = null,
         });
@@ -1705,19 +1357,19 @@ fn renderNode(
                     }
 
                     if (input_desc.kind.primitive.value == grappl.primitive_types.symbol and input.* == .value) {
-                        if (current_graph.grappl_graph.locals.items.len > 0) {
+                        if (self.current_graph.grappl_graph.locals.items.len > 0) {
                             //node.inputs[j] = .{.literal}
                             if (input.* != .value or input.value != .symbol) {
                                 input.* = .{ .value = .{ .symbol = "" } };
                             }
 
                             // TODO: use stack buffer with reasonable max options?
-                            const local_options: [][]const u8 = try gpa.alloc([]const u8, current_graph.grappl_graph.locals.items.len);
+                            const local_options: [][]const u8 = try gpa.alloc([]const u8, self.current_graph.grappl_graph.locals.items.len);
                             defer gpa.free(local_options);
 
                             var local_choice: usize = 0;
 
-                            for (current_graph.grappl_graph.locals.items, local_options, 0..) |local, *local_opt, k| {
+                            for (self.current_graph.grappl_graph.locals.items, local_options, 0..) |local, *local_opt, k| {
                                 local_opt.* = local.name;
                                 // FIXME: symbol interning
                                 if (std.mem.eql(u8, local.name, input.value.symbol)) {
@@ -1727,7 +1379,7 @@ fn renderNode(
 
                             const opt_clicked = try dvui.dropdown(@src(), local_options, &local_choice, .{ .id_extra = j });
                             if (opt_clicked) {
-                                input.value = .{ .symbol = current_graph.grappl_graph.locals.items[local_choice].name };
+                                input.value = .{ .symbol = self.current_graph.grappl_graph.locals.items[local_choice].name };
                             }
                         } else {
                             try dvui.label(@src(), "No locals", .{}, .{ .id_extra = j });
@@ -1836,7 +1488,7 @@ fn renderNode(
 
             if (icon_res.clicked) {
                 // NOTE: hopefully this gets inlined...
-                try current_graph.removeOutputLinks(node.id, @intCast(j));
+                try self.current_graph.removeOutputLinks(node.id, @intCast(j));
             }
 
             const socket_center = considerSocketForHover(&icon_res, socket);
@@ -1871,7 +1523,7 @@ fn renderNode(
                         dvui.cursorSet(.hand);
                     } else if (me.action == .release and me.button.pointer()) {
                         if (ctrl_down) {
-                            if (current_graph.removeNode(node.id)) |removed| {
+                            if (self.current_graph.removeNode(node.id)) |removed| {
                                 std.debug.assert(removed);
                             } else |err| switch (err) {
                                 error.CantRemoveEntry => {},
@@ -1912,7 +1564,7 @@ fn renderNode(
             var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(cp), .{});
             defer fw.deinit();
             if (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal })) |_| {
-                if (current_graph.removeNode(node.id)) |removed| {
+                if (self.current_graph.removeNode(node.id)) |removed| {
                     std.debug.assert(removed);
                 } else |err| switch (err) {
                     error.CantRemoveEntry => {},
@@ -2181,6 +1833,7 @@ pub const VisualGraph = struct {
 };
 
 pub fn addParamOrResult(
+    self: *@This(),
     /// graph entry if param, graph return if result
     node_desc: *const helpers.NodeDesc,
     /// graph entry if param, graph return if result
@@ -2193,7 +1846,7 @@ pub fn addParamOrResult(
     var pin_descs = @field(node_basic_desc, pin_dir);
     pin_descs = try gpa.realloc(pin_descs, pin_descs.len + 1);
     @field(node_basic_desc, pin_dir) = pin_descs;
-    @field(current_graph.call_basic_desc, opposite_dir) = pin_descs;
+    @field(self.current_graph.call_basic_desc, opposite_dir) = pin_descs;
 
     const new_name = _: {
         var name_suffix = pin_descs.len - 1;
@@ -2202,11 +1855,11 @@ pub fn addParamOrResult(
             var buf: [MAX_FUNC_NAME]u8 = undefined;
 
             const getter_name_attempt = try std.fmt.bufPrint(&buf, "get_a{}", .{name_suffix});
-            if (current_graph.env._nodes.contains(getter_name_attempt))
+            if (self.current_graph.env._nodes.contains(getter_name_attempt))
                 continue;
 
             const setter_name_attempt = try std.fmt.bufPrint(&buf, "set_a{}", .{name_suffix});
-            if (current_graph.env._nodes.contains(setter_name_attempt))
+            if (self.current_graph.env._nodes.contains(setter_name_attempt))
                 continue;
 
             // break shouldn't hit the continue above, since we now know it's a good suffix
@@ -2238,9 +1891,9 @@ pub fn addParamOrResult(
             .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
         };
 
-        (try current_graph.param_getters.addOne(gpa)).* = param_get_slot;
+        (try self.current_graph.param_getters.addOne(gpa)).* = param_get_slot;
 
-        _ = current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot)) catch unreachable;
+        _ = self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot)) catch unreachable;
 
         const param_set_slot = try gpa.create(helpers.BasicMutNodeDesc);
         param_set_slot.* = .{
@@ -2268,16 +1921,16 @@ pub fn addParamOrResult(
             .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
         };
 
-        (try current_graph.param_setters.addOne(gpa)).* = param_set_slot;
+        (try self.current_graph.param_setters.addOne(gpa)).* = param_set_slot;
 
-        _ = current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot)) catch unreachable;
+        _ = self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot)) catch unreachable;
     }
 
     {
         // TODO: nodes should not be guaranteed to have the same amount of links as their
         // definition has pins
         // FIXME: we can avoid a linear scan!
-        var next = graphs.first;
+        var next = self.graphs.first;
         while (next) |current| : (next = current.next) {
             for (current.data.grappl_graph.nodes.map.values()) |*node| {
                 if (node.desc() == node_desc) {
@@ -2296,7 +1949,7 @@ pub fn addParamOrResult(
                     }
                     // the current graph is the one we're adding a param to, so this is checking if other graphs
                     // have calls to this one
-                } else if (node.desc() == current_graph.call_desc) {
+                } else if (node.desc() == self.current_graph.call_desc) {
                     const old_pins = @field(node, opposite_dir);
                     @field(node, opposite_dir) = try gpa.realloc(old_pins, old_pins.len + 1);
                     const pins = @field(node, opposite_dir);
@@ -2318,11 +1971,7 @@ pub fn addParamOrResult(
     }
 }
 
-test {
-    _ = @import("./app_tests.zig");
-}
-
-pub fn frame() !void {
+pub fn frame(self: *@This()) !void {
     // file menu
     if (options.preferences.topbar.visible) {
         var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .expand = .horizontal });
@@ -2388,11 +2037,11 @@ pub fn frame() !void {
             }
         }
 
-        for (init_opts.menus) |menu| {
+        for (self.init_opts.menus) |menu| {
             // FIXME: must be called recursively to support any-layered submenus
             if (try dvui.menuItemLabel(@src(), menu.name, .{ .submenu = menu.submenus.len > 0 }, .{ .expand = .none })) |r| {
                 if (menu.on_click) |on_click| {
-                    on_click(init_opts.context);
+                    on_click(self.init_opts.context);
                 }
 
                 var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
@@ -2401,7 +2050,7 @@ pub fn frame() !void {
                 for (menu.submenus) |submenu| {
                     if (try dvui.menuItemLabel(@src(), submenu.name, .{}, .{ .expand = .horizontal })) |_| {
                         if (submenu.on_click) |submenu_click| {
-                            submenu_click(init_opts.context);
+                            submenu_click(self.init_opts.context);
                         }
                     }
                 }
@@ -2429,12 +2078,12 @@ pub fn frame() !void {
 
             const add_clicked = (try dvui.buttonIcon(@src(), "add-graph", entypo.plus, .{}, .{})).clicked;
             if (add_clicked) {
-                _ = try addGraph(try std.fmt.allocPrint(gpa, "new-func-{}", .{next_graph_index}), false);
+                _ = try addGraph(try std.fmt.allocPrint(gpa, "new-func-{}", .{self.next_graph_index}), false);
             }
         }
 
         {
-            var maybe_cursor = graphs.first;
+            var maybe_cursor = self.graphs.first;
             var i: usize = 0;
             while (maybe_cursor) |cursor| : ({
                 maybe_cursor = cursor.next;
@@ -2451,15 +2100,15 @@ pub fn frame() !void {
                     const new_name = try gpa.dupe(u8, entry_state.getText());
                     cursor.data.name = new_name;
                     cursor.data.call_basic_desc.name = new_name;
-                    std.debug.assert(shared_env._nodes.remove(old_name));
-                    if (shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data.call_basic_desc))) |result| {
+                    std.debug.assert(self.shared_env._nodes.remove(old_name));
+                    if (self.shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data.call_basic_desc))) |result| {
                         cursor.data.call_desc = result;
                     } else |e| switch (e) {
                         error.EnvAlreadyExists => {
                             defer gpa.free(new_name);
                             cursor.data.name = old_name;
                             cursor.data.call_basic_desc.name = old_name;
-                            cursor.data.call_desc = shared_env.addNode(gpa, helpers.basicMutableNode(&current_graph.call_basic_desc)) catch unreachable;
+                            cursor.data.call_desc = self.shared_env.addNode(gpa, helpers.basicMutableNode(&self.current_graph.call_basic_desc)) catch unreachable;
                         },
                         else => return e,
                     }
@@ -2472,7 +2121,7 @@ pub fn frame() !void {
                 //_ = try dvui.label(@src(), "()", .{}, .{ .font_style = .body, .id_extra = i });
                 const graph_clicked = try dvui.buttonIcon(@src(), "open-graph", entypo.chevron_right, .{}, .{ .id_extra = i });
                 if (graph_clicked.clicked)
-                    current_graph = &cursor.data;
+                    self.current_graph = &cursor.data;
             }
         }
 
@@ -2480,9 +2129,9 @@ pub fn frame() !void {
         // FIXME: don't allocate!
         // TODO: use a map or keep this sorted?
         const type_options = _: {
-            const result = try gpa.alloc([]const u8, current_graph.env.typeCount());
+            const result = try gpa.alloc([]const u8, self.current_graph.env.typeCount());
             var i: usize = 0;
-            var type_iter = current_graph.env.typeIterator();
+            var type_iter = self.current_graph.env.typeIterator();
             while (type_iter.next()) |type_entry| : (i += 1) {
                 result[i] = type_entry.*.name;
             }
@@ -2492,7 +2141,7 @@ pub fn frame() !void {
 
         const bindings_infos = &.{
             //.{ .binding_group = &current_graph.grappl_graph.imports, .name = "Imports" },
-            .{ .data = &current_graph.grappl_graph.locals, .name = "Locals", .type = .locals },
+            .{ .data = &self.current_graph.grappl_graph.locals, .name = "Locals", .type = .locals },
             //.{ .data = &current_graph.grappl_graph.params, .name = "Parameters", .type = .params },
         };
 
@@ -2511,7 +2160,7 @@ pub fn frame() !void {
                     const name = try gpa.dupe(u8, for (0..10_000) |j| {
                         const getter_name = try std.fmt.bufPrint(&name_buf, "get_new{}", .{j});
                         // FIXME: use contains
-                        if (current_graph.env.getNode(getter_name) != null)
+                        if (self.current_graph.env.getNode(getter_name) != null)
                             continue;
                         const name = try std.fmt.bufPrint(&name_buf, "new{}", .{j});
                         break name;
@@ -2578,8 +2227,8 @@ pub fn frame() !void {
 
                     // FIXME: move all this to "addLocal" and "addParam" functions
                     // of the graph which manage the nodes for you
-                    _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(&node_descs[0]));
-                    _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(&node_descs[1]));
+                    _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(&node_descs[0]));
+                    _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(&node_descs[1]));
 
                     const appended = try bindings_info.data.addOne(gpa);
 
@@ -2617,10 +2266,10 @@ pub fn frame() !void {
                         const old_set_node_name = set_node.name;
                         set_node.name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name});
                         // FIXME: should be able to use removeByPtr here to avoid look up?
-                        std.debug.assert(current_graph.env._nodes.remove(old_get_node_name));
-                        std.debug.assert(current_graph.env._nodes.remove(old_set_node_name));
-                        _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(get_node));
-                        _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(set_node));
+                        std.debug.assert(self.current_graph.env._nodes.remove(old_get_node_name));
+                        std.debug.assert(self.current_graph.env._nodes.remove(old_set_node_name));
+                        _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(get_node));
+                        _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(set_node));
                         // TODO: defer these so they still happen in an error
                         gpa.free(old_get_node_name);
                         gpa.free(old_set_node_name);
@@ -2638,7 +2287,7 @@ pub fn frame() !void {
                     // FIXME: this is slow to run every frame!
                     // FIXME: assumes iterator is ordered when not mutated
                     var k: usize = 0;
-                    var type_iter = current_graph.env.typeIterator();
+                    var type_iter = self.current_graph.env.typeIterator();
                     while (type_iter.next()) |type_entry| : (k += 1) {
                         if (type_entry == binding.type_) {
                             type_choice = type_entry;
@@ -2651,7 +2300,7 @@ pub fn frame() !void {
                 const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice_index, .{ .id_extra = j, .color_text = .{ .color = try colorForType(type_choice) } });
                 if (option_clicked) {
                     const selected_name = type_options[type_choice_index];
-                    binding.type_ = current_graph.grappl_graph.env.getType(selected_name) orelse unreachable;
+                    binding.type_ = self.current_graph.grappl_graph.env.getType(selected_name) orelse unreachable;
                     if (binding.extra) |extra| {
                         const nodes: *[2]grappl.helpers.BasicMutNodeDesc = @alignCast(@ptrCast(extra));
                         const get_node = &nodes[0];
@@ -2674,8 +2323,8 @@ pub fn frame() !void {
             //     .type = .results,
             // },
             .{
-                .node_desc = current_graph.grappl_graph.entry_node,
-                .node_basic_desc = current_graph.grappl_graph.entry_node_basic_desc,
+                .node_desc = self.current_graph.grappl_graph.entry_node,
+                .node_basic_desc = self.current_graph.grappl_graph.entry_node_basic_desc,
                 .name = "Parameters",
                 .pin_dir = "outputs",
                 .type = .params,
@@ -2706,26 +2355,26 @@ pub fn frame() !void {
                     var buf: [MAX_FUNC_NAME]u8 = undefined;
 
                     const old_get_name = try std.fmt.bufPrint(&buf, "get_{s}", .{pin_desc.name});
-                    std.debug.assert(current_graph.env._nodes.remove(old_get_name));
+                    std.debug.assert(self.current_graph.env._nodes.remove(old_get_name));
                     const old_set_name = try std.fmt.bufPrint(&buf, "set_{s}", .{pin_desc.name});
-                    std.debug.assert(current_graph.env._nodes.remove(old_set_name));
+                    std.debug.assert(self.current_graph.env._nodes.remove(old_set_name));
 
                     gpa.free(pin_desc.name);
                     pin_desc.name = try gpa.dupe(u8, text_entry.getText());
 
-                    const param_get_slot = current_graph.param_getters.items[j - 1];
+                    const param_get_slot = self.current_graph.param_getters.items[j - 1];
                     gpa.free(param_get_slot.name);
                     param_get_slot.name = try std.fmt.allocPrint(gpa, "get_{s}", .{pin_desc.name});
                     param_get_slot.outputs[0].name = pin_desc.name;
 
-                    const param_set_slot = current_graph.param_setters.items[j - 1];
+                    const param_set_slot = self.current_graph.param_setters.items[j - 1];
                     gpa.free(param_set_slot.name);
                     param_set_slot.name = try std.fmt.allocPrint(gpa, "set_{s}", .{pin_desc.name});
                     param_set_slot.inputs[1].name = pin_desc.name;
                     param_set_slot.outputs[1].name = pin_desc.name;
 
-                    _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot));
-                    _ = try current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot));
+                    _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot));
+                    _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot));
                 }
                 // must occur after text_changed check or this operation will set it
                 if (dvui.firstFrame(text_entry.data().id)) {
@@ -2742,7 +2391,7 @@ pub fn frame() !void {
                 {
                     // FIXME: assumes iterator is ordered when not mutated
                     var k: usize = 0;
-                    var type_iter = current_graph.env.typeIterator();
+                    var type_iter = self.current_graph.env.typeIterator();
                     while (type_iter.next()) |type_entry| : (k += 1) {
                         if (pin_desc.kind != .primitive)
                             continue;
@@ -2762,12 +2411,12 @@ pub fn frame() !void {
                 });
                 if (option_clicked) {
                     const selected_name = type_options[type_choice_index];
-                    const type_ = current_graph.grappl_graph.env.getType(selected_name) orelse unreachable;
+                    const type_ = self.current_graph.grappl_graph.env.getType(selected_name) orelse unreachable;
                     pin_desc.kind.primitive = .{ .value = type_ };
                     if (info.type == .params) {
-                        current_graph.param_getters.items[j - 1].outputs[0].kind.primitive.value = type_;
-                        current_graph.param_setters.items[j - 1].inputs[1].kind.primitive.value = type_;
-                        current_graph.param_setters.items[j - 1].outputs[1].kind.primitive.value = type_;
+                        self.current_graph.param_getters.items[j - 1].outputs[0].kind.primitive.value = type_;
+                        self.current_graph.param_setters.items[j - 1].inputs[1].kind.primitive.value = type_;
+                        self.current_graph.param_setters.items[j - 1].outputs[1].kind.primitive.value = type_;
                     }
                 }
             }
@@ -2786,11 +2435,12 @@ pub fn frame() !void {
             defer text.deinit();
 
             try text.addText("Result:\n", .{});
-            try text.addText(result_buffer[0..std.mem.indexOf(u8, &result_buffer, "\x00").?], .{});
+            const res_buff = self.init_opts.result_buffer;
+            try text.addText(res_buff[0..std.mem.indexOf(u8, &res_buff, "\x00").?], .{});
         }
     }
 
-    try renderGraph(hbox);
+    try renderGraph(self, hbox);
 
     // FIXME: this doesn't work
     // left over global events
@@ -2802,5 +2452,6 @@ pub fn frame() !void {
     }
 }
 
-// TODO: also a result size global
-pub export var result_buffer = std.mem.zeroes([4096]u8);
+test {
+    _ = @import("./app_tests.zig");
+}
