@@ -8,8 +8,10 @@ import * as constants from "../constants";
 import { classNames } from '../react-utils';
 import Modal from '../components/modal'
 
-const subscribeContainer = document.createElement("div");
-document.body.append(subscribeContainer);
+if (typeof document !== "undefined") {
+  const subscribeContainer = document.createElement("div");
+  document.body.append(subscribeContainer);
+}
 
 const Header = () => {
   const [subscribeOpen, setSubscribeOpen] = React.useState(false);
