@@ -73,7 +73,7 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
         return @intFromEnum(AppInitErrorCodes.WindowInitFailed);
     };
 
-    app.init(.{}) catch |e| {
+    app.init() catch |e| {
         std.log.err("App failed to init ({!})", .{e});
         return @intFromEnum(AppInitErrorCodes.AppInitFailed);
     };

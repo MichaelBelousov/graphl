@@ -215,8 +215,8 @@ fn combineGraphsText(
     return bytes;
 }
 
-fn exportCurrentSource() !void {
-    var bytes = try combineGraphsText();
+fn exportCurrentSource(self: *@This()) !void {
+    var bytes = try combineGraphsText(self);
     defer bytes.deinit();
 
     onExportCurrentSource(bytes.items.ptr, bytes.items.len);
@@ -307,6 +307,7 @@ pub const MenuOption = struct {
 
 pub const InitOptions = struct {
     menus: []const MenuOption = &.{},
+    result_buffer: ?[]u8 = null,
     context: ?*anyopaque = null,
     graphs: std.StringHashMapUnmanaged(struct {
         notRemovable: bool = false,
@@ -378,7 +379,7 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
 
     for (in_opts.user_funcs) |user_func| {
         const node = try gpa.create(UserFuncList.Node);
-        node.* = user_func;
+        node.* = .{ .data = user_func };
         self.user_funcs.prepend(node);
         _ = try self.shared_env.addNode(gpa, helpers.basicMutableNode(&node.data.node));
     }
@@ -390,7 +391,7 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
             const graph_name = entry.key_ptr;
             const graph_desc = entry.value_ptr;
             // FIXME: must I dupe this?
-            const graph = try addGraph(graph_name.*, true);
+            const graph = try addGraph(self, graph_name.*, true);
             for (graph_desc.nodes.items) |node_desc| {
                 const node_id: grappl.NodeId = @intCast(node_desc.id);
                 _ = try graph.addNode(gpa, node_desc.type_, false, node_id, null, .{});
@@ -427,7 +428,7 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
             try graph.visual_graph.formatGraphNaive(gpa);
         }
     } else {
-        _ = try addGraph("main", true);
+        _ = try addGraph(self, "main", true);
     }
 }
 
@@ -454,7 +455,7 @@ pub fn runCurrentGraphs(self: *const @This()) !void {
 }
 
 fn exportCurrentCompiled(self: *const @This()) !void {
-    const sexp = try combineGraphs();
+    const sexp = try combineGraphs(self);
     defer sexp.deinit(gpa);
 
     if (builtin.mode == .Debug) {
@@ -548,10 +549,10 @@ pub const NodeAdder = struct {
         if (_maybe_create_from) |create_from| {
             switch (create_from.kind) {
                 .input => {
-                    try app.addEdge(gpa, new_node_id, valid_socket_index orelse 0, create_from.node_id, create_from.index, 0);
+                    try app.current_graph.addEdge(gpa, new_node_id, valid_socket_index orelse 0, create_from.node_id, create_from.index, 0);
                 },
                 .output => {
-                    try app.addEdge(gpa, create_from.node_id, create_from.index, new_node_id, valid_socket_index orelse 0, 0);
+                    try app.current_graph.addEdge(gpa, create_from.node_id, create_from.index, new_node_id, valid_socket_index orelse 0, 0);
                 },
             }
         }
@@ -560,7 +561,7 @@ pub const NodeAdder = struct {
     }
 };
 
-fn renderAddNodeMenu(self: *const @This(), pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from: ?Socket) !void {
+fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from: ?Socket) !void {
     // TODO: handle defocus event
     var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
     defer fw.deinit();
@@ -766,19 +767,19 @@ fn renderAddNodeMenu(self: *const @This(), pt: dvui.Point, pt_in_graph: dvui.Poi
     }
 }
 
-fn renderGraph(self: @This(), canvas: *dvui.BoxWidget) !void {
+fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
     _ = canvas;
 
     errdefer if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
 
-    if (options.preferences.graph.origin) |origin| {
+    if (self.init_opts.preferences.graph.origin) |origin| {
         ScrollData.origin = origin;
     }
-    if (options.preferences.graph.scale) |scale| {
+    if (self.init_opts.preferences.graph.scale) |scale| {
         ScrollData.scale = scale;
     }
 
-    const scroll_bar_vis: dvui.ScrollInfo.ScrollBarMode = if (options.preferences.graph.scrollBarsVisible) |v|
+    const scroll_bar_vis: dvui.ScrollInfo.ScrollBarMode = if (self.init_opts.preferences.graph.scrollBarsVisible) |v|
         if (v) .show else .hide
     else
         .auto;
@@ -836,7 +837,7 @@ fn renderGraph(self: @This(), canvas: *dvui.BoxWidget) !void {
             // TODO: don't iterate over unneeded keys
             //const node_id = entry.key_ptr.*;
             const node = entry.value_ptr;
-            const node_rect = try renderNode(node, &socket_positions, graph_area, dataRectScale);
+            const node_rect = try renderNode(self, node, &socket_positions, graph_area, dataRectScale);
 
             if (mbbox != null) {
                 mbbox = mbbox.?.unionWith(node_rect);
@@ -980,7 +981,7 @@ fn renderGraph(self: @This(), canvas: *dvui.BoxWidget) !void {
                         // FIXME: check dvui scrollArea sample, why is this commented out?
                         //e.handled = true;
                     }
-                    if (dvui.captured(graph_area.scroll.data().id) and options.preferences.graph.allowPanning) {
+                    if (dvui.captured(graph_area.scroll.data().id) and self.init_opts.preferences.graph.allowPanning) {
                         if (dvui.dragging(me.p)) |dps| {
                             const rs = scrollRectScale;
                             ScrollData.scroll_info.viewport.x -= dps.x / rs.s;
@@ -1097,7 +1098,7 @@ fn renderGraph(self: @This(), canvas: *dvui.BoxWidget) !void {
         defer ctext.deinit();
         // render add node context menu outside the graph
         if (ctext.activePoint()) |cp| {
-            try renderAddNodeMenu(cp, pt_in_graph, self.node_menu_filter);
+            try renderAddNodeMenu(self, cp, pt_in_graph, self.node_menu_filter);
         } else {
             self.node_menu_filter = null;
         }
@@ -1281,7 +1282,7 @@ fn renderNode(
             //
             ) _: {
                 var icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
-                const socket_center = considerSocketForHover(&icon_res, socket);
+                const socket_center = considerSocketForHover(self, &icon_res, socket);
                 if (icon_res.clicked) {
                     // FIXME: add an "input" reset
                     input.* = .{ .value = .{ .float = 0.0 } };
@@ -1292,7 +1293,7 @@ fn renderNode(
                 // FIXME: make non interactable/hoverable
 
                 var icon_res = try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
-                const socket_center = considerSocketForHover(&icon_res, socket);
+                const socket_center = considerSocketForHover(self, &icon_res, socket);
                 if (icon_res.clicked) {
                     input.* = .{ .value = .{ .int = 0 } };
                 }
@@ -1491,7 +1492,7 @@ fn renderNode(
                 try self.current_graph.removeOutputLinks(node.id, @intCast(j));
             }
 
-            const socket_center = considerSocketForHover(&icon_res, socket);
+            const socket_center = considerSocketForHover(self, &icon_res, socket);
             try socket_positions.put(gpa, socket, socket_center);
         }
     }
@@ -1973,7 +1974,7 @@ pub fn addParamOrResult(
 
 pub fn frame(self: *@This()) !void {
     // file menu
-    if (options.preferences.topbar.visible) {
+    if (self.init_opts.preferences.topbar.visible) {
         var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .expand = .horizontal });
         defer m.deinit();
 
@@ -1982,7 +1983,7 @@ pub fn frame(self: *@This()) !void {
             defer fw.deinit();
 
             if (try dvui.menuItemLabel(@src(), "Save", .{}, .{ .expand = .horizontal })) |_| {
-                try exportCurrentSource();
+                try exportCurrentSource(self);
             }
 
             if (try dvui.menuItemLabel(@src(), "Open", .{}, .{ .expand = .horizontal })) |_| {
@@ -1990,7 +1991,7 @@ pub fn frame(self: *@This()) !void {
             }
 
             if (try dvui.menuItemLabel(@src(), "Export Wasm", .{}, .{ .expand = .horizontal })) |_| {
-                try exportCurrentCompiled();
+                try exportCurrentCompiled(self);
             }
         }
 
@@ -1999,7 +2000,7 @@ pub fn frame(self: *@This()) !void {
             defer fw.deinit();
 
             if (try dvui.menuItemLabel(@src(), "Run (F5)", .{}, .{ .expand = .horizontal })) |_| {
-                try runCurrentGraphs();
+                try runCurrentGraphs(self);
             }
 
             if (try dvui.menuItemLabel(@src(), "Debug DVUI", .{}, .{ .expand = .horizontal })) |_| {
@@ -2066,7 +2067,7 @@ pub fn frame(self: *@This()) !void {
     var hbox = try dvui.box(@src(), .horizontal, .{ .expand = .both });
     defer hbox.deinit();
 
-    if (options.preferences.definitionsPanel.visible) {
+    if (self.init_opts.preferences.definitionsPanel.visible) {
         var defines_box = try dvui.box(@src(), .vertical, .{ .expand = .vertical, .background = true });
         defer defines_box.deinit();
 
@@ -2078,7 +2079,11 @@ pub fn frame(self: *@This()) !void {
 
             const add_clicked = (try dvui.buttonIcon(@src(), "add-graph", entypo.plus, .{}, .{})).clicked;
             if (add_clicked) {
-                _ = try addGraph(try std.fmt.allocPrint(gpa, "new-func-{}", .{self.next_graph_index}), false);
+                _ = try addGraph(
+                    self,
+                    try std.fmt.allocPrint(gpa, "new-func-{}", .{self.next_graph_index}),
+                    false,
+                );
             }
         }
 
@@ -2341,7 +2346,7 @@ pub fn frame(self: *@This()) !void {
 
                 const add_clicked = (try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i })).clicked;
                 if (add_clicked) {
-                    try addParamOrResult(info.node_desc, info.node_basic_desc, info.type);
+                    try addParamOrResult(self, info.node_desc, info.node_basic_desc, info.type);
                 }
             }
 
@@ -2435,8 +2440,8 @@ pub fn frame(self: *@This()) !void {
             defer text.deinit();
 
             try text.addText("Result:\n", .{});
-            const res_buff = self.init_opts.result_buffer;
-            try text.addText(res_buff[0..std.mem.indexOf(u8, &res_buff, "\x00").?], .{});
+            const res_buff = self.init_opts.result_buffer orelse "\x00";
+            try text.addText(res_buff[0..std.mem.indexOf(u8, res_buff, "\x00").?], .{});
         }
     }
 
@@ -2447,7 +2452,7 @@ pub fn frame(self: *@This()) !void {
     for (dvui.events()) |*e| {
         if (!e.handled and e.evt == .key and e.evt.key.code == .f5) {
             e.handled = true;
-            try runCurrentGraphs();
+            try runCurrentGraphs(self);
         }
     }
 }

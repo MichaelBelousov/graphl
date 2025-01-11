@@ -1,17 +1,21 @@
 // FIXME
 var app: App = .{};
 var user_funcs: std.ArrayListUnmanaged(graphl.compiler.UserFunc) = .{};
-var init_opts: App.InitOptions = .{};
+var init_opts: App.InitOptions = .{
+    .result_buffer = &result_buffer,
+};
 
 pub fn init() !void {
-    app = App.init(init_opts);
+    try App.init(&app, init_opts);
 }
 
 pub fn deinit() void {
     app.deinit();
 }
 
-pub const frame = App.frame;
+pub fn frame() !void {
+    try app.frame();
+}
 
 // NOTE: check if this is bad
 const graphl_init_buffer: [std.wasm.page_size]u8 = _: {
@@ -286,9 +290,9 @@ export fn addUserFuncOutput(func_id: usize, index: u32, name_len: u32, output_ty
 }
 
 pub fn _createUserFunc(name: []const u8, input_count: u32, output_count: u32) !usize {
-    const node = try user_funcs.addOne(gpa);
-    node.* = .{
-        .id = user_funcs.items.len,
+    const new_func = try user_funcs.addOne(gpa);
+    new_func.* = .{
+        .id = user_funcs.items.len - 1,
         .node = .{
             .name = try gpa.dupe(u8, name),
             .hidden = false,
@@ -297,17 +301,17 @@ pub fn _createUserFunc(name: []const u8, input_count: u32, output_count: u32) !u
         },
     };
 
-    node.data.node.inputs[0] = helpers.Pin{
+    new_func.node.inputs[0] = helpers.Pin{
         .name = "exec",
         .kind = .{ .primitive = .exec },
     };
 
-    node.data.node.outputs[0] = helpers.Pin{
+    new_func.node.outputs[0] = helpers.Pin{
         .name = "",
         .kind = .{ .primitive = .exec },
     };
 
-    return node.data.id;
+    return new_func.id;
 }
 
 pub fn _addUserFuncInput(func_id: usize, index: u32, name: []const u8, input_type_tag: App.UserFuncTypes) !void {
@@ -341,15 +345,7 @@ pub fn _addUserFuncOutput(func_id: usize, index: u32, name: []const u8, output_t
         .bool => graphl.primitive_types.bool_,
     };
 
-    // FIXME: slow!
-    const func: *helpers.BasicMutNodeDesc = _: {
-        var cursor = user_funcs.first;
-        while (cursor) |curr| : (cursor = curr.next) {
-            if (curr.data.id == func_id)
-                break :_ &curr.data.node;
-        }
-        unreachable;
-    };
+    const func = &user_funcs.items[func_id].node;
 
     // skip the exec index
     func.outputs[index + 1] = helpers.Pin{
