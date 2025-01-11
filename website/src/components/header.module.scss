@@ -51,8 +51,20 @@
 .subButton {
   padding: 5px;
   border-radius: 6px;
+  border: 0;
   color: #ffffff;
   font-weight: bold;
-  color: var(--background);
   background-color: var(--color-one);
+  cursor: pointer;
+}
+
+.subscribeModalContent {
+  padding: 5px;
+  display: flex;
+  gap: 15px;
+}
+
+.subInput {
+  border-radius: 5px;
+  border: 0;
 }

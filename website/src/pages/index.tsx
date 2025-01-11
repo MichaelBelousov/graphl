@@ -259,7 +259,7 @@ const Sample = (props: {
   return (
     <div
       className={styles.sampleCanvas}
-      style={{ position: "relative" }}
+      style={{ position: "relative", zIndex: 0 }}
       title={"click the green play button to run\nAnd try editing it!"}
     >
       <div ref={resultPopoverRef} className={styles.canvasPopover} style={{ "--width": popoverWidth }}>
