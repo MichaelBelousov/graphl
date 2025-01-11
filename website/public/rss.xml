@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title><![CDATA[Torakku dev blog RSS feed]]></title><description><![CDATA[Graphl]]></description><link>https://graphl.tech</link><generator>GatsbyJS</generator><lastBuildDate>Thu, 02 Jan 2025 16:10:21 GMT</lastBuildDate><item><title><![CDATA[Why do visual scripting languages suck?]]></title><description><![CDATA[Why are there no very popular visual scripting languages? This is a trick question... there are plenty!
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title><![CDATA[Torakku dev blog RSS feed]]></title><description><![CDATA[Graphl]]></description><link>https://graphl.tech</link><generator>GatsbyJS</generator><lastBuildDate>Sat, 11 Jan 2025 16:43:32 GMT</lastBuildDate><item><title><![CDATA[Why do visual scripting languages suck?]]></title><description><![CDATA[Why are there no very popular visual scripting languages? This is a trick question... there are plenty!
 Here is a sample of some different…]]></description><link>https://graphl.tech/blog/why-are-there-no-visual-scripting-languages/</link><guid isPermaLink="false">https://graphl.tech/blog/why-are-there-no-visual-scripting-languages/</guid><pubDate>Wed, 01 Jan 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Why are there no very popular visual scripting languages? This is a trick question... there are plenty!
 Here is a sample of some different visual scripting systems, some you may have heard of:&lt;/p&gt;
 &lt;ul&gt;
@@ -116,7 +116,7 @@ and let people make applications extensible with an easy, reusable, standardized
 how you might want to use it! I want it to be used for everything!&lt;/p&gt;
 &lt;hr /&gt;
 &lt;p&gt;Do you think I got something wrong? Please feel free to
-&lt;a href=&quot;me@mikemikeb.com&quot;&gt;email&lt;/a&gt; me to help me make corrections.&lt;/p&gt;
+&lt;a href=&quot;mike@graphl.tech&quot;&gt;email&lt;/a&gt; me to help me make corrections.&lt;/p&gt;
 &lt;p&gt;Footnotes:&lt;/p&gt;
 &lt;ol&gt;
 &lt;li&gt;
@@ -134,7 +134,7 @@ for 50% more (decaying) accuracy in each iteration&quot;.&lt;/p&gt;
 &lt;p&gt;Yes, a small browser extension might be doable, but I think most built-only-by-AI projects will rot, and still need debugging by
 humans. And a visual language&apos;s debugger will be &lt;em&gt;much&lt;/em&gt; easier for the less technically endowed.&lt;/p&gt;
 &lt;/li&gt;
-&lt;/ol&gt;</content:encoded></item><item><title><![CDATA[Why are there no visual scripting languages?]]></title><description><![CDATA[Why do visual scripting languages suck? Why are there no very popular visual scripting languages?
+&lt;/ol&gt;</content:encoded></item><item><title><![CDATA[Why being both a textual and visual language is hard]]></title><description><![CDATA[Why do visual scripting languages suck? Why are there no very popular visual scripting languages?
 You may know the answer here already…]]></description><link>https://graphl.tech/blog/why-its-hard-to-be-isomorphically-visual/</link><guid isPermaLink="false">https://graphl.tech/blog/why-its-hard-to-be-isomorphically-visual/</guid><pubDate>Wed, 01 Jan 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h2&gt;Why do visual scripting languages suck?&lt;/h2&gt;
 &lt;p&gt;Why are there no very popular visual scripting languages?
 You may know the answer here already. There are tons!&lt;/p&gt;
@@ -260,7 +260,7 @@ What if they refactored it to not use a state machine?&lt;/p&gt;
 &lt;h2&gt;Lisp macros&lt;/h2&gt;
 &lt;hr /&gt;
 &lt;p&gt;There is a &lt;em&gt;lot&lt;/em&gt; out there, so maybe I got something wrong, please feel free to
-&lt;a href=&quot;me@mikemikeb.com&quot;&gt;email&lt;/a&gt; me to help me make corrections.&lt;/p&gt;
+&lt;a href=&quot;mike@graphl.tech&quot;&gt;email&lt;/a&gt; me to help me make corrections.&lt;/p&gt;
 &lt;p&gt;Footnotes:&lt;/p&gt;
 &lt;ol&gt;
 &lt;li&gt;
