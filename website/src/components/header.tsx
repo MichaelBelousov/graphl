@@ -8,8 +8,10 @@ import * as constants from "../constants";
 import { classNames } from '../react-utils';
 import Modal from '../components/modal'
 
+let subscribeContainer: HTMLDivElement | undefined = undefined;
+
 if (typeof document !== "undefined") {
-  const subscribeContainer = document.createElement("div");
+  subscribeContainer = document.createElement("div");
   document.body.append(subscribeContainer);
 }
 
@@ -68,7 +70,7 @@ const Header = () => {
         </div>
       )}
       {
-      ReactDOM.createPortal(
+      subscribeContainer && ReactDOM.createPortal(
         <Modal isOpen={subscribeOpen} setIsOpen={setSubscribeOpen}>
           <form
             className={styles.subscribeModalContent}

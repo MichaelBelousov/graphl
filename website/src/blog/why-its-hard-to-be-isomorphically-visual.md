@@ -1,6 +1,6 @@
 ---
-path: "/blog/why-are-there-no-visual-scripting-languages"
-title: "Why are there no visual scripting languages?"
+path: "/blog/why-its-hard-to-be-isomorphically-visual"
+title: "Why being both a textual and visual language is hard"
 date: "2025-01-01"
 ---
 
