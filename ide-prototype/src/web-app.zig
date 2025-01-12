@@ -1,16 +1,19 @@
 // FIXME
 var app: App = .{};
-var user_funcs: std.ArrayListUnmanaged(graphl.compiler.UserFunc) = .{};
 var init_opts: App.InitOptions = .{
     .result_buffer = &result_buffer,
 };
 
+var user_funcs: std.ArrayListUnmanaged(graphl.compiler.UserFunc) = .{};
+
 pub fn init() !void {
+    init_opts.user_funcs = user_funcs.items;
     try App.init(&app, init_opts);
 }
 
 pub fn deinit() void {
     app.deinit();
+    user_funcs.deinit(gpa);
 }
 
 pub fn frame() !void {

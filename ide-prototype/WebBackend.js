@@ -483,7 +483,7 @@ export function Ide(canvasElem, opts) {
         onRequestLoadSource() {
             uploadFile({ type: "text" }).then((file) => {
                 const len = file.content.length;
-                const ptr = wasmResult.instance.exports.grappl_init_start;
+                const ptr = wasmResult.instance.exports.graphl_init_start;
                 const transferBuffer = () => new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
                 {
                     const write = utf8encoder.encodeInto(file.content, transferBuffer());
@@ -691,7 +691,7 @@ export function Ide(canvasElem, opts) {
 
         if (opts?.initState?.graphs !== undefined) {
             for (const [graphName, graph] of Object.entries(opts.initState.graphs)) {
-                const graph_name_ptr = we.grappl_init_start - INIT_BUFFER_SZ;
+                const graph_name_ptr = we.graphl_init_start - INIT_BUFFER_SZ;
                 const graph_name_len = graphName.length;
 
                 const graphNameBuff = () => new Uint8Array(we.memory.buffer, graph_name_ptr, graph_name_len);
@@ -786,7 +786,7 @@ export function Ide(canvasElem, opts) {
             const transferBuffer = () => new Uint8Array(
                 wasmResult.instance.exports.memory.buffer,
                 // FIXME: why is the end of the region exported? This doesn't seem to match what zig sees
-                wasmResult.instance.exports.grappl_init_start - INIT_BUFFER_SZ,
+                wasmResult.instance.exports.graphl_init_start - INIT_BUFFER_SZ,
                 MAX_FUNC_NAME,
             );
 
