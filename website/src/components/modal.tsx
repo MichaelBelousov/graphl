@@ -9,9 +9,24 @@ const Modal = (props: React.PropsWithChildren<{
   setIsOpen?: (val: boolean) => void,
 }>) => {
   const dialogElem = React.useRef<HTMLDialogElement>(null);
+
   useOnExternalClick(dialogElem, () => {
     props.setIsOpen?.(false);
   });
+
+  React.useEffect(() => {
+    const listener = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        props.setIsOpen?.(false);
+      }
+    };
+
+    if (props.isOpen) {
+      document.addEventListener("keyup", listener);
+      return () => document.removeEventListener("keyup", listener);
+    }
+  }, [props.isOpen, props.setIsOpen]);
+
   return (
     <div
       className={styles.dialogBackground}
