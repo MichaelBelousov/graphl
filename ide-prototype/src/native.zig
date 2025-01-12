@@ -9,8 +9,6 @@ comptime {
     std.debug.assert(dvui.backend_kind == .raylib);
 }
 
-pub usingnamespace @import("./native-app.zig");
-
 const app = @import("./native-app.zig");
 
 const c = RaylibBackend.c;

@@ -16,11 +16,11 @@ const compiler = grappl.compiler;
 const SexpParser = @import("grappl_core").SexpParser;
 const Sexp = @import("grappl_core").Sexp;
 const helpers = @import("grappl_core").helpers;
+const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 
 const MAX_FUNC_NAME = 256;
 
-// FIXME: move all the externs and exports to a wasm-only file
-// and instead add all these as options `init`
+// FIXME: these need to have the App instance as an argument
 extern fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void;
 extern fn onExportCompiled(ptr: ?[*]const u8, len: usize) void;
 extern fn onRequestLoadSource() void;
@@ -1970,6 +1970,21 @@ pub fn addParamOrResult(
             }
         }
     }
+}
+
+pub fn onReceiveLoadedSource(self: *@This(), src: []const u8) !void {
+    {
+        // TODO: better deinit
+        var maybe_cursor = self.graphs.first;
+        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
+            cursor.data.deinit();
+            gpa.destroy(cursor);
+        }
+    }
+
+    // FIXME: overwriting without deallocating graphs is a leak!
+    // opting to keep for now since cleaning up isn't trivial
+    self.graphs = try sourceToGraph(gpa, self, src, &self.shared_env);
 }
 
 pub fn frame(self: *@This()) !void {

@@ -10,9 +10,26 @@ comptime {
     std.debug.assert(dvui.backend_kind == .raylib);
 }
 
-const app = @import("./app.zig");
+const App = @import("./app.zig");
 
-pub usingnamespace app;
+var app: App = .{};
+var result_buffer = std.mem.zeroes([4096]u8);
+
+pub fn init(in_init_opts: App.InitOptions) !void {
+    // FIXME: should not destroy user input
+    std.debug.assert(in_init_opts.result_buffer == null);
+    var init_opts = in_init_opts;
+    init_opts.result_buffer = &result_buffer;
+    try App.init(&app, init_opts);
+}
+
+pub fn deinit() void {
+    app.deinit();
+}
+
+pub fn frame() !void {
+    try app.frame();
+}
 
 export fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void {
     _onExportCurrentSource((ptr orelse @panic("bad onExportCurrentSource"))[0..len]) catch |err| {
@@ -138,7 +155,7 @@ fn _runCurrentWat(wat: []const u8) !void {
     results[0] = bytebox.Val{ .I32 = 0 };
     try module_instance.invoke(handle, &args, &results, .{});
 
-    _ = std.fmt.bufPrint(&app.result_buffer, "{}", .{results[0].I32}) catch {};
+    _ = std.fmt.bufPrint(&result_buffer, "{}", .{results[0].I32}) catch {};
     dvui.refresh(null, @src(), null);
 }
 
@@ -162,7 +179,7 @@ export fn onClickReportIssue() void {
 
 export fn onRequestLoadSource() void {
     _onRequestLoadSource() catch |err| {
-        std.log.err("error '{}', in onClickReportIssue", .{err});
+        std.log.err("error '{}', in onRequestLoadSource", .{err});
         return;
     };
 }
@@ -179,7 +196,7 @@ fn _onRequestLoadSource() !void {
 
     const src = try file.readToEndAlloc(gpa, 1 * 1024 * 1024);
 
-    app.onReceiveLoadedSource(src.ptr, src.len);
+    try app.onReceiveLoadedSource(src);
 }
 
 // FIXME:

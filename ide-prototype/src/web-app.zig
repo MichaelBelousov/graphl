@@ -53,19 +53,9 @@ export fn _runCurrentGraphs() void {
 }
 
 export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
-    const ptr = in_ptr orelse return;
-    const src = ptr[0..len];
+    const src = (in_ptr orelse return)[0..len];
 
-    {
-        var maybe_cursor = app.graphs.first;
-        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-            cursor.data.deinit();
-            gpa.destroy(cursor);
-        }
-    }
-    // FIXME: overwriting without deallocating graphs is a leak!
-    // opting to keep for now since cleaning up isn't trivial
-    app.graphs = sourceToGraph(gpa, &app, src, &app.shared_env) catch |err| {
+    app.onReceiveLoadedSource(src) catch |err| {
         std.log.err("sourceToGraph error: {}", .{err});
         return;
     };
