@@ -24,6 +24,9 @@ pub fn build(b: *std.Build) void {
     };
     const web_target = b.resolveTargetQuery(web_target_query);
 
+    const wabt = addWat2Wasm(b, target, optimize);
+    const wasm2wat = wabt.wasm2wat;
+
     const small_intrinsics = b.option(bool, "small_intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse false;
 
     const intrinsics = b.addExecutable(.{
@@ -38,8 +41,7 @@ pub fn build(b: *std.Build) void {
 
     // NOTE: in the future may be able to use .getEmittedAsm to get the wasm output from zig and drop
     // wasm2wat system dep, but atm it doesn't work that way
-    // FIXME: build wasm2wat as a dep
-    const intrinsics_to_wat_step = b.addSystemCommand(&.{"wasm2wat"});
+    const intrinsics_to_wat_step = b.addRunArtifact(wasm2wat);
     intrinsics_to_wat_step.addFileArg(intrinsics.getEmittedBin());
     intrinsics_to_wat_step.addArg("-o");
     const intrinsics_wat_file = intrinsics_to_wat_step.addOutputFileArg("grappl-intrinsics.wat");
@@ -149,3 +151,106 @@ pub fn build(b: *std.Build) void {
     const ide_json_gen_install = b.addInstallArtifact(ide_json_gen, .{});
     ide_json_gen_step.dependOn(&ide_json_gen_install.step);
 }
+
+const WabtResult = struct {
+    wasm2wat: *std.Build.Step.Compile,
+    wat2wasm: *std.Build.Step.Compile,
+};
+
+fn addWat2Wasm(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) WabtResult {
+    const wabt_dep = b.dependency("wabt", .{});
+
+    const wabt_config_h = b.addConfigHeader(.{
+        .style = .{ .cmake = wabt_dep.path("src/config.h.in") },
+        .include_path = "wabt/config.h",
+    }, .{
+        .WABT_VERSION_STRING = "1.0.34",
+        .HAVE_SNPRINTF = 1,
+        .HAVE_SSIZE_T = 1,
+        .HAVE_STRCASECMP = 1,
+        .COMPILER_IS_CLANG = 1,
+        .SIZEOF_SIZE_T = @sizeOf(usize),
+    });
+
+    const wabt_lib = b.addStaticLibrary(.{
+        .name = "wabt",
+        .target = target,
+        .optimize = optimize,
+    });
+    wabt_lib.addConfigHeader(wabt_config_h);
+    wabt_lib.addIncludePath(wabt_dep.path("include"));
+    wabt_lib.addCSourceFiles(.{
+        .root = wabt_dep.path("."),
+        .files = &wabt_files,
+    });
+    wabt_lib.linkLibCpp();
+
+    const wat2wasm = b.addExecutable(.{
+        .name = "wat2wasm",
+        .target = target,
+        .optimize = optimize,
+    });
+    wat2wasm.addConfigHeader(wabt_config_h);
+    wat2wasm.addIncludePath(wabt_dep.path("include"));
+    wat2wasm.addCSourceFile(.{
+        .file = wabt_dep.path("src/tools/wat2wasm.cc"),
+    });
+    wat2wasm.linkLibCpp();
+    wat2wasm.linkLibrary(wabt_lib);
+
+    const wasm2wat = b.addExecutable(.{
+        .name = "wasm2wat",
+        .target = target,
+        .optimize = optimize,
+    });
+    wasm2wat.addConfigHeader(wabt_config_h);
+    wasm2wat.addIncludePath(wabt_dep.path("include"));
+    wasm2wat.addCSourceFile(.{
+        .file = wabt_dep.path("src/tools/wasm2wat.cc"),
+    });
+    wasm2wat.linkLibCpp();
+    wasm2wat.linkLibrary(wabt_lib);
+
+    return .{
+        .wat2wasm = wat2wasm,
+        .wasm2wat = wasm2wat,
+    };
+}
+
+const wabt_files = [_][]const u8{
+    "src/binary-reader-ir.cc",
+    "src/binary-reader-logging.cc",
+    "src/binary-reader.cc",
+    "src/binary-writer-spec.cc",
+    "src/binary-writer.cc",
+    "src/binary.cc",
+    "src/binding-hash.cc",
+    "src/color.cc",
+    "src/common.cc",
+    "src/error-formatter.cc",
+    "src/expr-visitor.cc",
+    "src/feature.cc",
+    "src/filenames.cc",
+    "src/ir.cc",
+    "src/leb128.cc",
+    "src/lexer-source-line-finder.cc",
+    "src/lexer-source.cc",
+    "src/literal.cc",
+    "src/opcode-code-table.c",
+    "src/opcode.cc",
+    "src/option-parser.cc",
+    "src/resolve-names.cc",
+    "src/shared-validator.cc",
+    "src/stream.cc",
+    "src/token.cc",
+    "src/type-checker.cc",
+    "src/utf8.cc",
+    "src/validator.cc",
+    "src/wast-lexer.cc",
+    // wasm2wat
+    "src/generate-names.cc",
+    "src/apply-names.cc",
+    "src/wast-parser.cc",
+    "src/wat-writer.cc",
+    "src/ir-util.cc",
+};
