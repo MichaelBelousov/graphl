@@ -15,6 +15,10 @@ const App = @import("./app.zig");
 var app: App = .{};
 var result_buffer = std.mem.zeroes([4096]u8);
 
+// TODO: using namespace?
+pub const GraphsInitState = App.GraphsInitState;
+pub const GraphInitState = App.GraphInitState;
+
 pub fn init(in_init_opts: App.InitOptions) !void {
     // FIXME: should not destroy user input
     std.debug.assert(in_init_opts.result_buffer == null);

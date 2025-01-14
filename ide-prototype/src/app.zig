@@ -310,10 +310,7 @@ pub const InitOptions = struct {
     menus: []const MenuOption = &.{},
     result_buffer: ?[]u8 = null,
     context: ?*anyopaque = null,
-    graphs: std.StringHashMapUnmanaged(struct {
-        notRemovable: bool = false,
-        nodes: std.ArrayListUnmanaged(NodeInitState) = .{},
-    }) = .{},
+    graphs: ?*GraphsInitState = null,
     user_funcs: []const compiler.UserFunc = &.{},
     preferences: struct {
         graph: struct {
@@ -360,6 +357,13 @@ pub const NodeInitState = struct {
     position: ?dvui.Point = null,
 };
 
+pub const GraphInitState = struct {
+    notRemovable: bool = false,
+    nodes: std.ArrayListUnmanaged(App.NodeInitState) = .{},
+};
+
+pub const GraphsInitState = std.StringHashMapUnmanaged(GraphInitState);
+
 // FIXME: keep in sync with typescript automatically
 pub const UserFuncTypes = enum(u32) {
     i32_ = 0,
@@ -386,8 +390,8 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
     }
 
     // TODO:
-    if (in_opts.graphs.count() > 0) {
-        var graph_iter = in_opts.graphs.iterator();
+    if (in_opts.graphs != null and in_opts.graphs.?.count() > 0) {
+        var graph_iter = in_opts.graphs.?.iterator();
         while (graph_iter.next()) |entry| {
             const graph_name = entry.key_ptr;
             const graph_desc = entry.value_ptr;
