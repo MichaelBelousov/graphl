@@ -10,6 +10,13 @@ async function dvui_sleep(ms) {
     await new Promise(r => setTimeout(r, ms));
 }
 
+async function dvui_fetch(url) {
+    let x = await fetch(url);
+    let blob = await x.blob();
+    //console.log("dvui_fetch: " + blob.size);
+    return new Uint8Array(await blob.arrayBuffer());
+}
+
 /**
  * @param {any} cond
  * @param {string} errMessage
@@ -312,6 +319,17 @@ export function Ide(canvasElem, opts) {
                gl.scissor(0, 0, renderTargetSize[0], renderTargetSize[1]);
            }
        },
+        wasm_textureRead(textureId, pixels_out, width, height) {
+            const texture = textures.get(textureId)[0];
+
+            gl.bindFramebuffer(gl.FRAMEBUFFER, frame_buffer);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+
+            var dest = new Uint8Array(wasmResult.instance.exports.memory.buffer, pixels_out, width * height * 4);
+            gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, dest, 0);
+        
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        },
         wasm_textureDestroy(id) {
             //console.log("deleting texture " + id);
             const texture = textures.get(id)[0];
@@ -458,7 +476,15 @@ export function Ide(canvasElem, opts) {
                 oskCheck();
             }
         },
-
+        wasm_add_noto_font: () => {
+            dvui_fetch("NotoSansKR-Regular.ttf").then((bytes) => {
+                    //console.log("bytes len " + bytes.length);
+                    const ptr = wasmResult.instance.exports.gpa_u8(bytes.length);
+                    var dest = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, bytes.length);
+                    dest.set(bytes);
+                    wasmResult.instance.exports.new_font(ptr, bytes.length);
+            });
+        },
         onExportCurrentSource: (ptr, len) => {
             if (len === 0) return;
             const content = utf8decoder.decode(new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len));
@@ -1002,12 +1028,12 @@ export function Ide(canvasElem, opts) {
             oskCheck();
         });
         canvas.addEventListener("wheel", (ev) => {
-            wasmResult.instance.exports.add_event(4, 0, 0, ev.deltaY, 0);
-            requestRender();
             // NOTE: future versions of dvui will probably check at the end of the frame
             // if any events weren't handled by dvui and re-dispatch an appropriate unhandled event
             // making this unnecessary
             ev.preventDefault();
+            wasmResult.instance.exports.add_event(4, 0, 0, ev.deltaY, 0);
+            requestRender();
         });
 
         let keydown = function(ev) {
