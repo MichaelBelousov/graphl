@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run library tests");
 
-    //const binaryen_dep = b.dependency("binaryen-zig", .{});
+    const binaryen_dep = b.dependency("binaryen-zig", .{});
     const bytebox_dep = b.dependency("bytebox", .{});
 
     const web_target_query = std.Target.Query{
@@ -117,9 +117,9 @@ pub fn build(b: *std.Build) void {
     const graphltc_install = b.addInstallArtifact(graphltc_exe, .{});
     graphltc_tool.dependOn(&graphltc_install.step);
 
-    // inline for (.{ &lib.root_module, &main_tests.root_module, grappl_core_mod }) |m| {
-    //     m.addImport("binaryen", binaryen_dep.module("binaryen"));
-    // }
+    inline for (.{ &lib.root_module, &main_tests.root_module, grappl_core_mod }) |m| {
+        m.addImport("binaryen", binaryen_dep.module("binaryen"));
+    }
 
     const main_tests_run = b.addRunArtifact(main_tests);
 

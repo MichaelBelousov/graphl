@@ -4,10 +4,12 @@
 const std = @import("std");
 const binaryen = @import("binaryen");
 const builtin = @import("./nodes/builtin.zig");
+const bytebox = @import("bytebox");
 const primitive_types = builtin.primitive_types;
 const Env = builtin.Env;
 const Type = builtin.Type;
 const Sexp = @import("./sexp.zig").Sexp;
+const SexpParser = @import("./sexp_parser.zig").Parser;
 const syms = @import("./sexp.zig").syms;
 const intrinsics = @import("./intrinsics.zig");
 
@@ -128,14 +130,14 @@ const Compilation = struct {
         switch (code_sexp.value) {
             .list => |list| {
                 if (list.items.len == 0) return error.EmptyList;
-                
+
                 const head = list.items[0];
                 if (head.value != .symbol) return error.NonSymbolHead;
 
                 // Handle special forms
                 if (std.mem.eql(u8, head.value.symbol, "if")) {
                     if (list.items.len != 4) return error.InvalidIfForm;
-                    
+
                     const condition = try self.compileExpr(&list.items[1], context);
                     const then_expr = try self.compileExpr(&list.items[2], context);
                     const else_expr = try self.compileExpr(&list.items[3], context);
@@ -145,10 +147,7 @@ const Compilation = struct {
 
                 // Handle function calls
                 if (self.env.getNode(head.value.symbol)) |func_node| {
-                    var args = try std.ArrayList(*binaryen.Expression).initCapacity(
-                        alloc,
-                        list.items.len - 1
-                    );
+                    var args = try std.ArrayList(*binaryen.Expression).initCapacity(alloc, list.items.len - 1);
                     defer args.deinit();
 
                     for (list.items[1..]) |arg| {
@@ -156,11 +155,7 @@ const Compilation = struct {
                         try args.append(compiled_arg);
                     }
 
-                    return self.module.makeCall(
-                        head.value.symbol,
-                        args.items,
-                        self.getBinaryenType(func_node.getOutputs()[0].kind.primitive.value)
-                    );
+                    return self.module.makeCall(head.value.symbol, args.items, self.getBinaryenType(func_node.getOutputs()[0].kind.primitive.value));
                 }
 
                 return error.UnknownFunction;
@@ -178,20 +173,14 @@ const Compilation = struct {
                 // Handle local variable references
                 for (context.local_names, 0..) |name, i| {
                     if (std.mem.eql(u8, name, sym)) {
-                        return self.module.makeLocalGet(
-                            @intCast(i),
-                            self.getBinaryenType(context.local_types[i])
-                        );
+                        return self.module.makeLocalGet(@intCast(i), self.getBinaryenType(context.local_types[i]));
                     }
                 }
 
                 // Handle parameter references
                 for (context.param_names, 0..) |name, i| {
                     if (std.mem.eql(u8, name, sym)) {
-                        return self.module.makeLocalGet(
-                            @intCast(i),
-                            self.getBinaryenType(context.param_types[i])
-                        );
+                        return self.module.makeLocalGet(@intCast(i), self.getBinaryenType(context.param_types[i]));
                     }
                 }
 
@@ -274,13 +263,7 @@ const Compilation = struct {
         };
 
         for (imports) |import| {
-            _ = try self.module.addFunctionImport(
-                import.name,
-                "env",
-                import.name,
-                import.params,
-                import.results
-            );
+            _ = try self.module.addFunctionImport(import.name, "env", import.name, import.params, import.results);
         }
     }
 
@@ -304,7 +287,7 @@ const Compilation = struct {
         if (sexp.value.list.items.len <= 2) return false;
         if (sexp.value.list.items[1].value != .list) return false;
         if (sexp.value.list.items[1].value.list.items.len < 1) return error.FuncBindingsListEmpty;
-        
+
         // Validate parameter bindings are symbols
         for (sexp.value.list.items[1].value.list.items) |*def_item| {
             if (def_item.value != .symbol) return error.FuncParamBindingNotSymbol;
@@ -445,23 +428,13 @@ const Compilation = struct {
         }
 
         // Create block containing all expressions
-        const body_block = self.module.makeBlock(
-            "body",
-            body_exprs.items,
-            if (func_type.result_types.len > 0)
-                self.getBinaryenType(func_type.result_types[0])
-            else
-                .none
-        );
+        const body_block = self.module.makeBlock("body", body_exprs.items, if (func_type.result_types.len > 0)
+            self.getBinaryenType(func_type.result_types[0])
+        else
+            .none);
 
         // Add function to module
-        _ = try self.module.addFunction(
-            name,
-            param_types.items,
-            result_types.items,
-            locals.items,
-            body_block
-        );
+        _ = try self.module.addFunction(name, param_types.items, result_types.items, locals.items, body_block);
 
         // Export the function
         try self.module.addFunctionExport(name, name);
@@ -500,6 +473,8 @@ pub fn compile(
 
     return unit.compileModule(sexp);
 }
+
+const t = std.testing;
 
 test "basic compilation" {
     var env = try Env.initDefault(t.allocator);
@@ -596,4 +571,4 @@ test "basic compilation" {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);
     }
-} 
+}

@@ -25,7 +25,7 @@ pub const Sexp = @import("./sexp.zig").Sexp;
 pub const syms = @import("./sexp.zig").syms;
 pub const SexpParser = @import("./sexp_parser.zig").Parser;
 pub const compiler = @import("./compiler-wat.zig");
-pub const compiler_wasm = @import("./compiler-wasm.zig");
+// pub const compiler_wasm = @import("./compiler-wasm.zig");
 
 pub const testing = struct {
     pub const expectWasmOutput = compiler.expectWasmOutput;
@@ -34,6 +34,7 @@ pub const testing = struct {
 test {
     // FIXME:
     std.testing.refAllDeclsRecursive(compiler);
+    // std.testing.refAllDeclsRecursive(compiler_wasm);
     std.testing.refAllDeclsRecursive(@import("./graph_to_source.zig"));
     std.testing.refAllDeclsRecursive(@import("./sexp_parser.zig"));
     //std.testing.refAllDeclsRecursive(@This());
