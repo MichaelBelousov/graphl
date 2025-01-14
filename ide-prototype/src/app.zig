@@ -10,6 +10,7 @@ const builtin = @import("builtin");
 const dvui = @import("dvui");
 const entypo = @import("dvui").entypo;
 const Rect = dvui.Rect;
+const dvui_extra = @import("./dvui-extra.zig");
 
 const grappl = @import("grappl_core");
 const compiler = grappl.compiler;
@@ -1141,7 +1142,7 @@ fn colorForType(t: grappl.Type) !dvui.Color {
 }
 
 // FIXME: replace with idiomatic dvui event processing
-fn considerSocketForHover(self: *@This(), icon_res: *dvui.ButtonIconResult, socket: Socket) dvui.Point {
+fn considerSocketForHover(self: *@This(), icon_res: *dvui_extra.ButtonIconResult, socket: Socket) dvui.Point {
     const r = icon_res.icon.wd.rectScale().r;
     const socket_center = rectCenter(r);
 
@@ -1281,7 +1282,7 @@ fn renderNode(
             or input_desc.kind.primitive.value == helpers.primitive_types.code
             //
             ) _: {
-                var icon_res = try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
+                var icon_res = try dvui_extra.buttonIconResult(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
                 const socket_center = considerSocketForHover(self, &icon_res, socket);
                 if (icon_res.clicked) {
                     // FIXME: add an "input" reset
@@ -1292,7 +1293,7 @@ fn renderNode(
             } else _: {
                 // FIXME: make non interactable/hoverable
 
-                var icon_res = try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
+                var icon_res = try dvui_extra.buttonIconResult(@src(), "circle", entypo.circle, .{}, icon_opts);
                 const socket_center = considerSocketForHover(self, &icon_res, socket);
                 if (icon_res.clicked) {
                     input.* = .{ .value = .{ .int = 0 } };
@@ -1408,7 +1409,7 @@ fn renderNode(
                             const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{} } }, .{ .id_extra = id_extra });
                             defer text_result.deinit();
                             if (dvui.firstFrame(text_result.data().id)) {
-                                text_result.textTyped(@field(input.value, @tagName(info.tag)));
+                                text_result.textTyped(@field(input.value, @tagName(info.tag)), false);
                             }
                             // TODO: don't dupe this memory! use a dynamic buffer instead
                             if (text_result.text_changed) {
@@ -1483,9 +1484,9 @@ fn renderNode(
             _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .id_extra = j });
 
             var icon_res = if (output_desc.kind.primitive == .exec)
-                try dvui.buttonIcon(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts)
+                try dvui_extra.buttonIconResult(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts)
             else
-                try dvui.buttonIcon(@src(), "circle", entypo.circle, .{}, icon_opts);
+                try dvui_extra.buttonIconResult(@src(), "circle", entypo.circle, .{}, icon_opts);
 
             if (icon_res.clicked) {
                 // NOTE: hopefully this gets inlined...
@@ -2092,7 +2093,7 @@ pub fn frame(self: *@This()) !void {
 
             _ = try dvui.label(@src(), "Functions", .{}, .{ .font_style = .heading });
 
-            const add_clicked = (try dvui.buttonIcon(@src(), "add-graph", entypo.plus, .{}, .{})).clicked;
+            const add_clicked = try dvui.buttonIcon(@src(), "add-graph", entypo.plus, .{}, .{});
             if (add_clicked) {
                 _ = try addGraph(
                     self,
@@ -2134,13 +2135,13 @@ pub fn frame(self: *@This()) !void {
                     }
                 }
                 if (dvui.firstFrame(entry_state.data().id)) {
-                    entry_state.textTyped(cursor.data.name);
+                    entry_state.textTyped(cursor.data.name, false);
                 }
                 entry_state.deinit();
 
                 //_ = try dvui.label(@src(), "()", .{}, .{ .font_style = .body, .id_extra = i });
                 const graph_clicked = try dvui.buttonIcon(@src(), "open-graph", entypo.chevron_right, .{}, .{ .id_extra = i });
-                if (graph_clicked.clicked)
+                if (graph_clicked)
                     self.current_graph = &cursor.data;
             }
         }
@@ -2172,7 +2173,7 @@ pub fn frame(self: *@This()) !void {
 
                 _ = try dvui.label(@src(), bindings_info.name, .{}, .{ .font_style = .heading });
 
-                const add_clicked = (try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i })).clicked;
+                const add_clicked = try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i });
                 if (add_clicked) {
                     var name_buf: [MAX_FUNC_NAME]u8 = undefined;
 
@@ -2297,7 +2298,7 @@ pub fn frame(self: *@This()) !void {
                 }
                 // must occur after text_changed check or this operation will set it
                 if (dvui.firstFrame(text_entry.data().id)) {
-                    text_entry.textTyped(binding.name);
+                    text_entry.textTyped(binding.name, false);
                 }
                 text_entry.deinit();
 
@@ -2359,7 +2360,7 @@ pub fn frame(self: *@This()) !void {
 
                 _ = try dvui.label(@src(), info.name, .{}, .{ .font_style = .heading, .id_extra = i });
 
-                const add_clicked = (try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i })).clicked;
+                const add_clicked = try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i });
                 if (add_clicked) {
                     try addParamOrResult(self, info.node_desc, info.node_basic_desc, info.type);
                 }
@@ -2398,7 +2399,7 @@ pub fn frame(self: *@This()) !void {
                 }
                 // must occur after text_changed check or this operation will set it
                 if (dvui.firstFrame(text_entry.data().id)) {
-                    text_entry.textTyped(pin_desc.name);
+                    text_entry.textTyped(pin_desc.name, false);
                 }
                 text_entry.deinit();
 
