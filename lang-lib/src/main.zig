@@ -25,6 +25,7 @@ pub const Sexp = @import("./sexp.zig").Sexp;
 pub const syms = @import("./sexp.zig").syms;
 pub const SexpParser = @import("./sexp_parser.zig").Parser;
 pub const compiler = @import("./compiler-wat.zig");
+pub const compiler_wasm = @import("./compiler-wasm.zig");
 
 pub const testing = struct {
     pub const expectWasmOutput = compiler.expectWasmOutput;
