@@ -178,6 +178,12 @@ pub fn build(b: *std.Build) void {
 
         const build_native_step = b.step("native", "Build for native");
         build_native_step.dependOn(&native_install.step);
+
+        if (native_target.result.os.tag == .windows) {
+            // tinyfiledialogs needs this
+            native_exe.linkSystemLibrary("comdlg32");
+            native_exe.linkSystemLibrary("ole32");
+        }
     }
 }
 

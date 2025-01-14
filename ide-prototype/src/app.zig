@@ -2054,18 +2054,19 @@ pub fn frame(self: *@This()) !void {
             }
         }
 
-        for (self.init_opts.menus) |menu| {
+        for (self.init_opts.menus, 0..) |menu, i| {
             // FIXME: must be called recursively to support any-layered submenus
-            if (try dvui.menuItemLabel(@src(), menu.name, .{ .submenu = menu.submenus.len > 0 }, .{ .expand = .none })) |r| {
+            if (try dvui.menuItemLabel(@src(), menu.name, .{ .submenu = menu.submenus.len > 0 }, .{ .expand = .none, .id_extra = i })) |r| {
                 if (menu.on_click) |on_click| {
                     on_click(self.init_opts.context);
                 }
 
-                var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
+                var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{ .id_extra = i });
                 defer fw.deinit();
 
-                for (menu.submenus) |submenu| {
-                    if (try dvui.menuItemLabel(@src(), submenu.name, .{}, .{ .expand = .horizontal })) |_| {
+                for (menu.submenus, 0..) |submenu, j| {
+                    const id_extra = (i << 16) | j;
+                    if (try dvui.menuItemLabel(@src(), submenu.name, .{}, .{ .expand = .horizontal, .id_extra = id_extra })) |_| {
                         if (submenu.on_click) |submenu_click| {
                             submenu_click(self.init_opts.context);
                         }
