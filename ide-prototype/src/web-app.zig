@@ -2,7 +2,9 @@
 var app: App = .{};
 var init_opts: App.InitOptions = .{
     .result_buffer = &result_buffer,
+    .graphs = &graphs,
 };
+var graphs: App.GraphsInitState = .{};
 
 var user_funcs: std.ArrayListUnmanaged(graphl.compiler.UserFunc) = .{};
 
@@ -107,7 +109,7 @@ export fn setInitState_graphs_notRemovable(
         return false;
     };
     const graph = _: {
-        const get_or_put = init_opts.graphs.getOrPut(gpa, graph_name) catch |err| {
+        const get_or_put = graphs.getOrPut(gpa, graph_name) catch |err| {
             std.log.err("failed to put graph '{s}', error={}", .{ graph_name, err });
             return false;
         };
@@ -170,7 +172,7 @@ fn _setInitState_getNode(
     const graph_name = try gpa.dupe(u8, graph_name_ptr[0..graph_name_len]);
 
     const graph = _: {
-        const get_or_put = try init_opts.graphs.getOrPut(gpa, graph_name);
+        const get_or_put = try graphs.getOrPut(gpa, graph_name);
         if (!get_or_put.found_existing) {
             get_or_put.value_ptr.* = .{};
         }
