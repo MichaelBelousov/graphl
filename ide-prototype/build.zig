@@ -40,7 +40,7 @@ pub fn build(b: *std.Build) void {
     });
     const bytebox_dep = b.dependency("bytebox", .{});
 
-    const binaryen_dep = b.dependency("binaryen-zig", .{
+    const binaryen_dep = b.dependency("binaryen-cpp", .{
         .target = web_target,
         .optimize = optimize,
         //.force_web = true,
@@ -85,10 +85,10 @@ pub fn build(b: *std.Build) void {
         std.fmt.allocPrint(b.allocator,
             \\echo "building binaryen..."
             \\cd {0s};
-            \\emcmake cmake -DBUILD_FOR_BROWSER=ON -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release . > build.log 2>&1 || echo failed;
-            \\emmake make > build.log 2>&1 || echo failed;
+            \\emcmake cmake -DBUILD_FOR_BROWSER=ON -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release 2>&1 | tee build.log || echo failed;
+            \\emmake make 2>&1 | tee -a build.log || echo failed;
             \\echo "finished building binaryen, see $(pwd)/build.log for details"
-        , .{binaryen_dep.path("binaryen").getPath(b)}) catch unreachable,
+        , .{binaryen_dep.path(".").getPath(b)}) catch unreachable,
     });
 
     b.getInstallStep().dependOn(&wasm_opt_emscripten_build.step);

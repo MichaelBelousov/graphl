@@ -28,8 +28,8 @@
             .hash = "122040f30b68694be0c2a4043084b100e519084684cf3dc7eaf3fb12a8360e00c55f",
         },
         .@"binaryen-zig" = .{
-            .url = "https://github.com/MichaelBelousov/binaryen-zig/archive/24b2a619d714d085b4b0c4930607e4bb4e26ea4d.zip",
-            .hash = "1220658186260af48db2cae19189c39ccd0f47048951c263753d887ef8642fb3c05b",
+            .url = "https://github.com/MichaelBelousov/binaryen-zig/archive/e015a2d950bb367d99b09954083ef4e9a2e65686.zip",
+            .hash = "1220e7341510769f42f6b0afa4bc3d6fd976a68b51678c6586647e8000d59a0be45c",
         },
         .grappl_core = .{
             .path = "../lang-lib",
@@ -41,6 +41,10 @@
         .bytebox = .{
             .url = "https://github.com/rdunnington/bytebox/archive/5931f4fa85b4a65d4edbb8810f8e767da1143e14.zip",
             .hash = "1220d8e9eef6dae932311d5f0bb0e21b3ebe0dc488c93a9ad440d6b79fefb0e9f9c4",
+        },
+        .@"binaryen-cpp" = .{
+            .url = "https://github.com/WebAssembly/binaryen/archive/690576cda63d59ae0cfc3906e1146a7a4278db43.zip",
+            .hash = "1220157cf700dee7c94ba946e99dd0a62dc890b5111482b31420279c82819eda3e06",
         },
     },
     .paths = .{
