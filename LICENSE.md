@@ -13,6 +13,11 @@ Before you read the full license, know two things:
 
 Copyright Michael Belousov 2024
 
+Firstly, The Graphl IDE undergoes [Delayed Opensource Publication](https://opensource.org/dosp)
+with a period of 4 years. So a publicly released update to the Graphl IDE must be available in
+the community edition within 4 years or the copyright holder has breached their contract.
+Commercial contracts will also typically include current source code access and usage terms.
+
 You may not distribute a commercial (revenue-generating) product that embeds the Graphl IDE
 without entering into an agreement with Graphl Technologies or its creator
 Michael Belousov. An incomplete list of examples of "embeddings" includes loading
