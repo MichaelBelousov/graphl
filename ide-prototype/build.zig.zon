@@ -28,9 +28,8 @@
             .hash = "122040f30b68694be0c2a4043084b100e519084684cf3dc7eaf3fb12a8360e00c55f",
         },
         .@"binaryen-zig" = .{
-            //.url = "https://github.com/MichaelBelousov/binaryen-zig/archive/7ae386348c28d80b7c8db18d18e64eb14a7ba4e4.zip",
-            //.hash = "12200b1104cadb8e9298362b9e8f3545688670c028e2a1b92ddcaa6812760863e50d",
-            .path = "../../binaryen-zig",
+            .url = "https://github.com/MichaelBelousov/binaryen-zig/archive/24b2a619d714d085b4b0c4930607e4bb4e26ea4d.zip",
+            .hash = "1220658186260af48db2cae19189c39ccd0f47048951c263753d887ef8642fb3c05b",
         },
         .grappl_core = .{
             .path = "../lang-lib",

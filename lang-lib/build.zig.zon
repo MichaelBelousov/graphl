@@ -3,9 +3,8 @@
     .version = "0.0.0",
     .dependencies = .{
         .@"binaryen-zig" = .{
-            //.url = "https://github.com/MichaelBelousov/binaryen-zig/archive/5edac79c9aa031c019662a7faf338f0c2a79bb5a.zip",
-            //.hash = "1220b10d1986641e4e2d0262010794babe981852e958afe7494e958350df68e6695a",
-            .path = "../../binaryen-zig",
+            .url = "https://github.com/MichaelBelousov/binaryen-zig/archive/24b2a619d714d085b4b0c4930607e4bb4e26ea4d.zip",
+            .hash = "1220658186260af48db2cae19189c39ccd0f47048951c263753d887ef8642fb3c05b",
         },
         .bytebox = .{
             .url = "https://github.com/rdunnington/bytebox/archive/5931f4fa85b4a65d4edbb8810f8e767da1143e14.zip",
