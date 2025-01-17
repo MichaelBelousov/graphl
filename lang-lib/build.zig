@@ -125,20 +125,20 @@ pub fn build(b: *std.Build) void {
 
     test_step.dependOn(&main_tests_run.step);
 
-    const web_step = b.step("web", "Build for web");
-    const web_lib = b.addExecutable(.{
-        .name = "graph-lang",
-        .root_source_file = b.path("src/c_api.zig"),
-        .target = web_target,
-        .optimize = optimize,
-        .pic = true,
-    });
-    web_lib.rdynamic = true;
-    web_lib.entry = .disabled;
-    b.installArtifact(web_lib);
+    // const web_step = b.step("web", "Build for web");
+    // const web_lib = b.addExecutable(.{
+    //     .name = "graph-lang",
+    //     .root_source_file = b.path("src/c_api.zig"),
+    //     .target = web_target,
+    //     .optimize = optimize,
+    //     .pic = true,
+    // });
+    // web_lib.rdynamic = true;
+    // web_lib.entry = .disabled;
+    // b.installArtifact(web_lib);
 
-    const web_lib_install = b.addInstallArtifact(web_lib, .{});
-    web_step.dependOn(&web_lib_install.step);
+    // const web_lib_install = b.addInstallArtifact(web_lib, .{});
+    // web_step.dependOn(&web_lib_install.step);
 
     const ide_json_gen_step = b.step("ide-json-gen", "Build ide-json-gen");
     const ide_json_gen = b.addExecutable(.{
