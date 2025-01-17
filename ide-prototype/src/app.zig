@@ -1845,6 +1845,9 @@ pub fn addParamOrResult(
     /// graph entry if param, graph return if result
     node_basic_desc: *helpers.BasicMutNodeDesc,
     comptime kind: enum { params, results },
+    name: ?[]const u8,
+    /// defaults to i32
+    type_: ?grappl.Type,
 ) !void {
     const pin_dir = comptime if (kind == .params) "outputs" else "inputs";
     const opposite_dir = comptime if (kind == .params) "inputs" else "outputs";
@@ -1854,7 +1857,7 @@ pub fn addParamOrResult(
     @field(node_basic_desc, pin_dir) = pin_descs;
     @field(self.current_graph.call_basic_desc, opposite_dir) = pin_descs;
 
-    const new_name = _: {
+    const new_name = if (name) |n| try gpa.dupe(u8, n) else _: {
         var name_suffix = pin_descs.len - 1;
 
         while (true) : (name_suffix += 1) {
@@ -1879,7 +1882,7 @@ pub fn addParamOrResult(
         .name = new_name,
         // i32 is default param for now
         .kind = .{ .primitive = .{
-            .value = grappl.primitive_types.i32_,
+            .value = type_ orelse grappl.primitive_types.i32_,
         } },
     };
 
@@ -1894,7 +1897,7 @@ pub fn addParamOrResult(
 
         param_get_slot.outputs[0] = .{
             .name = new_name,
-            .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
+            .kind = .{ .primitive = .{ .value = type_ orelse grappl.primitive_types.i32_ } },
         };
 
         (try self.current_graph.param_getters.addOne(gpa)).* = param_get_slot;
@@ -1915,7 +1918,7 @@ pub fn addParamOrResult(
         };
         param_set_slot.inputs[1] = .{
             .name = new_name,
-            .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
+            .kind = .{ .primitive = .{ .value = type_ orelse grappl.primitive_types.i32_ } },
         };
 
         param_set_slot.outputs[0] = .{
@@ -1924,7 +1927,7 @@ pub fn addParamOrResult(
         };
         param_set_slot.outputs[1] = .{
             .name = new_name,
-            .kind = .{ .primitive = .{ .value = grappl.primitive_types.i32_ } },
+            .kind = .{ .primitive = .{ .value = type_ orelse grappl.primitive_types.i32_ } },
         };
 
         (try self.current_graph.param_setters.addOne(gpa)).* = param_set_slot;
@@ -1975,6 +1978,20 @@ pub fn addParamOrResult(
             }
         }
     }
+}
+
+pub fn addParamToCurrentGraph(
+    self: *@This(),
+    name: []const u8,
+    type_: grappl.Type,
+) !void {
+    return self.addParamOrResult(
+        self.current_graph.grappl_graph.entry_node,
+        self.current_graph.grappl_graph.entry_node_basic_desc,
+        .params,
+        name,
+        type_,
+    );
 }
 
 pub fn onReceiveLoadedSource(self: *@This(), src: []const u8) !void {
@@ -2367,7 +2384,7 @@ pub fn frame(self: *@This()) !void {
 
                 const add_clicked = try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i });
                 if (add_clicked) {
-                    try addParamOrResult(self, info.node_desc, info.node_basic_desc, info.type);
+                    try addParamOrResult(self, info.node_desc, info.node_basic_desc, info.type, null, null);
                 }
             }
 

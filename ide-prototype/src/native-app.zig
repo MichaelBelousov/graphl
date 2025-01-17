@@ -4,6 +4,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const bytebox = @import("bytebox");
+pub usingnamespace @import("grappl_core");
 
 const dvui = @import("dvui");
 comptime {
@@ -12,12 +13,14 @@ comptime {
 
 const App = @import("./app.zig");
 
-var app: App = .{};
+// FIXME: gross
+pub var app: App = .{};
 var result_buffer = std.mem.zeroes([4096]u8);
 
 // TODO: using namespace?
 pub const GraphsInitState = App.GraphsInitState;
 pub const GraphInitState = App.GraphInitState;
+pub const addParamToCurrentGraph = App.addParamToCurrentGraph;
 
 pub fn init(in_init_opts: App.InitOptions) !void {
     // FIXME: should not destroy user input
