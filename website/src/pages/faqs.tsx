@@ -46,7 +46,7 @@ const Faqs = () => {
             <li>
               <p>
                 All textual languages are. Not all IDEs are. This is more of an IDE. And the textual part of the language,
-                including the entire webassembly compiler is open source [here](https://github.com/MichaelBelousov/graphlt).
+                including the entire webassembly compiler is open source <a href="https://github.com/MichaelBelousov/graphlt">here</a>.
               </p>
               <p>
                 One of my design goals has been to make sure that the visual programs
@@ -84,7 +84,7 @@ const Faqs = () => {
                 The project has a few goals to circumvent the problems of many visual scripting languages:
                 <ol>
                   <li>The IDE and runtime should be portable to almost all systems
-                    (hence zig, WebAssembly and [dvui](https://github.com/david-vanderson/dvui))
+                    (hence zig, WebAssembly and <a href="https://github.com/david-vanderson/dvui">dvui</a>)
                   </li>
                   <li>
                     The language should be deterministically interchangeable with a textual language (graphlt), this means a few things:
