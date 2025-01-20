@@ -777,11 +777,10 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
 
     errdefer if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
 
-    if (self.init_opts.preferences.graph.origin) |origin| {
-        ScrollData.origin = origin;
-    }
-    if (self.init_opts.preferences.graph.scale) |scale| {
-        ScrollData.scale = scale;
+    // TODO: reimplement view lock, currently this just breaks scrolling of the ScrollArea
+    if (self.init_opts.preferences.graph.origin != null or self.init_opts.preferences.graph.scale != null) {
+        ScrollData.origin = self.init_opts.preferences.graph.origin orelse .{};
+        ScrollData.scale = self.init_opts.preferences.graph.scale orelse 1;
     }
 
     const scroll_bar_vis: dvui.ScrollInfo.ScrollBarMode = if (self.init_opts.preferences.graph.scrollBarsVisible) |v|

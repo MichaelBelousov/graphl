@@ -169,6 +169,7 @@ const sharedOpts: Partial<Graphl.Ide.Options> = {
     graph: {
       scrollBarsVisible: false,
       scale: 0.7,
+      origin: { x: 0, y: 0 },
     },
     definitionsPanel:  {
       visible: false,
