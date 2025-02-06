@@ -72,7 +72,7 @@ export declare type UserFuncJson = BasicMutNodeDescJson & {
 
 export declare interface MenuOption {
   name: string;
-  on_click_handle: number;
+  onClick?: () => any;
   submenus?: MenuOption[];
 }
 

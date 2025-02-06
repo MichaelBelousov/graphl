@@ -103,7 +103,7 @@
         ide = new Promise((resolve, reject) => {
           document.body.onload = () => {
             const canvas = document.getElementById("dvui-canvas");
-            const result = new graphl.Ide(canvas, {
+            const ideOpts = {
               userFuncs: {
                 "Confetti": {
                   inputs: [{ name: "particle count", type: "i32" }],
@@ -144,6 +144,14 @@
                   outputs: [],
                 },
               },
+              menus: [{
+                name: "Test",
+                onClick: () => console.log("hello!"),
+                submenus: [{
+                  name: "again",
+                  onClick() { console.log("world"); }
+                }]
+              }],
               graphs: {
                 "main": {
                   nodes: [
@@ -173,7 +181,8 @@
                 },
               },
               */
-            });
+            };
+            const result = new graphl.Ide(canvas, ideOpts);
             resolve(result);
           };
 

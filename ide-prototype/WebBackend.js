@@ -48,6 +48,9 @@ export function Ide(canvasElem, opts) {
     /** @type {Map<number, { name: string, func: import("./WebBackend").BasicMutNodeDescJson["impl"] }>} */
     const userFuncs = new Map();
 
+    /** @type {Map<number, (() => void) | undefined>} */
+    const menuOnClick = new Map();
+
     const vertexShaderSource_webgl = `
         precision mediump float;
 
@@ -690,6 +693,11 @@ export function Ide(canvasElem, opts) {
             opts.onMainResult?.(result);
             wasmResult.instance.exports.dvui_refresh();
         },
+
+        /** @param {number} handle */
+        on_menu_click: (handle) => {
+            menuOnClick.get(handle)?.();
+        }
       },
     };
 
@@ -698,8 +706,20 @@ export function Ide(canvasElem, opts) {
         wasmResult = _wasmResult;
         const we = wasmResult.instance.exports;
 
+        let nextMenuClickHandle = 0;
+        /** @param {import("./WebBackend.d.ts").MenuOption[] | undefined} menus */
+        function bindMenus(menus) {
+            if (menus === undefined) return;
+            for (const menu of menus) {
+                menuOnClick.set(++nextMenuClickHandle, menu.onClick);
+                bindMenus(menu.submenus);
+            }
+        }
+
+        bindMenus(opts.menus);
+
         /** @type {any} */
-        const optsForWasm = structuredClone(opts);
+        const optsForWasm = { ...opts };
         let nextUserFuncHandle = 0;
         for (const userFuncKey in optsForWasm.userFuncs) {
             userFuncs.set(nextUserFuncHandle, {
@@ -724,7 +744,7 @@ export function Ide(canvasElem, opts) {
             wasmResult.instance.exports.memory.buffer,
             // FIXME: why is the end of the region exported? This doesn't seem to match what zig sees
             wasmResult.instance.exports.graphl_init_start - INIT_BUFFER_SZ,
-            MAX_FUNC_NAME,
+            INIT_BUFFER_SZ,
         );
 
         const optsJson = JSON.stringify(optsForWasm);
@@ -740,7 +760,9 @@ export function Ide(canvasElem, opts) {
         const json_ptr = we.graphl_init_start - INIT_BUFFER_SZ;
         const json_len = optsJson.length;
 
-        we.setInitOpts(json_ptr, json_len);
+        if (!we.setInitOpts(json_ptr, json_len)) {
+            throw Error("error setting initialization options");
+        }
 
         const canvas = canvasElem;
 

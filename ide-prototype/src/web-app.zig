@@ -129,7 +129,10 @@ export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
 
 export fn setInitOpts(json_ptr: ?[*]const u8, json_len: usize) bool {
     const json = (json_ptr orelse return false)[0..json_len];
-    _setInitOpts(json) catch return false;
+    _setInitOpts(json) catch |err| {
+        std.log.err("error setting init options: {}", .{err});
+        return false;
+    };
     return true;
 }
 
@@ -152,6 +155,7 @@ const jsonStrToGraphlType: std.StaticStringMap(graphl.Type) = _: {
 };
 
 fn _setInitOpts(json: []const u8) !void {
+    std.log.info("init opts json=\n{s}", .{json});
     const init_opts_json = try std.json.parseFromSlice(InitOptsJson, gpa, json, .{});
     errdefer init_opts_json.deinit();
 
@@ -254,7 +258,7 @@ fn _setInitOpts(json: []const u8) !void {
     const user_funcs = try Local.convertUserFuncs(init_opts_json.value.userFuncs);
     errdefer user_funcs.deinit(gpa);
 
-    app.init_opts = .{
+    init_opts = .{
         .result_buffer = &result_buffer,
         .menus = menus,
         .graphs = graphs,
