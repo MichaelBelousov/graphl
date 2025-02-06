@@ -65,6 +65,7 @@ pub const Pin = struct {
 
 pub const NodeDescKind = union(enum) {
     func: void,
+    // TODO: rename to @"return"
     return_: void,
     entry: void,
     get: void,

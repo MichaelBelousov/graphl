@@ -302,7 +302,8 @@ pub const UserFuncList = std.SinglyLinkedList(compiler.UserFunc);
 
 pub const MenuOption = struct {
     name: []const u8,
-    on_click: ?*const fn (ctx: ?*anyopaque) void = null,
+    on_click: ?*const fn (global_ctx: ?*anyopaque, self_ctx: ?*anyopaque) void = null,
+    on_click_ctx: ?*anyopaque = null,
     submenus: []const MenuOption = &.{},
 };
 
@@ -310,8 +311,9 @@ pub const InitOptions = struct {
     menus: []const MenuOption = &.{},
     result_buffer: ?[]u8 = null,
     context: ?*anyopaque = null,
-    graphs: ?*GraphsInitState = null,
+    graphs: ?GraphsInitState = null,
     user_funcs: []const compiler.UserFunc = &.{},
+    allow_running: bool = true,
     preferences: struct {
         graph: struct {
             origin: ?dvui.Point = null,
@@ -2031,16 +2033,22 @@ pub fn frame(self: *@This()) !void {
             }
         }
 
-        if (try dvui.menuItemLabel(@src(), "Go", .{ .submenu = true }, .{ .expand = .none })) |r| {
-            var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
-            defer fw.deinit();
+        if (self.init_opts.allow_running or builtin.mode == .Debug) {
+            if (try dvui.menuItemLabel(@src(), "Go", .{ .submenu = true }, .{ .expand = .none })) |r| {
+                var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
+                defer fw.deinit();
 
-            if (try dvui.menuItemLabel(@src(), "Run (F5)", .{}, .{ .expand = .horizontal })) |_| {
-                try runCurrentGraphs(self);
-            }
+                if (self.init_opts.allow_running) {
+                    if (try dvui.menuItemLabel(@src(), "Run (F5)", .{}, .{ .expand = .horizontal })) |_| {
+                        try runCurrentGraphs(self);
+                    }
+                }
 
-            if (try dvui.menuItemLabel(@src(), "Debug DVUI", .{}, .{ .expand = .horizontal })) |_| {
-                dvui.currentWindow().debug_window_show = true;
+                if (builtin.mode == .Debug) {
+                    if (try dvui.menuItemLabel(@src(), "Debug DVUI", .{}, .{ .expand = .horizontal })) |_| {
+                        dvui.currentWindow().debug_window_show = true;
+                    }
+                }
             }
         }
 
@@ -2078,7 +2086,7 @@ pub fn frame(self: *@This()) !void {
             // FIXME: must be called recursively to support any-layered submenus
             if (try dvui.menuItemLabel(@src(), menu.name, .{ .submenu = menu.submenus.len > 0 }, .{ .expand = .none, .id_extra = i })) |r| {
                 if (menu.on_click) |on_click| {
-                    on_click(self.init_opts.context);
+                    on_click(self.init_opts.context, menu.on_click_ctx);
                 }
 
                 var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{ .id_extra = i });
@@ -2088,7 +2096,7 @@ pub fn frame(self: *@This()) !void {
                     const id_extra = (i << 16) | j;
                     if (try dvui.menuItemLabel(@src(), submenu.name, .{}, .{ .expand = .horizontal, .id_extra = id_extra })) |_| {
                         if (submenu.on_click) |submenu_click| {
-                            submenu_click(self.init_opts.context);
+                            submenu_click(self.init_opts.context, menu.on_click_ctx);
                         }
                     }
                 }
