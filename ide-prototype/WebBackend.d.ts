@@ -1,39 +1,23 @@
 // TODO: type check with this file isn't working
 
+/** @see {./src/web-app.zig} */
+
 export declare class Ide<Funcs extends Record<string, Function>> {
   public constructor(canvas: HTMLCanvasElement, opts?: Ide.Options)
   functions: Funcs;
 }
 
-export declare const Types: {
-  "i32": 0,
-  "i64": 1,
-  "f32": 2,
-  "f64": 3,
-  "string": 4,
-  "code": 5,
-  "bool": 6,
-};
+export declare type PrimitiveType =
+  | "i32"
+  | "i64"
+  | "f32"
+  | "f64"
+  | "string"
+  | "code"
+  | "bool"
+;
 
-export declare type PrimitiveType = typeof Types[keyof typeof Types];
 export declare type Type = PrimitiveType;
-
-export declare interface BindingDesc {
-  name: string;
-  type: PrimitiveType;
-}
-
-// TODO: offer a fully typed interface
-export declare interface JsFunctionBinding {
-  //name: string;
-  parameters: BindingDesc[];
-  results: BindingDesc[];
-  /*
-   * if defined, must match the above given parameters/results
-   * if undefined, this is a data-only node
-   */
-  impl?: (...args: any[]) => any;
-}
 
 export declare type InputInitState =
   | { node: number, outPin: number }
@@ -61,22 +45,43 @@ export declare interface GraphInitState {
   nodes?: NodeInitState[],
 }
 
-export declare interface InitState {
-  graphs: Record<string, GraphInitState>;
+export declare interface PinJson {
+  name: string;
+  type: PrimitiveType;
+}
+
+export declare interface BasicMutNodeDescJson {
+  //name?: string; // derived from outer object
+  hidden?: boolean;
+  kind?: "func",
+  inputs?: PinJson[];
+  outputs?: PinJson[];
+  tags?: string[];
+  /*
+   * if defined, must match the above given inputs/outputs
+   * if undefined, this is a data-only node.
+   * Use `multiresult` to return multiple results
+   */
+  impl?: (...args: any[]) => any;
+}
+
+export declare type UserFuncJson = BasicMutNodeDescJson & {
+  // FIXME: patched in by WebBackend.js
+  id?: number;
+}
+
+export declare interface MenuOption {
+  name: string;
+  on_click_handle: number;
+  submenus?: MenuOption[];
 }
 
 export declare namespace Ide {
   export interface Options {
-    /**
-     * functions which will always exist for the user,
-     * and may be implemented by them
-     */
-    knownFunctions?: Record<string, {}>,
-    bindings?: {
-      jsHost?: {
-        functions?: Record<string, JsFunctionBinding>;
-      }
-    },
+    menus: MenuOption[];
+    // TODO: rename
+    userFuncs: Record<string, UserFuncJson>;
+    allowRunning?: boolean,
     /** initial preferences for the IDE */
     preferences?: {
       graph?: {
@@ -109,9 +114,14 @@ export declare namespace Ide {
      * initial state of the IDE, e.g. which graphs exist
      * mark graphs as non-removable here
      */
-    initState?: InitState;
+    graphs?: Record<string, GraphInitState>;
     /** a callback with the result for when the main graph function had a run triggered by the user */
     onMainResult?(result: any): void;
   }
 }
 
+declare class MultiResult {
+  results: any[]
+}
+
+export declare function multiresult(array: any[]): MultiResult;

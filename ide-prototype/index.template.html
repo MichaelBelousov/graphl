@@ -9,7 +9,7 @@
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>Grappl Editor</title>
+    <title>Graphl Editor</title>
     <!-- FIXME: remove temp -->
     <script src="https://cdn.jsdelivr.net/npm/@tsparticles/confetti@3.0.3/tsparticles.confetti.bundle.min.js"></script>
   </head>
@@ -38,7 +38,7 @@
     <div id="react-app"></div>
     <script type="module" src="./demo.tsx"></script>
     <script type="module">
-      import * as grappl from "./WebBackend.js";
+      import * as graphl from "./WebBackend.js";
 
       const showText = "0px 50vw 50vw";
       const noShowText = "0px 100vw 50vw";
@@ -103,76 +103,67 @@
         ide = new Promise((resolve, reject) => {
           document.body.onload = () => {
             const canvas = document.getElementById("dvui-canvas");
-            const result = new grappl.Ide(canvas, {
-              bindings: {
-                jsHost: {
-                  functions: {
-                    "Confetti": {
-                      parameters: [{ name: "particle count", type: grappl.Types.i32 }],
-                      results: [],
-                      impl(particleCount) {
-                        confetti({
-                          particleCount,
-                          spread: 70,
-                          origin: { y: 0.6 },
-                        });
-                      }
-                    },
-                    "ECSQL-exec": {
-                      parameters: [{ name: "query", type: grappl.Types.code }],
-                      results: [{ name: "string", type: grappl.Types.string }],
-                      impl(code) {
-                        console.log('QUERY:', sexpToSql(code));
-                      }
-                    },
-                    "testme": {
-                      parameters: [{ name: "query", type: grappl.Types.string }],
-                      results: [],
-                      impl(str) {
-                        console.log(str);
-                      }
-                    },
-                    // dummy nodes
-                    "SELECT": {
-                      parameters: [{ name: "column", type: grappl.Types.string }],
-                      results: [],
-                      impl(code) {} // TODO: impl should be optional
-                    },
-                    "WHERE": {
-                      parameters: [{ name: "condition", type: grappl.Types.bool }],
-                      results: [],
-                      impl(code) {}
-                    },
-                    "FROM": {
-                      parameters: [{ name: "table", type: grappl.Types.string }],
-                      results: [],
-                      impl(code) {}
-                    },
-                  }
-                }
-              },
-              initState: {
-                graphs: {
-                  "main": {
-                    nodes: [
-                      {
-                        id: 1,
-                        type: "Confetti",
-                        inputs: {
-                          0: { node: 0, outPin: 0 },
-                          1: { int: 100 },
-                        }
-                      },
-                      {
-                        id: 2,
-                        type: "return",
-                        inputs: {
-                          0: { node: 1, outPin: 0 },
-                        }
-                      },
-                    ]
+            const result = new graphl.Ide(canvas, {
+              userFuncs: {
+                "Confetti": {
+                  inputs: [{ name: "particle count", type: "i32" }],
+                  outputs: [],
+                  impl(particleCount) {
+                    confetti({
+                      particleCount,
+                      spread: 70,
+                      origin: { y: 0.6 },
+                    });
                   }
                 },
+                "ECSQL-exec": {
+                  inputs: [{ name: "query", type: "code" }],
+                  outputs: [{ name: "string", type: "string" }],
+                  impl(code) {
+                    console.log('QUERY:', sexpToSql(code));
+                  }
+                },
+                "testme": {
+                  inputs: [{ name: "query", type: "string" }],
+                  outputs: [],
+                  impl(str) {
+                    console.log(str);
+                  }
+                },
+                // dummy nodes
+                "SELECT": {
+                  inputs: [{ name: "column", type: "string" }],
+                  outputs: [],
+                },
+                "WHERE": {
+                  inputs: [{ name: "condition", type: "bool" }],
+                  outputs: [],
+                },
+                "FROM": {
+                  inputs: [{ name: "table", type: "string" }],
+                  outputs: [],
+                },
+              },
+              graphs: {
+                "main": {
+                  nodes: [
+                    {
+                      id: 1,
+                      type: "Confetti",
+                      inputs: {
+                        0: { node: 0, outPin: 0 },
+                        1: { int: 100 },
+                      }
+                    },
+                    {
+                      id: 2,
+                      type: "return",
+                      inputs: {
+                        0: { node: 1, outPin: 0 },
+                      }
+                    },
+                  ]
+                }
               },
               /*
               preferences: {

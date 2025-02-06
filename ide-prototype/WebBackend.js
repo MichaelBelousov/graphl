@@ -45,7 +45,7 @@ const INIT_BUFFER_SZ = WASM_PAGE_SIZE;
  * @param {import("./WebBackend").Ide.Options} opts
  */
 export function Ide(canvasElem, opts) {
-    /** @type {Map<number, { name: string, func: import("./WebBackend").JsFunctionBinding }>} */
+    /** @type {Map<number, { name: string, func: import("./WebBackend").BasicMutNodeDescJson["impl"] }>} */
     const userFuncs = new Map();
 
     const vertexShaderSource_webgl = `
@@ -698,146 +698,49 @@ export function Ide(canvasElem, opts) {
         wasmResult = _wasmResult;
         const we = wasmResult.instance.exports;
 
-        // NOTE: technically this could be generated using a proxy, but perhaps better to use zigar if I need that
-        // FIXME: down transpile to ES6 with typescript
-        if (opts?.preferences?.graph?.origin !== undefined)
-            assert(we.setOpt_preferences_graph_origin(opts.preferences.graph.origin.x, opts.preferences.graph.origin.y));
-        if (opts?.preferences?.graph?.scale !== undefined)
-            assert(we.setOpt_preferences_graph_scale(opts.preferences.graph.scale));
-        if (opts?.preferences?.graph?.scrollBarsVisible !== undefined)
-            assert(we.setOpt_preferences_graph_scrollBarsVisible(opts.preferences.graph.scrollBarsVisible ? 1 : 0));
-        if (opts?.preferences?.graph?.allowPanning !== undefined)
-            assert(we.setOpt_preferences_graph_scrollBarsVisible(opts.preferences.graph.allowPanning ? 1 : 0));
-        if (opts?.preferences?.topbar?.visible !== undefined)
-            assert(we.setOpt_preferences_topbar_visible(opts.preferences.topbar.visible ? 1 : 0));
-        if (opts?.preferences?.definitionsPanel?.visible !== undefined)
-            assert(we.setOpt_preferences_definitionsPanel_visible(opts.preferences.definitionsPanel.visible ? 1 : 0));
-        if (opts?.preferences?.definitionsPanel?.orientation !== undefined)
-            assert(we.setOpt_preferences_definitionsPanel_orientation(opts.preferences.definitionsPanel.orientation === "left" ? 0 : 1));
-
-        if (opts?.initState?.graphs !== undefined) {
-            for (const [graphName, graph] of Object.entries(opts.initState.graphs)) {
-                const graph_name_ptr = we.graphl_init_start - INIT_BUFFER_SZ;
-                const graph_name_len = graphName.length;
-
-                const graphNameBuff = () => new Uint8Array(we.memory.buffer, graph_name_ptr, graph_name_len);
-
-                // FIXME: use write.written for written buffer length, and a utility function
-                {
-                    const write = utf8encoder.encodeInto(graphName, graphNameBuff());
-                    // TODO: add assert lib!
-                    if (write.read !== graphName.length)
-                        throw Error(`failed to write graph name '${graphName}'`);
-                }
-
-                if (graph.notRemovable !== undefined) {
-                    assert(we.setInitState_graphs_notRemovable(graph_name_ptr, graph_name_len, graph.notRemovable ? 1 : 0));
-                }
-
-                if (graph.nodes === undefined) continue;
-
-                for (let i = 0; i < graph.nodes.length; ++i) {
-                    const node = graph.nodes[i];
-                    if (node.id < 1 || node.id !== Math.floor(node.id)) {
-                        throw Error(
-                            `BadNodeId: node id ${node.id} at index ${i} in graph '${graphName}'\n`
-                            + `is not a non-negative integer. It may not be negative nor have a fraction.`
-                        );
-                    }
-                    const typeNameBuff = () => new Uint8Array(we.memory.buffer, graph_name_ptr + graphName.length, node.type.length);
-                    {
-                        const write = utf8encoder.encodeInto(node.type, typeNameBuff());
-                        // TODO: add assert lib!
-                        if (write.read !== node.type.length)
-                            throw Error(`failed to write node type '${node.type}'`);
-                    }
-                    const type_ptr = graph_name_ptr + graphName.length;
-                    const type_len = node.type.length;
-                    assert(we.setInitState_graphs_nodes_type(graph_name_ptr, graph_name_len, i, node.id, type_ptr, type_len));
-                    if (node.position) {
-                        assert(we.setInitState_graphs_nodes_pos(graph_name_ptr, graph_name_len, i, node.id, node.position.x, node.position.y));
-                    }
-
-                    for (const [inputIdStr, input] of Object.entries(node.inputs ?? {})) {
-                        const inputId = Number(inputIdStr);
-                        if (Number.isNaN(inputId) || inputId < 0 || inputId !== Math.floor(inputId)) {
-                            throw Error(
-                                `BadInputId: input id '${inputIdStr}' on node #${node.id} at index ${i} in graph '${graphName}'\n`
-                                + `is not a non-negative integer. It may not be negative nor have a fraction.`
-                            );
-                        }
-
-                        if ("symbol" in input || "string" in input) {
-                            const value = input.symbol ?? input.string;
-                            const valBuff = () => new Uint8Array(we.memory.buffer, type_ptr + node.type.length, value.length);
-                            {
-                                const write = utf8encoder.encodeInto(value, valBuff());
-                                // TODO: add assert lib!
-                                if (write.read !== value.length)
-                                    throw Error(`failed to write value '${value}' for ${graphName}/${node.id}/${inputId}`);
-                            }
-                            const val_ptr = type_ptr + node.type.length;
-                            const val_len = value.length;
-
-                            if ("symbol" in input) {
-                                assert(we.setInitState_graphs_nodes_input_symbol(graph_name_ptr, graph_name_len, i, node.id, inputId, val_ptr, val_len));
-                            } else /* if ("string" in input) */ {
-                                assert(we.setInitState_graphs_nodes_input_string(graph_name_ptr, graph_name_len, i, node.id, inputId, val_ptr, val_len));
-                            }
-                        } else {
-                            if ("int" in input) {
-                                assert(we.setInitState_graphs_nodes_input_int(graph_name_ptr, graph_name_len, i, node.id, inputId, BigInt(input.int)));
-                            } else if ("float" in input) {
-                                assert(we.setInitState_graphs_nodes_input_float(graph_name_ptr, graph_name_len, i, node.id, inputId, input.float));
-                            } else if ("bool" in input) {
-                                assert(we.setInitState_graphs_nodes_input_bool(graph_name_ptr, graph_name_len, i, node.id, inputId, input.bool));
-                            } else if ("node" in input) {
-                                assert(we.setInitState_graphs_nodes_input_pin(graph_name_ptr, graph_name_len, i, node.id, inputId, input.node, input.outPin));
-                            } else {
-                                console.error("invalid input value:", input);
-                                throw Error(`BadInputValue: '${graphName}'/${node.id}/${inputId}`);
-                            }
-                        }
-                    }
-                }
-            }
+        /** @type {any} */
+        const optsForWasm = structuredClone(opts);
+        let nextUserFuncHandle = 0;
+        for (const userFuncKey in optsForWasm.userFuncs) {
+            userFuncs.set(nextUserFuncHandle, {
+                name: userFuncKey,
+                func: opts.userFuncs[userFuncKey].impl ?? (() => {})
+            });
+            optsForWasm.userFuncs[userFuncKey] = {
+                id: nextUserFuncHandle++,
+                node: {
+                    ...opts.userFuncs[userFuncKey],
+                    name: userFuncKey,
+                    // FIXME: allow pure nodes
+                    inputs: [{ name: "in", type: "exec" }, ...opts.userFuncs[userFuncKey].inputs ?? []],
+                    outputs: [{ name: "out", type: "exec" }, ...opts.userFuncs[userFuncKey].outputs ?? []],
+                },
+            };
+            delete optsForWasm.userFuncs[userFuncKey].node.impl;
         }
 
-        const funcsOption = opts?.bindings?.jsHost?.functions ?? {};
+        // FIXME: 4kB is not nearly enough!
+        const transferBuffer = () => new Uint8Array(
+            wasmResult.instance.exports.memory.buffer,
+            // FIXME: why is the end of the region exported? This doesn't seem to match what zig sees
+            wasmResult.instance.exports.graphl_init_start - INIT_BUFFER_SZ,
+            MAX_FUNC_NAME,
+        );
 
-        for (const [funcName, func] of Object.entries(funcsOption)) {
-            if (funcName.length > MAX_FUNC_NAME)
-                throw Error(`function name '${funcName}' is too long to be bound`);
+        const optsJson = JSON.stringify(optsForWasm);
 
-            const transferBuffer = () => new Uint8Array(
-                wasmResult.instance.exports.memory.buffer,
-                // FIXME: why is the end of the region exported? This doesn't seem to match what zig sees
-                wasmResult.instance.exports.graphl_init_start - INIT_BUFFER_SZ,
-                MAX_FUNC_NAME,
-            );
-
-            const write = utf8encoder.encodeInto(funcName, transferBuffer());
-            if (write.read !== funcName.length) throw Error("failed to write func name");
-
-            const inputCount = func.parameters.length;
-            const outputCount = func.results.length;
-            const funcId = wasmResult.instance.exports.createUserFunc(write.written, inputCount, outputCount);
-            userFuncs.set(funcId, { name: funcName, func });
-
-            for (let i = 0; i < func.parameters.length; ++i) {
-                const param = func.parameters[i];
-                const write = utf8encoder.encodeInto(param.name, transferBuffer());
-                if (write.read !== param.name.length) throw Error("failed to write input name");
-                wasmResult.instance.exports.addUserFuncInput(funcId, i, write.written, param.type);
-            }
-
-            for (let i = 0; i < func.results.length; ++i) {
-                const result = func.results[i];
-                const write = utf8encoder.encodeInto(result.name, transferBuffer());
-                if (write.read !== result.name.length) throw Error("failed to write output name");
-                wasmResult.instance.exports.addUserFuncOutput(funcId, i, write.written, result.type);
-            }
+        {
+            const write = utf8encoder.encodeInto(optsJson, transferBuffer());
+            // TODO: add assert lib!
+            if (write.read !== optsJson.length)
+                throw Error(`failed to fully write options blob '${optsJson}'`);
         }
+
+
+        const json_ptr = we.graphl_init_start - INIT_BUFFER_SZ;
+        const json_len = optsJson.length;
+
+        we.setInitOpts(json_ptr, json_len);
 
         const canvas = canvasElem;
 

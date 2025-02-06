@@ -29,12 +29,17 @@ pub const GraphInitStateJson = struct {
 
 pub const GraphsInitStateJson = std.json.ArrayHashMap(GraphInitStateJson);
 
+pub const PinJson = struct {
+    name: []const u8,
+    type: []const u8,
+};
+
 pub const BasicMutNodeDescJson = struct {
     name: []const u8,
     hidden: bool = false,
     kind: helpers.NodeDescKind = .func,
-    inputs: []helpers.Pin = &.{},
-    outputs: []helpers.Pin = &.{},
+    inputs: []PinJson = &.{},
+    outputs: []PinJson = &.{},
     tags: []const []const u8 = &.{},
 };
 
@@ -46,9 +51,9 @@ pub const UserFuncJson = struct {
 pub const InitOptsJson = struct {
     menus: []const MenuOptionJson = &.{},
     graphs: GraphsInitStateJson = .{},
-    user_funcs: std.json.ArrayHashMap(UserFuncJson) = .{},
+    userFuncs: std.json.ArrayHashMap(UserFuncJson) = .{},
 
-    allow_running: bool = true,
+    allowRunning: bool = true,
     preferences: struct {
         graph: struct {
             origin: ?PtJson = null,
@@ -134,6 +139,18 @@ fn onMenuClick(_: ?*anyopaque, click_ctx: ?*anyopaque) void {
     on_menu_click(@intFromPtr(click_ctx));
 }
 
+const jsonStrToGraphlType: std.StaticStringMap(graphl.Type) = _: {
+    break :_ std.StaticStringMap(graphl.Type).initComptime(.{
+        .{ "i32", graphl.primitive_types.i32_ },
+        .{ "i64", graphl.primitive_types.i64_ },
+        .{ "f32", graphl.primitive_types.f32_ },
+        .{ "f64", graphl.primitive_types.f64_ },
+        .{ "string", graphl.primitive_types.string },
+        .{ "code", graphl.primitive_types.code },
+        .{ "bool", graphl.primitive_types.bool_ },
+    });
+};
+
 fn _setInitOpts(json: []const u8) !void {
     const init_opts_json = try std.json.parseFromSlice(InitOptsJson, gpa, json, .{});
     errdefer init_opts_json.deinit();
@@ -195,14 +212,29 @@ fn _setInitOpts(json: []const u8) !void {
             var i: usize = 0;
             var iter = user_funcs_json.map.iterator();
             while (iter.next()) |entry| : (i += 1) {
+                const inputs = try gpa.alloc(helpers.Pin, entry.value_ptr.node.inputs.len);
+                errdefer gpa.free(inputs);
+                for (entry.value_ptr.node.inputs, inputs) |input_json, *input| {
+                    input.* = .{
+                        .name = input_json.name,
+                        .kind = if (std.mem.eql(u8, input_json.type, "exec"))
+                            .{ .primitive = .exec }
+                        else
+                            .{ .primitive = .{ .value = jsonStrToGraphlType.get(input_json.type) orelse return error.NotGraphlType } },
+                    };
+                }
+
+                const outputs = try gpa.alloc(helpers.Pin, entry.value_ptr.node.outputs.len);
+                errdefer gpa.free(outputs);
+
                 result[i] = .{
                     .id = entry.value_ptr.id,
                     .node = .{
                         .name = entry.value_ptr.node.name,
                         .tags = entry.value_ptr.node.tags,
                         .hidden = entry.value_ptr.node.hidden,
-                        .inputs = entry.value_ptr.node.inputs,
-                        .outputs = entry.value_ptr.node.outputs,
+                        .inputs = inputs,
+                        .outputs = outputs,
                         .kind = entry.value_ptr.node.kind,
                     },
                 };
@@ -219,7 +251,7 @@ fn _setInitOpts(json: []const u8) !void {
     var graphs = try Local.convertGraphs(init_opts_json.value.graphs);
     errdefer graphs.deinit(gpa);
 
-    const user_funcs = try Local.convertUserFuncs(init_opts_json.value.user_funcs);
+    const user_funcs = try Local.convertUserFuncs(init_opts_json.value.userFuncs);
     errdefer user_funcs.deinit(gpa);
 
     app.init_opts = .{
@@ -227,7 +259,7 @@ fn _setInitOpts(json: []const u8) !void {
         .menus = menus,
         .graphs = graphs,
         .user_funcs = user_funcs,
-        .allow_running = true,
+        .allow_running = init_opts_json.value.allowRunning,
         .preferences = .{
             .graph = .{
                 .origin = if (init_opts_json.value.preferences.graph.origin) |p| .{ .x = p.x, .y = p.y } else null,
