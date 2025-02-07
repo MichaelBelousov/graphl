@@ -35,7 +35,7 @@ const INIT_BUFFER_SZ = WASM_PAGE_SIZE;
  * @param {import("./WebBackend").Ide.Options} opts
  */
 export function Ide(canvasElem, opts) {
-    /** @type {Map<number, { name: string, func: import("./WebBackend").BasicMutNodeDescJson["impl"] }>} */
+    /** @type {Map<number, { name: string, func: Required<Pick<import("./WebBackend").BasicMutNodeDescJson, "impl" | "inputs" | "outputs">> }>} */
     const userFuncs = new Map();
 
     /** @type {Map<number, (() => void) | undefined>} */
@@ -575,9 +575,9 @@ export function Ide(canvasElem, opts) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
-                         || funcInfo.func.parameters.length !== 1
-                         || funcInfo.func.parameters[0].type !== "code"
-                         || funcInfo.func.results.length !== 0
+                         || funcInfo.func.inputs.length !== 1
+                         || funcInfo.func.inputs[0].type !== "code"
+                         || funcInfo.func.outputs.length !== 0
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
                         const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr, len));
@@ -590,10 +590,10 @@ export function Ide(canvasElem, opts) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
-                         || funcInfo.func.parameters.length !== 1
-                         || funcInfo.func.parameters[0].type !== "code"
-                         || funcInfo.func.results.length !== 1
-                         || funcInfo.func.results[0].type !== "string"
+                         || funcInfo.func.inputs.length !== 1
+                         || funcInfo.func.inputs[0].type !== "code"
+                         || funcInfo.func.outputs.length !== 1
+                         || funcInfo.func.outputs[0].type !== "string"
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
                         const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr, len));
@@ -608,9 +608,9 @@ export function Ide(canvasElem, opts) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
-                         || funcInfo.func.parameters.length !== 1
-                         || funcInfo.func.parameters[0].type !== "string"
-                         || funcInfo.func.results.length !== 0
+                         || funcInfo.func.inputs.length !== 1
+                         || funcInfo.func.inputs[0].type !== "string"
+                         || funcInfo.func.outputs.length !== 0
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
                         const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr, len));
@@ -621,8 +621,8 @@ export function Ide(canvasElem, opts) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
-                         || funcInfo.func.parameters.length !== 0
-                         || funcInfo.func.results.length !== 0
+                         || funcInfo.func.inputs.length !== 0
+                         || funcInfo.func.outputs.length !== 0
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
                         funcInfo.func.impl();
@@ -632,9 +632,9 @@ export function Ide(canvasElem, opts) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
-                         || funcInfo.func.parameters.length !== 1
-                         || funcInfo.func.parameters[0].type !== "i32"
-                         || funcInfo.func.results.length !== 0
+                         || funcInfo.func.inputs.length !== 1
+                         || funcInfo.func.inputs[0].type !== "i32"
+                         || funcInfo.func.outputs.length !== 0
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
                         funcInfo.func.impl(i1);
@@ -646,10 +646,10 @@ export function Ide(canvasElem, opts) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
-                         || funcInfo.func.parameters.length !== 1
-                         || funcInfo.func.parameters[0].type !== "i32"
-                         || funcInfo.func.results.length !== 1
-                         || funcInfo.func.results[0].type !== "i32"
+                         || funcInfo.func.inputs.length !== 1
+                         || funcInfo.func.inputs[0].type !== "i32"
+                         || funcInfo.func.outputs.length !== 1
+                         || funcInfo.func.outputs[0].type !== "i32"
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
 
                         return funcInfo.func.impl(i1);
@@ -659,11 +659,11 @@ export function Ide(canvasElem, opts) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
-                         || funcInfo.func.parameters.length !== 2
-                         || funcInfo.func.parameters[0].type !== "i32"
-                         || funcInfo.func.parameters[1].type !== "i32"
-                         || funcInfo.func.results.length !== 1
-                         || funcInfo.func.results[0].type !== "i32"
+                         || funcInfo.func.inputs.length !== 2
+                         || funcInfo.func.inputs[0].type !== "i32"
+                         || funcInfo.func.inputs[1].type !== "i32"
+                         || funcInfo.func.outputs.length !== 1
+                         || funcInfo.func.outputs[0].type !== "i32"
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
 
                         return funcInfo.func.impl(i1, i2);
@@ -717,7 +717,11 @@ export function Ide(canvasElem, opts) {
         for (const userFuncKey in optsForWasm.userFuncs) {
             userFuncs.set(nextUserFuncHandle, {
                 name: userFuncKey,
-                func: opts.userFuncs[userFuncKey].impl ?? (() => {})
+                func: {
+                    inputs: opts.userFuncs[userFuncKey].inputs ?? [],
+                    outputs: opts.userFuncs[userFuncKey].outputs ?? [],
+                    impl: opts.userFuncs[userFuncKey].impl ?? (() => {}),
+                },
             });
             optsForWasm.userFuncs[userFuncKey] = {
                 id: nextUserFuncHandle++,
@@ -732,7 +736,6 @@ export function Ide(canvasElem, opts) {
             delete optsForWasm.userFuncs[userFuncKey].node.impl;
         }
 
-        // FIXME: 4kB is not nearly enough!
         const transferBuffer = () => new Uint8Array(
             wasmResult.instance.exports.memory.buffer,
             // FIXME: why is the end of the region exported? This doesn't seem to match what zig sees
@@ -740,13 +743,16 @@ export function Ide(canvasElem, opts) {
             INIT_BUFFER_SZ,
         );
 
+        // FIXME: remove debug
+        globalThis._transferBuffer = transferBuffer;
+
         const optsJson = JSON.stringify(optsForWasm);
 
         {
             const write = utf8encoder.encodeInto(optsJson, transferBuffer());
             // TODO: add assert lib!
             if (write.read !== optsJson.length)
-                throw Error(`failed to fully write options blob '${optsJson}'`);
+                throw Error(`options blob too large, max 1 WASM page size (16kB) allowed`);
         }
 
 

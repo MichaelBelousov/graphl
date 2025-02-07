@@ -155,19 +155,22 @@ const jsonStrToGraphlType: std.StaticStringMap(graphl.Type) = _: {
     });
 };
 
-fn _setInitOpts(json: []const u8) !void {
+fn _setInitOpts(in_json: []const u8) !void {
+    const json = try gpa.dupe(u8, in_json);
     var arena = std.heap.ArenaAllocator.init(gpa);
     // NOTE: leaks on success, fix when switching to using globals
-    errdefer arena.deinit();
+    //errdefer arena.deinit();
 
     var json_diagnostics = std.json.Diagnostics{};
     var json_scanner = std.json.Scanner.initCompleteInput(gpa, json);
     json_scanner.enableDiagnostics(&json_diagnostics);
+    //json_scanner.deinit();
     const init_opts_json = std.json.parseFromTokenSourceLeaky(
         InitOptsJson,
         arena.allocator(),
         &json_scanner,
-        .{ .ignore_unknown_fields = true },
+        // duplicate string tokens in case the transfer buffer is reused (FIXME: this leaks for now)
+        .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
     ) catch |err| {
         std.log.err("json parsing err: {}", .{err});
         std.log.err("byte={}, diagnostic={}", .{ json_diagnostics.getByteOffset(), json_diagnostics });
@@ -244,7 +247,17 @@ fn _setInitOpts(json: []const u8) !void {
                 }
 
                 const outputs = try gpa.alloc(helpers.Pin, entry.value_ptr.node.outputs.len);
+                // FIXME: this errdefer doesn't free in all loop iterations!
                 errdefer gpa.free(outputs);
+                for (entry.value_ptr.node.outputs, outputs) |output_json, *output| {
+                    output.* = .{
+                        .name = output_json.name,
+                        .kind = if (std.mem.eql(u8, output_json.type, "exec"))
+                            .{ .primitive = .exec }
+                        else
+                            .{ .primitive = .{ .value = jsonStrToGraphlType.get(output_json.type) orelse return error.NotGraphlType } },
+                    };
+                }
 
                 result[i] = .{
                     .id = entry.value_ptr.id,
