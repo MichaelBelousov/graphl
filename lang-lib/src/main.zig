@@ -5,6 +5,7 @@ const builtin = @import("builtin");
 pub const graphToSource = @import("./graph_to_source.zig").graphToSource;
 pub const readSrc = @import("./ide_json_gen.zig").readSrc;
 
+pub const IntArrayHashMap = @import("./json_int_map.zig").IntArrayHashMap;
 pub const GraphBuilder = @import("./graph_to_source.zig").GraphBuilder;
 pub const NodeId = @import("./graph_to_source.zig").NodeId;
 const IndexedNode = @import("./common.zig").GraphTypes.Node;

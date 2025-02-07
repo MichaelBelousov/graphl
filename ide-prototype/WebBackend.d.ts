@@ -20,7 +20,7 @@ export declare type PrimitiveType =
 export declare type Type = PrimitiveType;
 
 export declare type InputInitState =
-  | { node: number, out_pin: number }
+  | { node: number, outPin: number }
   | { int: number }
   | { float: number }
   | { string: string }

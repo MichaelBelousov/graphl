@@ -77,3 +77,43 @@ pub fn IntArrayHashMap(comptime Key: type, comptime T: type, comptime base: u8) 
         }
     };
 }
+
+// test "parse JsonIntMap u16" {
+//     const input =
+//         \\{
+//         \\  "id": 1031201,
+//         \\  "type": "+",
+//         \\  "inputs": {
+//         \\    "0": {"id": 0, "outPin": 1},
+//         \\    "1": {"int": -201},
+//         \\    "2": {"float": 0.32},
+//         \\    "20": {"bool": false},
+//         \\    "3": {"bool": true},
+//         \\    "100": {"string": "hello"},
+//         \\    "1000": {"symbol": "world"}
+//         \\  }
+//         \\}
+//     ;
+
+//     var scanner = std.json.Scanner.initCompleteInput(std.testing.allocator, input);
+//     defer scanner.deinit();
+//     const result = try std.json.parseFromTokenSource(NodeInitStateJson, std.testing.allocator, &scanner, .{});
+//     defer result.deinit();
+
+//     var expected = NodeInitStateJson{
+//         .id = 1031201,
+//         .type = "+",
+//         .inputs = .{},
+//     };
+//     defer expected.inputs.deinit(std.testing.allocator);
+
+//     try std.testing.expectEqual(expected.id, result.value.id);
+//     try std.testing.expectEqualStrings(expected.type, result.value.type);
+//     try std.testing.expectEqualDeep(result.value.inputs.map.get(0).?, InputInitState{ .node = .{ .id = 0, .out_pin = 1 } });
+//     try std.testing.expectEqualDeep(result.value.inputs.map.get(1).?, InputInitState{ .int = -201 });
+//     try std.testing.expectEqualDeep(result.value.inputs.map.get(2).?, InputInitState{ .float = 0.32 });
+//     try std.testing.expectEqualDeep(result.value.inputs.map.get(20).?, InputInitState{ .bool = false });
+//     try std.testing.expectEqualDeep(result.value.inputs.map.get(3).?, InputInitState{ .bool = true });
+//     try std.testing.expectEqualDeep(result.value.inputs.map.get(100).?, InputInitState{ .string = "hello" });
+//     try std.testing.expectEqualDeep(result.value.inputs.map.get(1000).?, InputInitState{ .symbol = "world" });
+// }

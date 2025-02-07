@@ -19,8 +19,7 @@ pub const NodeInitStateJson = struct {
     id: usize,
     /// type of node, e.g. "+"
     type: []const u8,
-    // keys should be u16
-    inputs: std.json.ArrayHashMap(InputInitStateJson) = .{},
+    inputs: IntArrayHashMap(u16, InputInitStateJson, 10) = .{},
     position: ?PtJson = null,
 };
 
@@ -157,10 +156,8 @@ const jsonStrToGraphlType: std.StaticStringMap(graphl.Type) = _: {
 };
 
 fn _setInitOpts(json: []const u8) !void {
-    std.log.info("init opts json=\n{s}", .{json});
-
     var arena = std.heap.ArenaAllocator.init(gpa);
-    // NOTE: leaks on succes, fix when switching to using globals
+    // NOTE: leaks on success, fix when switching to using globals
     errdefer arena.deinit();
 
     var json_diagnostics = std.json.Diagnostics{};
@@ -174,7 +171,7 @@ fn _setInitOpts(json: []const u8) !void {
     ) catch |err| {
         std.log.err("json parsing err: {}", .{err});
         std.log.err("byte={}, diagnostic={}", .{ json_diagnostics.getByteOffset(), json_diagnostics });
-        return;
+        return err;
     };
 
     const Local = struct {
@@ -205,7 +202,7 @@ fn _setInitOpts(json: []const u8) !void {
                     errdefer inputs.deinit(gpa);
                     var input_iter = node_json.inputs.map.iterator();
                     while (input_iter.next()) |input_json_entry| {
-                        const key = try std.fmt.parseInt(u16, input_json_entry.key_ptr.*, 10);
+                        const key = input_json_entry.key_ptr.*;
                         switch (input_json_entry.value_ptr.*) {
                             inline else => |v, tag| try inputs.put(gpa, key, @unionInit(App.InputInitState, @tagName(tag), v)),
                         }
@@ -302,6 +299,8 @@ fn _setInitOpts(json: []const u8) !void {
 
 const gpa = App.gpa;
 const graphl = @import("grappl_core");
+// FIXME: move to util package
+const IntArrayHashMap = @import("grappl_core").IntArrayHashMap;
 const helpers = @import("grappl_core").helpers;
 const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 
