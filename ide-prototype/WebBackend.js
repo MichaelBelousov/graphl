@@ -701,7 +701,10 @@ export function Ide(canvasElem, opts) {
         function bindMenus(menus) {
             if (menus === undefined) return;
             for (const menu of menus) {
-                menuOnClick.set(++nextMenuClickHandle, menu.onClick);
+                const handle = nextMenuClickHandle;
+                nextMenuClickHandle++;
+                menuOnClick.set(handle, menu.onClick);
+                menu.on_click_handle = handle;
                 bindMenus(menu.submenus);
             }
         }

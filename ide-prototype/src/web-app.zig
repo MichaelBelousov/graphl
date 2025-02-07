@@ -173,7 +173,7 @@ fn _setInitOpts(json: []const u8) !void {
         .{ .ignore_unknown_fields = true },
     ) catch |err| {
         std.log.err("json parsing err: {}", .{err});
-        std.log.err("diagnostic: {}", .{json_diagnostics});
+        std.log.err("byte={}, diagnostic={}", .{ json_diagnostics.getByteOffset(), json_diagnostics });
         return;
     };
 

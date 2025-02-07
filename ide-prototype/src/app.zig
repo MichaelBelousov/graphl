@@ -338,10 +338,6 @@ pub const Orientation = enum(u32) {
     right = 1,
 };
 
-// FIXME: generate this object and all of the setter functions in the build
-// NOTE: must correlate to WebBackend.d.ts
-var options: struct {} = .{};
-
 pub const InputInitState = union(enum) {
     node: struct { id: usize, out_pin: usize },
     int: i64,
@@ -349,6 +345,40 @@ pub const InputInitState = union(enum) {
     bool: bool,
     string: []const u8,
     symbol: []const u8,
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, opts: std.json.ParseOptions) !@This() {
+        if (.object_begin != try source.next()) return error.UnexpectedToken;
+        while (true) {
+            const token = try source.nextAlloc(allocator, opts.allocate.?);
+            var value: @This() = undefined;
+            switch (token) {
+                inline .string, .allocated_string => |k| {
+                    if (std.mem.eql(u8, k, "id")) {
+                        if (value != .node) value = .{ .node = undefined };
+                        value.node.id = try std.json.innerParse(usize, allocator, source, opts);
+                    } else if (std.mem.eql(u8, k, "outPin")) {
+                        if (value != .node) value = .{ .node = undefined };
+                        value.node.out_pin = try std.json.innerParse(usize, allocator, source, opts);
+                    } else if (std.mem.eql(u8, k, "int")) {
+                        value = .{ .int = try std.json.innerParse(i64, allocator, source, opts) };
+                    } else if (std.mem.eql(u8, k, "float")) {
+                        value = .{ .float = try std.json.innerParse(f64, allocator, source, opts) };
+                    } else if (std.mem.eql(u8, k, "bool")) {
+                        value = .{ .bool = try std.json.innerParse(bool, allocator, source, opts) };
+                    } else if (std.mem.eql(u8, k, "string")) {
+                        value = .{ .string = try std.json.innerParse([]const u8, allocator, source, opts) };
+                    } else if (std.mem.eql(u8, k, "symbol")) {
+                        value = .{ .symbol = try std.json.innerParse([]const u8, allocator, source, opts) };
+                    } else {
+                        return error.UnexpectedToken;
+                    }
+                },
+                .object_end => break,
+                else => unreachable,
+            }
+            return value;
+        }
+    }
 };
 
 pub const NodeInitState = struct {
