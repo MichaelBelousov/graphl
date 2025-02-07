@@ -2071,26 +2071,32 @@ pub fn frame(self: *@This()) !void {
             }
         }
 
-        for (self.init_opts.menus, 0..) |menu, i| {
-            // FIXME: must be called recursively to support any-layered submenus
-            if (try dvui.menuItemLabel(@src(), menu.name, .{ .submenu = menu.submenus.len > 0 }, .{ .expand = .none, .id_extra = i })) |r| {
-                if (menu.on_click) |on_click| {
-                    on_click(self.init_opts.context, menu.on_click_ctx);
-                }
-
-                var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{ .id_extra = i });
-                defer fw.deinit();
-
-                for (menu.submenus, 0..) |submenu, j| {
-                    const id_extra = (i << 16) | j;
-                    if (try dvui.menuItemLabel(@src(), submenu.name, .{}, .{ .expand = .horizontal, .id_extra = id_extra })) |_| {
-                        if (submenu.on_click) |submenu_click| {
-                            submenu_click(self.init_opts.context, menu.on_click_ctx);
+        const recurseMenus = (struct {
+            pub fn recurseMenus(menus: []const MenuOption, in_counter: *u32, app_ctx: ?*anyopaque) !void {
+                const first = in_counter.* == 0;
+                for (menus) |menu| {
+                    const id = in_counter.*;
+                    in_counter.* += 1;
+                    if (try dvui.menuItemLabel(
+                        @src(),
+                        menu.name,
+                        .{ .submenu = menu.submenus.len > 0 },
+                        .{ .expand = if (first) .none else .horizontal, .id_extra = id },
+                    )) |r| {
+                        if (menu.on_click) |on_click| {
+                            on_click(app_ctx, menu.on_click_ctx);
                         }
+
+                        var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{ .id_extra = id });
+                        defer fw.deinit();
+                        try recurseMenus(menu.submenus, in_counter, app_ctx);
                     }
                 }
             }
-        }
+        }).recurseMenus;
+
+        var counter: u32 = 0;
+        try recurseMenus(self.init_opts.menus, &counter, self.init_opts.context);
     }
 
     //ScrollData.scroll_info.virtual_size = current_graph.visual_graph.graph_bb.size();
