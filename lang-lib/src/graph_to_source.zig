@@ -277,9 +277,8 @@ pub const GraphBuilder = struct {
         const entry_node = try env.addNode(alloc, helpers.basicMutableNode(entry_node_basic_desc));
 
         const result_node_basic_desc = _: {
-            const inputs = try alloc.alloc(Pin, 2);
+            const inputs = try alloc.alloc(Pin, 1);
             inputs[0] = Pin{ .name = "exit", .kind = .{ .primitive = .exec } };
-            inputs[1] = Pin{ .name = "result", .kind = .{ .primitive = .{ .value = helpers.primitive_types.i32_ } } };
 
             const outputs = try alloc.alloc(Pin, 0);
 
