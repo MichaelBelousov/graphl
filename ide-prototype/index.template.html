@@ -100,7 +100,7 @@
       let ide;
 
       async function main() {
-        ide = new Promise((resolve, reject) => {
+        ide = await new Promise((resolve, reject) => {
           document.body.onload = () => {
             const canvas = document.getElementById("dvui-canvas");
             const ideOpts = {
@@ -199,12 +199,16 @@
 
         document.addEventListener("keydown", (e) => {
           const isCtrlShiftE = e.ctrlKey && e.shiftKey && /[eE]/.test(e.key);
-          if (!isCtrlShiftE) return;
-          e.preventDefault();
-          document.body.style["grid-template-columns"]
-            = document.body.style["grid-template-columns"] === showText
-            ? noShowText
-            : showText;
+          if (isCtrlShiftE) {
+            e.preventDefault();
+            document.body.style["grid-template-columns"]
+              = document.body.style["grid-template-columns"] === showText
+              ? noShowText
+              : showText;
+          } else if (e.ctrlKey && e.shiftKey && /[xX]/.test(e.key)) {
+            e.preventDefault();
+            console.log("COMPILED!", ide.exportCompiled());
+          }
         });
       }
 

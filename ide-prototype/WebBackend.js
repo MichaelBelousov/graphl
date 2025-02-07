@@ -175,6 +175,11 @@ export function Ide(canvasElem, opts) {
     const utf8decoder = new TextDecoder();
     const utf8encoder = new TextEncoder();
 
+    // FIXME: gross, instead expose ide.exportCompiled and allow the host
+    // to define custom menu items using that to download the file
+    /** @type {undefined | (() => void)} */
+    let onExportCompiledOverride = undefined;
+
     const imports = {
         env: {
 
@@ -491,6 +496,10 @@ export function Ide(canvasElem, opts) {
         },
 
         onExportCompiled: (ptr, len) => {
+            if (onExportCompiledOverride !== undefined) {
+                onExportCompiledOverride(ptr, len);
+                return;
+            }
             if (len === 0) return;
             const content = utf8decoder.decode(new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len));
             void downloadFile({
@@ -1075,10 +1084,6 @@ export function Ide(canvasElem, opts) {
     }
 
     return {
-        /** @param {WebAssembly.WebAssemblyInstantiatedSource} val */
-        _setLastCompiled(val) {
-            lastCompiled = val;
-        },
         functions: new Proxy({}, {
             get(_target, key, _receiver) {
                 if (typeof key !== "string")
@@ -1089,6 +1094,16 @@ export function Ide(canvasElem, opts) {
                 //}
                 //return lastCompiled?.instance.exports?.[key];
             }
-        })
+        }),
+        exportCompiled() {
+            let content;
+            const original = onExportCompiledOverride;
+            onExportCompiledOverride = (ptr, len) => {
+                content = utf8decoder.decode(new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len));
+            };
+            wasmResult.instance.exports.exportCurrentCompiled();
+            onExportCompiledOverride = original;
+            return content;
+        }
     };
 }

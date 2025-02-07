@@ -473,7 +473,7 @@ pub fn runCurrentGraphs(self: *const @This()) !void {
     }
 }
 
-fn exportCurrentCompiled(self: *const @This()) !void {
+pub fn exportCurrentCompiled(self: *const @This()) !void {
     const sexp = try combineGraphs(self);
     defer sexp.deinit(gpa);
 

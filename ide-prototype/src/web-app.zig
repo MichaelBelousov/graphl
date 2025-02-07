@@ -138,6 +138,14 @@ export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
     };
 }
 
+/// returns null if failure
+export fn exportCurrentCompiled() void {
+    app.exportCurrentCompiled() catch |err| {
+        std.log.err("sourceToGraph error: {}", .{err});
+        return;
+    };
+}
+
 export fn setInitOpts(json_ptr: ?[*]const u8, json_len: usize) bool {
     const json = (json_ptr orelse return false)[0..json_len];
     _setInitOpts(json) catch |err| {
