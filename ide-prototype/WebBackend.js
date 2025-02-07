@@ -25,16 +25,6 @@ function assert(cond, errMessage = "Assertion failed") {
     if (!cond) throw Error(errMessage);
 }
 
-export const Types = {
-    "i32": 0,
-    "i64": 1,
-    "f32": 2,
-    "f64": 3,
-    "string": 4,
-    "code": 5,
-    "bool": 6,
-};
-
 const MAX_FUNC_NAME = 256;
 const WASM_PAGE_SIZE = 64 * 1024;
 const INIT_BUFFER_SZ = WASM_PAGE_SIZE;
@@ -586,7 +576,7 @@ export function Ide(canvasElem, opts) {
 
                         if (funcInfo === undefined
                          || funcInfo.func.parameters.length !== 1
-                         || funcInfo.func.parameters[0].type !== Types.code
+                         || funcInfo.func.parameters[0].type !== "code"
                          || funcInfo.func.results.length !== 0
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
@@ -601,9 +591,9 @@ export function Ide(canvasElem, opts) {
 
                         if (funcInfo === undefined
                          || funcInfo.func.parameters.length !== 1
-                         || funcInfo.func.parameters[0].type !== Types.code
+                         || funcInfo.func.parameters[0].type !== "code"
                          || funcInfo.func.results.length !== 1
-                         || funcInfo.func.results[0].type !== Types.string
+                         || funcInfo.func.results[0].type !== "string"
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
                         const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr, len));
@@ -619,7 +609,7 @@ export function Ide(canvasElem, opts) {
 
                         if (funcInfo === undefined
                          || funcInfo.func.parameters.length !== 1
-                         || funcInfo.func.parameters[0].type !== Types.string
+                         || funcInfo.func.parameters[0].type !== "string"
                          || funcInfo.func.results.length !== 0
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
@@ -643,7 +633,7 @@ export function Ide(canvasElem, opts) {
 
                         if (funcInfo === undefined
                          || funcInfo.func.parameters.length !== 1
-                         || funcInfo.func.parameters[0].type !== Types.i32
+                         || funcInfo.func.parameters[0].type !== "i32"
                          || funcInfo.func.results.length !== 0
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
@@ -657,9 +647,9 @@ export function Ide(canvasElem, opts) {
 
                         if (funcInfo === undefined
                          || funcInfo.func.parameters.length !== 1
-                         || funcInfo.func.parameters[0].type !== Types.i32
+                         || funcInfo.func.parameters[0].type !== "i32"
                          || funcInfo.func.results.length !== 1
-                         || funcInfo.func.results[0].type !== Types.i32
+                         || funcInfo.func.results[0].type !== "i32"
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
 
                         return funcInfo.func.impl(i1);
@@ -670,10 +660,10 @@ export function Ide(canvasElem, opts) {
 
                         if (funcInfo === undefined
                          || funcInfo.func.parameters.length !== 2
-                         || funcInfo.func.parameters[0].type !== Types.i32
-                         || funcInfo.func.parameters[1].type !== Types.i32
+                         || funcInfo.func.parameters[0].type !== "i32"
+                         || funcInfo.func.parameters[1].type !== "i32"
                          || funcInfo.func.results.length !== 1
-                         || funcInfo.func.results[0].type !== Types.i32
+                         || funcInfo.func.results[0].type !== "i32"
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
 
                         return funcInfo.func.impl(i1, i2);

@@ -1,4 +1,6 @@
-// FIXME
+// FIXME: avoid globals until the consumer
+
+// FIXME: avoid globals until the consumer
 var app: App = .{};
 var init_opts: App.InitOptions = .{};
 
@@ -49,24 +51,24 @@ pub const UserFuncJson = struct {
 };
 
 pub const InitOptsJson = struct {
-    menus: []const MenuOptionJson = &.{},
-    graphs: GraphsInitStateJson = .{},
-    userFuncs: std.json.ArrayHashMap(UserFuncJson) = .{},
+    menus: ?[]const MenuOptionJson = &.{},
+    graphs: ?GraphsInitStateJson = .{},
+    userFuncs: ?std.json.ArrayHashMap(UserFuncJson) = .{},
 
-    allowRunning: bool = true,
-    preferences: struct {
-        graph: struct {
+    allowRunning: ?bool = true,
+    preferences: ?struct {
+        graph: ?struct {
             origin: ?PtJson = null,
             scale: ?f32 = null,
             scrollBarsVisible: ?bool = false,
-            allowPanning: bool = true,
+            allowPanning: ?bool = true,
         } = .{},
-        definitionsPanel: struct {
-            orientation: App.Orientation = .left,
-            visible: bool = true,
+        definitionsPanel: ?struct {
+            orientation: ?App.Orientation = .left,
+            visible: ?bool = true,
         } = .{},
-        topbar: struct {
-            visible: bool = true,
+        topbar: ?struct {
+            visible: ?bool = true,
         } = .{},
     } = .{},
 };
@@ -156,8 +158,24 @@ const jsonStrToGraphlType: std.StaticStringMap(graphl.Type) = _: {
 
 fn _setInitOpts(json: []const u8) !void {
     std.log.info("init opts json=\n{s}", .{json});
-    const init_opts_json = try std.json.parseFromSlice(InitOptsJson, gpa, json, .{});
-    errdefer init_opts_json.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    // NOTE: leaks on succes, fix when switching to using globals
+    errdefer arena.deinit();
+
+    var json_diagnostics = std.json.Diagnostics{};
+    var json_scanner = std.json.Scanner.initCompleteInput(gpa, json);
+    json_scanner.enableDiagnostics(&json_diagnostics);
+    const init_opts_json = std.json.parseFromTokenSourceLeaky(
+        InitOptsJson,
+        arena.allocator(),
+        &json_scanner,
+        .{ .ignore_unknown_fields = true },
+    ) catch |err| {
+        std.log.err("json parsing err: {}", .{err});
+        std.log.err("diagnostic: {}", .{json_diagnostics});
+        return;
+    };
 
     const Local = struct {
         pub fn convertMenus(menus_json: []const MenuOptionJson) ![]App.MenuOption {
@@ -248,37 +266,37 @@ fn _setInitOpts(json: []const u8) !void {
         }
     };
 
-    const menus = try Local.convertMenus(init_opts_json.value.menus);
+    const menus: []const App.MenuOption = if (init_opts_json.menus) |m| try Local.convertMenus(m) else &.{};
     // FIXME: need to recursively free menus! submenus leak right now
-    errdefer gpa.free(menus);
+    errdefer if (init_opts_json.menus != null) gpa.free(menus);
 
-    var graphs = try Local.convertGraphs(init_opts_json.value.graphs);
+    var graphs: std.StringHashMapUnmanaged(App.GraphInitState) = if (init_opts_json.graphs) |g| try Local.convertGraphs(g) else .{};
     errdefer graphs.deinit(gpa);
 
-    const user_funcs = try Local.convertUserFuncs(init_opts_json.value.userFuncs);
-    errdefer user_funcs.deinit(gpa);
+    const user_funcs: []const graphl.compiler.UserFunc = if (init_opts_json.userFuncs) |uf| try Local.convertUserFuncs(uf) else &.{};
+    errdefer if (init_opts_json.userFuncs != null) user_funcs.deinit(gpa);
 
     init_opts = .{
         .result_buffer = &result_buffer,
         .menus = menus,
         .graphs = graphs,
         .user_funcs = user_funcs,
-        .allow_running = init_opts_json.value.allowRunning,
-        .preferences = .{
-            .graph = .{
-                .origin = if (init_opts_json.value.preferences.graph.origin) |p| .{ .x = p.x, .y = p.y } else null,
-                .scale = init_opts_json.value.preferences.graph.scale,
-                .scrollBarsVisible = init_opts_json.value.preferences.graph.scrollBarsVisible,
-                .allowPanning = init_opts_json.value.preferences.graph.allowPanning,
-            },
-            .definitionsPanel = .{
-                .orientation = init_opts_json.value.preferences.definitionsPanel.orientation,
-                .visible = init_opts_json.value.preferences.definitionsPanel.visible,
-            },
-            .topbar = .{
-                .visible = init_opts_json.value.preferences.topbar.visible,
-            },
-        },
+        .allow_running = init_opts_json.allowRunning orelse true,
+        .preferences = if (init_opts_json.preferences) |prefs| .{
+            .graph = if (prefs.graph) |graph_prefs| .{
+                .origin = if (graph_prefs.origin) |p| .{ .x = p.x, .y = p.y } else null,
+                .scale = graph_prefs.scale,
+                .scrollBarsVisible = graph_prefs.scrollBarsVisible orelse false,
+                .allowPanning = graph_prefs.allowPanning orelse true,
+            } else .{},
+            .definitionsPanel = if (prefs.definitionsPanel) |def_panel_prefs| .{
+                .orientation = def_panel_prefs.orientation orelse .left,
+                .visible = def_panel_prefs.visible orelse true,
+            } else .{},
+            .topbar = if (prefs.topbar) |topbar_prefs| .{
+                .visible = topbar_prefs.visible orelse true,
+            } else .{},
+        } else .{},
     };
 }
 

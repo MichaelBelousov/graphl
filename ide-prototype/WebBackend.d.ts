@@ -78,9 +78,9 @@ export declare interface MenuOption {
 
 export declare namespace Ide {
   export interface Options {
-    menus: MenuOption[];
+    menus?: MenuOption[];
     // TODO: rename
-    userFuncs: Record<string, UserFuncJson>;
+    userFuncs?: Record<string, UserFuncJson>;
     allowRunning?: boolean,
     /** initial preferences for the IDE */
     preferences?: {
