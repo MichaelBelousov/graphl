@@ -1,6 +1,4 @@
-// FIXME: avoid globals until the consumer
-
-// FIXME: avoid globals until the consumer
+// FIXME: avoid globals until the consumer level
 var app: App = .{};
 var init_opts: App.InitOptions = .{};
 
@@ -26,6 +24,8 @@ pub const NodeInitStateJson = struct {
 pub const GraphInitStateJson = struct {
     notRemovable: bool = false,
     nodes: []NodeInitStateJson = &.{},
+    inputs: ?[]const PinJson = &.{},
+    outputs: ?[]const PinJson = &.{},
 };
 
 pub const GraphsInitStateJson = std.json.ArrayHashMap(GraphInitStateJson);
@@ -33,6 +33,16 @@ pub const GraphsInitStateJson = std.json.ArrayHashMap(GraphInitStateJson);
 pub const PinJson = struct {
     name: []const u8,
     type: []const u8,
+
+    pub fn promote(self: @This()) !helpers.Pin {
+        return helpers.Pin{
+            .name = self.name,
+            .kind = if (std.mem.eql(u8, self.type, "exec"))
+                .{ .primitive = .exec }
+            else
+                .{ .primitive = .{ .value = jsonStrToGraphlType.get(self.type) orelse return error.NotGraphlType } },
+        };
+    }
 };
 
 pub const BasicMutNodeDescJson = struct {
@@ -219,9 +229,26 @@ fn _setInitOpts(in_json: []const u8) !void {
                     };
                 }
 
+                const inputs_json = entry.value_ptr.inputs orelse &.{};
+                const inputs = try gpa.alloc(helpers.Pin, inputs_json.len);
+                errdefer gpa.free(inputs);
+                for (inputs_json, inputs) |input_json, *input| {
+                    input.* = try input_json.promote();
+                }
+
+                const outputs_json = entry.value_ptr.inputs orelse &.{};
+                const outputs = try gpa.alloc(helpers.Pin, outputs_json.len);
+                // FIXME: this errdefer doesn't free in all loop iterations!
+                errdefer gpa.free(outputs);
+                for (outputs_json, outputs) |output_json, *output| {
+                    output.* = try output_json.promote();
+                }
+
                 try result.put(gpa, entry.key_ptr.*, .{
                     .nodes = std.ArrayListUnmanaged(App.NodeInitState).fromOwnedSlice(nodes),
                     .notRemovable = entry.value_ptr.notRemovable,
+                    .parameters = inputs,
+                    .results = outputs,
                 });
             }
 
@@ -237,26 +264,14 @@ fn _setInitOpts(in_json: []const u8) !void {
                 const inputs = try gpa.alloc(helpers.Pin, entry.value_ptr.node.inputs.len);
                 errdefer gpa.free(inputs);
                 for (entry.value_ptr.node.inputs, inputs) |input_json, *input| {
-                    input.* = .{
-                        .name = input_json.name,
-                        .kind = if (std.mem.eql(u8, input_json.type, "exec"))
-                            .{ .primitive = .exec }
-                        else
-                            .{ .primitive = .{ .value = jsonStrToGraphlType.get(input_json.type) orelse return error.NotGraphlType } },
-                    };
+                    input.* = try input_json.promote();
                 }
 
                 const outputs = try gpa.alloc(helpers.Pin, entry.value_ptr.node.outputs.len);
                 // FIXME: this errdefer doesn't free in all loop iterations!
                 errdefer gpa.free(outputs);
                 for (entry.value_ptr.node.outputs, outputs) |output_json, *output| {
-                    output.* = .{
-                        .name = output_json.name,
-                        .kind = if (std.mem.eql(u8, output_json.type, "exec"))
-                            .{ .primitive = .exec }
-                        else
-                            .{ .primitive = .{ .value = jsonStrToGraphlType.get(output_json.type) orelse return error.NotGraphlType } },
-                    };
+                    output.* = try output_json.promote();
                 }
 
                 result[i] = .{

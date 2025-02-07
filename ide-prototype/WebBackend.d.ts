@@ -41,8 +41,12 @@ export declare interface NodeInitState {
 export declare interface GraphInitState {
   /** @default false */
   notRemovable?: boolean,
-  /** @default just the entry node (since it is required) */
+  /** the entry node will always added (since it is required) */
   nodes?: NodeInitState[],
+  /** @default empty */
+  inputs?: PinJson[];
+  /** @default empty */
+  outputs?: PinJson[];
 }
 
 export declare interface PinJson {

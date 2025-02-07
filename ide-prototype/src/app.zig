@@ -350,7 +350,10 @@ pub const NodeInitState = struct {
 
 pub const GraphInitState = struct {
     notRemovable: bool = false,
+    // FIXME: why make this an ArrayList if it's basically immutable?
     nodes: std.ArrayListUnmanaged(App.NodeInitState) = .{},
+    parameters: []const grappl.Pin,
+    results: []const grappl.Pin,
 };
 
 pub const GraphsInitState = std.StringHashMapUnmanaged(GraphInitState);
@@ -388,6 +391,26 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
             const graph_desc = entry.value_ptr;
             // FIXME: must I dupe this?
             const graph = try addGraph(self, graph_name.*, true);
+            for (graph_desc.parameters) |param| {
+                try self.addParamOrResult(
+                    graph.grappl_graph.entry_node,
+                    graph.grappl_graph.entry_node_basic_desc,
+                    .params,
+                    // TODO: leak?
+                    try gpa.dupe(u8, param.name),
+                    param.asPrimitivePin().value,
+                );
+            }
+            for (graph_desc.results) |result| {
+                try self.addParamOrResult(
+                    graph.grappl_graph.result_node,
+                    graph.grappl_graph.result_node_basic_desc,
+                    .results,
+                    // TODO: leak?
+                    try gpa.dupe(u8, result.name),
+                    result.asPrimitivePin().value,
+                );
+            }
             for (graph_desc.nodes.items) |node_desc| {
                 const node_id: grappl.NodeId = @intCast(node_desc.id);
                 _ = try graph.addNode(gpa, node_desc.type_, false, node_id, null, .{});
@@ -1831,8 +1854,10 @@ pub const VisualGraph = struct {
 pub fn addParamOrResult(
     self: *@This(),
     /// graph entry if param, graph return if result
+    /// const node_desc = if (kind == .params) graph.grappl_graph.entry_node else graph.grappl_graph.result_node;
     node_desc: *const helpers.NodeDesc,
     /// graph entry if param, graph return if result
+    /// const node_basic_desc = if (kind == .params) graph.grappl_graph.entry_node_basic_desc else graph.grappl_graph.result_node_basic_desc;
     node_basic_desc: *helpers.BasicMutNodeDesc,
     comptime kind: enum { params, results },
     name: ?[]const u8,
@@ -1954,12 +1979,13 @@ pub fn addParamOrResult(
                     const pins = @field(node, opposite_dir);
                     switch (kind) {
                         .params => {
+                            // TODO: each pin should have its own reset method?
                             pins[pins.len - 1] = .{
                                 .value = grappl.Value{ .int = 0 },
                             };
                         },
                         .results => {
-                            pins[pins.len - 1] = null;
+                            pins[pins.len - 1] = .{};
                         },
                     }
                 } else {
