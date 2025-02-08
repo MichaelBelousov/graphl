@@ -161,8 +161,11 @@ fn onMenuClick(_: ?*anyopaque, click_ctx: ?*anyopaque) void {
     on_menu_click(@intFromPtr(click_ctx));
 }
 
+// FIXME: just use a default env
 const jsonStrToGraphlType: std.StaticStringMap(graphl.Type) = _: {
     break :_ std.StaticStringMap(graphl.Type).initComptime(.{
+        .{ "u32", graphl.primitive_types.u32_ },
+        .{ "u64", graphl.primitive_types.u64_ },
         .{ "i32", graphl.primitive_types.i32_ },
         .{ "i64", graphl.primitive_types.i64_ },
         .{ "f32", graphl.primitive_types.f32_ },
@@ -170,6 +173,8 @@ const jsonStrToGraphlType: std.StaticStringMap(graphl.Type) = _: {
         .{ "string", graphl.primitive_types.string },
         .{ "code", graphl.primitive_types.code },
         .{ "bool", graphl.primitive_types.bool_ },
+        .{ "rgba", graphl.primitive_types.rgba },
+        .{ "vec3", graphl.primitive_types.vec3 },
     });
 };
 
@@ -225,6 +230,9 @@ fn _setInitOpts(in_json: []const u8) !void {
                     while (input_iter.next()) |input_json_entry| {
                         const key = input_json_entry.key_ptr.*;
                         switch (input_json_entry.value_ptr.*) {
+                            inline .string, .symbol => |v, tag| {
+                                try inputs.put(gpa, key, @unionInit(App.InputInitState, @tagName(tag), try gpa.dupe(u8, v)));
+                            },
                             inline else => |v, tag| try inputs.put(gpa, key, @unionInit(App.InputInitState, @tagName(tag), v)),
                         }
                     }

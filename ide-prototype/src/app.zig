@@ -1477,7 +1477,7 @@ fn renderNode(
                         handled = true;
                     }
 
-                    // FIXME:
+                    // FIXME: add a color picker?
                     if (input_desc.kind.primitive.value == grappl.primitive_types.rgba) {
                         handled = true;
                     }

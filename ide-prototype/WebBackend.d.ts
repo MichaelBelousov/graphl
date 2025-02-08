@@ -9,6 +9,8 @@ export declare class Ide<Funcs extends Record<string, Function>> {
 }
 
 export declare type PrimitiveType =
+  | "u64"
+  | "u32"
   | "i32"
   | "i64"
   | "f32"
@@ -16,6 +18,8 @@ export declare type PrimitiveType =
   | "string"
   | "code"
   | "bool"
+  | "rgba"
+  | "vec3"
 ;
 
 export declare type Type = PrimitiveType;

@@ -180,7 +180,32 @@
                       }
                     },
                   ]
-                }
+                },
+
+                processInstance: {
+                  fixedSignature: true,
+                  inputs: [
+                    { name: "MeshId", type: "u64" },
+                    //{ name: "Mesh", type: "i32" },
+                    { name: "Origin", type: "vec3" },
+                    { name: "Rotation", type: "vec3" },
+                  ],
+                  outputs: [
+                    { name: "Combine", type: "bool" },
+                    { name: "OutputFile", type: "string" },
+                  ],
+                  nodes: [
+                    {
+                      "id": 1,
+                      "type": "return",
+                      "inputs": {
+                        0: { node: 0, outPin: 0 },
+                        1: { bool: false },
+                        2: { string: "my_export" }
+                      },
+                    }
+                  ],
+                },
               },
               /*
               preferences: {
