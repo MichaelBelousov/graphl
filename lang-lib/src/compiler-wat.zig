@@ -493,6 +493,7 @@ const Compilation = struct {
                 .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_min" } },
                 .node_desc = builtin.builtin_nodes.min,
             };
+
             pub const string_indexof = .{
                 .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_string_indexof" } },
                 .node_desc = builtin.builtin_nodes.string_indexof,
@@ -508,6 +509,44 @@ const Compilation = struct {
             pub const string_concat = .{
                 .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_string_concat" } },
                 .node_desc = builtin.builtin_nodes.string_concat,
+            };
+
+            pub const rgba_r = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_rgba_r" } },
+                .node_desc = builtin.builtin_nodes.rgba_r,
+            };
+            pub const rgba_g = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_rgba_g" } },
+                .node_desc = builtin.builtin_nodes.rgba_g,
+            };
+            pub const rgba_b = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_rgba_b" } },
+                .node_desc = builtin.builtin_nodes.rgba_b,
+            };
+            pub const rgba_a = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_rgba_a" } },
+                .node_desc = builtin.builtin_nodes.rgba_a,
+            };
+            pub const make_rgba = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_make_rgba" } },
+                .node_desc = builtin.builtin_nodes.make_rgba,
+            };
+
+            pub const vec3_x = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_vec3_x" } },
+                .node_desc = builtin.builtin_nodes.vec3_x,
+            };
+            pub const vec3_y = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_vec3_y" } },
+                .node_desc = builtin.builtin_nodes.vec3_y,
+            };
+            pub const vec3_z = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_vec3_z" } },
+                .node_desc = builtin.builtin_nodes.vec3_z,
+            };
+            pub const make_vec3 = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_make_vec3" } },
+                .node_desc = builtin.builtin_nodes.make_vec3,
             };
         };
     };

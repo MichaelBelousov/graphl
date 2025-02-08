@@ -14,12 +14,6 @@ const alloc = if (@import("builtin").cpu.arch.isWasm())
 else
     @import("std").testing.failing_allocator;
 
-/// utf8 string (eventually)
-pub const GrapplString = extern struct {
-    len: usize,
-    ptr: [*]u8,
-};
-
 pub export fn __grappl_alloc(len: usize) ?*anyopaque {
     return (alloc.allocWithOptions(u8, len, @sizeOf(usize), null) catch return null).ptr;
 }
@@ -29,6 +23,13 @@ pub export fn __grappl_free(ptr: ?*anyopaque, len: usize) void {
     const multi_ptr: [*]u8 = @as([*]u8, @ptrCast(ptr));
     return alloc.free(multi_ptr[0..len]);
 }
+
+// FIXME: do string interning
+/// utf8 string (eventually)
+pub const GrapplString = extern struct {
+    len: usize,
+    ptr: [*]u8,
+};
 
 /// -1 if doesn't exist
 pub export fn __grappl_string_indexof(str: *const GrapplString, chr: GrapplChar) i32 {
@@ -75,4 +76,43 @@ pub export fn __grappl_max(a: i32, b: i32) i32 {
 }
 pub export fn __grappl_min(a: i32, b: i32) i32 {
     return @min(a, b);
+}
+
+pub const GrapplVec3 = extern struct {
+    x: f64 = 0.0,
+    y: f64 = 0.0,
+    z: f64 = 0.0,
+};
+
+// TODO: force inline this in the compiler
+pub export fn __grappl_vec3_x(v: *const GrapplVec3) f64 {
+    return v.x;
+}
+pub export fn __grappl_vec3_y(v: *const GrapplVec3) f64 {
+    return v.y;
+}
+pub export fn __grappl_vec3_z(v: *const GrapplVec3) f64 {
+    return v.z;
+}
+pub export fn __grappl_make_vec3(x: f64, y: f64, z: f64) GrapplVec3 {
+    return GrapplVec3{ .x = x, .y = y, .z = z };
+}
+
+pub const GrapplRgba = u32;
+
+// TODO: force inline this in the compiler
+pub export fn __grappl_rgba_r(v: GrapplRgba) u8 {
+    return @intCast((v >> 24) & 0xff);
+}
+pub export fn __grappl_rgba_g(v: GrapplRgba) u8 {
+    return @intCast((v >> 16) & 0xff);
+}
+pub export fn __grappl_rgba_b(v: GrapplRgba) u8 {
+    return @intCast((v >> 8) & 0xff);
+}
+pub export fn __grappl_rgba_a(v: GrapplRgba) u8 {
+    return @intCast((v >> 0) & 0xff);
+}
+pub export fn __grappl_make_rgba(r: i32, g: i32, b: i32, a: i32) GrapplRgba {
+    return @intCast(((r & 0xff) << 24) | ((g & 0xff) << 16) | ((b & 0xff) << 8) | ((a & 0xff) << 0));
 }

@@ -322,6 +322,12 @@ pub const primitive_types = struct {
     // for converting from instrinsics type to wasm type
     pub const string: Type = &TypeInfo{ .name = "string", .wasm_type = "i32" };
 
+    // FIXME: this is basically a pointer, but should consider writing a comptime function
+    // for converting from instrinsics type to wasm type
+    pub const vec3: Type = &TypeInfo{ .name = "vec3", .wasm_type = "i32" };
+
+    pub const rgba: Type = &TypeInfo{ .name = "rgba", .wasm_type = "u32" };
+
     // FIXME: replace when we think out the macro system
     pub const code: Type = &TypeInfo{ .name = "code" };
 
@@ -798,6 +804,108 @@ pub const builtin_nodes = struct {
             Pin{ .name = "equal", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
         },
         .tags = &.{"string"},
+    });
+
+    pub const make_vec3: NodeDesc = basicNode(&.{
+        .name = "Make Vec3",
+        .inputs = &.{
+            Pin{ .name = "X", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "Y", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+            Pin{ .name = "Z", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "Vec3", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        },
+        .tags = &.{"vector"},
+    });
+
+    // FIXME: replace with rgba "break" struct
+    pub const vec3_x: NodeDesc = basicNode(&.{
+        .name = "Vec3->X",
+        .inputs = &.{
+            Pin{ .name = "Vec3", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "X", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+        },
+        .tags = &.{"vector"},
+    });
+    pub const vec3_y: NodeDesc = basicNode(&.{
+        .name = "Vec3->Y",
+        .inputs = &.{
+            Pin{ .name = "Vec3", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "Y", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+        },
+        .tags = &.{"vector"},
+    });
+    pub const vec3_z: NodeDesc = basicNode(&.{
+        .name = "Vec3->Z",
+        .inputs = &.{
+            Pin{ .name = "Vec3", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "Z", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+        },
+        .tags = &.{"vector"},
+    });
+
+    // FIXME: replace with rgba "break" struct
+    pub const rgba_r: NodeDesc = basicNode(&.{
+        .name = "RGBA->R",
+        .inputs = &.{
+            Pin{ .name = "RGBA", .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "R", .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
+        },
+        .tags = &.{"color"},
+    });
+    pub const rgba_g: NodeDesc = basicNode(&.{
+        .name = "RGBA->G",
+        .inputs = &.{
+            Pin{ .name = "RGBA", .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "G", .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
+        },
+        .tags = &.{"color"},
+    });
+    pub const rgba_b: NodeDesc = basicNode(&.{
+        .name = "RGBA->B",
+        .inputs = &.{
+            Pin{ .name = "RGBA", .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "B", .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
+        },
+        .tags = &.{"color"},
+    });
+    pub const rgba_a: NodeDesc = basicNode(&.{
+        .name = "RGBA->A",
+        .inputs = &.{
+            Pin{ .name = "RGBA", .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "A", .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
+        },
+        .tags = &.{"color"},
+    });
+
+    pub const make_rgba: NodeDesc = basicNode(&.{
+        .name = "Make RGBA",
+        .inputs = &.{
+            // FIXME: use bytes, ignoring for now
+            Pin{ .name = "R", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "G", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "B", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "A", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "RGBA", .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
+        },
+        .tags = &.{"color"},
     });
 
     // FIXME: TEMP FOR DEMO

@@ -22,7 +22,7 @@ pub const NodeInitStateJson = struct {
 };
 
 pub const GraphInitStateJson = struct {
-    notRemovable: bool = false,
+    fixedSignature: bool = false,
     nodes: []NodeInitStateJson = &.{},
     inputs: ?[]const PinJson = &.{},
     outputs: ?[]const PinJson = &.{},
@@ -244,7 +244,7 @@ fn _setInitOpts(in_json: []const u8) !void {
                     input.* = try input_json.promote();
                 }
 
-                const outputs_json = entry.value_ptr.inputs orelse &.{};
+                const outputs_json = entry.value_ptr.outputs orelse &.{};
                 const outputs = try gpa.alloc(helpers.Pin, outputs_json.len);
                 // FIXME: this errdefer doesn't free in all loop iterations!
                 errdefer gpa.free(outputs);
@@ -254,7 +254,7 @@ fn _setInitOpts(in_json: []const u8) !void {
 
                 try result.put(gpa, entry.key_ptr.*, .{
                     .nodes = std.ArrayListUnmanaged(App.NodeInitState).fromOwnedSlice(nodes),
-                    .notRemovable = entry.value_ptr.notRemovable,
+                    .fixed_signature = entry.value_ptr.fixedSignature,
                     .parameters = inputs,
                     .results = outputs,
                 });

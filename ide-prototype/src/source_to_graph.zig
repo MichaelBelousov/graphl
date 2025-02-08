@@ -53,7 +53,7 @@ fn funcSourceToGraph(
 
     const func_name = try a.dupe(u8, impl_func_name.value.symbol);
 
-    var graph = try Graph.init(app, index, func_name);
+    var graph = try Graph.init(app, index, func_name, .{});
 
     const param_names = bindings.value.list.items[1..];
     const param_types = binding_types.value.list.items[1..];

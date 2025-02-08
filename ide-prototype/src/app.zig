@@ -59,20 +59,31 @@ pub const Graph = struct {
     // FIXME: why is this separate from self.grappl_graph.env
     env: grappl.Env,
     app: *App,
+    fixed_signature: bool = false,
 
     pub fn env(self: @This()) *const grappl.Env {
         return self.grappl_graph.env;
     }
 
     /// NOTE: copies passed in name
-    pub fn init(app: *App, index: u16, in_name: []const u8) !@This() {
+    pub fn init(app: *App, index: u16, in_name: []const u8, opts: InitOpts) !@This() {
         var result: @This() = undefined;
-        try result.initInPlace(app, index, in_name);
+        try result.initInPlace(app, index, in_name, opts);
         return result;
     }
 
+    pub const InitOpts = struct {
+        fixed_signature: bool = false,
+    };
+
     /// NOTE: copies passed in name
-    pub fn initInPlace(self: *@This(), app: *App, index: u16, in_name: []const u8) !void {
+    pub fn initInPlace(
+        self: *@This(),
+        app: *App,
+        index: u16,
+        in_name: []const u8,
+        opts: InitOpts,
+    ) !void {
         self.env = app.shared_env.spawn();
 
         const grappl_graph = try grappl.GraphBuilder.init(gpa, &self.env);
@@ -89,6 +100,7 @@ pub const Graph = struct {
             .env = self.env,
             .call_basic_desc = undefined,
             .call_desc = undefined,
+            .fixed_signature = opts.fixed_signature,
         };
 
         self.call_basic_desc = helpers.BasicMutNodeDesc{
@@ -241,7 +253,12 @@ fn setCurrentGraphByIndex(self: *@This(), index: u16) !void {
     return error.RangeError;
 }
 
-pub fn addGraph(self: *@This(), name: []const u8, set_as_current: bool) !*Graph {
+pub fn addGraph(
+    self: *@This(),
+    name: []const u8,
+    set_as_current: bool,
+    opts: Graph.InitOpts,
+) !*Graph {
     const graph_index = self.next_graph_index;
     self.next_graph_index += 1;
     errdefer self.next_graph_index -= 1;
@@ -249,7 +266,7 @@ pub fn addGraph(self: *@This(), name: []const u8, set_as_current: bool) !*Graph 
     var new_graph = try gpa.create(std.SinglyLinkedList(Graph).Node);
 
     new_graph.* = .{ .data = undefined };
-    try new_graph.data.initInPlace(self, graph_index, name);
+    try new_graph.data.initInPlace(self, graph_index, name, opts);
 
     if (set_as_current)
         self.current_graph = &new_graph.data;
@@ -349,7 +366,10 @@ pub const NodeInitState = struct {
 };
 
 pub const GraphInitState = struct {
-    notRemovable: bool = false,
+    /// implies:
+    /// - non removable
+    /// - can't edit parameters/results
+    fixed_signature: bool = false,
     // FIXME: why make this an ArrayList if it's basically immutable?
     nodes: std.ArrayListUnmanaged(App.NodeInitState) = .{},
     parameters: []const grappl.Pin,
@@ -390,7 +410,7 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
             const graph_name = entry.key_ptr;
             const graph_desc = entry.value_ptr;
             // FIXME: must I dupe this?
-            const graph = try addGraph(self, graph_name.*, true);
+            const graph = try addGraph(self, graph_name.*, true, .{ .fixed_signature = graph_desc.fixed_signature });
             for (graph_desc.parameters) |param| {
                 try self.addParamOrResult(
                     graph.grappl_graph.entry_node,
@@ -447,7 +467,7 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
             try graph.visual_graph.formatGraphNaive(gpa);
         }
     } else {
-        _ = try addGraph(self, "main", true);
+        _ = try addGraph(self, "main", true, .{});
     }
 }
 
@@ -1457,8 +1477,17 @@ fn renderNode(
                         handled = true;
                     }
 
-                    if (!handled)
+                    // FIXME:
+                    if (input_desc.kind.primitive.value == grappl.primitive_types.rgba) {
+                        handled = true;
+                    }
+                    if (input_desc.kind.primitive.value == grappl.primitive_types.vec3) {
+                        handled = true;
+                    }
+
+                    if (!handled) {
                         try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .id_extra = j });
+                    }
                 }
 
                 break :_ socket_center;
@@ -2149,6 +2178,7 @@ pub fn frame(self: *@This()) !void {
                     self,
                     try std.fmt.allocPrint(gpa, "new-func-{}", .{self.next_graph_index}),
                     false,
+                    .{},
                 );
             }
         }
@@ -2163,7 +2193,10 @@ pub fn frame(self: *@This()) !void {
                 var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal, .id_extra = i });
                 defer box.deinit();
 
-                const entry_state = try dvui.textEntry(@src(), .{}, .{ .id_extra = i });
+                const entry_state = try dvui.textEntry(@src(), .{}, .{
+                    .id_extra = i,
+                    .color_border = if (&cursor.data == self.current_graph) .{ .name = .accent } else null,
+                });
                 // FIXME: use temporary buff and then commit the name after checking it's valid!
                 if (entry_state.text_changed) {
                     const old_name = cursor.data.name;
@@ -2410,9 +2443,11 @@ pub fn frame(self: *@This()) !void {
 
                 _ = try dvui.label(@src(), info.name, .{}, .{ .font_style = .heading, .id_extra = i });
 
-                const add_clicked = try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i });
-                if (add_clicked) {
-                    try addParamOrResult(self, info.node_desc, info.node_basic_desc, info.type, null, null);
+                if (!self.current_graph.fixed_signature) {
+                    const add_clicked = try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i });
+                    if (add_clicked) {
+                        try addParamOrResult(self, info.node_desc, info.node_basic_desc, info.type, null, null);
+                    }
                 }
             }
 
@@ -2456,44 +2491,53 @@ pub fn frame(self: *@This()) !void {
                 if (pin_desc.kind != .primitive or pin_desc.kind.primitive == .exec)
                     continue;
 
-                // FIXME: this is slow to run every frame!
-                var type_choice: grappl.Type = undefined;
-                var type_choice_index: usize = undefined;
-                {
-                    // FIXME: assumes iterator is ordered when not mutated
-                    var k: usize = 0;
-                    var type_iter = self.current_graph.env.typeIterator();
-                    while (type_iter.next()) |type_entry| : (k += 1) {
-                        if (pin_desc.kind != .primitive)
-                            continue;
-                        if (pin_desc.kind.primitive != .value)
-                            continue;
-                        if (type_entry == pin_desc.kind.primitive.value) {
-                            type_choice = type_entry;
-                            type_choice_index = k;
-                            break;
+                if (self.current_graph.fixed_signature) {
+                    //var type_choice_index: usize = 0;
+                    //_ = try dvui.dropdown(@src(), &.{pin_desc.asPrimitivePin().value.name}, &type_choice_index, .{ .id_extra = id_extra });
+                    _ = try dvui.button(@src(), pin_desc.asPrimitivePin().value.name, .{}, .{
+                        .id_extra = id_extra,
+                        .color_text = .{ .color = try colorForType(pin_desc.asPrimitivePin().value) },
+                    });
+                } else {
+                    // FIXME: this is slow to run every frame!
+                    var type_choice: grappl.Type = undefined;
+                    var type_choice_index: usize = undefined;
+                    {
+                        // FIXME: assumes iterator is ordered when not mutated
+                        var k: usize = 0;
+                        var type_iter = self.current_graph.env.typeIterator();
+                        while (type_iter.next()) |type_entry| : (k += 1) {
+                            if (pin_desc.kind != .primitive)
+                                continue;
+                            if (pin_desc.kind.primitive != .value)
+                                continue;
+                            if (type_entry == pin_desc.kind.primitive.value) {
+                                type_choice = type_entry;
+                                type_choice_index = k;
+                                break;
+                            }
                         }
                     }
-                }
 
-                const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice_index, .{
-                    .id_extra = id_extra,
-                    .color_text = .{ .color = try colorForType(type_choice) },
-                });
-                if (option_clicked) {
-                    const selected_name = type_options[type_choice_index];
-                    const type_ = self.current_graph.grappl_graph.env.getType(selected_name) orelse unreachable;
-                    pin_desc.kind.primitive = .{ .value = type_ };
-                    if (info.type == .params) {
-                        self.current_graph.param_getters.items[j - 1].outputs[0].kind.primitive.value = type_;
-                        self.current_graph.param_setters.items[j - 1].inputs[1].kind.primitive.value = type_;
-                        self.current_graph.param_setters.items[j - 1].outputs[1].kind.primitive.value = type_;
+                    const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice_index, .{
+                        .id_extra = id_extra,
+                        .color_text = .{ .color = try colorForType(type_choice) },
+                    });
+                    if (option_clicked) {
+                        const selected_name = type_options[type_choice_index];
+                        const type_ = self.current_graph.grappl_graph.env.getType(selected_name) orelse unreachable;
+                        pin_desc.kind.primitive = .{ .value = type_ };
+                        if (info.type == .params) {
+                            self.current_graph.param_getters.items[j - 1].outputs[0].kind.primitive.value = type_;
+                            self.current_graph.param_setters.items[j - 1].inputs[1].kind.primitive.value = type_;
+                            self.current_graph.param_setters.items[j - 1].outputs[1].kind.primitive.value = type_;
+                        }
                     }
                 }
             }
         }
 
-        {
+        if (!self.init_opts.allow_running) {
             var result_box = try dvui.box(@src(), .vertical, .{
                 .expand = .both,
                 .background = true,

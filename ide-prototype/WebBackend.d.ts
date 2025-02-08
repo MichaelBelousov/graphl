@@ -4,7 +4,8 @@
 
 export declare class Ide<Funcs extends Record<string, Function>> {
   public constructor(canvas: HTMLCanvasElement, opts?: Ide.Options)
-  functions: Funcs;
+  public functions: Funcs;
+  public exportCompiled(): Promise<Uint8Array>;
 }
 
 export declare type PrimitiveType =
@@ -39,8 +40,12 @@ export declare interface NodeInitState {
 }
 
 export declare interface GraphInitState {
-  /** @default false */
-  notRemovable?: boolean,
+  /**
+   * Disallow editing of the parameter or result types,
+   * and disallow removing.
+   * @default false
+   */
+  fixedSignature?: boolean,
   /** the entry node will always added (since it is required) */
   nodes?: NodeInitState[],
   /** @default empty */

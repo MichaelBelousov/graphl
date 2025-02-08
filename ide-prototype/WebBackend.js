@@ -180,6 +180,48 @@ export function Ide(canvasElem, opts) {
     /** @type {undefined | (() => void)} */
     let onExportCompiledOverride = undefined;
 
+    /**
+     * @param {Uint8Array} data
+     * @returns {Uint8Array}
+     */
+    function compileWat_binaryen(data) {
+        const inputFile = '/input.wat';
+        const outputFile = '/optimized.wasm';
+        wasmOpt.FS.writeFile(inputFile, data);
+        // TODO: source maps
+        // FIXME: consider whether it's worth enabling optimizations
+
+        const status = wasmOpt.callMain([
+            inputFile,
+            '-o',
+            outputFile,
+            //'-g',
+            // NOTE: multimemory not supported by safari
+            //"--enable-bulk-memory",
+            //"--enable-multivalue",
+        ]);
+
+        if (status !== 0)
+            throw Error(`non-zero return: ${status}`)
+
+        return wasmOpt.FS.readFile(outputFile, { encoding: "binary" });
+    }
+
+    // FIXME: use this, it's no optimizer but it's much much lighter
+    async function compileWat_wabt() {
+        const wabt = await wabtPromise;
+        var module = wabt.parseWat('graph.wat', data, {});
+
+        module.resolveNames();
+        module.validate({});
+        const binaryOutput = module.toBinary({log: true, write_debug_names:true});
+        const outputLog = binaryOutput.log;
+        console.warn(outputLog);
+        const binaryBuffer = binaryOutput.buffer;
+        return binaryBuffer;
+    }
+
+
     const imports = {
         env: {
 
@@ -530,43 +572,7 @@ export function Ide(canvasElem, opts) {
 
             const data = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
 
-            function compileWat_binaryen() {
-                const inputFile = '/input.wat';
-                const outputFile = '/optimized.wasm';
-                wasmOpt.FS.writeFile(inputFile, data);
-                // TODO: source maps
-                // FIXME: consider whether it's worth enabling optimizations
-                    const status = wasmOpt.callMain([
-                        inputFile,
-                        '-o',
-                        outputFile,
-                        //'-g',
-                        // NOTE: multimemory not supported by safari
-                        //"--enable-bulk-memory",
-                        //"--enable-multivalue",
-                    ]);
-
-                if (status !== 0)
-                    throw Error(`non-zero return: ${status}`)
-
-                return wasmOpt.FS.readFile(outputFile, { encoding: "binary" });
-            }
-
-            // FIXME: use this, it's no optimizer but it's much much lighter
-            async function compileWat_wabt() {
-                const wabt = await wabtPromise;
-                var module = wabt.parseWat('graph.wat', data, {});
-
-                module.resolveNames();
-                module.validate({});
-                const binaryOutput = module.toBinary({log: true, write_debug_names:true});
-                const outputLog = binaryOutput.log;
-                console.warn(outputLog);
-                const binaryBuffer = binaryOutput.buffer;
-                return binaryBuffer;
-            }
-
-            const moduleBytes = compileWat_binaryen();
+            const moduleBytes = compileWat_binaryen(data);
 
             let compiled;
 
@@ -1095,7 +1101,7 @@ export function Ide(canvasElem, opts) {
                 //return lastCompiled?.instance.exports?.[key];
             }
         }),
-        exportCompiled() {
+        async exportCompiled() {
             let content;
             const original = onExportCompiledOverride;
             onExportCompiledOverride = (ptr, len) => {
@@ -1103,7 +1109,7 @@ export function Ide(canvasElem, opts) {
             };
             wasmResult.instance.exports.exportCurrentCompiled();
             onExportCompiledOverride = original;
-            return content;
+            return compileWat_binaryen(content);
         }
     };
 }
