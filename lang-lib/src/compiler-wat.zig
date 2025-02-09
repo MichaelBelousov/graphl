@@ -1900,8 +1900,6 @@ const Compilation = struct {
             var import_iter = userfunc_imports.iterator();
             while (import_iter.next()) |import_entry| {
                 const wat = try import_entry.key_ptr.wat(self.arena.allocator(), import_entry.value_ptr.*);
-                _ = try std.io.getStdErr().writer().write("IMPORTS!");
-                _ = try wat.write(std.io.getStdErr().writer());
                 _ = try wat.write(buffer_writer);
                 try bytes.appendSlice("\n");
             }
