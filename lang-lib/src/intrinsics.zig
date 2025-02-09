@@ -94,8 +94,12 @@ pub export fn __grappl_vec3_y(v: *const GrapplVec3) f64 {
 pub export fn __grappl_vec3_z(v: *const GrapplVec3) f64 {
     return v.z;
 }
-pub export fn __grappl_make_vec3(x: f64, y: f64, z: f64) GrapplVec3 {
-    return GrapplVec3{ .x = x, .y = y, .z = z };
+
+// FIXME: use the stack instead of heap allocating for this
+pub export fn __grappl_make_vec3(x: f64, y: f64, z: f64) *GrapplVec3 {
+    const result = alloc.create(GrapplVec3) catch unreachable;
+    result.* = GrapplVec3{ .x = x, .y = y, .z = z };
+    return result;
 }
 
 pub const GrapplRgba = u32;
