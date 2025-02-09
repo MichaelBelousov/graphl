@@ -19,6 +19,7 @@ const Env = @import("./nodes//builtin.zig").Env;
 const TypeInfo = @import("./nodes//builtin.zig").TypeInfo;
 const Type = @import("./nodes/builtin.zig").Type;
 
+// FIXME: use intrinsics as the base and merge/link in our functions
 const intrinsics = @import("./intrinsics.zig");
 const intrinsics_raw = @embedFile("grappl_intrinsics");
 const intrinsics_code = intrinsics_raw["(module $grappl_intrinsics.wasm\n".len .. intrinsics_raw.len - 2];
@@ -345,6 +346,7 @@ const Compilation = struct {
         pub const module = Sexp{ .value = .{ .symbol = "module" } };
         pub const @"type" = Sexp{ .value = .{ .symbol = "type" } };
         pub const @"export" = Sexp{ .value = .{ .symbol = "export" } };
+        pub const import = Sexp{ .value = .{ .symbol = "import" } };
         pub const func = Sexp{ .value = .{ .symbol = "func" } };
         pub const param = Sexp{ .value = .{ .symbol = "param" } };
         pub const result = Sexp{ .value = .{ .symbol = "result" } };
@@ -624,9 +626,10 @@ const Compilation = struct {
             break :_ result_sexp.value.list.addOneAssumeCapacity();
         };
 
-        // FIXME: use addOneAssumeCapacity
         {
-            const impl_sexp = try self.module_body.addOne();
+            // HACK: figure out a better way to store pointers like this (indices?) cuz iterator invalidation
+            const impl_sexp_index = self.module_body.items.len;
+            var impl_sexp = try self.module_body.addOne();
             // FIXME: would be really nice to just have comptime sexp parsing...
             // or: Sexp.fromFormat("(+ {} 3)", .{sexp});
             impl_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
@@ -694,6 +697,8 @@ const Compilation = struct {
             for (func_decl.body_exprs) |*body_expr| {
                 var expr_fragment = try self.compileExpr(body_expr, &expr_ctx);
                 errdefer expr_fragment.deinit(alloc);
+                // HACK: pointer might have been invalidated
+                impl_sexp = &self.module_body.items[impl_sexp_index];
 
                 // FIXME: only do this on the last one and require it have a wasm_type
                 if (expr_fragment.resolved_type.wasm_type) |wasm_type| {
@@ -1577,26 +1582,103 @@ const Compilation = struct {
         try self.module_body.ensureTotalCapacity(5);
         self.module_body.addOneAssumeCapacity().* = wat_syms.module;
 
-        const imports_src =
-            //\\(func $callUserFunc_JSON_R_JSON (import "env" "callUserFunc_JSON_R_JSON") (param i32) (param i32) (param i32) (result i32) (result i32))
-            \\(import "env" "callUserFunc_code_R" (func $callUserFunc_code_R (param i32) (param i32) (param i32)))
-            \\(import "env" "callUserFunc_code_R_string" (func $callUserFunc_code_R_string (param i32) (param i32) (param i32) (result i32)))
-            \\(import "env" "callUserFunc_string_R" (func $callUserFunc_string_R (param i32) (param i32) (param i32)))
-            \\(import "env" "callUserFunc_R" (func $callUserFunc_R (param i32)))
-            \\(import "env" "callUserFunc_i32_R" (func $callUserFunc_i32_R (param i32) (param i32)))
-            \\(import "env" "callUserFunc_i32_R_i32" (func $callUserFunc_i32_R_i32 (param i32) (param i32) (result i32)))
-            \\(import "env" "callUserFunc_i32_i32_R_i32" (func $callUserFunc_i32_i32_R_i32 (param i32) (param i32) (param i32) (result i32)))
-            \\(import "env" "callUserFunc_bool_R" (func $callUserFunc_bool_R (param i32) (param i32)))
-        ;
+        const UserFuncDef = struct {
+            params: []Type,
+            results: []Type,
 
-        // TODO: parse them at comptime and get the count that way
-        const imports_count = comptime std.mem.count(u8, imports_src, "\n") + 1;
+            pub fn name(_self: @This(), a: std.mem.Allocator) ![]u8 {
+                // FIXME: use an arraylist writer with initial capacity
+                var buf: [1024]u8 = undefined;
+                var buf_writer = std.io.fixedBufferStream(&buf);
+                _ = try buf_writer.write("$callUserFunc_");
+                for (_self.params) |param| {
+                    _ = try buf_writer.write(param.name);
+                    _ = try buf_writer.write("_");
+                }
+                _ = try buf_writer.write("R");
+                for (_self.results) |result| {
+                    _ = try buf_writer.write("_");
+                    _ = try buf_writer.write(result.name);
+                }
 
-        // imports
-        {
-            const host_callbacks_prologue = try SexpParser.parse(alloc, imports_src, null);
-            try self.module_body.appendSlice(host_callbacks_prologue.value.module.items);
-        }
+                return try a.dupe(u8, buf_writer.getWritten());
+            }
+
+            pub fn wat(_self: @This(), a: std.mem.Allocator, in_name: []const u8) !Sexp {
+                // no error handling cuz arena, TODO: detect/enforce
+                var result = Sexp.newList(a);
+
+                try result.value.list.ensureTotalCapacityPrecise(4);
+                result.value.list.expandToCapacity();
+                result.value.list.items[0] = wat_syms.import;
+                result.value.list.items[1] = Sexp{ .value = .{ .borrowedString = "env" } };
+                // skip the $
+                result.value.list.items[2] = Sexp{ .value = .{ .borrowedString = in_name[1..] } };
+                result.value.list.items[3] = Sexp.newList(a);
+                const signature = &result.value.list.items[3];
+
+                // double params in case its strings
+                try signature.value.list.ensureTotalCapacityPrecise(2 + 1 + 2 * _self.params.len + _self.results.len);
+                signature.value.list.appendAssumeCapacity(wat_syms.func);
+                signature.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = in_name } });
+
+                // first is the user function index
+                {
+                    const slot = signature.value.list.addOneAssumeCapacity();
+                    slot.* = Sexp.newList(a);
+                    try slot.value.list.ensureTotalCapacityPrecise(2);
+                    slot.value.list.appendAssumeCapacity(wat_syms.param);
+                    slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "i32" } });
+                }
+
+                for (_self.params) |param| {
+                    // FIXME/HACK: for some reason I use 2 params to pass string/code pointers?
+                    const requires_2_params = param == primitive_types.string or param == primitive_types.code;
+                    for (0..if (requires_2_params) 2 else 1) |_| {
+                        const slot = signature.value.list.addOneAssumeCapacity();
+                        slot.* = Sexp.newList(a);
+                        try slot.value.list.ensureTotalCapacityPrecise(2);
+                        slot.value.list.appendAssumeCapacity(wat_syms.param);
+                        slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = param.wasm_type orelse {
+                            std.debug.panic("type '{s}' has no intrinsic wasm type!", .{param.name});
+                        } } });
+                    }
+                }
+
+                for (_self.results) |result_| {
+                    const slot = signature.value.list.addOneAssumeCapacity();
+                    slot.* = Sexp.newList(a);
+                    try slot.value.list.ensureTotalCapacityPrecise(2);
+                    slot.value.list.appendAssumeCapacity(wat_syms.result);
+                    slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = result_.wasm_type orelse {
+                        std.debug.panic("type '{s}' has no intrinsic wasm type!", .{result_.name});
+                    } } });
+                }
+
+                return result;
+            }
+        };
+
+        const UserFuncDefHashCtx = struct {
+            pub fn hash(ctx: @This(), key: UserFuncDef) u64 {
+                _ = ctx;
+                var hasher = std.hash.Wyhash.init(0);
+                std.hash.autoHashStrat(&hasher, key, .Deep);
+                return hasher.final();
+            }
+
+            pub fn eql(ctx: @This(), a: UserFuncDef, b: UserFuncDef) bool {
+                _ = ctx;
+                if (a.params.len != b.params.len) return false;
+                if (a.results.len != b.results.len) return false;
+                for (a.params, b.params) |pa, pb| if (pa != pb) return false;
+                for (a.results, b.results) |ra, rb| if (ra != rb) return false;
+                return true;
+            }
+        };
+
+        var userfunc_imports: std.HashMapUnmanaged(UserFuncDef, []const u8, UserFuncDefHashCtx, 80) = .{};
+        //defer userfunc_imports.deinit(self.arena.allocator());
 
         const stack_src =
             // NOTE: safari doesn't support multimemory so the value stack is
@@ -1659,20 +1741,21 @@ const Compilation = struct {
                 std.debug.assert(user_func.data.node.outputs[0].kind.primitive == .exec);
                 const results = user_func.data.node.outputs[1..];
 
-                var thunk_buf: [1024]u8 = undefined;
-                var thunk_buf_writer = std.io.fixedBufferStream(&thunk_buf);
-                _ = try thunk_buf_writer.write("$callUserFunc_");
-                for (params) |param| {
-                    _ = try thunk_buf_writer.write(param.kind.primitive.value.name);
-                    _ = try thunk_buf_writer.write("_");
-                }
-                _ = try thunk_buf_writer.write("R");
-                for (results) |result| {
-                    _ = try thunk_buf_writer.write("_");
-                    _ = try thunk_buf_writer.write(result.kind.primitive.value.name);
-                }
+                const def = UserFuncDef{
+                    .params = try self.arena.allocator().alloc(Type, params.len),
+                    .results = try self.arena.allocator().alloc(Type, results.len),
+                };
+                for (params, def.params) |param, *param_type| param_type.* = param.kind.primitive.value;
+                for (results, def.results) |result, *result_type| result_type.* = result.kind.primitive.value;
 
-                const thunk_name = try alloc.dupe(u8, thunk_buf_writer.getWritten());
+                const import_entry = try userfunc_imports.getOrPut(self.arena.allocator(), def);
+
+                const thunk_name = _: {
+                    if (!import_entry.found_existing) {
+                        import_entry.value_ptr.* = try def.name(self.arena.allocator());
+                    }
+                    break :_ import_entry.value_ptr.*;
+                };
 
                 var user_func_sexp = Sexp.newList(alloc);
                 const thunk_len = (1 // func keyword
@@ -1807,17 +1890,21 @@ const Compilation = struct {
         // FIXME: performantly parse the wat at compile time or use wasm merge
         // I don't trust my parser yet
         const module_contents = self.wat.value.module.items[0].value.list.items[1..];
-        std.debug.assert(module_contents.len >= imports_count + stack_code_count);
-        const imports = module_contents[0..imports_count];
-        const stack_code = module_contents[imports_count .. imports_count + stack_code_count];
-        const module_defs = module_contents[imports_count + stack_code_count ..];
+        const stack_code = module_contents[0..stack_code_count];
+        const module_defs = module_contents[stack_code_count..];
 
         try bytes.appendSlice("(module\n");
 
         // imports must be first in wat!
-        for (imports) |import| {
-            _ = try import.write(buffer_writer);
-            try bytes.appendSlice("\n");
+        {
+            var import_iter = userfunc_imports.iterator();
+            while (import_iter.next()) |import_entry| {
+                const wat = try import_entry.key_ptr.wat(self.arena.allocator(), import_entry.value_ptr.*);
+                _ = try std.io.getStdErr().writer().write("IMPORTS!");
+                _ = try wat.write(std.io.getStdErr().writer());
+                _ = try wat.write(buffer_writer);
+                try bytes.appendSlice("\n");
+            }
         }
 
         for (stack_code) |code| {
@@ -1868,56 +1955,6 @@ const t = std.testing;
 const SexpParser = @import("./sexp_parser.zig").Parser;
 
 pub const compiled_prelude = (
-    \\module
-    \\(import "env"
-    \\        "callUserFunc_code_R"
-    \\        (func $callUserFunc_code_R
-    \\              (param i32)
-    \\              (param i32)
-    \\              (param i32)))
-    \\(import "env"
-    \\        "callUserFunc_code_R_string"
-    \\        (func $callUserFunc_code_R_string
-    \\              (param i32)
-    \\              (param i32)
-    \\              (param i32)
-    \\              (result i32)))
-    \\(import "env"
-    \\        "callUserFunc_string_R"
-    \\        (func $callUserFunc_string_R
-    \\              (param i32)
-    \\              (param i32)
-    \\              (param i32)))
-    \\(import "env"
-    \\        "callUserFunc_R"
-    \\        (func $callUserFunc_R
-    \\              (param i32)))
-    \\(import "env"
-    \\        "callUserFunc_i32_R"
-    \\        (func $callUserFunc_i32_R
-    \\              (param i32)
-    \\              (param i32)))
-    \\(import "env"
-    \\        "callUserFunc_i32_R_i32"
-    \\        (func $callUserFunc_i32_R_i32
-    \\              (param i32)
-    \\              (param i32)
-    \\              (result i32)))
-    \\(import "env"
-    \\        "callUserFunc_i32_i32_R_i32"
-    \\        (func $callUserFunc_i32_i32_R_i32
-    \\              (param i32)
-    \\              (param i32)
-    \\              (param i32)
-    \\              (result i32)))
-    \\(import "env"
-    \\        "callUserFunc_bool_R"
-    \\        (func $callUserFunc_bool_R
-    \\              (param i32)
-    \\              (param i32)))
-    \\(global $__grappl_vstkp
-    \\        (mut i32)
-    \\        (i32.const 4096))
     \\;;; BEGIN INTRINSICS
     \\
 ++ intrinsics_code ++
@@ -2013,7 +2050,7 @@ test "compile big" {
         \\(typeof (strings-stuff) bool)
         \\(define (strings-stuff)
         \\  (begin
-        \\    (return (string-equal "hello" "world"))))
+        \\    (return (String-Equal "hello" "world"))))
         \\
         \\;;; comment ;; TODO: reintroduce use of a parameter
         \\(typeof (ifs bool) i32)
@@ -2029,7 +2066,22 @@ test "compile big" {
     defer parsed.deinit(t.allocator);
 
     const expected = try std.fmt.allocPrint(t.allocator,
-        \\({s}
+        \\(module
+        \\(import "env"
+        \\        "callUserFunc_i32_R"
+        \\        (func $callUserFunc_i32_R
+        \\              (param i32)
+        \\              (param i32)))
+        \\(import "env"
+        \\        "callUserFunc_code_R"
+        \\        (func $callUserFunc_code_R
+        \\              (param i32)
+        \\              (param i32)
+        \\              (param i32)))
+        \\(global $__grappl_vstkp
+        \\        (mut i32)
+        \\        (i32.const 4096))
+        \\{s}
         \\(func $sql
         \\      (param $param_0
         \\             i32)
@@ -2057,11 +2109,11 @@ test "compile big" {
         \\      (local $local_a
         \\             i32)
         \\      (call $sql
-        \\            (i32.const 52)
+        \\            (i32.const 74)
         \\            (i32.const 8))
         \\      (call $sql
-        \\            (i32.const 1)
-        \\            (i32.const 106))
+        \\            (i32.const 23)
+        \\            (i32.const 136))
         \\      (local.set $local_a
         \\                 (i32.const 1))
         \\      (call $Confetti
@@ -2070,9 +2122,9 @@ test "compile big" {
         \\            (local.get $param_x)
         \\            (local.get $local_a)))
         \\(data (i32.const 0)
-        \\      "4\00\00\00\00\00\00\00[{{\22symbol\22:\22-\22}},{{\22symbol\22:\22f\22}},[{{\22symbol\22:\22*\22}},2,3]]")
-        \\(data (i32.const 98)
-        \\      "\01\00\00\00\00\00\00\004")
+        \\      "J\00\00\00\00\00\00\00{{\22entry\22:[{{\22symbol\22:\22-\22}},{{\22symbol\22:\22f\22}},[{{\22symbol\22:\22*\22}},2,3]],\22labels\22:{{}}}}")
+        \\(data (i32.const 128)
+        \\      "\17\00\00\00\00\00\00\00{{\22entry\22:4,\22labels\22:{{}}}}")
         \\(export "deep"
         \\        (func $deep))
         \\(type $typeof_deep
@@ -2194,7 +2246,11 @@ test "recurse" {
     defer parsed.deinit(t.allocator);
 
     const expected = try std.fmt.allocPrint(t.allocator,
-        \\({s}
+        \\(module
+        \\(global $__grappl_vstkp
+        \\        (mut i32)
+        \\        (i32.const 4096))
+        \\{s}
         \\(export "factorial"
         \\        (func $factorial))
         \\(type $typeof_factorial

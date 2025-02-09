@@ -311,6 +311,7 @@ pub const syms = struct {
     pub const string_equal = Sexp{ .value = .{ .symbol = builtin_nodes.string_equal.name() } };
 
     pub const make_symbol = Sexp{ .value = .{ .symbol = builtin_nodes.make_symbol.name() } };
+    pub const make_string = Sexp{ .value = .{ .symbol = builtin_nodes.make_string.name() } };
 
     pub const json_quote = Sexp{ .value = .{ .symbol = builtin_nodes.json_quote.name() } };
 };
