@@ -43,6 +43,7 @@ export declare interface NodeInitState {
   position?: { x: number, y: number };
 }
 
+// FIXME: add hidden to this so fixedSignature graphs can't be called
 export declare interface GraphInitState {
   /**
    * Disallow editing of the parameter or result types,

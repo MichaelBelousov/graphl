@@ -2099,7 +2099,7 @@ pub fn frame(self: *@This()) !void {
         if (try dvui.menuItemLabel(@src(), "Help", .{ .submenu = true }, .{ .expand = .none })) |r| {
             var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
             defer fw.deinit();
-            if (try dvui.menuItemLabel(@src(), "Guide", .{}, .{ .expand = .horizontal })) |_| {
+            if (try dvui.menuItemLabel(@src(), "Graphl Guide", .{}, .{ .expand = .horizontal })) |_| {
                 try dvui.dialog(@src(), .{
                     .modal = true,
                     .title = "Guide",
@@ -2537,7 +2537,7 @@ pub fn frame(self: *@This()) !void {
             }
         }
 
-        if (!self.init_opts.allow_running) {
+        if (self.init_opts.allow_running) {
             var result_box = try dvui.box(@src(), .vertical, .{
                 .expand = .both,
                 .background = true,
