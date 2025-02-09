@@ -329,7 +329,10 @@ pub const primitive_types = struct {
     pub const rgba: Type = &TypeInfo{ .name = "rgba", .wasm_type = "u32" };
 
     // FIXME: replace when we think out the macro system
-    pub const code: Type = &TypeInfo{ .name = "code" };
+    pub const code: Type = &TypeInfo{
+        .name = "code",
+        .wasm_type = "i32", // this is a stand in for "string"
+    };
 
     // pub const vec3: Type = &TypeInfo{
     //     .name = "vec3",
@@ -783,7 +786,7 @@ pub const builtin_nodes = struct {
     });
 
     pub const string_equal: NodeDesc = basicNode(&.{
-        .name = "string-equal",
+        .name = "String-Equal",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
             Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
@@ -795,7 +798,7 @@ pub const builtin_nodes = struct {
     });
 
     pub const string_concat: NodeDesc = basicNode(&.{
-        .name = "string-concat",
+        .name = "Join",
         .inputs = &.{
             Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
             Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
@@ -807,7 +810,7 @@ pub const builtin_nodes = struct {
     });
 
     pub const make_vec3: NodeDesc = basicNode(&.{
-        .name = "Make Vec3",
+        .name = "Make-Vec3",
         .inputs = &.{
             Pin{ .name = "X", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
             Pin{ .name = "Y", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -894,7 +897,7 @@ pub const builtin_nodes = struct {
     });
 
     pub const make_rgba: NodeDesc = basicNode(&.{
-        .name = "Make RGBA",
+        .name = "Make-RGBA",
         .inputs = &.{
             // FIXME: use bytes, ignoring for now
             Pin{ .name = "R", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
@@ -922,7 +925,7 @@ pub const builtin_nodes = struct {
     });
 
     pub const string_indexof: NodeDesc = basicNode(&.{
-        .name = "index-of",
+        .name = "Index Of",
         .inputs = &.{
             Pin{ .name = "string", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
             Pin{ .name = "char", .kind = .{ .primitive = .{ .value = primitive_types.char_ } } },
@@ -934,7 +937,7 @@ pub const builtin_nodes = struct {
     });
 
     pub const string_length: NodeDesc = basicNode(&.{
-        .name = "length",
+        .name = "Length",
         .inputs = &.{
             Pin{ .name = "string", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
         },
@@ -944,8 +947,19 @@ pub const builtin_nodes = struct {
         .tags = &.{"string"},
     });
 
+    pub const make_string: NodeDesc = basicNode(&.{
+        .name = "Make String",
+        .inputs = &.{
+            Pin{ .name = "string", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "string", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+        },
+        .tags = &.{"string"},
+    });
+
     pub const make_symbol: NodeDesc = basicNode(&.{
-        .name = "make-symbol",
+        .name = "Make Symbol",
         .inputs = &.{
             Pin{ .name = "string", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
         },
