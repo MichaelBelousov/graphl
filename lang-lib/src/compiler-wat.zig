@@ -594,6 +594,7 @@ const Compilation = struct {
             export_val_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{complete_func_type_desc.name}) } };
         }
 
+        // FIXME: add multiresult here
         const func_type_result_sexp = _: {
             const type_sexp = try self.module_body.addOne();
             // FIXME: would be really nice to just have comptime sexp parsing...
@@ -652,8 +653,7 @@ const Compilation = struct {
             try result_sexp.value.list.ensureTotalCapacityPrecise(2);
             result_sexp.value.list.addOneAssumeCapacity().* = wat_syms.result;
 
-            // FIXME: horrible name
-            const func_result_sexp = result_sexp.value.list.addOneAssumeCapacity();
+            const func_result_type_sexp = result_sexp.value.list.addOneAssumeCapacity();
 
             // NOTE: if these are unmatched, it might mean a typeof for that local is missing
             for (func_decl.local_names, complete_func_type_desc.func_type.?.local_types) |local_name, local_type| {
@@ -703,7 +703,7 @@ const Compilation = struct {
                 // FIXME: only do this on the last one and require it have a wasm_type
                 if (expr_fragment.resolved_type.wasm_type) |wasm_type| {
                     func_type_result_sexp.* = Sexp{ .value = .{ .symbol = wasm_type } };
-                    func_result_sexp.* = func_type_result_sexp.*;
+                    func_result_type_sexp.* = func_type_result_sexp.*;
                 }
 
                 std.debug.assert(func_type.result_types.len == 1);
@@ -1001,6 +1001,84 @@ const Compilation = struct {
         return fragment;
     }
 
+    fn stackAllocCode(
+        //self: @This(),
+        alloc: std.mem.Allocator,
+        len: usize,
+    ) std.mem.Allocator.Error!Fragment {
+        // FIXME: parse this and insert substitutions at comptime!
+        const alloc_src = try std.fmt.allocPrint(alloc,
+            \\;; push slot pointer onto locals stack
+            \\(global.get $__grappl_vstkp)
+            \\
+            \\;; now increment the stack pointer to the next memory location
+            \\(global.set $__grappl_vstkp
+            \\            (i32.add (global.get $__grappl_vstkp)
+            \\                     (i32.const {0})))
+            // FIXME: consider a check for stack space
+        , .{
+            len,
+        });
+        var diag = SexpParser.Diagnostic{ .source = alloc_src };
+        var alloc_code = SexpParser.parse(alloc, alloc_src, &diag) catch {
+            std.log.err("diag={}", .{diag});
+            @panic("failed to parse temp non-comptime alloc_src");
+        };
+        errdefer alloc_code.deinit(alloc);
+
+        return Fragment{
+            .frame_offset = len,
+            .values = alloc_code,
+            .resolved_type = builtin.empty_type,
+        };
+    }
+
+    /// note that this generates a backwards order for setting every field.
+    fn stackAllocIntrinsicCode(
+        self: @This(),
+        alloc: std.mem.Allocator,
+        comptime IntrinsicType: type,
+        data: ?IntrinsicType,
+    ) std.mem.Allocator.Error!Fragment {
+        const alloc_src = try std.fmt.allocPrint(alloc,
+            \\;; push slot pointer onto locals stack
+            \\(global.get $__grappl_vstkp)
+            \\
+            \\;; now increment the stack pointer to the next memory location
+            \\(global.set $__grappl_vstkp
+            \\            (i32.add (global.get $__grappl_vstkp)
+            \\                     (i32.const {0})))
+            // FIXME: consider a check for stack space
+        , .{
+            len,
+        });
+
+        var diag = SexpParser.Diagnostic{ .source = alloc_src };
+        var alloc_code = SexpParser.parse(alloc, alloc_src, &diag) catch {
+            std.log.err("diag={}", .{diag});
+            @panic("failed to parse temp non-comptime alloc_src");
+        };
+        errdefer alloc_code.deinit(alloc);
+
+        return Fragment{
+            .frame_offset = len,
+            .values = alloc_code,
+            .resolved_type = builtin.empty_type,
+        };
+        inline for (std.meta.fields(IntrinsicType)) |field| {
+            switch (@typeInfo(field.type)) {
+                .Struct => {
+                    try self.stackAllocIntrinsicCode(alloc, field.type);
+                },
+                .Int, .Float, .Bool => {
+                    try self.stackAllocCode(alloc, @sizeOf(field.type));
+                },
+                else => @compileError("field has unsupported type: " ++ @typeName(field.type))
+            }
+        }
+    }
+
+    // TODO: calls to a non-builtin function pass a return address as a parameter
     fn _compileExpr(
         self: *@This(),
         code_sexp: *const Sexp,
@@ -1495,13 +1573,15 @@ const Compilation = struct {
                     \\;; store the stack pointer (cuz it points to the string)
                     \\(local.set {3} (global.get $__grappl_vstkp))
                     \\
-                    \\;; now increment the stack pointer so no one overwrites this
+                    \\;; now increment the stack pointer to the next memory location
                     \\(global.set $__grappl_vstkp
                     \\            (i32.add (global.get $__grappl_vstkp)
                     \\                     (i32.const {4})))
+                    // FIXME: consider a check for stack space
                 , .{
                     v.len,
                     @sizeOf(std.meta.fields(intrinsics.GrapplString)[0].type),
+                    // FIXME: isn't this wrong on 64-bit targets?
                     data_offset + @sizeOf(usize),
                     local_ptr_sym,
                     @sizeOf(intrinsics.GrapplString),

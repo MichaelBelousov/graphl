@@ -515,13 +515,16 @@ pub fn exportCurrentCompiled(self: *const @This()) !void {
     }
 }
 
-pub fn deinit(self: *@This()) void {
+fn deinitGraphs(self: *@This()) void {
     while (self.graphs.popFirst()) |cursor| {
         cursor.data.deinit();
         gpa.destroy(cursor);
     }
     self.graphs.first = null;
+}
 
+pub fn deinit(self: *@This()) void {
+    self.deinitGraphs();
     self.shared_env.deinit(gpa);
 
     while (self.user_funcs.popFirst()) |cursor| {
@@ -2040,14 +2043,7 @@ pub fn addParamToCurrentGraph(
 }
 
 pub fn onReceiveLoadedSource(self: *@This(), src: []const u8) !void {
-    {
-        // TODO: better deinit
-        var maybe_cursor = self.graphs.first;
-        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-            cursor.data.deinit();
-            gpa.destroy(cursor);
-        }
-    }
+    self.deinitGraphs();
 
     // FIXME: overwriting without deallocating graphs is a leak!
     // opting to keep for now since cleaning up isn't trivial
