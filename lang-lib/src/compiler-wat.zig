@@ -2271,88 +2271,6 @@ test "compile big" {
     }
 }
 
-test "compile small string" {
-    var env = try Env.initDefault(t.allocator);
-    defer env.deinit(t.allocator);
-
-    var parsed = try SexpParser.parse(t.allocator,
-        \\;;; comment ;; TODO: reintroduce use of a parameter
-        \\(typeof (strings-stuff) bool)
-        \\(define (strings-stuff)
-        \\  (begin
-        \\    (return (String-Equal "hello" "world"))))
-    , null);
-    //std.debug.print("{any}\n", .{parsed});
-    defer parsed.deinit(t.allocator);
-
-    // imports could be in arbitrary order so just slice it off cuz length will
-    // be the same
-    const expected_prelude =
-        \\(module
-        \\(global $__grappl_vstkp
-        \\        (mut i32)
-        \\        (i32.const 4096))
-        \\
-    ++ compiled_prelude ++
-        \\
-        \\
-    ;
-
-    const expected =
-        \\(export "strings-stuff"
-        \\        (func $strings-stuff))
-        \\(type $typeof_strings-stuff
-        \\      (func (result i32)))
-        \\(func $strings-stuff
-        \\      (result i32)
-        \\      (local $__lc0
-        \\             i32)
-        \\      (local $__lc1
-        \\             i32)
-        \\      (i32.store (global.get $__grappl_vstkp)
-        \\                 (i32.const 5))
-        \\      (i32.store (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const 8))
-        \\                 (i32.const 8))
-        \\      (local.set $__lc0
-        \\                 (global.get $__grappl_vstkp))
-        \\      (global.set $__grappl_vstkp
-        \\                  (i32.add (global.get $__grappl_vstkp)
-        \\                           (i32.const 16)))
-        \\      (i32.store (global.get $__grappl_vstkp)
-        \\                 (i32.const 5))
-        \\      (i32.store (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const 8))
-        \\                 (i32.const 37))
-        \\      (local.set $__lc1
-        \\                 (global.get $__grappl_vstkp))
-        \\      (global.set $__grappl_vstkp
-        \\                  (i32.add (global.get $__grappl_vstkp)
-        \\                           (i32.const 16)))
-        \\      (call $__grappl_string_equal
-        \\            (local.get $__lc0)
-        \\            (local.get $__lc1)))
-        \\(data (i32.const 0)
-        \\      "\05\00\00\00\00\00\00\00hello")
-        \\(data (i32.const 29)
-        \\      "\05\00\00\00\00\00\00\00world")
-        \\)
-    ;
-
-    var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &env, null, &diagnostic)) |wat| {
-        defer t.allocator.free(wat);
-        {
-            errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
-        }
-        try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
-    } else |err| {
-        std.debug.print("err {}:\n{}", .{ err, diagnostic });
-        try t.expect(false);
-    }
-}
-
 test "recurse" {
     // FIXME: support expression functions
     //     \\(define (++ x) (+ x 1))
@@ -2510,6 +2428,11 @@ pub fn expectWasmOutput(
     try module_instance.invoke(handle, &ready_args, &results, .{});
 
     try std.testing.expectEqual(results[0].I32, expected);
+}
+
+test {
+    // TODO: move to compiler/tests directory
+    t.refAllDecls(@import("./compiler-tests-string.zig"));
 }
 
 const bytebox = @import("bytebox");
