@@ -2135,12 +2135,6 @@ test "compile big" {
         \\    (return (+ (/ a 10) (* a b)))))
         \\
         \\;;; comment ;; TODO: reintroduce use of a parameter
-        \\(typeof (strings-stuff) bool)
-        \\(define (strings-stuff)
-        \\  (begin
-        \\    (return (String-Equal "hello" "world"))))
-        \\
-        \\;;; comment ;; TODO: reintroduce use of a parameter
         \\(typeof (ifs bool) i32)
         \\(define (ifs a)
         \\  (begin
@@ -2237,6 +2231,65 @@ test "compile big" {
         \\                        (f32.convert_i64_s (i64.extend_i32_s (i32.const 10))))
         \\               (f32.mul (local.get $param_a)
         \\                        (local.get $param_b))))
+        \\(export "ifs"
+        \\        (func $ifs))
+        \\(type $typeof_ifs
+        \\      (func (param i32)
+        \\            (result i32)))
+        \\(func $ifs
+        \\      (param $param_a
+        \\             i32)
+        \\      (result i32)
+        \\      (if (result i32)
+        \\          (local.get $param_a)
+        \\          (then (call $Confetti
+        \\                      (i32.const 100))
+        \\                (i32.add (i32.const 2)
+        \\                         (i32.const 3)))
+        \\          (else (call $Confetti
+        \\                      (i32.const 200))
+        \\                (i32.const 5))))
+        \\)
+    ;
+
+    var diagnostic = Diagnostic.init();
+    if (compile(t.allocator, &parsed, &env, &user_funcs, &diagnostic)) |wat| {
+        try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
+        t.allocator.free(wat);
+    } else |err| {
+        std.debug.print("err {}:\n{}", .{ err, diagnostic });
+        try t.expect(false);
+    }
+}
+
+test "compile small string" {
+    var env = try Env.initDefault(t.allocator);
+    defer env.deinit(t.allocator);
+
+    var parsed = try SexpParser.parse(t.allocator,
+        \\;;; comment ;; TODO: reintroduce use of a parameter
+        \\(typeof (strings-stuff) bool)
+        \\(define (strings-stuff)
+        \\  (begin
+        \\    (return (String-Equal "hello" "world"))))
+    , null);
+    //std.debug.print("{any}\n", .{parsed});
+    defer parsed.deinit(t.allocator);
+
+    // imports could be in arbitrary order so just slice it off cuz length will
+    // be the same
+    const expected_prelude =
+        \\(module
+        \\(global $__grappl_vstkp
+        \\        (mut i32)
+        \\        (i32.const 4096))
+        \\
+    ++ compiled_prelude ++
+        \\
+        \\
+    ;
+
+    const expected =
         \\(export "strings-stuff"
         \\        (func $strings-stuff))
         \\(type $typeof_strings-stuff
@@ -2274,31 +2327,15 @@ test "compile big" {
         \\      "\05\00\00\00\00\00\00\00hello")
         \\(data (i32.const 152)
         \\      "\05\00\00\00\00\00\00\00world")
-        \\(export "ifs"
-        \\        (func $ifs))
-        \\(type $typeof_ifs
-        \\      (func (param i32)
-        \\            (result i32)))
-        \\(func $ifs
-        \\      (param $param_a
-        \\             i32)
-        \\      (result i32)
-        \\      (if (result i32)
-        \\          (local.get $param_a)
-        \\          (then (call $Confetti
-        \\                      (i32.const 100))
-        \\                (i32.add (i32.const 2)
-        \\                         (i32.const 3)))
-        \\          (else (call $Confetti
-        \\                      (i32.const 200))
-        \\                (i32.const 5))))
         \\)
     ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &env, &user_funcs, &diagnostic)) |wat| {
+    if (compile(t.allocator, &parsed, &env, null, &diagnostic)) |wat| {
+        defer t.allocator.free(wat);
+        errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
+        try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
         try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
-        t.allocator.free(wat);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);
