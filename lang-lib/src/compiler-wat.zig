@@ -110,6 +110,61 @@ pub const UserFunc = struct {
     node: builtin.BasicMutNodeDesc,
 };
 
+const arithmetic_builtins = .{
+    .{
+        .sym = syms.@"+",
+        .wasm_name = "add",
+    },
+    .{
+        .sym = syms.@"-",
+        .wasm_name = "sub",
+    },
+    .{
+        .sym = syms.@"*",
+        .wasm_name = "mul",
+    },
+    .{
+        .sym = syms.@"/",
+        .wasm_name = "div",
+    },
+    // FIXME: need to support unsigned and signed!
+    .{
+        .sym = syms.@"==",
+        .wasm_name = "eq",
+    },
+    .{
+        .sym = syms.@"!=",
+        .wasm_name = "ne",
+    },
+    .{
+        .sym = syms.@"<",
+        .wasm_name = "lt",
+    },
+    .{
+        .sym = syms.@"<=",
+        .wasm_name = "le",
+    },
+    .{
+        .sym = syms.@">",
+        .wasm_name = "gt",
+    },
+    .{
+        .sym = syms.@">=",
+        .wasm_name = "ge",
+        .int_only = true,
+    },
+    .{
+        .sym = syms.@"and",
+        .wasm_name = "and",
+        .int_only = true,
+    },
+    .{
+        .sym = syms.@"or",
+        .wasm_name = "or",
+        .int_only = true,
+    },
+};
+
 const Compilation = struct {
     /// will be edited during compilation as functions are discovered
     env: *Env,
@@ -1309,61 +1364,7 @@ const Compilation = struct {
                     return result;
                 }
 
-                // arithmetic builtins
-                inline for (&.{
-                    .{
-                        .sym = syms.@"+",
-                        .wasm_name = "add",
-                    },
-                    .{
-                        .sym = syms.@"-",
-                        .wasm_name = "sub",
-                    },
-                    .{
-                        .sym = syms.@"*",
-                        .wasm_name = "mul",
-                    },
-                    .{
-                        .sym = syms.@"/",
-                        .wasm_name = "div",
-                    },
-                    // FIXME: need to support unsigned and signed!
-                    .{
-                        .sym = syms.@"==",
-                        .wasm_name = "eq",
-                    },
-                    .{
-                        .sym = syms.@"!=",
-                        .wasm_name = "ne",
-                    },
-                    .{
-                        .sym = syms.@"<",
-                        .wasm_name = "lt",
-                    },
-                    .{
-                        .sym = syms.@"<=",
-                        .wasm_name = "le",
-                    },
-                    .{
-                        .sym = syms.@">",
-                        .wasm_name = "gt",
-                    },
-                    .{
-                        .sym = syms.@">=",
-                        .wasm_name = "ge",
-                        .int_only = true,
-                    },
-                    .{
-                        .sym = syms.@"and",
-                        .wasm_name = "and",
-                        .int_only = true,
-                    },
-                    .{
-                        .sym = syms.@"or",
-                        .wasm_name = "or",
-                        .int_only = true,
-                    },
-                }) |builtin_op| {
+                inline for (&arithmetic_builtins) |builtin_op| {
                     if (func.value.symbol.ptr == builtin_op.sym.value.symbol.ptr) {
                         try result.values.ensureTotalCapacityPrecise(1);
                         const wasm_op = result.values.addOneAssumeCapacity();
