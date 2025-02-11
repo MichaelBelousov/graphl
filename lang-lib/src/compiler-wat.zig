@@ -1033,52 +1033,92 @@ const Compilation = struct {
         };
     }
 
-    /// note that this generates a backwards order for setting every field.
     fn stackAllocIntrinsicCode(
-        self: @This(),
-        alloc: std.mem.Allocator,
+        alloc: *std.heap.ArenaAllocator,
         comptime IntrinsicType: type,
-        data: ?IntrinsicType,
+        //data: ?IntrinsicType,
     ) std.mem.Allocator.Error!Fragment {
-        const alloc_src = try std.fmt.allocPrint(alloc,
-            \\;; push slot pointer onto locals stack
-            \\(global.get $__grappl_vstkp)
-            \\
-            \\;; now increment the stack pointer to the next memory location
-            \\(global.set $__grappl_vstkp
-            \\            (i32.add (global.get $__grappl_vstkp)
-            \\                     (i32.const {0})))
-            // FIXME: consider a check for stack space
-        , .{
-            len,
-        });
-
-        var diag = SexpParser.Diagnostic{ .source = alloc_src };
-        var alloc_code = SexpParser.parse(alloc, alloc_src, &diag) catch {
-            std.log.err("diag={}", .{diag});
-            @panic("failed to parse temp non-comptime alloc_src");
+        var alloc_code = _: {
+            const src = try std.fmt.allocPrint(alloc,
+                \\;; push slot pointer onto locals stack
+                \\(global.get $__grappl_vstkp)
+                \\
+                \\;; now increment the stack pointer to the next memory location
+                \\(global.set $__grappl_vstkp
+                \\            (i32.add (global.get $__grappl_vstkp)
+                \\                     (i32.const {0})))
+                // FIXME: consider a check for stack overflow
+            , .{
+                @sizeOf(IntrinsicType),
+            });
+            // NOTE: using an arena leaks all this crap!
+            defer alloc.free(src);
+            var diag = SexpParser.Diagnostic{ .source = src };
+            break :_ SexpParser.parse(alloc, src, &diag) catch {
+                std.log.err("diag={}", .{diag});
+                @panic("failed to parse temp non-comptime src");
+            };
         };
         errdefer alloc_code.deinit(alloc);
 
+        // TODO: implement setting intrinsics
+        // var set_code: std.ArrayListUnmanaged(Sexp) = .{};
+        // defer set_code.deinit(alloc);
+
+        // FIXME: get inline field count at comptime to avoid allocs
+        // set_code.list.ensureTotalCapacityPrecise(2 + );
+
+        // const Local = struct {
+        //     fn writeData(
+        //         comptime T: type,
+        //         value: T,
+        //         depth: usize,
+        //         _set_code: *std.ArrayListUnmanaged(Sexp),
+        //     ) !usize {
+        //         inline for (std.meta.fields(T)) |field| {
+        //             switch (@typeInfo(field.type)) {
+        //                 .Struct => {
+        //                     try stackAllocIntrinsicCode(alloc, field.type, @field(value, field.name), depth);
+        //                 },
+        //                 .Int, .Float, .Bool => {
+        //                     const src = try std.fmt.allocPrint(alloc,
+        //                         \\;; push slot pointer onto locals stack
+        //                         \\(i32.store (i32.add (global.get $__grappl_vstkp)
+        //                         \\                    (i32.const {0}))
+        //                         \\           {1}
+        //                         \\
+        //                     , .{
+        //                         @sizeOf(field.type),
+        //                     });
+        //                     defer alloc.free(src);
+        //                     var diag = SexpParser.Diagnostic{ .source = src };
+        //                     const parsed = SexpParser.parse(alloc, src, &diag) catch {
+        //                         std.log.err("diag={}", .{diag});
+        //                         @panic("failed to parse temp non-comptime src");
+        //                     };
+        //                     try _set_code.appendSlice(alloc, try parsed.value.module.toOwnedSlice());
+        //                 },
+        //                 else => @compileError("field has unsupported type: " ++ @typeName(field.type)),
+        //             }
+        //         }
+        //     }
+        // };
+
+        // if (data) |d| {
+        //     Local.writeData(d);
+        // }
+
+        // try alloc_code.value.module.insertSlice(1, set_code.items);
+
         return Fragment{
-            .frame_offset = len,
-            .values = alloc_code,
+            .frame_offset = @sizeOf(IntrinsicType),
+            .values = alloc_code.value.module,
             .resolved_type = builtin.empty_type,
         };
-        inline for (std.meta.fields(IntrinsicType)) |field| {
-            switch (@typeInfo(field.type)) {
-                .Struct => {
-                    try self.stackAllocIntrinsicCode(alloc, field.type);
-                },
-                .Int, .Float, .Bool => {
-                    try self.stackAllocCode(alloc, @sizeOf(field.type));
-                },
-                else => @compileError("field has unsupported type: " ++ @typeName(field.type))
-            }
-        }
     }
 
-    // TODO: calls to a non-builtin function pass a return address as a parameter
+    // TODO: calls to a graph function pass a return address as a parameter if the return type
+    // is not a primitive/singleton type (u32, f32, i64, etc)
     fn _compileExpr(
         self: *@This(),
         code_sexp: *const Sexp,
@@ -1586,6 +1626,7 @@ const Compilation = struct {
                     local_ptr_sym,
                     @sizeOf(intrinsics.GrapplString),
                 });
+                defer alloc.free(mut_code_src);
                 var diag = SexpParser.Diagnostic{ .source = mut_code_src };
                 var mut_code = SexpParser.parse(alloc, mut_code_src, &diag) catch {
                     std.log.err("diag={}", .{diag});
@@ -2143,7 +2184,9 @@ test "compile big" {
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
 
-    const expected = try std.fmt.allocPrint(t.allocator,
+    // imports could be in arbitrary order so just slice it off cuz length will
+    // be the same
+    const expected_prelude =
         \\(module
         \\(import "env"
         \\        "callUserFunc_i32_R"
@@ -2159,7 +2202,13 @@ test "compile big" {
         \\(global $__grappl_vstkp
         \\        (mut i32)
         \\        (i32.const 4096))
-        \\{s}
+        \\
+    ++ compiled_prelude ++
+        \\
+        \\
+    ;
+
+    const expected =
         \\(func $sql
         \\      (param $param_0
         \\             i32)
@@ -2200,9 +2249,9 @@ test "compile big" {
         \\            (local.get $param_x)
         \\            (local.get $local_a)))
         \\(data (i32.const 0)
-        \\      "J\00\00\00\00\00\00\00{{\22entry\22:[{{\22symbol\22:\22-\22}},{{\22symbol\22:\22f\22}},[{{\22symbol\22:\22*\22}},2,3]],\22labels\22:{{}}}}")
+        \\      "J\00\00\00\00\00\00\00{\22entry\22:[{\22symbol\22:\22-\22},{\22symbol\22:\22f\22},[{\22symbol\22:\22*\22},2,3]],\22labels\22:{}}")
         \\(data (i32.const 128)
-        \\      "\17\00\00\00\00\00\00\00{{\22entry\22:4,\22labels\22:{{}}}}")
+        \\      "\17\00\00\00\00\00\00\00{\22entry\22:4,\22labels\22:{}}")
         \\(export "deep"
         \\        (func $deep))
         \\(type $typeof_deep
@@ -2275,14 +2324,11 @@ test "compile big" {
         \\                      (i32.const 200))
         \\                (i32.const 5))))
         \\)
-        // TODO: clearly instead of embedding the pointer we should have a global variable
-        // so the host can set that
-    , .{compiled_prelude});
-    defer t.allocator.free(expected);
+    ;
 
     var diagnostic = Diagnostic.init();
     if (compile(t.allocator, &parsed, &env, &user_funcs, &diagnostic)) |wat| {
-        try t.expectEqualStrings(expected, wat);
+        try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
         t.allocator.free(wat);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });

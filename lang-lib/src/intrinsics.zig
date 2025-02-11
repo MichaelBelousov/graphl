@@ -28,6 +28,8 @@ pub export fn __grappl_free(ptr: ?*anyopaque, len: usize) void {
 /// utf8 string (eventually)
 pub const GrapplString = extern struct {
     len: usize,
+    // NOTE: I'd say use opaque to inline the data after the len,
+    // but probably better to just do full string interning
     ptr: [*]u8,
 };
 

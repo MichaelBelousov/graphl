@@ -143,6 +143,14 @@
                   inputs: [{ name: "table", type: "string" }],
                   outputs: [],
                 },
+                "ModelCenter": {
+                  inputs: [],
+                  outputs: [{ name: "center", type: "vec3" }],
+                  impl() {
+                    // NOTE: this must be implemented on the backend!
+                    return { x: 0, y: 0, z: 0 };
+                  },
+                },
               },
               menus: [{
                 name: "Test",
