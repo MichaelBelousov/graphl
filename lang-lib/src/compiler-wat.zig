@@ -5,6 +5,14 @@
 //! - functions starting with ";" will cause a multiline comment, which is an example
 //!   of small problems with this code not conforming to WAT precisely
 //!
+//! REWRITE PLAN:
+//! - use binaryen relooper API?
+//! - OR
+//! - every node value is a stack slot
+//! - every CFG or path (until labeled nodes) is a block (wasm loop)
+//! - if the node is pure, it is calculated once at usage time
+//! - otherwise the code just jumps to these blocks
+//!
 
 const zig_builtin = @import("builtin");
 const build_opts = @import("build_opts");
@@ -2304,7 +2312,7 @@ test "compile small string" {
         \\                 (i32.const 5))
         \\      (i32.store (i32.add (global.get $__grappl_vstkp)
         \\                          (i32.const 8))
-        \\                 (i32.const 131))
+        \\                 (i32.const 8))
         \\      (local.set $__lc0
         \\                 (global.get $__grappl_vstkp))
         \\      (global.set $__grappl_vstkp
@@ -2314,7 +2322,7 @@ test "compile small string" {
         \\                 (i32.const 5))
         \\      (i32.store (i32.add (global.get $__grappl_vstkp)
         \\                          (i32.const 8))
-        \\                 (i32.const 160))
+        \\                 (i32.const 37))
         \\      (local.set $__lc1
         \\                 (global.get $__grappl_vstkp))
         \\      (global.set $__grappl_vstkp
@@ -2323,9 +2331,9 @@ test "compile small string" {
         \\      (call $__grappl_string_equal
         \\            (local.get $__lc0)
         \\            (local.get $__lc1)))
-        \\(data (i32.const 123)
+        \\(data (i32.const 0)
         \\      "\05\00\00\00\00\00\00\00hello")
-        \\(data (i32.const 152)
+        \\(data (i32.const 29)
         \\      "\05\00\00\00\00\00\00\00world")
         \\)
     ;
@@ -2333,8 +2341,10 @@ test "compile small string" {
     var diagnostic = Diagnostic.init();
     if (compile(t.allocator, &parsed, &env, null, &diagnostic)) |wat| {
         defer t.allocator.free(wat);
-        errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-        try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
+        {
+            errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
+            try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
+        }
         try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
