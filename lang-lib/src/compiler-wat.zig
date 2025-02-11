@@ -1001,38 +1001,6 @@ const Compilation = struct {
         return fragment;
     }
 
-    fn stackAllocCode(
-        //self: @This(),
-        alloc: std.mem.Allocator,
-        len: usize,
-    ) std.mem.Allocator.Error!Fragment {
-        // FIXME: parse this and insert substitutions at comptime!
-        const alloc_src = try std.fmt.allocPrint(alloc,
-            \\;; push slot pointer onto locals stack
-            \\(global.get $__grappl_vstkp)
-            \\
-            \\;; now increment the stack pointer to the next memory location
-            \\(global.set $__grappl_vstkp
-            \\            (i32.add (global.get $__grappl_vstkp)
-            \\                     (i32.const {0})))
-            // FIXME: consider a check for stack space
-        , .{
-            len,
-        });
-        var diag = SexpParser.Diagnostic{ .source = alloc_src };
-        var alloc_code = SexpParser.parse(alloc, alloc_src, &diag) catch {
-            std.log.err("diag={}", .{diag});
-            @panic("failed to parse temp non-comptime alloc_src");
-        };
-        errdefer alloc_code.deinit(alloc);
-
-        return Fragment{
-            .frame_offset = len,
-            .values = alloc_code,
-            .resolved_type = builtin.empty_type,
-        };
-    }
-
     fn stackAllocIntrinsicCode(
         alloc: *std.heap.ArenaAllocator,
         comptime IntrinsicType: type,
@@ -1051,8 +1019,8 @@ const Compilation = struct {
             , .{
                 @sizeOf(IntrinsicType),
             });
-            // NOTE: using an arena leaks all this crap!
-            defer alloc.free(src);
+            // FIXME: can't free cuz the Sexp point to this memory
+            // defer alloc.free(src);
             var diag = SexpParser.Diagnostic{ .source = src };
             break :_ SexpParser.parse(alloc, src, &diag) catch {
                 std.log.err("diag={}", .{diag});
@@ -1626,7 +1594,8 @@ const Compilation = struct {
                     local_ptr_sym,
                     @sizeOf(intrinsics.GrapplString),
                 });
-                defer alloc.free(mut_code_src);
+                // FIXME: can't free this atm cuz it's using
+                //defer alloc.free(mut_code_src);
                 var diag = SexpParser.Diagnostic{ .source = mut_code_src };
                 var mut_code = SexpParser.parse(alloc, mut_code_src, &diag) catch {
                     std.log.err("diag={}", .{diag});
