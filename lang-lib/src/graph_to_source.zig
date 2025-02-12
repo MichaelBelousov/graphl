@@ -581,9 +581,10 @@ pub const GraphBuilder = struct {
                 param_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param.asPrimitivePin().value.name } };
             }
 
-            std.debug.assert(self.result_node_basic_desc.inputs.len >= 2);
-            std.debug.assert(self.result_node_basic_desc.inputs[1].kind == .primitive);
-            std.debug.assert(self.result_node_basic_desc.inputs[1].kind.primitive == .value);
+            if (self.result_node_basic_desc.inputs.len < 2) return error.InvalidResultNode;
+            if (self.result_node_basic_desc.inputs[1].kind != .primitive) return error.InvalidResultNode;
+            if (self.result_node_basic_desc.inputs[1].kind.primitive != .value) return error.InvalidResultNode;
+
             // FIXME: share symbols for primitives!
             result_type.* = Sexp{ .value = .{ .symbol = self.result_node_basic_desc.inputs[1].kind.primitive.value.name } };
         }
