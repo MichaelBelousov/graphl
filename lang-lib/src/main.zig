@@ -28,6 +28,11 @@ pub const SexpParser = @import("./sexp_parser.zig").Parser;
 pub const compiler = @import("./compiler-wat.zig");
 // pub const compiler_wasm = @import("./compiler-wasm.zig");
 
+pub const std_options: std.Options = .{
+    .log_level = if (builtin.is_test) .Debug else std.log.default_level,
+    .logFn = std.log.defaultLog,
+};
+
 pub const testing = struct {
     pub const expectWasmOutput = compiler.expectWasmOutput;
 };

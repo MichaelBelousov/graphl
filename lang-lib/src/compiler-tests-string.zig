@@ -71,7 +71,7 @@ test "compile strings" {
         \\                 (i32.const 5))
         \\      (i32.store (i32.add (global.get $__grappl_vstkp)
         \\                          (i32.const 8))
-        \\                 (i32.const 131))
+        \\                 (i32.const 8))
         \\      (local.set $__lc0
         \\                 (global.get $__grappl_vstkp))
         \\      (global.set $__grappl_vstkp
@@ -81,7 +81,7 @@ test "compile strings" {
         \\                 (i32.const 5))
         \\      (i32.store (i32.add (global.get $__grappl_vstkp)
         \\                          (i32.const 8))
-        \\                 (i32.const 160))
+        \\                 (i32.const 37))
         \\      (local.set $__lc1
         \\                 (global.get $__grappl_vstkp))
         \\      (global.set $__grappl_vstkp
@@ -90,9 +90,9 @@ test "compile strings" {
         \\      (call $__grappl_string_equal
         \\            (local.get $__lc0)
         \\            (local.get $__lc1)))
-        \\(data (i32.const 123)
+        \\(data (i32.const 0)
         \\      "\05\00\00\00\00\00\00\00hello")
-        \\(data (i32.const 152)
+        \\(data (i32.const 29)
         \\      "\05\00\00\00\00\00\00\00world")
         \\)
     ;

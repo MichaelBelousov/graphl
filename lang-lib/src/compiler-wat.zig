@@ -784,7 +784,7 @@ const Compilation = struct {
             }
 
             try impl_sexp.value.list.insertSlice(additional_locals_index, post_analysis_locals.items);
-            try impl_sexp.value.list.appendSlice(prologue.items);
+            try impl_sexp.value.list.insertSlice(additional_locals_index + post_analysis_locals.items.len, prologue.items);
         }
     }
 
@@ -991,9 +991,9 @@ const Compilation = struct {
         /// not const because we may be expanding the frame to include this value
         context: *ExprContext,
     ) CompileExprError!Fragment {
+        // FIXME: make std.log.debug work
+        std.log.debug("compiling expr: '{}'\n", .{code_sexp});
         const alloc = self.arena.allocator();
-
-        //std.log.debug("compile expr: '{s}'\n", .{code_sexp});
 
         // HACK: oh god this is bad...
         if (code_sexp.label != null and code_sexp.value == .list
@@ -1404,6 +1404,7 @@ const Compilation = struct {
                     }
                 }
 
+                // FIXME: rename to standard library cuz it's also that
                 // builtins with intrinsics
                 inline for (comptime std.meta.declarations(wat_syms.intrinsics)) |intrinsic_decl| {
                     const intrinsic = @field(wat_syms.intrinsics, intrinsic_decl.name);
@@ -1431,8 +1432,9 @@ const Compilation = struct {
                         wasm_call.value.list.addOneAssumeCapacity().* = intrinsic.wasm_sym;
 
                         for (arg_fragments) |arg_fragment| {
+                            wasm_call.value.list.appendSliceAssumeCapacity(arg_fragment.values.items);
                             for (arg_fragment.values.items) |*subarg| {
-                                wasm_call.value.list.addOneAssumeCapacity().* = subarg.*;
+                                // FIXME: implement move much more clearly
                                 subarg.* = Sexp{ .value = .void };
                             }
                         }
