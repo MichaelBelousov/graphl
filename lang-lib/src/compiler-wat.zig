@@ -912,7 +912,7 @@ const Compilation = struct {
         // maximum, as if every byte were replaced with '\00'
         try data_str.ensureTotalCapacity(data.len * 3);
         std.debug.assert(zig_builtin.cpu.arch.endian() == .little);
-        try writeWasmMemoryString(std.mem.asBytes(&data.len), data_str.writer());
+        try writeWasmMemoryString(std.mem.asBytes(&@as(u32, @intCast(data.len))), data_str.writer());
         try writeWasmMemoryString(data, data_str.writer());
 
         const data_str_len = data_str.items.len;
@@ -1600,8 +1600,7 @@ const Compilation = struct {
                 , .{
                     v.len,
                     @sizeOf(std.meta.fields(intrinsics.GrapplString)[0].type),
-                    // FIXME: isn't this wrong on 64-bit targets?
-                    data_offset + @sizeOf(usize),
+                    data_offset + @sizeOf(std.meta.fields(intrinsics.GrapplString)[0].type),
                     local_ptr_sym,
                     @sizeOf(intrinsics.GrapplString),
                 });
@@ -2429,7 +2428,7 @@ pub fn expectWasmOutput(
     results[0] = bytebox.Val{ .I32 = 0 }; // FIXME:
     try module_instance.invoke(handle, &ready_args, &results, .{});
 
-    try std.testing.expectEqual(results[0].I32, expected);
+    try std.testing.expectEqual(expected, results[0].I32);
 }
 
 test {

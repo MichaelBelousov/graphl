@@ -22,12 +22,10 @@ const Type = @import("./nodes/builtin.zig").Type;
 const SexpParser = @import("./sexp_parser.zig").Parser;
 
 // FIXME: use intrinsics as the base and merge/link in our functions
-const intrinsics = @import("./intrinsics.zig");
-const intrinsics_raw = @embedFile("grappl_intrinsics");
-const intrinsics_code = intrinsics_raw["(module $grappl_intrinsics.wasm\n".len .. intrinsics_raw.len - 2];
 const compile = @import("./compiler-wat.zig").compile;
 const compiled_prelude = @import("./compiler-wat.zig").compiled_prelude;
 const Diagnostic = @import("./compiler-wat.zig").Diagnostic;
+const expectWasmOutput = @import("./compiler-wat.zig").expectWasmOutput;
 
 test "compile strings" {
     var env = try Env.initDefault(t.allocator);
@@ -38,7 +36,7 @@ test "compile strings" {
         \\(typeof (strings-stuff) bool)
         \\(define (strings-stuff)
         \\  (begin
-        \\    (return (String-Equal "hello" "world"))))
+        \\    (return (String-Equal "hello" "hello"))))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
@@ -70,8 +68,8 @@ test "compile strings" {
         \\      (i32.store (global.get $__grappl_vstkp)
         \\                 (i32.const 5))
         \\      (i32.store (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const 8))
-        \\                 (i32.const 8))
+        \\                          (i32.const 4))
+        \\                 (i32.const 4))
         \\      (local.set $__lc0
         \\                 (global.get $__grappl_vstkp))
         \\      (global.set $__grappl_vstkp
@@ -80,8 +78,8 @@ test "compile strings" {
         \\      (i32.store (global.get $__grappl_vstkp)
         \\                 (i32.const 5))
         \\      (i32.store (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const 8))
-        \\                 (i32.const 37))
+        \\                          (i32.const 4))
+        \\                 (i32.const 21))
         \\      (local.set $__lc1
         \\                 (global.get $__grappl_vstkp))
         \\      (global.set $__grappl_vstkp
@@ -91,9 +89,9 @@ test "compile strings" {
         \\            (local.get $__lc0)
         \\            (local.get $__lc1)))
         \\(data (i32.const 0)
-        \\      "\05\00\00\00\00\00\00\00hello")
-        \\(data (i32.const 29)
-        \\      "\05\00\00\00\00\00\00\00world")
+        \\      "\05\00\00\00hello")
+        \\(data (i32.const 17)
+        \\      "\05\00\00\00hello")
         \\)
     ;
 
@@ -105,6 +103,8 @@ test "compile strings" {
             try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
         }
         try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
+        // TODO: add parameter so we can cover the intrinsics behavior
+        try expectWasmOutput(1, wat, "strings-stuff", .{});
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);

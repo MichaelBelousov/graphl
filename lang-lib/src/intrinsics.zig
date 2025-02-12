@@ -6,7 +6,7 @@
 // since we're generating WASM code to call these functions by that ABI
 
 pub const GrapplChar = u32;
-pub const GrapplBool = u8;
+pub const GrapplBool = i32;
 
 const alloc = if (@import("builtin").cpu.arch.isWasm())
     @import("std").heap.wasm_allocator
@@ -14,11 +14,11 @@ const alloc = if (@import("builtin").cpu.arch.isWasm())
 else
     @import("std").testing.failing_allocator;
 
-pub export fn __grappl_alloc(len: usize) ?*anyopaque {
-    return (alloc.allocWithOptions(u8, len, @sizeOf(usize), null) catch return null).ptr;
+pub export fn __grappl_alloc(len: u32) ?*anyopaque {
+    return (alloc.allocWithOptions(u8, len, @sizeOf(u32), null) catch return null).ptr;
 }
 
-pub export fn __grappl_free(ptr: ?*anyopaque, len: usize) void {
+pub export fn __grappl_free(ptr: ?*anyopaque, len: u32) void {
     if (ptr == null) return;
     const multi_ptr: [*]u8 = @as([*]u8, @ptrCast(ptr));
     return alloc.free(multi_ptr[0..len]);
@@ -27,7 +27,7 @@ pub export fn __grappl_free(ptr: ?*anyopaque, len: usize) void {
 // FIXME: do string interning
 /// utf8 string (eventually)
 pub const GrapplString = extern struct {
-    len: usize,
+    len: u32,
     // NOTE: I'd say use opaque to inline the data after the len,
     // but probably better to just do full string interning
     ptr: [*]u8,
@@ -44,7 +44,7 @@ pub export fn __grappl_string_indexof(str: *const GrapplString, chr: GrapplChar)
     return -1;
 }
 
-pub export fn __grappl_string_len(str: *const GrapplString) usize {
+pub export fn __grappl_string_len(str: *const GrapplString) u32 {
     return str.len;
 }
 
@@ -52,7 +52,7 @@ pub export fn __grappl_string_join(a: *const GrapplString, b: *const GrapplStrin
     const data = alloc.alloc(u8, a.len + b.len) catch unreachable;
     const str = alloc.create(GrapplString) catch unreachable;
     str.* = GrapplString{
-        .len = data.len,
+        .len = @intCast(data.len),
         .ptr = data.ptr,
     };
     return str;
