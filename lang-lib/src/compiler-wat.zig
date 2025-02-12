@@ -633,13 +633,8 @@ const Compilation = struct {
             },
         };
 
-        // TODO: do this earlier to prevent requiring order
-        // FIXME: separate non-arena alloc
-        // TODO: document need to pass env allocator
-        // _ = try self.env.addNode(self.arena.child_allocator, builtin.basicNode(.{
-        //     .name = name,
-        //     .inputs =
-        // }));
+        // FIXME: consider adding to a fresh environment as we compile instead of
+        // reusing an environment populated by the caller
 
         {
             const export_sexp = try self.module_body.addOne();
@@ -657,7 +652,14 @@ const Compilation = struct {
             export_val_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{complete_func_type_desc.name}) } };
         }
 
+        // FIXME:
+        // analyze the code to know ahead of time the return type and local count
+        var func_type_sexp: *Sexp = undefined;
+
         // FIXME: add multiresult here
+        // create e.g.
+        //  (type $typeof_strings-stuff
+        //        (func (param i32) (param i32) (result i32)))
         const func_type_result_sexp = _: {
             const type_sexp = try self.module_body.addOne();
             // FIXME: would be really nice to just have comptime sexp parsing...
@@ -667,11 +669,12 @@ const Compilation = struct {
             // TODO: static sexp pointers here
             type_sexp.value.list.addOneAssumeCapacity().* = wat_syms.type;
             type_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$typeof_{s}", .{complete_func_type_desc.name}) } };
-            const func_type_sexp = type_sexp.value.list.addOneAssumeCapacity();
+            func_type_sexp = type_sexp.value.list.addOneAssumeCapacity();
 
             func_type_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-            // 1 for "func", and 1 for result
-            try func_type_sexp.value.list.ensureTotalCapacityPrecise(1 + complete_func_type_desc.func_type.?.param_types.len + 1);
+
+            // 1 for "func", 1 for potential compound type return value pointer, 1 for result,
+            try func_type_sexp.value.list.ensureTotalCapacityPrecise(1 + complete_func_type_desc.func_type.?.param_types.len + 1 + 1);
             func_type_sexp.value.list.addOneAssumeCapacity().* = wat_syms.func;
             for (complete_func_type_desc.func_type.?.param_types) |param_type| {
                 // FIXME: params are not in separate s-exp! it should be (param i32 i32 i32)
@@ -711,12 +714,13 @@ const Compilation = struct {
                 (try param_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = param_type.wasm_type.? } };
             }
 
+            // FIXME: add multiresult
             const result_sexp = try impl_sexp.value.list.addOne();
             result_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
             try result_sexp.value.list.ensureTotalCapacityPrecise(2);
             result_sexp.value.list.addOneAssumeCapacity().* = wat_syms.result;
 
-            const func_result_type_sexp = result_sexp.value.list.addOneAssumeCapacity();
+            const func_impl_result_type_slot = result_sexp.value.list.addOneAssumeCapacity();
 
             // NOTE: if these are unmatched, it might mean a typeof for that local is missing
             for (func_decl.local_names, complete_func_type_desc.func_type.?.local_types) |local_name, local_type| {
@@ -757,23 +761,20 @@ const Compilation = struct {
                 .next_local = &next_local,
             };
 
+            var result_type: ?Type = null;
             for (func_decl.body_exprs) |*body_expr| {
                 var expr_fragment = try self.compileExpr(body_expr, &expr_ctx);
                 errdefer expr_fragment.deinit(alloc);
                 // HACK: pointer might have been invalidated
                 impl_sexp = &self.module_body.items[impl_sexp_index];
 
-                // FIXME: only do this on the last one and require it have a wasm_type
-                if (expr_fragment.resolved_type.wasm_type) |wasm_type| {
-                    func_type_result_sexp.* = Sexp{ .value = .{ .symbol = wasm_type } };
-                    func_result_type_sexp.* = func_type_result_sexp.*;
-                }
+                result_type = expr_fragment.resolved_type;
 
                 std.debug.assert(func_type.result_types.len == 1);
                 if (expr_fragment.resolved_type != func_type.result_types[0]) {
                     std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = expr_fragment.values } }});
                     std.log.warn("type: '{s}' doesn't match '{s}'", .{ expr_fragment.resolved_type.name, func_type.result_types[0].name });
-                    // FIXME/HACK: re-enable but disabling now to allow for type promotion
+                    // FIXME/HACK: re-enable but disabling now to awkwardly allow for type promotion
                     //return error.ReturnTypeMismatch;
                 }
 
@@ -781,6 +782,37 @@ const Compilation = struct {
                 // NOTE: inserting fragments must occur after inserting the locals!
                 try impl_sexp.value.list.appendSlice(try expr_fragment.values.toOwnedSlice());
                 expr_fragment.values.clearAndFree();
+            }
+
+            // now that we have the result type:
+            if (result_type != null and result_type.?.wasm_type != null) {
+                func_type_result_sexp.* = Sexp{ .value = .{ .symbol = result_type.?.wasm_type.? } };
+                func_impl_result_type_slot.* = func_type_result_sexp.*;
+
+                // TODO: support user compound types
+                const is_compound_type = _: {
+                    inline for (comptime std.meta.declarations(builtin.compound_builtin_types)) |decl| {
+                        const type_ = @field(builtin.compound_builtin_types, decl.name);
+                        if (type_ == result_type.?)
+                            break :_ true;
+                    }
+                    break :_ false;
+                };
+
+                // FIXME: should not mutate later but instead upfront analyze this
+                if (is_compound_type) {
+                    // insert at second to last index
+                    try func_type_sexp.value.list.insertAssumeCapacity(
+                        func_type_sexp.value.list.items.len - 1,
+                        Sexp.newList(alloc),
+                    );
+                    const return_value_ptr_param = &func_type_sexp.value.list.items[func_type_sexp.value.list.items.len - 1];
+                    return_value_ptr_param.value.list.ensureTotalCapacityPrecise(2);
+                    return_value_ptr_param.value.list.appendAssumeCapacity(wat_syms.param);
+                    return_value_ptr_param.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "i32" } });
+                }
+            } else {
+                return error.ResultTypeNotDetermined;
             }
 
             try impl_sexp.value.list.insertSlice(additional_locals_index, post_analysis_locals.items);
@@ -1728,6 +1760,7 @@ const Compilation = struct {
                     slot.* = Sexp.newList(a);
                     try slot.value.list.ensureTotalCapacityPrecise(2);
                     slot.value.list.appendAssumeCapacity(wat_syms.param);
+                    // FIXME: intern this string
                     slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "i32" } });
                 }
 

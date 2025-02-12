@@ -302,6 +302,7 @@ pub const GraphTypes = struct {
 // place holder during analysis
 pub const empty_type: Type = &TypeInfo{ .name = "EMPTY_TYPE" };
 
+// FIXME: consider renaming to "builtin_types"
 pub const primitive_types = struct {
     // nums
     pub const i32_: Type = &TypeInfo{ .name = "i32", .wasm_type = "i32" };
@@ -318,13 +319,10 @@ pub const primitive_types = struct {
     pub const symbol: Type = &TypeInfo{ .name = "symbol", .wasm_type = "i32" };
     pub const @"void": Type = &TypeInfo{ .name = "void" };
 
-    // FIXME: this is basically a pointer, but should consider writing a comptime function
-    // for converting from instrinsics type to wasm type
-    pub const string: Type = &TypeInfo{ .name = "string", .wasm_type = "i32" };
+    // FIXME: consider moving this to live in compound_types
+    pub const string: Type = &TypeInfo{ .name = "string", .wasm_type = "u32" };
 
-    // FIXME: this is basically a pointer, but should consider writing a comptime function
-    // for converting from instrinsics type to wasm type
-    pub const vec3: Type = &TypeInfo{ .name = "vec3", .wasm_type = "i32" };
+    pub const vec3: Type = &TypeInfo{ .name = "vec3", .wasm_type = "u32" };
 
     pub const rgba: Type = &TypeInfo{ .name = "rgba", .wasm_type = "u32" };
 
@@ -360,6 +358,12 @@ pub const primitive_types = struct {
 
     //     //env.types.put(failing_allocator, t.name, new_type);
     // }
+};
+
+/// all of these are represented locally as a u32 pointer to the memory for the type
+pub const compound_builtin_types = struct {
+    pub const string: Type = primitive_types.string;
+    pub const vec3: Type = primitive_types.vec3;
 };
 
 /// lisp-like tree, first is value, rest are children
