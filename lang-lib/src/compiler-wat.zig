@@ -714,6 +714,8 @@ const Compilation = struct {
                 (try param_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = param_type.wasm_type.? } };
             }
 
+            const last_param_index = impl_sexp.value.list.items.len - 1;
+
             // FIXME: add multiresult
             const result_sexp = try impl_sexp.value.list.addOne();
             result_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
@@ -802,14 +804,32 @@ const Compilation = struct {
                 // FIXME: should not mutate later but instead upfront analyze this
                 if (is_compound_type) {
                     // insert at second to last index
-                    try func_type_sexp.value.list.insertAssumeCapacity(
+                    func_type_sexp.value.list.insertAssumeCapacity(
                         func_type_sexp.value.list.items.len - 1,
                         Sexp.newList(alloc),
                     );
-                    const return_value_ptr_param = &func_type_sexp.value.list.items[func_type_sexp.value.list.items.len - 1];
-                    return_value_ptr_param.value.list.ensureTotalCapacityPrecise(2);
-                    return_value_ptr_param.value.list.appendAssumeCapacity(wat_syms.param);
-                    return_value_ptr_param.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "i32" } });
+
+                    const type_return_value_ptr_param = &func_type_sexp.value.list.items[func_type_sexp.value.list.items.len - 2];
+                    try type_return_value_ptr_param.value.list.ensureTotalCapacityPrecise(2);
+                    std.debug.print("type={s}, len={}, cap={}\n{}\n", .{
+                        @tagName(type_return_value_ptr_param.value),
+                        type_return_value_ptr_param.value.list.items.len,
+                        type_return_value_ptr_param.value.list.capacity,
+                        type_return_value_ptr_param,
+                    });
+                    type_return_value_ptr_param.value.list.appendAssumeCapacity(wat_syms.param);
+                    type_return_value_ptr_param.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "i32" } });
+
+                    try impl_sexp.value.list.insert(
+                        last_param_index + 1,
+                        Sexp.newList(alloc),
+                    );
+
+                    const impl_return_value_ptr_param = &impl_sexp.value.list.items[last_param_index + 1];
+                    try impl_return_value_ptr_param.value.list.ensureTotalCapacityPrecise(3);
+                    impl_return_value_ptr_param.value.list.appendAssumeCapacity(wat_syms.param);
+                    impl_return_value_ptr_param.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "$return" } });
+                    impl_return_value_ptr_param.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "i32" } });
                 }
             } else {
                 return error.ResultTypeNotDetermined;

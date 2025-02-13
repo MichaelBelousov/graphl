@@ -320,9 +320,9 @@ pub const primitive_types = struct {
     pub const @"void": Type = &TypeInfo{ .name = "void" };
 
     // FIXME: consider moving this to live in compound_types
-    pub const string: Type = &TypeInfo{ .name = "string", .wasm_type = "u32" };
+    pub const string: Type = &TypeInfo{ .name = "string", .wasm_type = "i32" };
 
-    pub const vec3: Type = &TypeInfo{ .name = "vec3", .wasm_type = "u32" };
+    pub const vec3: Type = &TypeInfo{ .name = "vec3", .wasm_type = "i32" };
 
     pub const rgba: Type = &TypeInfo{ .name = "rgba", .wasm_type = "u32" };
 
@@ -360,7 +360,8 @@ pub const primitive_types = struct {
     // }
 };
 
-/// all of these are represented locally as a u32 pointer to the memory for the type
+// FIXME: check if the pointer should be u32 instead of i32
+/// all of these are represented locally as a i32 pointer to the memory for the type
 pub const compound_builtin_types = struct {
     pub const string: Type = primitive_types.string;
     pub const vec3: Type = primitive_types.vec3;
