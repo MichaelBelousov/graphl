@@ -117,9 +117,22 @@ test "(String-Equal \"hello\" \"hello\")" {
     }
 }
 
+// FIXME: this test is broken but it should cover:
+// - returning a string
+// - taking a returned string as a parameter
 test "return join" {
     var env = try Env.initDefault(t.allocator);
     defer env.deinit(t.allocator);
+
+    // FIXME: easier in the IDE to just pass the augmented env, but probably
+    // better if the compiler figures out the env from the code
+    // _ = try env.addNode(t.allocator, builtin.basicNode(&.{
+    //     .name = "strings",
+    //     .inputs = &.{},
+    //     .outputs = &.{
+    //         builtin.Pin{ .name = "n", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+    //     },
+    // }));
 
     var parsed = try SexpParser.parse(t.allocator,
         \\;;; comment ;; TODO: reintroduce use of a parameter
@@ -127,6 +140,10 @@ test "return join" {
         \\(define (strings)
         \\  (begin
         \\    (return (Join "hello" "world"))))
+        //\\(typeof (main) string)
+        //\\(define (main)
+        //\\  (begin
+        //\\    (return (strings))))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
