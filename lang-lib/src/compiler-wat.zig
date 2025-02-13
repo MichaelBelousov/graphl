@@ -2518,10 +2518,6 @@ pub fn expectWasmOutput(
             // FIXME: really I should be aligning things, even if wasm doesn't require it, I'm sure it provides
             // better performance
             const str_wasm_mem: *align(1) GrapplString = std.mem.bytesAsValue(GrapplString, module_instance.memoryAll()[ptr .. ptr + @sizeOf(GrapplString)]);
-            std.debug.print("\nstr,len={}, ptr={}\n", .{ str_wasm_mem.len, str_wasm_mem.ptr });
-            std.debug.print("str[0]={}\n", .{module_instance.memoryAll()[str_wasm_mem.ptr]});
-            std.debug.print("str[1]={}\n", .{module_instance.memoryAll()[str_wasm_mem.ptr + 1]});
-            std.debug.print("str?={any}\n", .{module_instance.memoryAll()[str_wasm_mem.ptr .. str_wasm_mem.ptr + str_wasm_mem.len]});
 
             // var dump = try std.fs.createFileAbsolute("/tmp/test-dump.wasmmem", .{});
             // defer dump.close();
@@ -2530,7 +2526,7 @@ pub fn expectWasmOutput(
             const str = module_instance.memoryAll()[str_wasm_mem.ptr .. str_wasm_mem.ptr + str_wasm_mem.len];
             try std.testing.expectEqualStrings(expected, str);
         },
-        .Int => try std.testing.expectEqual(expected, results[0].I32),
+        .ComptimeInt, .Int => try std.testing.expectEqual(expected, results[0].I32),
         else => @compileError("unsupported type for wasm tests: " ++ @typeName(@TypeOf(expected))),
     }
 }

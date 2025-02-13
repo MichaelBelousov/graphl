@@ -36,7 +36,7 @@ pub const GrapplString = extern struct {
     // FIXME: how do I specify a 32-bit integer on a 64-bit platform?
     ptr: u32,
 
-    pub fn asSlice(self: *const @This()) []u8 {
+    fn asSlice(self: *const @This()) []u8 {
         comptime std.debug.assert(builtin.cpu.arch.isWasm());
         return @as([*]u8, @ptrFromInt(self.ptr))[0..self.len];
     }
@@ -44,8 +44,7 @@ pub const GrapplString = extern struct {
 
 /// -1 if doesn't exist
 pub fn __grappl_string_indexof(str: *const GrapplString, chr: GrapplChar) callconv(.C) i32 {
-    const ptr: [*]u8 = @ptrFromInt(str.ptr);
-    for (ptr[0..str.len], 0..) |c, i| {
+    for (str.asSlice(), 0..) |c, i| {
         // TODO: utf8
         if (c == chr) {
             return @intCast(i);
@@ -60,8 +59,8 @@ pub fn __grappl_string_len(str: *const GrapplString) callconv(.C) u32 {
 
 pub fn __grappl_string_join(a: *const GrapplString, b: *const GrapplString) callconv(.C) *GrapplString {
     const data = alloc.alloc(u8, a.len + b.len) catch unreachable;
-    @memcpy(data[0..a.len], a);
-    @memcpy(data[a.len .. a.len + b.len], b);
+    @memcpy(data[0..a.len], a.asSlice());
+    @memcpy(data[a.len .. a.len + b.len], b.asSlice());
     const str = alloc.create(GrapplString) catch unreachable;
     str.* = GrapplString{
         .len = data.len,
@@ -74,9 +73,7 @@ pub fn __grappl_string_equal(a: *const GrapplString, b: *const GrapplString) cal
     if (a.len != b.len)
         return 0;
 
-    const a_ptr: [*]u8 = @ptrFromInt(a.ptr);
-    const b_ptr: [*]u8 = @ptrFromInt(b.ptr);
-    for (a_ptr[0..a.len], b_ptr[0..b.len]) |p_a, p_b| {
+    for (a.asSlice(), b.asSlice()) |p_a, p_b| {
         if (p_a != p_b)
             return 0;
     }
