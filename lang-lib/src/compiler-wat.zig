@@ -571,8 +571,8 @@ const Compilation = struct {
                 .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_string_equal" } },
                 .node_desc = builtin.builtin_nodes.string_equal,
             };
-            pub const string_concat = .{
-                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_string_concat" } },
+            pub const string_join = .{
+                .wasm_sym = Sexp{ .value = .{ .symbol = "$__grappl_string_join" } },
                 .node_desc = builtin.builtin_nodes.string_concat,
             };
 
@@ -654,7 +654,6 @@ const Compilation = struct {
 
         // FIXME:
         // analyze the code to know ahead of time the return type and local count
-        var func_type_sexp: *Sexp = undefined;
 
         // FIXME: add multiresult here
         // create e.g.
@@ -669,12 +668,12 @@ const Compilation = struct {
             // TODO: static sexp pointers here
             type_sexp.value.list.addOneAssumeCapacity().* = wat_syms.type;
             type_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$typeof_{s}", .{complete_func_type_desc.name}) } };
-            func_type_sexp = type_sexp.value.list.addOneAssumeCapacity();
+            const func_type_sexp = type_sexp.value.list.addOneAssumeCapacity();
 
             func_type_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
 
-            // 1 for "func", 1 for potential compound type return value pointer, 1 for result,
-            try func_type_sexp.value.list.ensureTotalCapacityPrecise(1 + complete_func_type_desc.func_type.?.param_types.len + 1 + 1);
+            // 1 for "func", 1 for result,
+            try func_type_sexp.value.list.ensureTotalCapacityPrecise(1 + complete_func_type_desc.func_type.?.param_types.len + 1);
             func_type_sexp.value.list.addOneAssumeCapacity().* = wat_syms.func;
             for (complete_func_type_desc.func_type.?.param_types) |param_type| {
                 // FIXME: params are not in separate s-exp! it should be (param i32 i32 i32)
@@ -714,8 +713,6 @@ const Compilation = struct {
                 (try param_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = param_type.wasm_type.? } };
             }
 
-            const last_param_index = impl_sexp.value.list.items.len - 1;
-
             // FIXME: add multiresult
             const result_sexp = try impl_sexp.value.list.addOne();
             result_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
@@ -734,6 +731,13 @@ const Compilation = struct {
                 local_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = local_type.wasm_type.? } };
             }
 
+            const local_sexp = try impl_sexp.value.list.addOne();
+            local_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            try local_sexp.value.list.ensureTotalCapacityPrecise(3);
+            local_sexp.value.list.addOneAssumeCapacity().* = wat_syms.local;
+            local_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = "$__frame_start" } };
+            local_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = "i32" } };
+
             const additional_locals_index = impl_sexp.value.list.items.len;
 
             std.debug.assert(func_decl.body_exprs.len >= 1);
@@ -743,6 +747,7 @@ const Compilation = struct {
 
             var prologue = std.ArrayList(Sexp).init(alloc);
             defer prologue.deinit();
+
             var post_analysis_locals = std.ArrayList(Sexp).init(alloc);
             defer post_analysis_locals.deinit();
 
@@ -786,13 +791,15 @@ const Compilation = struct {
                 expr_fragment.values.clearAndFree();
             }
 
+            var is_compound_result_type: bool = undefined;
+
             // now that we have the result type:
             if (result_type != null and result_type.?.wasm_type != null) {
                 func_type_result_sexp.* = Sexp{ .value = .{ .symbol = result_type.?.wasm_type.? } };
                 func_impl_result_type_slot.* = func_type_result_sexp.*;
 
                 // TODO: support user compound types
-                const is_compound_type = _: {
+                is_compound_result_type = _: {
                     inline for (comptime std.meta.declarations(builtin.compound_builtin_types)) |decl| {
                         const type_ = @field(builtin.compound_builtin_types, decl.name);
                         if (type_ == result_type.?)
@@ -800,43 +807,64 @@ const Compilation = struct {
                     }
                     break :_ false;
                 };
-
-                // FIXME: should not mutate later but instead upfront analyze this
-                if (is_compound_type) {
-                    // insert at second to last index
-                    func_type_sexp.value.list.insertAssumeCapacity(
-                        func_type_sexp.value.list.items.len - 1,
-                        Sexp.newList(alloc),
-                    );
-
-                    const type_return_value_ptr_param = &func_type_sexp.value.list.items[func_type_sexp.value.list.items.len - 2];
-                    try type_return_value_ptr_param.value.list.ensureTotalCapacityPrecise(2);
-                    std.debug.print("type={s}, len={}, cap={}\n{}\n", .{
-                        @tagName(type_return_value_ptr_param.value),
-                        type_return_value_ptr_param.value.list.items.len,
-                        type_return_value_ptr_param.value.list.capacity,
-                        type_return_value_ptr_param,
-                    });
-                    type_return_value_ptr_param.value.list.appendAssumeCapacity(wat_syms.param);
-                    type_return_value_ptr_param.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "i32" } });
-
-                    try impl_sexp.value.list.insert(
-                        last_param_index + 1,
-                        Sexp.newList(alloc),
-                    );
-
-                    const impl_return_value_ptr_param = &impl_sexp.value.list.items[last_param_index + 1];
-                    try impl_return_value_ptr_param.value.list.ensureTotalCapacityPrecise(3);
-                    impl_return_value_ptr_param.value.list.appendAssumeCapacity(wat_syms.param);
-                    impl_return_value_ptr_param.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "$return" } });
-                    impl_return_value_ptr_param.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "i32" } });
-                }
             } else {
                 return error.ResultTypeNotDetermined;
             }
 
+            // add potential compound type return slot to prologue
+            // FIXME: should be done earlier by analyzing the function return type first
+            const return_slot_code = _: {
+                const return_slot_src = if (is_compound_result_type) try std.fmt.allocPrint(alloc,
+                    \\(local.set $__frame_start
+                    \\           (i32.add (global.get $__grappl_vstkp)
+                    \\                    (i32.const {})))
+                    \\
+                , .{
+                    // FIXME: use a diagnostic
+                    result_type.?.size orelse std.debug.panic("compound type '{s}' size is undefined", .{result_type.?.name}),
+                }) else 
+                \\(local.set $__frame_start
+                \\           (global.get $__grappl_vstkp))
+                \\
+                ;
+                // FIXME: can't free this atm cuz the parser borrows source slices
+                //defer alloc.free(return_slot_src);
+                var diag = SexpParser.Diagnostic{ .source = return_slot_src };
+                break :_ SexpParser.parse(alloc, return_slot_src, &diag) catch {
+                    std.log.err("diag={}", .{diag});
+                    @panic("failed to parse temp non-comptime return_slot_src");
+                };
+            };
+            defer return_slot_code.value.module.deinit();
+
+            // NOTE: gross, simplify me
             try impl_sexp.value.list.insertSlice(additional_locals_index, post_analysis_locals.items);
-            try impl_sexp.value.list.insertSlice(additional_locals_index + post_analysis_locals.items.len, prologue.items);
+            try impl_sexp.value.list.insertSlice(
+                additional_locals_index + post_analysis_locals.items.len,
+                return_slot_code.value.module.items,
+            );
+            try impl_sexp.value.list.insertSlice(
+                additional_locals_index + post_analysis_locals.items.len + return_slot_code.value.module.items.len,
+                prologue.items,
+            );
+
+            // add epilogue
+            {
+                // FIXME: parse this and insert substitutions at comptime!
+                const epilogue_src =
+                    \\(global.set $__grappl_vstkp
+                    \\            (local.get $__frame_start))
+                    \\
+                ;
+                var diag = SexpParser.Diagnostic{ .source = epilogue_src };
+                var epilogue_code = SexpParser.parse(alloc, epilogue_src, &diag) catch {
+                    std.log.err("diag={}", .{diag});
+                    @panic("failed to parse temp non-comptime epilogue_src");
+                };
+                // FIXME: allow moving list out of sexp
+                defer epilogue_code.value.module.deinit();
+                try impl_sexp.value.list.appendSlice(epilogue_code.value.module.items);
+            }
         }
     }
 
@@ -1456,6 +1484,7 @@ const Compilation = struct {
                     }
                 }
 
+                // FIXME: this hacky interning-like code is horribly bug prone
                 // FIXME: rename to standard library cuz it's also that
                 // builtins with intrinsics
                 inline for (comptime std.meta.declarations(wat_syms.intrinsics)) |intrinsic_decl| {
@@ -2481,7 +2510,29 @@ pub fn expectWasmOutput(
     results[0] = bytebox.Val{ .I32 = 0 }; // FIXME:
     try module_instance.invoke(handle, &ready_args, &results, .{});
 
-    try std.testing.expectEqual(expected, results[0].I32);
+    switch (@typeInfo(@TypeOf(expected))) {
+        .Array, .Pointer => {
+            const GrapplString = intrinsics.GrapplString;
+            const ptr: usize = @intCast(results[0].I32);
+            comptime std.debug.assert(zig_builtin.cpu.arch.endian() == .little);
+            // FIXME: really I should be aligning things, even if wasm doesn't require it, I'm sure it provides
+            // better performance
+            const str_wasm_mem: *align(1) GrapplString = std.mem.bytesAsValue(GrapplString, module_instance.memoryAll()[ptr .. ptr + @sizeOf(GrapplString)]);
+            std.debug.print("\nstr,len={}, ptr={}\n", .{ str_wasm_mem.len, str_wasm_mem.ptr });
+            std.debug.print("str[0]={}\n", .{module_instance.memoryAll()[str_wasm_mem.ptr]});
+            std.debug.print("str[1]={}\n", .{module_instance.memoryAll()[str_wasm_mem.ptr + 1]});
+            std.debug.print("str?={any}\n", .{module_instance.memoryAll()[str_wasm_mem.ptr .. str_wasm_mem.ptr + str_wasm_mem.len]});
+
+            // var dump = try std.fs.createFileAbsolute("/tmp/test-dump.wasmmem", .{});
+            // defer dump.close();
+            // try dump.writeAll(module_instance.memoryAll());
+
+            const str = module_instance.memoryAll()[str_wasm_mem.ptr .. str_wasm_mem.ptr + str_wasm_mem.len];
+            try std.testing.expectEqualStrings(expected, str);
+        },
+        .Int => try std.testing.expectEqual(expected, results[0].I32),
+        else => @compileError("unsupported type for wasm tests: " ++ @typeName(@TypeOf(expected))),
+    }
 }
 
 test {

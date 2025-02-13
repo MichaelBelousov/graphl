@@ -61,10 +61,14 @@ test "(String-Equal \"hello\" \"hello\")" {
         \\      (func (result i32)))
         \\(func $strings-stuff
         \\      (result i32)
+        \\      (local $__frame_start
+        \\             i32)
         \\      (local $__lc0
         \\             i32)
         \\      (local $__lc1
         \\             i32)
+        \\      (local.set $__frame_start
+        \\                 (global.get $__grappl_vstkp))
         \\      (i32.store (global.get $__grappl_vstkp)
         \\                 (i32.const 5))
         \\      (i32.store (i32.add (global.get $__grappl_vstkp)
@@ -74,7 +78,7 @@ test "(String-Equal \"hello\" \"hello\")" {
         \\                 (global.get $__grappl_vstkp))
         \\      (global.set $__grappl_vstkp
         \\                  (i32.add (global.get $__grappl_vstkp)
-        \\                           (i32.const 16)))
+        \\                           (i32.const 8)))
         \\      (i32.store (global.get $__grappl_vstkp)
         \\                 (i32.const 5))
         \\      (i32.store (i32.add (global.get $__grappl_vstkp)
@@ -84,10 +88,12 @@ test "(String-Equal \"hello\" \"hello\")" {
         \\                 (global.get $__grappl_vstkp))
         \\      (global.set $__grappl_vstkp
         \\                  (i32.add (global.get $__grappl_vstkp)
-        \\                           (i32.const 16)))
+        \\                           (i32.const 8)))
         \\      (call $__grappl_string_equal
         \\            (local.get $__lc0)
-        \\            (local.get $__lc1)))
+        \\            (local.get $__lc1))
+        \\      (global.set $__grappl_vstkp
+        \\                  (local.get $__frame_start)))
         \\(data (i32.const 0)
         \\      "\05\00\00\00hello")
         \\(data (i32.const 17)
@@ -142,14 +148,18 @@ test "return join" {
         \\(export "strings"
         \\        (func $strings))
         \\(type $typeof_strings
-        \\      (func (param i32)))
+        \\      (func (result i32)))
         \\(func $strings
-        \\      (param $return
+        \\      (result i32)
+        \\      (local $__frame_start
         \\             i32)
         \\      (local $__lc0
         \\             i32)
         \\      (local $__lc1
         \\             i32)
+        \\      (local.set $__frame_start
+        \\                 (i32.add (global.get $__grappl_vstkp)
+        \\                          (i32.const 8)))
         \\      (i32.store (global.get $__grappl_vstkp)
         \\                 (i32.const 5))
         \\      (i32.store (i32.add (global.get $__grappl_vstkp)
@@ -159,7 +169,7 @@ test "return join" {
         \\                 (global.get $__grappl_vstkp))
         \\      (global.set $__grappl_vstkp
         \\                  (i32.add (global.get $__grappl_vstkp)
-        \\                           (i32.const 16)))
+        \\                           (i32.const 8)))
         \\      (i32.store (global.get $__grappl_vstkp)
         \\                 (i32.const 5))
         \\      (i32.store (i32.add (global.get $__grappl_vstkp)
@@ -169,11 +179,12 @@ test "return join" {
         \\                 (global.get $__grappl_vstkp))
         \\      (global.set $__grappl_vstkp
         \\                  (i32.add (global.get $__grappl_vstkp)
-        \\                           (i32.const 16)))
-        \\      (call $__grappl_string_concat
+        \\                           (i32.const 8)))
+        \\      (call $__grappl_string_join
         \\            (local.get $__lc0)
         \\            (local.get $__lc1))
-        \\      (i32.store $return))
+        \\      (global.set $__grappl_vstkp
+        \\                  (local.get $__frame_start)))
         \\(data (i32.const 0)
         \\      "\05\00\00\00hello")
         \\(data (i32.const 17)
@@ -190,7 +201,7 @@ test "return join" {
         }
         try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
         // TODO: add parameter so we can cover the intrinsics behavior
-        try expectWasmOutput(1, wat, "strings", .{});
+        try expectWasmOutput("helloworld", wat, "strings", .{});
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);

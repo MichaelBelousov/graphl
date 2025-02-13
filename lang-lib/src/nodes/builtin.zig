@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const Sexp = @import("../sexp.zig").Sexp;
+const intrinsics = @import("../intrinsics.zig");
 
 const failing_allocator = std.testing.failing_allocator;
 
@@ -21,8 +22,11 @@ pub const TypeInfo = struct {
     field_types: []const Type = &.{},
     // FIXME: use a union
     func_type: ?FuncType = null,
-    // the wasm primitive associated with this type, if it is a primitive
+    /// the wasm primitive associated with this type, if it is a primitive
     wasm_type: ?[]const u8 = null,
+    // TODO: this should only exist on the compound-type variant of a union
+    /// if this is a compound type, its (cached?) size on the stack
+    size: ?u32 = null,
 };
 
 pub const Type = *const TypeInfo;
@@ -320,9 +324,17 @@ pub const primitive_types = struct {
     pub const @"void": Type = &TypeInfo{ .name = "void" };
 
     // FIXME: consider moving this to live in compound_types
-    pub const string: Type = &TypeInfo{ .name = "string", .wasm_type = "i32" };
+    pub const string: Type = &TypeInfo{
+        .name = "string",
+        .wasm_type = "i32",
+        .size = @sizeOf(intrinsics.GrapplString),
+    };
 
-    pub const vec3: Type = &TypeInfo{ .name = "vec3", .wasm_type = "i32" };
+    pub const vec3: Type = &TypeInfo{
+        .name = "vec3",
+        .wasm_type = "i32",
+        .size = @sizeOf(intrinsics.GrapplVec3),
+    };
 
     pub const rgba: Type = &TypeInfo{ .name = "rgba", .wasm_type = "u32" };
 
@@ -365,6 +377,8 @@ pub const primitive_types = struct {
 pub const compound_builtin_types = struct {
     pub const string: Type = primitive_types.string;
     pub const vec3: Type = primitive_types.vec3;
+
+    // TODO: assert these all have their size set
 };
 
 /// lisp-like tree, first is value, rest are children
@@ -802,6 +816,8 @@ pub const builtin_nodes = struct {
         .tags = &.{"string"},
     });
 
+    // TODO: allow variadic arguments
+    // FIXME: rename to join
     pub const string_concat: NodeDesc = basicNode(&.{
         .name = "Join",
         .inputs = &.{
@@ -809,7 +825,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
         },
         .outputs = &.{
-            Pin{ .name = "equal", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+            Pin{ .name = "result", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
         },
         .tags = &.{"string"},
     });
