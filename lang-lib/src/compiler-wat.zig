@@ -888,6 +888,9 @@ const Compilation = struct {
         if (b.resolved_type == builtin.empty_type)
             return a.resolved_type;
 
+        if (a.resolved_type == b.resolved_type)
+            return a.resolved_type;
+
         // REPORT: zig can't switch on constant pointers
         const resolved_type = _: {
             if (a.resolved_type == primitive_types.bool_) {

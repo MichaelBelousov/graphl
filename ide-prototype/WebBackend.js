@@ -197,7 +197,7 @@ export function Ide(canvasElem, opts) {
             outputFile,
             //'-g',
             // NOTE: multimemory not supported by safari
-            //"--enable-bulk-memory",
+            "--enable-bulk-memory",
             //"--enable-multivalue",
         ]);
 
