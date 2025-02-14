@@ -59,9 +59,9 @@ test "compare double and int" {
         \\(export "cmp-dbl"
         \\        (func $cmp-dbl))
         \\(type $typeof_cmp-dbl
-        \\      (func (result f64)))
+        \\      (func (result i32)))
         \\(func $cmp-dbl
-        \\      (result f64)
+        \\      (result i32)
         \\      (local $__frame_start
         \\             i32)
         \\      (local.set $__frame_start

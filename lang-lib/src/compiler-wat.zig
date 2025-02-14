@@ -131,36 +131,44 @@ const arithmetic_builtins = .{
     .{
         .sym = syms.@"==",
         .wasm_name = "eq",
+        .result_type = primitive_types.bool_,
     },
     .{
         .sym = syms.@"!=",
         .wasm_name = "ne",
+        .result_type = primitive_types.bool_,
     },
     .{
         .sym = syms.@"<",
         .wasm_name = "lt",
+        .result_type = primitive_types.bool_,
     },
     .{
         .sym = syms.@"<=",
         .wasm_name = "le",
+        .result_type = primitive_types.bool_,
     },
     .{
         .sym = syms.@">",
         .wasm_name = "gt",
+        .result_type = primitive_types.bool_,
     },
     .{
         .sym = syms.@">=",
         .wasm_name = "ge",
+        .result_type = primitive_types.bool_,
     },
     .{
         .sym = syms.@"and",
         .wasm_name = "and",
         .int_only = true,
+        .result_type = primitive_types.bool_,
     },
     .{
         .sym = syms.@"or",
         .wasm_name = "or",
         .int_only = true,
+        .result_type = primitive_types.bool_,
     },
 };
 
@@ -1465,14 +1473,21 @@ const Compilation = struct {
                         }
 
                         var handled = false;
-
                         inline for (&.{ "i32_", "i64_", "f32_", "f64_" }) |type_name| {
-                            const primitive_type: Type = @field(primitive_types, type_name);
                             const float_type_but_int_op = @hasField(@TypeOf(builtin_op), "int_only") and type_name[0] == 'f';
-                            if (!float_type_but_int_op and result.resolved_type == primitive_type) {
-                                const wasm_type_ops = @field(wat_syms.ops, type_name);
-                                op_name.* = @field(wasm_type_ops, builtin_op.wasm_name);
-                                handled = true;
+                            if (!float_type_but_int_op) {
+                                if (@hasField(@TypeOf(builtin_op), "result_type")) {
+                                    const wasm_type_ops = @field(wat_syms.ops, type_name);
+                                    op_name.* = @field(wasm_type_ops, builtin_op.wasm_name);
+                                    handled = true;
+                                } else {
+                                    const primitive_type: Type = @field(primitive_types, type_name);
+                                    if (result.resolved_type == primitive_type) {
+                                        const wasm_type_ops = @field(wat_syms.ops, type_name);
+                                        op_name.* = @field(wasm_type_ops, builtin_op.wasm_name);
+                                        handled = true;
+                                    }
+                                }
                             }
                         }
 
@@ -1480,6 +1495,12 @@ const Compilation = struct {
                         if (!handled) {
                             std.log.err("unimplemented type resolution: '{s}' for code:\n{s}\n", .{ result.resolved_type.name, code_sexp });
                             std.debug.panic("unimplemented type resolution: '{s}'", .{result.resolved_type.name});
+                        }
+
+                        // FIXME: the resolved_type is used to promote the arguments but
+                        // then here is swapped to mean the resolved result type, use better names
+                        if (@hasField(@TypeOf(builtin_op), "result_type")) {
+                            result.resolved_type = builtin_op.result_type;
                         }
 
                         return result;
