@@ -888,6 +888,106 @@ const Compilation = struct {
         }
     };
 
+    // find the nearest super type (if any) of two types
+    fn resolvePeerType(a: Type, b: Type) !Type {
+        if (a == builtin.empty_type)
+            return b;
+
+        if (b == builtin.empty_type)
+            return a;
+
+        if (a == b)
+            return a;
+
+        // REPORT: zig can't switch on constant pointers
+        const resolved_type = _: {
+            if (a == primitive_types.bool_) {
+                if (b == primitive_types.bool_) break :_ primitive_types.bool_;
+                if (b == primitive_types.i32_) break :_ primitive_types.i32_;
+                if (b == primitive_types.i64_) break :_ primitive_types.i64_;
+                if (b == primitive_types.f32_) break :_ primitive_types.f32_;
+                if (b == primitive_types.f64_) break :_ primitive_types.f64_;
+            } else if (a == primitive_types.i32_) {
+                if (b == primitive_types.bool_) break :_ primitive_types.i32_;
+                if (b == primitive_types.i32_) break :_ primitive_types.i32_;
+                if (b == primitive_types.i64_) break :_ primitive_types.i64_;
+                if (b == primitive_types.f32_) break :_ primitive_types.f32_;
+                if (b == primitive_types.f64_) break :_ primitive_types.f64_;
+            } else if (a == primitive_types.i64_) {
+                if (b == primitive_types.bool_) break :_ primitive_types.i64_;
+                if (b == primitive_types.i32_) break :_ primitive_types.i64_;
+                if (b == primitive_types.i64_) break :_ primitive_types.i64_;
+                if (b == primitive_types.f32_) break :_ primitive_types.f32_;
+                if (b == primitive_types.f64_) break :_ primitive_types.f64_;
+            } else if (a == primitive_types.f32_) {
+                if (b == primitive_types.bool_) break :_ primitive_types.f32_;
+                if (b == primitive_types.i32_) break :_ primitive_types.f32_;
+                if (b == primitive_types.i64_) break :_ primitive_types.f32_;
+                if (b == primitive_types.f32_) break :_ primitive_types.f32_;
+                if (b == primitive_types.f64_) break :_ primitive_types.f64_;
+            } else if (a == primitive_types.f64_) {
+                if (b == primitive_types.bool_) break :_ primitive_types.f64_;
+                if (b == primitive_types.i32_) break :_ primitive_types.f64_;
+                if (b == primitive_types.i64_) break :_ primitive_types.f64_;
+                if (b == primitive_types.f32_) break :_ primitive_types.f64_;
+                if (b == primitive_types.f64_) break :_ primitive_types.f64_;
+            }
+            std.log.err("unimplemented peer type resolution: {s} & {s}", .{ a.name, b.name });
+            std.debug.panic("unimplemented peer type resolution: {s} & {s}", .{ a.name, b.name });
+        };
+
+        return resolved_type;
+    }
+
+    // promote the type of a fragment, adding necessary conversion code to the fragment
+    fn promoteToTypeInPlace(self: *@This(), fragment: *Fragment, target_type: Type) !void {
+        const alloc = self.arena.allocator();
+
+        var i: usize = 0;
+        const MAX_ITERS = 128;
+        while (fragment.resolved_type != target_type) : (i += 1) {
+            if (i > MAX_ITERS) {
+                std.debug.panic("max iters resolving types: {s} -> {s}", .{ fragment.resolved_type.name, target_type.name });
+            }
+
+            std.debug.assert(fragment.values.items.len == 1);
+
+            if (fragment.resolved_type == primitive_types.bool_) {
+                fragment.resolved_type = primitive_types.i32_;
+                continue;
+            }
+
+            const prev = fragment.values.items[0];
+            fragment.values.items[0] = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            try fragment.values.items[0].value.list.ensureTotalCapacityPrecise(2);
+            const converter = fragment.values.items[0].value.list.addOneAssumeCapacity();
+            fragment.values.items[0].value.list.addOneAssumeCapacity().* = prev;
+
+            if (fragment.resolved_type == primitive_types.i32_) {
+                converter.* = wat_syms.ops.i64_.extend_i32_s;
+                fragment.resolved_type = primitive_types.i64_;
+            } else if (fragment.resolved_type == primitive_types.i64_) {
+                converter.* = wat_syms.ops.f32_.convert_i64_s;
+                fragment.resolved_type = primitive_types.f32_;
+            } else if (fragment.resolved_type == primitive_types.u32_) {
+                converter.* = wat_syms.ops.i64_.extend_i32_u;
+                fragment.resolved_type = primitive_types.i64_;
+            } else if (fragment.resolved_type == primitive_types.u64_) {
+                converter.* = wat_syms.ops.f32_.convert_i64_u;
+                fragment.resolved_type = primitive_types.f32_;
+            } else if (fragment.resolved_type == primitive_types.f32_) {
+                converter.* = wat_syms.ops.f64_.promote_f32;
+                fragment.resolved_type = primitive_types.f64_;
+            } else if (fragment.resolved_type == primitive_types.f64_) {
+                unreachable; // currently can't resolve higher than this
+            } else {
+                std.log.err("unimplemented type promotion: {s} -> {s}", .{ fragment.resolved_type.name, target_type.name });
+                std.debug.panic("unimplemented type promotion: {s} -> {s}", .{ fragment.resolved_type.name, target_type.name });
+            }
+        }
+    }
+
+    // resolve the peer type of the fragments, then augment the fragment to be casted to that resolved peer
     fn resolvePeerTypesWithPromotions(self: *@This(), a: *Fragment, b: *Fragment) !Type {
         if (a.resolved_type == builtin.empty_type)
             return b.resolved_type;
@@ -899,87 +999,10 @@ const Compilation = struct {
             return a.resolved_type;
 
         // REPORT: zig can't switch on constant pointers
-        const resolved_type = _: {
-            if (a.resolved_type == primitive_types.bool_) {
-                if (b.resolved_type == primitive_types.bool_) break :_ primitive_types.bool_;
-                if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.i32_;
-                if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.i64_;
-                if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f32_;
-                if (b.resolved_type == primitive_types.f64_) break :_ primitive_types.f64_;
-            } else if (a.resolved_type == primitive_types.i32_) {
-                if (b.resolved_type == primitive_types.bool_) break :_ primitive_types.i32_;
-                if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.i32_;
-                if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.i64_;
-                if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f32_;
-                if (b.resolved_type == primitive_types.f64_) break :_ primitive_types.f64_;
-            } else if (a.resolved_type == primitive_types.i64_) {
-                if (b.resolved_type == primitive_types.bool_) break :_ primitive_types.i64_;
-                if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.i64_;
-                if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.i64_;
-                if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f32_;
-                if (b.resolved_type == primitive_types.f64_) break :_ primitive_types.f64_;
-            } else if (a.resolved_type == primitive_types.f32_) {
-                if (b.resolved_type == primitive_types.bool_) break :_ primitive_types.f32_;
-                if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.f32_;
-                if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.f32_;
-                if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f32_;
-                if (b.resolved_type == primitive_types.f64_) break :_ primitive_types.f64_;
-            } else if (a.resolved_type == primitive_types.f64_) {
-                if (b.resolved_type == primitive_types.bool_) break :_ primitive_types.f64_;
-                if (b.resolved_type == primitive_types.i32_) break :_ primitive_types.f64_;
-                if (b.resolved_type == primitive_types.i64_) break :_ primitive_types.f64_;
-                if (b.resolved_type == primitive_types.f32_) break :_ primitive_types.f64_;
-                if (b.resolved_type == primitive_types.f64_) break :_ primitive_types.f64_;
-            }
-            std.log.err("unimplemented peer type resolution: {s} & {s}", .{ a.resolved_type.name, b.resolved_type.name });
-            std.debug.panic("unimplemented peer type resolution: {s} & {s}", .{ a.resolved_type.name, b.resolved_type.name });
-        };
-
-        const alloc = self.arena.allocator();
+        const resolved_type = try resolvePeerType(a.resolved_type, b.resolved_type);
 
         inline for (&.{ a, b }) |fragment| {
-            var i: usize = 0;
-            const MAX_ITERS = 128;
-            while (fragment.resolved_type != resolved_type) : (i += 1) {
-                if (i > MAX_ITERS) {
-                    std.debug.panic("max iters resolving types: {s} -> {s}", .{ fragment.resolved_type.name, resolved_type.name });
-                }
-
-                std.debug.assert(fragment.values.items.len == 1);
-
-                if (fragment.resolved_type == primitive_types.bool_) {
-                    fragment.resolved_type = primitive_types.i32_;
-                    continue;
-                }
-
-                const prev = fragment.values.items[0];
-                fragment.values.items[0] = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try fragment.values.items[0].value.list.ensureTotalCapacityPrecise(2);
-                const converter = fragment.values.items[0].value.list.addOneAssumeCapacity();
-                fragment.values.items[0].value.list.addOneAssumeCapacity().* = prev;
-
-                if (fragment.resolved_type == primitive_types.i32_) {
-                    converter.* = wat_syms.ops.i64_.extend_i32_s;
-                    fragment.resolved_type = primitive_types.i64_;
-                } else if (fragment.resolved_type == primitive_types.i64_) {
-                    converter.* = wat_syms.ops.f32_.convert_i64_s;
-                    fragment.resolved_type = primitive_types.f32_;
-                } else if (fragment.resolved_type == primitive_types.u32_) {
-                    converter.* = wat_syms.ops.i64_.extend_i32_u;
-                    fragment.resolved_type = primitive_types.i64_;
-                } else if (fragment.resolved_type == primitive_types.u64_) {
-                    converter.* = wat_syms.ops.f32_.convert_i64_u;
-                    fragment.resolved_type = primitive_types.f32_;
-                } else if (fragment.resolved_type == primitive_types.f32_) {
-                    converter.* = wat_syms.ops.f64_.promote_f32;
-                    fragment.resolved_type = primitive_types.f64_;
-                } else if (fragment.resolved_type == primitive_types.f64_) {
-                    unreachable; // currently can't resolve higher than this
-                } else {
-                    std.log.err("unimplemented type promotion: {s} -> {s}", .{ fragment.resolved_type.name, resolved_type.name });
-                    std.debug.panic("unimplemented type promotion: {s} -> {s}", .{ fragment.resolved_type.name, resolved_type.name });
-                }
-            }
+            try self.promoteToTypeInPlace(fragment, resolved_type);
         }
 
         return resolved_type;
@@ -1459,34 +1482,35 @@ const Compilation = struct {
                         try result.values.ensureTotalCapacityPrecise(1);
                         const wasm_op = result.values.addOneAssumeCapacity();
                         wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                        try wasm_op.value.list.ensureTotalCapacityPrecise(3);
+                        try wasm_op.value.list.ensureTotalCapacity(3);
                         const op_name = wasm_op.value.list.addOneAssumeCapacity();
 
-                        std.debug.assert(arg_fragments.len == 2);
+                        var resolved_type = builtin.empty_type;
+
                         for (arg_fragments) |*arg_fragment| {
-                            result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, arg_fragment);
+                            resolved_type = try resolvePeerType(resolved_type, arg_fragment.resolved_type);
+                        }
+
+                        for (arg_fragments) |*arg_fragment| {
                             std.debug.assert(arg_fragment.values.items.len == 1);
-                            // resolve peer types could have mutated it
-                            (try wasm_op.value.list.addOne()).* = arg_fragment.values.items[0];
+                            try self.promoteToTypeInPlace(arg_fragment, resolved_type);
+                            try wasm_op.value.list.append(arg_fragment.values.items[0]);
                             // TODO: more idiomatic move out data
                             arg_fragment.values.items[0] = Sexp{ .value = .void };
                         }
 
                         var handled = false;
+
+                        // FIXME: use a mapping to get the right type? e.g. a switch on type pointers would be nice
+                        // but iirc that is broken
                         inline for (&.{ "i32_", "i64_", "f32_", "f64_" }) |type_name| {
                             const float_type_but_int_op = @hasField(@TypeOf(builtin_op), "int_only") and type_name[0] == 'f';
-                            if (!float_type_but_int_op) {
-                                if (@hasField(@TypeOf(builtin_op), "result_type")) {
+                            if (!handled and !float_type_but_int_op) {
+                                const primitive_type: Type = @field(primitive_types, type_name);
+                                if (resolved_type == primitive_type) {
                                     const wasm_type_ops = @field(wat_syms.ops, type_name);
                                     op_name.* = @field(wasm_type_ops, builtin_op.wasm_name);
                                     handled = true;
-                                } else {
-                                    const primitive_type: Type = @field(primitive_types, type_name);
-                                    if (result.resolved_type == primitive_type) {
-                                        const wasm_type_ops = @field(wat_syms.ops, type_name);
-                                        op_name.* = @field(wasm_type_ops, builtin_op.wasm_name);
-                                        handled = true;
-                                    }
                                 }
                             }
                         }
@@ -1497,10 +1521,10 @@ const Compilation = struct {
                             std.debug.panic("unimplemented type resolution: '{s}'", .{result.resolved_type.name});
                         }
 
-                        // FIXME: the resolved_type is used to promote the arguments but
-                        // then here is swapped to mean the resolved result type, use better names
                         if (@hasField(@TypeOf(builtin_op), "result_type")) {
                             result.resolved_type = builtin_op.result_type;
+                        } else {
+                            result.resolved_type = resolved_type;
                         }
 
                         return result;
@@ -1535,7 +1559,8 @@ const Compilation = struct {
                         wasm_call.value.list.addOneAssumeCapacity().* = wat_syms.call;
                         wasm_call.value.list.addOneAssumeCapacity().* = intrinsic.wasm_sym;
 
-                        for (arg_fragments) |arg_fragment| {
+                        for (arg_fragments, node_desc.getInputs()) |*arg_fragment, input| {
+                            try self.promoteToTypeInPlace(arg_fragment, input.kind.primitive.value);
                             wasm_call.value.list.appendSliceAssumeCapacity(arg_fragment.values.items);
                             for (arg_fragment.values.items) |*subarg| {
                                 // FIXME: implement move much more clearly

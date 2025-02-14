@@ -311,6 +311,18 @@ pub const syms = struct {
     pub const string_equal = Sexp{ .value = .{ .symbol = builtin_nodes.string_equal.name() } };
     pub const string_join = Sexp{ .value = .{ .symbol = builtin_nodes.string_concat.name() } };
 
+    // TODO: add a test that all builtin nodes are covered here...
+    pub const make_vec3 = Sexp{ .value = .{ .symbol = builtin_nodes.make_vec3.name() } };
+    pub const vec3_x = Sexp{ .value = .{ .symbol = builtin_nodes.vec3_x.name() } };
+    pub const vec3_y = Sexp{ .value = .{ .symbol = builtin_nodes.vec3_y.name() } };
+    pub const vec3_z = Sexp{ .value = .{ .symbol = builtin_nodes.vec3_y.name() } };
+
+    pub const make_rgba = Sexp{ .value = .{ .symbol = builtin_nodes.make_rgba.name() } };
+    pub const rgba_r = Sexp{ .value = .{ .symbol = builtin_nodes.rgba_r.name() } };
+    pub const rgba_g = Sexp{ .value = .{ .symbol = builtin_nodes.rgba_g.name() } };
+    pub const rgba_b = Sexp{ .value = .{ .symbol = builtin_nodes.rgba_b.name() } };
+    pub const rgba_a = Sexp{ .value = .{ .symbol = builtin_nodes.rgba_a.name() } };
+
     pub const make_symbol = Sexp{ .value = .{ .symbol = builtin_nodes.make_symbol.name() } };
     pub const make_string = Sexp{ .value = .{ .symbol = builtin_nodes.make_string.name() } };
 

@@ -578,6 +578,21 @@ export function Ide(canvasElem, opts) {
 
             const scriptImports = {
                 env: {
+                    callUserFunc_R_vec3(func_id) {
+                        const funcInfo = userFuncs.get(func_id);
+
+                        if (funcInfo === undefined
+                         || funcInfo.func.inputs.length !== 0
+                         || funcInfo.func.outputs.length !== 1
+                         || funcInfo.func.outputs[0].type !== "vec3"
+                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
+
+                        const __grappl_make_vec3 = wasmResult.instance.exports["__grappl_make_vec3"];
+                        const { x, y, z } = funcInfo.func.impl();
+
+                        return __grappl_make_vec3(x, y, z);
+                    },
+
                     callUserFunc_JSON_R(func_id, json1) {
                         const funcInfo = userFuncs.get(func_id);
 
