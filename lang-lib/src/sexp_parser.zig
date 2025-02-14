@@ -44,6 +44,7 @@ pub const Parser = struct {
             unknownToken: Loc,
             OutOfMemory: void,
             badInteger: []const u8,
+            badFloat: []const u8,
         };
 
         const Code = error{
@@ -52,6 +53,7 @@ pub const Parser = struct {
             UnknownToken,
             OutOfMemory,
             BadInteger,
+            BadFloat,
         };
 
         pub fn code(self: @This()) Code {
@@ -62,6 +64,7 @@ pub const Parser = struct {
                 .unknownToken => Code.UnknownToken,
                 .OutOfMemory => Code.OutOfMemory,
                 .badInteger => Code.BadInteger,
+                .badFloat => Code.BadFloat,
             };
         }
 
@@ -94,6 +97,7 @@ pub const Parser = struct {
                 },
                 .OutOfMemory => _ = try writer.write("Fatal: System out of memory"),
                 .badInteger => _ = try writer.write("Fatal: parser thought this token was an integer: '{s}'"),
+                .badFloat => _ = try writer.write("Fatal: parser thought this token was a float: '{s}'"),
             };
         }
 
@@ -316,7 +320,24 @@ pub const Parser = struct {
                         return Error.ExpectedFraction;
                     },
                 },
-                .float => algo_state.unimplemented("float literals"),
+                .float => switch (c) {
+                    '0'...'9' => {},
+                    ' ', '\n', '\t', ')', '(' => {
+                        // TODO: document why this is unreachable
+                        const top = peek(&algo_state.stack) orelse unreachable;
+                        const last = try top.value.list.addOne();
+                        const value = std.fmt.parseFloat(f64, tok_slice) catch {
+                            out_diag.*.result = .{ .badFloat = tok_slice };
+                            return Error.BadFloat;
+                        };
+                        last.* = Sexp{ .value = .{ .float = value } };
+                        try algo_state.onNextCharAfterTok(out_diag);
+                    },
+                    else => {
+                        out_diag.*.result = .{ .unknownToken = algo_state.loc };
+                        return Error.UnknownToken;
+                    },
+                },
                 .hashed_tok_start => switch (c) {
                     't', 'f' => algo_state.state = .bool,
                     'v' => algo_state.state = .void,

@@ -27,6 +27,7 @@ pub fn build(b: *std.Build) void {
     const wabt = addWat2Wasm(b, target, optimize);
     const wasm2wat = wabt.wasm2wat;
 
+    // FIXME: make the default true for tests
     const small_intrinsics = b.option(bool, "small_intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse false;
 
     const intrinsics = b.addExecutable(.{

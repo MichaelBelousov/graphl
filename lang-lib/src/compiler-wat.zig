@@ -151,7 +151,6 @@ const arithmetic_builtins = .{
     .{
         .sym = syms.@">=",
         .wasm_name = "ge",
-        .int_only = true,
     },
     .{
         .sym = syms.@"and",
@@ -2537,6 +2536,7 @@ pub fn expectWasmOutput(
 test {
     // TODO: move to compiler/tests directory
     t.refAllDecls(@import("./compiler-tests-string.zig"));
+    t.refAllDecls(@import("./compiler-tests-types.zig"));
 }
 
 const bytebox = @import("bytebox");

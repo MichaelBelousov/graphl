@@ -688,6 +688,7 @@ export function Ide(canvasElem, opts) {
 
             compiled = await WebAssembly.instantiate(moduleBytes, scriptImports);
             lastCompiled = compiled;
+            // FIXME: check return type of functions and read string pointers
             const result = compiled.instance.exports["main"]();
 
             console.log("exec result", result);
