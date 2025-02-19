@@ -141,7 +141,6 @@ pub const Parser = struct {
             // unquote_splicing, // NOTE: uses ... not ',@' like in classic lisps
 
             string,
-            string_escaped_quote,
             between,
             line_comments,
             multiline_comment,
@@ -195,7 +194,6 @@ pub const Parser = struct {
                     },
                     ' ', '\t', '\n' => self.state = .between,
                     '"' => {
-                        // FIXME: hack
                         self.tok_start = self.loc.index + 1;
                         self.state = .string;
                     },
@@ -279,21 +277,22 @@ pub const Parser = struct {
                     },
                     else => {},
                 },
-                .string => switch (c) {
-                    // TODO: handle escapes
-                    '"' => {
-                        // FIXME: document why this is unreachable
-                        const top = peek(&algo_state.stack) orelse unreachable;
-                        const last = try top.value.list.addOne();
-                        last.* = Sexp{ .value = .{ .borrowedString = tok_slice } };
-                        algo_state.tok_start = algo_state.loc.index;
-                        algo_state.loc.increment(src[algo_state.loc.index]); // skip ending quote
-                        try algo_state.onNextCharAfterTok(out_diag);
-                    },
-                    '\\' => algo_state.state = .string_escaped_quote,
-                    else => {},
+                .string => {
+                    // HACK: just read it like its json lol (for now)
+                    const str_src = src[algo_state.tok_start - 1 ..];
+                    var parsed = try std.json.parseFromSlice([]const u8, alloc, str_src, .{ .allocate = .alloc_always });
+                    // FIXME: avoid double alloc
+                    const result = alloc.dupe(u8, parsed.value);
+                    defer parsed.deinit();
+                    // FIXME: document why this is unreachable
+                    const top = peek(&algo_state.stack) orelse unreachable;
+                    const last = try top.value.list.addOne();
+                    // FIXME: previously this was borrowed... might be an issue?
+                    last.* = Sexp{ .value = .{ .ownedString = result } };
+                    algo_state.tok_start = algo_state.loc.index;
+                    algo_state.loc.increment(src[algo_state.loc.index]); // skip ending quote
+                    try algo_state.onNextCharAfterTok(out_diag);
                 },
-                .string_escaped_quote => algo_state.state = .string,
                 .integer => switch (c) {
                     '0'...'9' => {},
                     '.' => algo_state.state = .float_fraction_start,

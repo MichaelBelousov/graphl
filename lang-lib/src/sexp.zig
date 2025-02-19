@@ -144,11 +144,10 @@ pub const Sexp = struct {
                 break :_ .{ .depth = syms.void.value.symbol.len };
             },
             .ownedString, .borrowedString => |v| _: {
-                // FIXME: doing this for now to make wat data encoding easier, but need to be
                 // able to specify via formating params
-                //try json.encodeJsonString(v, .{}, writer);
-                _ = try writer.print("\"{s}\"", .{v});
-                break :_ .{ .depth = v.len + 2 };
+                var cw = std.io.countingWriter(writer);
+                try json.encodeJsonString(v, .{}, cw.writer());
+                break :_ .{ .depth = cw.bytes_written + 2 };
             },
             .symbol => |v| _: {
                 try writer.print("{s}", .{v});
