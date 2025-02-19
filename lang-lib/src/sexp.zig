@@ -49,8 +49,9 @@ pub const Sexp = struct {
             },
             .void, .int, .float, .bool, .borrowedString, .symbol => {},
         }
-        if (self.label) |l|
-            alloc.free(l);
+        // FIXME: labels are assumed to be leakable!
+        // if (self.label) |l|
+        //     alloc.free(l);
     }
 
     /// returns an empty Sexp list
