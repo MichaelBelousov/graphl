@@ -947,10 +947,14 @@ const Compilation = struct {
         const MAX_ITERS = 128;
         while (fragment.resolved_type != target_type) : (i += 1) {
             if (i > MAX_ITERS) {
+                std.log.err("max iters resolving types: {s} -> {s}", .{ fragment.resolved_type.name, target_type.name });
                 std.debug.panic("max iters resolving types: {s} -> {s}", .{ fragment.resolved_type.name, target_type.name });
             }
 
-            std.debug.assert(fragment.values.items.len == 1);
+            if (fragment.values.items.len != 1) {
+                std.log.err("invalid fragment value count!", .{});
+                @panic("invalid fragment value count!");
+            }
 
             if (fragment.resolved_type == primitive_types.bool_) {
                 fragment.resolved_type = primitive_types.i32_;
@@ -978,8 +982,6 @@ const Compilation = struct {
             } else if (fragment.resolved_type == primitive_types.f32_) {
                 converter.* = wat_syms.ops.f64_.promote_f32;
                 fragment.resolved_type = primitive_types.f64_;
-            } else if (fragment.resolved_type == primitive_types.f64_) {
-                unreachable; // currently can't resolve higher than this
             } else {
                 std.log.err("unimplemented type promotion: {s} -> {s}", .{ fragment.resolved_type.name, target_type.name });
                 std.debug.panic("unimplemented type promotion: {s} -> {s}", .{ fragment.resolved_type.name, target_type.name });
@@ -1094,7 +1096,7 @@ const Compilation = struct {
         }
     };
 
-    const CompileExprError = std.mem.Allocator.Error || error{UndefinedSymbol};
+    const CompileExprError = std.mem.Allocator.Error || error{ UndefinedSymbol, UnimplementedMultiResultHostFunc };
 
     // TODO: figure out how to ergonomically skip compiling labeled exprs until they are referenced...
     // TODO: take a diagnostic
@@ -1141,6 +1143,7 @@ const Compilation = struct {
 
         var fragment = try self._compileExpr(code_sexp, context);
 
+        // FIXME: this comment is rotten, not true anymore
         // this inner wrapper marks labeled nodes to not free their contents until the context is ready
         if (code_sexp.label) |label| {
             // HACK: we know the label is "#!{s}"
@@ -1577,11 +1580,15 @@ const Compilation = struct {
                 // call host functions
                 {
                     const outputs = func_node_desc.getOutputs();
-                    result.resolved_type = if (outputs.len >= 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .value)
-                        outputs[0].kind.primitive.value
-                        // FIXME: bad type resolution for void returning functions
+                    // FIXME: horrible
+                    const is_pure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .value;
+                    const is_simple_impure = outputs.len == 2 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec and outputs[1].kind == .primitive and outputs[1].kind.primitive == .value;
+                    result.resolved_type = if (is_pure) outputs[0].kind.primitive.value
+                    // FIXME: bad type resolution for void returning functions
+                    else if (is_simple_impure)
+                        outputs[1].kind.primitive.value
                     else
-                        primitive_types.i32_;
+                        return error.UnimplementedMultiResultHostFunc;
 
                     try result.values.ensureTotalCapacityPrecise(1);
                     const wasm_call = result.values.addOneAssumeCapacity();
@@ -2475,6 +2482,157 @@ test "recurse" {
     }
 }
 
+// TODO: better name
+test "vec3 ref" {
+    var env = try Env.initDefault(t.allocator);
+    defer env.deinit(t.allocator);
+
+    var user_funcs = std.SinglyLinkedList(UserFunc){};
+
+    const user_func_1 = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
+    user_func_1.* = std.SinglyLinkedList(UserFunc).Node{
+        .data = .{ .id = 0, .node = .{
+            .name = "ModelCenter",
+            .inputs = try t.allocator.dupe(builtin.Pin, &.{
+                builtin.Pin{ .name = "", .kind = .{ .primitive = .exec } },
+            }),
+            .outputs = try t.allocator.dupe(builtin.Pin, &.{
+                builtin.Pin{ .name = "", .kind = .{ .primitive = .exec } },
+                builtin.Pin{ .name = "center", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+            }),
+        } },
+    };
+    defer t.allocator.destroy(user_func_1);
+    defer t.allocator.free(user_func_1.data.node.inputs);
+    defer t.allocator.free(user_func_1.data.node.outputs);
+    user_funcs.prepend(user_func_1);
+
+    {
+        var maybe_cursor = user_funcs.first;
+        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
+            _ = try env.addNode(t.allocator, builtin.basicMutableNode(&cursor.data.node));
+        }
+    }
+
+    var parsed = try SexpParser.parse(t.allocator,
+        \\(typeof (processInstance u64
+        \\                         vec3
+        \\                         vec3)
+        \\        string)
+        \\(define (processInstance MeshId
+        \\                         Origin
+        \\                         Rotation)
+        \\        (begin (ModelCenter) #!__label1
+        \\               (if (> (Vec3->X __label1)
+        \\                      2)
+        \\                   (begin (return "my_export"))
+        \\                   (begin (return "EXPORT2")))))
+    , null);
+    //std.debug.print("{any}\n", .{parsed});
+    // FIXME: there is some double-free happening here?
+    defer parsed.deinit(t.allocator);
+
+    // imports could be in arbitrary order so just slice it off cuz length will
+    // be the same
+    const expected_prelude =
+        \\(module
+        \\(import "env"
+        \\        "callUserFunc_R_vec3"
+        \\        (func $callUserFunc_R_vec3
+        \\              (param i32)
+        \\              (result i32)))
+        \\(global $__grappl_vstkp
+        \\        (mut i32)
+        \\        (i32.const 4096))
+        \\
+    ++ compiled_prelude ++
+        \\
+        \\
+    ;
+
+    const expected =
+        \\(func $ModelCenter
+        \\      (result i32)
+        \\      (call $callUserFunc_R_vec3
+        \\            (i32.const 0)))
+        \\(export "processInstance"
+        \\        (func $processInstance))
+        \\(type $typeof_processInstance
+        \\      (func (param i64)
+        \\            (param i32)
+        \\            (param i32)
+        \\            (result i32)))
+        \\(func $processInstance
+        \\      (param $param_MeshId
+        \\             i64)
+        \\      (param $param_Origin
+        \\             i32)
+        \\      (param $param_Rotation
+        \\             i32)
+        \\      (result i32)
+        \\      (local $__frame_start
+        \\             i32)
+        \\      (local $__lc0
+        \\             i32)
+        \\      (local $__lc1
+        \\             i32)
+        \\      (local $__lc2
+        \\             i32)
+        \\      (local.set $__frame_start
+        \\                 (i32.add (global.get $__grappl_vstkp)
+        \\                          (i32.const 8)))
+        \\      (i32.store (global.get $__grappl_vstkp)
+        \\                 (i32.const 9))
+        \\      (i32.store (i32.add (global.get $__grappl_vstkp)
+        \\                          (i32.const 4))
+        \\                 (i32.const 4))
+        \\      (local.set $__lc1
+        \\                 (global.get $__grappl_vstkp))
+        \\      (global.set $__grappl_vstkp
+        \\                  (i32.add (global.get $__grappl_vstkp)
+        \\                           (i32.const 8)))
+        \\      (i32.store (global.get $__grappl_vstkp)
+        \\                 (i32.const 7))
+        \\      (i32.store (i32.add (global.get $__grappl_vstkp)
+        \\                          (i32.const 4))
+        \\                 (i32.const 25))
+        \\      (local.set $__lc2
+        \\                 (global.get $__grappl_vstkp))
+        \\      (global.set $__grappl_vstkp
+        \\                  (i32.add (global.get $__grappl_vstkp)
+        \\                           (i32.const 8)))
+        \\      (call $ModelCenter)
+        \\      (local.set $__lc0)
+        \\      (if (result i32)
+        \\          (f64.gt (call $__grappl_vec3_x
+        \\                        (local.get $__lc0))
+        \\                  (f64.promote_f32 (f32.convert_i64_s (i64.extend_i32_s (i32.const 2)))))
+        \\          (then (local.get $__lc1))
+        \\          (else (local.get $__lc2)))
+        \\      (global.set $__grappl_vstkp
+        \\                  (local.get $__frame_start)))
+        \\(data (i32.const 0)
+        \\      "\09\00\00\00my_export")
+        \\(data (i32.const 21)
+        \\      "\07\00\00\00EXPORT2")
+        \\)
+    ;
+
+    var diagnostic = Diagnostic.init();
+    if (compile(t.allocator, &parsed, &env, &user_funcs, &diagnostic)) |wat| {
+        defer t.allocator.free(wat);
+        {
+            errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
+            try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
+        }
+        try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
+        //try expectWasmOutput(6, wat, "processInstance", .{3});
+    } else |err| {
+        std.debug.print("err {}:\n{}", .{ err, diagnostic });
+        try t.expect(false);
+    }
+}
+
 pub fn expectWasmOutput(
     comptime expected: anytype,
     wat: []const u8,
@@ -2537,6 +2695,7 @@ pub fn expectWasmOutput(
         .{ "callUserFunc_i32_R_i32", &.{ .I32, .I32 }, &.{.I32} },
         .{ "callUserFunc_i32_i32_R_i32", &.{ .I32, .I32, .I32 }, &.{.I32} },
         .{ "callUserFunc_bool_R", &.{ .I32, .I32 }, &.{} },
+        .{ "callUserFunc_u64_string_R_string", &.{ .I32, .I64, .I32, .I32 }, &.{.I32} },
     }) |import_desc| {
         const name, const params, const results = import_desc;
         try imports.addHostFunction(name, params, results, Local.nullHostFunc, null);
