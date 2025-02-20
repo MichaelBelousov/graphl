@@ -1233,6 +1233,7 @@ fn renderNode(
     graph_area: *dvui.ScrollAreaWidget,
     dataRectScale: dvui.RectScale,
 ) !Rect {
+    std.log.info("node={s}, tags.len={}", .{ node._desc.name(), node._desc.tags.len });
     const root_id_extra: usize = @intCast(node.id);
 
     // FIXME:  this is temp, go back to auto graph formatting
@@ -1343,8 +1344,51 @@ fn renderNode(
                 // } else switch (i.kind.primitive.value) {
                 //     grappl.primitive_types.i32_ => {
                 if (input.* != .link) {
+                    // FIXME: return early on handling...
                     // TODO: handle all possible types using switch or something
                     var handled = false;
+
+                    // FIXME: hack!
+                    // const is_text_field = input_desc.kind.primitive.value == grappl.primitive_types.string
+                    // //
+                    // and node._desc.tags.len > 0
+                    // //
+                    // and std.mem.eql(u8, node._desc.tags[0], "text");
+
+                    // FIXME: hack! should do some pin metadata instead
+                    const is_text_field = input_desc.kind.primitive.value == grappl.primitive_types.string
+                    //
+                    and std.mem.eql(u8, node._desc.name(), "JavaScript-Eval");
+
+                    if (is_text_field) {
+                        const empty = "";
+                        if (input.* != .value or input.value != .string) {
+                            input.* = .{ .value = .{ .string = empty } };
+                        }
+
+                        const text_result = try dvui.textEntry(
+                            @src(),
+                            .{
+                                .text = .{ .internal = .{} },
+                                .multiline = true,
+                                .break_lines = true,
+                            },
+                            .{ .id_extra = j, .min_size_content = .{ .h = 60, .w = 160 } },
+                        );
+                        defer text_result.deinit();
+                        if (dvui.firstFrame(text_result.data().id)) {
+                            text_result.textTyped(input.value.string, false);
+                        }
+                        // TODO: don't dupe this memory! use a dynamic buffer instead
+                        if (text_result.text_changed) {
+                            if (input.value.string.ptr != empty.ptr)
+                                gpa.free(input.value.string);
+                            input.value.string = try gpa.dupe(u8, text_result.getText());
+                        }
+
+                        handled = true;
+                        continue;
+                    }
 
                     inline for (.{ i32, i64, u32, u64, f32, f64 }) |T| {
                         const primitive_type = @field(grappl.primitive_types, @typeName(T) ++ "_");
