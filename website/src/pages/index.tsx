@@ -294,7 +294,7 @@ const Homepage = () => {
 
   const sample1 = (
     // TODO: e2e test these, for now it's being tested with manual duplication
-    // in the ide-prototype dir
+    // in the ide dir
     <Sample
       graphInitState={{
         notRemovable: true,
