@@ -283,6 +283,7 @@ test "free sexp" {
 test "write sexp" {
     var list = std.ArrayList(Sexp).init(std.testing.allocator);
     (try list.addOne()).* = Sexp{ .value = .{ .symbol = "hello" } };
+    (try list.addOne()).* = Sexp{ .value = .{ .borrowedString = "world\"" } };
     (try list.addOne()).* = Sexp{ .value = .{ .float = 0.5 } };
     (try list.addOne()).* = Sexp{ .value = .{ .float = 1.0 } };
     defer list.deinit();
@@ -295,7 +296,8 @@ test "write sexp" {
     const bytes_written = try root_sexp.write(writer, .{});
 
     try testing.expectEqualStrings(
-        \\(hello 0.5
+        \\(hello "world\""
+        \\       0.5
         \\       1)
     , buff[0..bytes_written]);
 }

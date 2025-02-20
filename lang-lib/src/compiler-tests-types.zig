@@ -79,7 +79,7 @@ test "compare double and int" {
         defer t.allocator.free(wat);
         {
             errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
+            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
         }
         try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
         // TODO: add parameter so we can cover the intrinsics behavior
@@ -141,7 +141,7 @@ test "compare int and int" {
         defer t.allocator.free(wat);
         {
             errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
+            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
         }
         try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
         // TODO: add parameter so we can cover the intrinsics behavior
@@ -208,7 +208,7 @@ test "compare with call" {
         defer t.allocator.free(wat);
         {
             errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
+            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
         }
         try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
         // TODO: add parameter so we can cover the intrinsics behavior
@@ -219,7 +219,7 @@ test "compare with call" {
     }
 }
 
-test "(u64,string) -> string" {
+test "(u64,string) -> string ;; return literal" {
     var user_funcs = std.SinglyLinkedList(compiler.UserFunc){};
 
     const user_func_1 = try t.allocator.create(std.SinglyLinkedList(compiler.UserFunc).Node);
@@ -290,6 +290,178 @@ test "(u64,string) -> string" {
         \\              (param i32)
         \\              (param i64)
         \\              (param i32)
+        \\              (result i32)))
+        \\(global $__grappl_vstkp
+        \\        (mut i32)
+        \\        (i32.const 4096))
+        \\
+    ++ compiled_prelude ++
+        \\
+        \\
+    ;
+
+    const expected =
+        \\(func $JavaScript-Eval
+        \\      (param $param_0
+        \\             i64)
+        \\      (param $param_1
+        \\             i32)
+        \\      (result i32)
+        \\      (call $callUserFunc_u64_string_R_string
+        \\            (i32.const 0)
+        \\            (local.get $param_0)
+        \\            (local.get $param_1)))
+        \\(export "processInstance"
+        \\        (func $processInstance))
+        \\(type $typeof_processInstance
+        \\      (func (param i64)
+        \\            (param i32)
+        \\            (param i32)
+        \\            (result i32)))
+        \\(func $processInstance
+        \\      (param $param_MeshId
+        \\             i64)
+        \\      (param $param_Origin
+        \\             i32)
+        \\      (param $param_Rotation
+        \\             i32)
+        \\      (result i32)
+        \\      (local $__frame_start
+        \\             i32)
+        \\      (local $__lc0
+        \\             i32)
+        \\      (local $__lc1
+        \\             i32)
+        \\      (local $__lc2
+        \\             i32)
+        \\      (local.set $__frame_start
+        \\                 (i32.add (global.get $__grappl_vstkp)
+        \\                          (i32.const 8)))
+        \\      (i32.store (global.get $__grappl_vstkp)
+        \\                 (i32.const 23))
+        \\      (i32.store (i32.add (global.get $__grappl_vstkp)
+        \\                          (i32.const 4))
+        \\                 (i32.const 4))
+        \\      (local.set $__lc0
+        \\                 (global.get $__grappl_vstkp))
+        \\      (global.set $__grappl_vstkp
+        \\                  (i32.add (global.get $__grappl_vstkp)
+        \\                           (i32.const 8)))
+        \\      (i32.store (global.get $__grappl_vstkp)
+        \\                 (i32.const 6))
+        \\      (i32.store (i32.add (global.get $__grappl_vstkp)
+        \\                          (i32.const 4))
+        \\                 (i32.const 43))
+        \\      (local.set $__lc2
+        \\                 (global.get $__grappl_vstkp))
+        \\      (global.set $__grappl_vstkp
+        \\                  (i32.add (global.get $__grappl_vstkp)
+        \\                           (i32.const 8)))
+        \\      (call $JavaScript-Eval
+        \\            (local.get $param_MeshId)
+        \\            (local.get $__lc0))
+        \\      (local.set $__lc1)
+        \\      (local.get $__lc2)
+        \\      (global.set $__grappl_vstkp
+        \\                  (local.get $__frame_start)))
+        \\(data (i32.const 0)
+        \\      "\17\00\00\00console.log(\22hello\22); 5")
+        \\(data (i32.const 39)
+        \\      "\06\00\00\00imodel")
+        \\)
+    ;
+
+    var diagnostic = Diagnostic.init();
+    if (compile(t.allocator, &parsed, &env, &user_funcs, &diagnostic)) |wat| {
+        defer t.allocator.free(wat);
+        {
+            errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
+            // TODO: spread this everywhere
+            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
+        }
+        try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
+        // HACK
+        try expectWasmOutput(0, wat, "processInstance", .{
+            0,
+            0,
+            0,
+        });
+    } else |err| {
+        std.debug.print("err {}:\n{}", .{ err, diagnostic });
+        try t.expect(false);
+    }
+}
+
+test "(u64,string) -> string ;; labeled return" {
+    var user_funcs = std.SinglyLinkedList(compiler.UserFunc){};
+
+    const user_func_1 = try t.allocator.create(std.SinglyLinkedList(compiler.UserFunc).Node);
+    user_func_1.* = std.SinglyLinkedList(compiler.UserFunc).Node{
+        .data = .{
+            .id = 0,
+            .node = .{
+                .name = "JavaScript-Eval",
+                .inputs = try t.allocator.dupe(builtin.Pin, &.{
+                    builtin.Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
+                    builtin.Pin{
+                        .name = "ElementId",
+                        .kind = .{ .primitive = .{ .value = primitive_types.u64_ } },
+                    },
+                    builtin.Pin{
+                        .name = "code",
+                        .kind = .{ .primitive = .{ .value = primitive_types.string } },
+                    },
+                }),
+                // FIXME: why dupe these? why not just not free them and they're static?
+                .outputs = try t.allocator.dupe(builtin.Pin, &.{
+                    builtin.Pin{ .name = "out", .kind = .{ .primitive = .exec } },
+                    builtin.Pin{
+                        .name = "json-result",
+                        .kind = .{ .primitive = .{ .value = primitive_types.string } },
+                    },
+                }),
+            },
+        },
+    };
+    defer t.allocator.destroy(user_func_1);
+    defer t.allocator.free(user_func_1.data.node.inputs);
+    defer t.allocator.free(user_func_1.data.node.outputs);
+    user_funcs.prepend(user_func_1);
+
+    var env = try Env.initDefault(t.allocator);
+    defer env.deinit(t.allocator);
+
+    {
+        var maybe_cursor = user_funcs.first;
+        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
+            _ = try env.addNode(t.allocator, builtin.basicMutableNode(&cursor.data.node));
+        }
+    }
+
+    var parsed = try SexpParser.parse(t.allocator,
+        \\(typeof (processInstance u64
+        \\                         vec3
+        \\                         vec3)
+        \\        string)
+        \\(define (processInstance MeshId
+        \\                         Origin
+        \\                         Rotation)
+        \\        (begin (JavaScript-Eval MeshId
+        \\                                "console.log(\"hello\"); 5") #!__label1
+        \\               (return __label1)))
+    , null);
+    //std.debug.print("{any}\n", .{parsed});
+    defer parsed.deinit(t.allocator);
+
+    // imports could be in arbitrary order so just slice it off cuz length will
+    // be the same
+    const expected_prelude =
+        \\(module
+        \\(import "env"
+        \\        "callUserFunc_u64_string_R_string"
+        \\        (func $callUserFunc_u64_string_R_string
+        \\              (param i32)
+        \\              (param i64)
         \\              (param i32)
         \\              (result i32)))
         \\(global $__grappl_vstkp
@@ -346,26 +518,15 @@ test "(u64,string) -> string" {
         \\      (global.set $__grappl_vstkp
         \\                  (i32.add (global.get $__grappl_vstkp)
         \\                           (i32.const 8)))
-        \\      (i32.store (global.get $__grappl_vstkp)
-        \\                 (i32.const 6))
-        \\      (i32.store (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const 4))
-        \\                 (i32.const 43))
-        \\      (local.set $__lc1
-        \\                 (global.get $__grappl_vstkp))
-        \\      (global.set $__grappl_vstkp
-        \\                  (i32.add (global.get $__grappl_vstkp)
-        \\                           (i32.const 8)))
         \\      (call $JavaScript-Eval
         \\            (local.get $param_MeshId)
         \\            (local.get $__lc0))
+        \\      (local.set $__lc1)
         \\      (local.get $__lc1)
         \\      (global.set $__grappl_vstkp
         \\                  (local.get $__frame_start)))
         \\(data (i32.const 0)
         \\      "\17\00\00\00console.log(\22hello\22); 5")
-        \\(data (i32.const 39)
-        \\      "\06\00\00\00imodel")
         \\)
     ;
 
@@ -374,7 +535,8 @@ test "(u64,string) -> string" {
         defer t.allocator.free(wat);
         {
             errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
+            // TODO: spread this everywhere
+            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
         }
         try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
         // HACK

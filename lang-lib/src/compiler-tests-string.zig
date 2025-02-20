@@ -106,7 +106,7 @@ test "(String-Equal \"hello\" \"hello\")" {
         defer t.allocator.free(wat);
         {
             errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
+            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
         }
         try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
         // TODO: add parameter so we can cover the intrinsics behavior
@@ -214,7 +214,7 @@ test "return join" {
         defer t.allocator.free(wat);
         {
             errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
+            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
         }
         try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
         // TODO: add parameter so we can cover the intrinsics behavior
@@ -299,7 +299,7 @@ test "return literal" {
         defer t.allocator.free(wat);
         {
             errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
+            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
         }
         try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
         // TODO: add parameter so we can cover the intrinsics behavior

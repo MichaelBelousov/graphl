@@ -1089,10 +1089,10 @@ const Compilation = struct {
         /// not const because we may be expanding the frame to include this value
         context: *ExprContext,
     ) CompileExprError!Fragment {
-        // FIXME: make std.log.debug work
         std.log.debug("compiling expr: '{}'\n", .{code_sexp});
         const alloc = self.arena.allocator();
 
+        // FIXME: destroy this
         // HACK: oh god this is bad...
         if (code_sexp.label != null and code_sexp.value == .list
         //
@@ -1132,14 +1132,28 @@ const Compilation = struct {
             // HACK: we know the label is "#!{s}"
             const entry = try context.label_map.getOrPut(label[2..]);
             std.debug.assert(!entry.found_existing);
-            const local_ptr_sym = try context.addLocal(alloc, fragment.resolved_type);
 
-            try fragment.values.ensureUnusedCapacity(1);
-            const set = fragment.values.addOneAssumeCapacity();
-            set.* = Sexp.newList(alloc);
-            try set.value.list.ensureTotalCapacityPrecise(2);
-            set.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
-            set.value.list.appendAssumeCapacity(local_ptr_sym);
+            // FIXME: this might break intrinsics which also use call?
+            const is_host_call = fragment.values.items.len > 0
+            //
+            and fragment.values.items[0].value == .list
+            //
+            and fragment.values.items[0].value.list.items.len > 0
+            //
+            and std.meta.eql(fragment.values.items[0].value.list.items[0], wat_syms.call);
+
+            // HACK: calls already have a local, use it
+            const local_ptr_sym = _: {
+                if (is_host_call) {
+                    std.debug.assert(fragment.values.items.len == 2);
+                    std.debug.assert(fragment.values.items[1].value == .list);
+                    std.debug.assert(fragment.values.items[1].value.list.items.len == 2);
+                    std.debug.assert(std.meta.eql(fragment.values.items[1].value.list.items[0], wat_syms.ops.@"local.set"));
+                    break :_ fragment.values.items[1].value.list.items[1];
+                } else {
+                    break :_ try context.addLocal(alloc, fragment.resolved_type);
+                }
+            };
 
             var ref_code = std.ArrayList(Sexp).init(alloc);
             try ref_code.ensureTotalCapacityPrecise(1);
@@ -1158,6 +1172,16 @@ const Compilation = struct {
                 .fragment = ref_code_fragment,
                 .sexp = code_sexp,
             };
+
+            // pop the result of the label
+            if (!is_host_call) {
+                try fragment.values.ensureUnusedCapacity(1);
+                const set = fragment.values.addOneAssumeCapacity();
+                set.* = Sexp.newList(alloc);
+                try set.value.list.ensureTotalCapacityPrecise(2);
+                set.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
+                set.value.list.appendAssumeCapacity(local_ptr_sym);
+            }
         }
 
         return fragment;
@@ -1573,14 +1597,20 @@ const Compilation = struct {
                     else
                         return error.UnimplementedMultiResultHostFunc;
 
-                    try result.values.ensureTotalCapacityPrecise(1);
+                    const local_result_ptr_sym = try context.addLocal(alloc, result.resolved_type);
+
+                    try result.values.ensureTotalCapacityPrecise(2);
                     const wasm_call = result.values.addOneAssumeCapacity();
                     wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                     try wasm_call.value.list.ensureTotalCapacityPrecise(2 + arg_fragments.len);
                     // FIXME: use types to determine
-                    wasm_call.value.list.addOneAssumeCapacity().* = wat_syms.call;
-                    // doesn't leak cuz arena, but maybe use separate arena?
-                    wasm_call.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{func.value.symbol}) } };
+                    wasm_call.value.list.appendAssumeCapacity(wat_syms.call);
+                    wasm_call.value.list.appendAssumeCapacity(Sexp{
+                        .value = .{
+                            // doesn't leak cuz arena, but maybe use separate arena?
+                            .symbol = try std.fmt.allocPrint(alloc, "${s}", .{func.value.symbol}),
+                        },
+                    });
 
                     for (arg_fragments) |arg_fragment| {
                         for (arg_fragment.values.items) |*fragment_part| {
@@ -1589,6 +1619,12 @@ const Compilation = struct {
                             fragment_part.* = Sexp{ .value = .void };
                         }
                     }
+
+                    const consume_result = result.values.addOneAssumeCapacity();
+                    consume_result.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                    try consume_result.value.list.ensureTotalCapacityPrecise(2);
+                    consume_result.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
+                    consume_result.value.list.appendAssumeCapacity(local_result_ptr_sym);
 
                     return result;
                 }
@@ -1708,7 +1744,7 @@ const Compilation = struct {
                     \\                    (i32.const {1}))
                     \\           (i32.const {2}))
                     \\
-                    \\;; store the stack pointer (cuz it points to the string)
+                    \\;; push the stack pointer (cuz it points to the string)
                     \\(local.set {3} (global.get $__grappl_vstkp))
                     \\
                     \\;; now increment the stack pointer to the next memory location
@@ -2564,7 +2600,7 @@ test "vec3 ref" {
         defer t.allocator.free(wat);
         {
             errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude, wat[0..expected_prelude.len]);
+            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
         }
         try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
         //try expectWasmOutput(6, wat, "processInstance", .{3});
