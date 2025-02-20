@@ -1892,6 +1892,7 @@ pub fn addParamOrResult(
     /// const node_basic_desc = if (kind == .params) graph.grappl_graph.entry_node_basic_desc else graph.grappl_graph.result_node_basic_desc;
     node_basic_desc: *helpers.BasicMutNodeDesc,
     comptime kind: enum { params, results },
+    // chooses one for you if null
     name: ?[]const u8,
     /// defaults to i32
     type_: ?grappl.Type,

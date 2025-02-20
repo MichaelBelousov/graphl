@@ -146,6 +146,7 @@ pub fn build(b: *std.Build) void {
 
         exe_unit_tests.root_module.addImport("dvui", dvui_dep.module("dvui_raylib"));
         exe_unit_tests.root_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
+        exe_unit_tests.root_module.addImport("bytebox", bytebox_dep.module("bytebox"));
 
         // Similar to creating the run step earlier, this exposes a `test` step to
         // the `zig build --help` menu, providing a way for the user to request

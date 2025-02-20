@@ -1,9 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+// FIXME: remove old garbage
 // import to export these public functions
-pub const graphToSource = @import("./graph_to_source.zig").graphToSource;
-pub const readSrc = @import("./ide_json_gen.zig").readSrc;
 
 pub const IntArrayHashMap = @import("./json_int_map.zig").IntArrayHashMap;
 pub const GraphBuilder = @import("./graph_to_source.zig").GraphBuilder;
@@ -29,7 +28,7 @@ pub const compiler = @import("./compiler-wat.zig");
 // pub const compiler_wasm = @import("./compiler-wasm.zig");
 
 pub const std_options: std.Options = .{
-    .log_level = if (builtin.is_test) .Debug else std.log.default_level,
+    .log_level = if (builtin.is_test) .debug else std.log.default_level,
     .logFn = std.log.defaultLog,
 };
 
