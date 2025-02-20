@@ -1073,7 +1073,9 @@ const Compilation = struct {
             try local_sexp.value.list.ensureTotalCapacityPrecise(3);
             local_sexp.value.list.addOneAssumeCapacity().* = wat_syms.local;
             local_sexp.value.list.addOneAssumeCapacity().* = sym;
-            local_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = type_.wasm_type.? } };
+            local_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = type_.wasm_type orelse {
+                std.debug.panic("local needs wasm_type but there is none in type '{s}'", .{type_.name});
+            } } };
 
             return sym;
         }
@@ -1126,6 +1128,43 @@ const Compilation = struct {
 
         var fragment = try self._compileExpr(code_sexp, context);
 
+        // FIXME: this might break intrinsics which also use call?
+        const is_host_call = fragment.values.items.len > 0
+        //
+        and fragment.values.items[0].value == .list
+        //
+        and fragment.values.items[0].value.list.items.len > 1
+        //
+        and std.meta.eql(fragment.values.items[0].value.list.items[0], wat_syms.call)
+        //
+        and fragment.values.items[0].value.list.items[1].value == .symbol
+        //
+        and _: {
+            // FIXME: figure out a better calling convention
+            // FIXME: slow, gross, use better container
+            var next = self.user_context.funcs.first;
+            const callee = fragment.values.items[0].value.list.items[1].value.symbol;
+            while (next) |node| : (next = node.next) {
+                if (std.mem.eql(u8, node.data.node.name, callee))
+                    break :_ true;
+            }
+            break :_ false;
+        };
+
+        // FIXME: this might break intrinsics which also use call?
+        const is_captured_host_call = is_host_call
+        //
+        and fragment.values.items.len > 1
+        //
+        and fragment.values.items[1].value.list.items.len > 0
+        //
+        and std.meta.eql(fragment.values.items[1].value.list.items[0], wat_syms.ops.@"local.set");
+
+        if (is_host_call and !is_captured_host_call) {
+            // ignore a label if it is a void returning host function
+            return fragment;
+        }
+
         // FIXME: this comment is rotten, not true anymore
         // this inner wrapper marks labeled nodes to not free their contents until the context is ready
         if (code_sexp.label) |label| {
@@ -1133,18 +1172,9 @@ const Compilation = struct {
             const entry = try context.label_map.getOrPut(label[2..]);
             std.debug.assert(!entry.found_existing);
 
-            // FIXME: this might break intrinsics which also use call?
-            const is_host_call = fragment.values.items.len > 0
-            //
-            and fragment.values.items[0].value == .list
-            //
-            and fragment.values.items[0].value.list.items.len > 0
-            //
-            and std.meta.eql(fragment.values.items[0].value.list.items[0], wat_syms.call);
-
-            // HACK: calls already have a local, use it
+            // HACK: calls might already have a local, use it
             const local_ptr_sym = _: {
-                if (is_host_call) {
+                if (is_captured_host_call) {
                     std.debug.assert(fragment.values.items.len == 2);
                     std.debug.assert(fragment.values.items[1].value == .list);
                     std.debug.assert(fragment.values.items[1].value.list.items.len == 2);
@@ -1174,7 +1204,7 @@ const Compilation = struct {
             };
 
             // pop the result of the label
-            if (!is_host_call) {
+            if (!is_captured_host_call) {
                 try fragment.values.ensureUnusedCapacity(1);
                 const set = fragment.values.addOneAssumeCapacity();
                 set.* = Sexp.newList(alloc);
@@ -1360,6 +1390,9 @@ const Compilation = struct {
                 };
 
                 const arg_fragments = try alloc.alloc(Fragment, v.items.len - 1);
+                // initialize as empty to prevent errdefer from freeing corrupt data
+                for (arg_fragments) |*frag| frag.* = Fragment{ .values = std.ArrayList(Sexp).init(alloc) };
+
                 // TODO: also undo context state
                 errdefer for (arg_fragments) |*frag| frag.deinit(alloc);
                 defer alloc.free(arg_fragments);
@@ -1502,6 +1535,10 @@ const Compilation = struct {
                         }
 
                         for (arg_fragments) |*arg_fragment| {
+                            // FIXME: not sure I can fix this until a rewrite...
+                            if (arg_fragment.values.items.len != 1) {
+                                std.debug.print("bad arg_frag: {}\n", .{arg_fragment.*});
+                            }
                             std.debug.assert(arg_fragment.values.items.len == 1);
                             try self.promoteToTypeInPlace(arg_fragment, resolved_type);
                             try wasm_op.value.list.append(arg_fragment.values.items[0]);
@@ -1554,7 +1591,9 @@ const Compilation = struct {
                     result.resolved_type = outputs[0].kind.primitive.value;
 
                     if (func.value.symbol.ptr == node_desc.name().ptr) {
-                        try result.values.ensureTotalCapacityPrecise(1);
+                        const instruct_count: usize = if (result.resolved_type == builtin.empty_type) 1 else 2;
+                        try result.values.ensureTotalCapacityPrecise(instruct_count);
+
                         const wasm_call = result.values.addOneAssumeCapacity();
                         wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
 
@@ -1578,6 +1617,17 @@ const Compilation = struct {
                             }
                         }
 
+                        // FIXME: do any intrinsics need to be recalled without labels?
+                        // if (result.resolved_type != builtin.empty_type) {
+                        //     const local_result_ptr_sym = try context.addLocal(alloc, result.resolved_type);
+
+                        //     const consume_result = result.values.addOneAssumeCapacity();
+                        //     consume_result.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                        //     try consume_result.value.list.ensureTotalCapacityPrecise(2);
+                        //     consume_result.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
+                        //     consume_result.value.list.appendAssumeCapacity(local_result_ptr_sym);
+                        // }
+
                         return result;
                     }
                 }
@@ -1587,19 +1637,22 @@ const Compilation = struct {
                 // call user functions
                 {
                     const outputs = func_node_desc.getOutputs();
+
                     // FIXME: horrible
                     const is_pure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .value;
-                    const is_simple_impure = outputs.len == 2 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec and outputs[1].kind == .primitive and outputs[1].kind.primitive == .value;
-                    result.resolved_type = if (is_pure) outputs[0].kind.primitive.value
-                    // FIXME: bad type resolution for void returning functions
-                    else if (is_simple_impure)
+                    const is_simple_0_out_impure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec;
+                    const is_simple_1_out_impure = outputs.len == 2 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec and outputs[1].kind == .primitive and outputs[1].kind.primitive == .value;
+
+                    result.resolved_type = if (is_pure) outputs[0].kind.primitive.value else if (is_simple_0_out_impure)
+                        builtin.empty_type
+                    else if (is_simple_1_out_impure)
                         outputs[1].kind.primitive.value
                     else
                         return error.UnimplementedMultiResultHostFunc;
 
-                    const local_result_ptr_sym = try context.addLocal(alloc, result.resolved_type);
+                    const instruct_count: usize = if (result.resolved_type == builtin.empty_type) 1 else 2;
 
-                    try result.values.ensureTotalCapacityPrecise(2);
+                    try result.values.ensureTotalCapacityPrecise(instruct_count);
                     const wasm_call = result.values.addOneAssumeCapacity();
                     wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
                     try wasm_call.value.list.ensureTotalCapacityPrecise(2 + arg_fragments.len);
@@ -1620,11 +1673,15 @@ const Compilation = struct {
                         }
                     }
 
-                    const consume_result = result.values.addOneAssumeCapacity();
-                    consume_result.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                    try consume_result.value.list.ensureTotalCapacityPrecise(2);
-                    consume_result.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
-                    consume_result.value.list.appendAssumeCapacity(local_result_ptr_sym);
+                    if (result.resolved_type != builtin.empty_type) {
+                        const local_result_ptr_sym = try context.addLocal(alloc, result.resolved_type);
+
+                        const consume_result = result.values.addOneAssumeCapacity();
+                        consume_result.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                        try consume_result.value.list.ensureTotalCapacityPrecise(2);
+                        consume_result.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
+                        consume_result.value.list.appendAssumeCapacity(local_result_ptr_sym);
+                    }
 
                     return result;
                 }
@@ -2276,14 +2333,13 @@ test "compile big" {
     const expected_prelude =
         \\(module
         \\(import "env"
-        \\        "callUserFunc_i32_R"
-        \\        (func $callUserFunc_i32_R
-        \\              (param i32)
-        \\              (param i32)))
-        \\(import "env"
         \\        "callUserFunc_code_R"
         \\        (func $callUserFunc_code_R
         \\              (param i32)
+        \\              (param i32)))
+        \\(import "env"
+        \\        "callUserFunc_i32_R"
+        \\        (func $callUserFunc_i32_R
         \\              (param i32)
         \\              (param i32)))
         \\(global $__grappl_vstkp
@@ -2299,12 +2355,9 @@ test "compile big" {
         \\(func $sql
         \\      (param $param_0
         \\             i32)
-        \\      (param $param_1
-        \\             i32)
         \\      (call $callUserFunc_code_R
         \\            (i32.const 1)
-        \\            (local.get $param_0)
-        \\            (local.get $param_1)))
+        \\            (local.get $param_0)))
         \\(func $Confetti
         \\      (param $param_0
         \\             i32)
@@ -2322,23 +2375,29 @@ test "compile big" {
         \\      (result i32)
         \\      (local $local_a
         \\             i32)
+        \\      (local $__frame_start
+        \\             i32)
+        \\      (local.set $__frame_start
+        \\                 (global.get $__grappl_vstkp))
         \\      (call $sql
         \\            (i32.const 74)
         \\            (i32.const 8))
         \\      (call $sql
         \\            (i32.const 23)
-        \\            (i32.const 136))
+        \\            (i32.const 124))
         \\      (local.set $local_a
         \\                 (i32.const 1))
         \\      (call $Confetti
         \\            (i32.const 100))
         \\      (call $__grappl_max
         \\            (local.get $param_x)
-        \\            (local.get $local_a)))
+        \\            (local.get $local_a))
+        \\      (global.set $__grappl_vstkp
+        \\                  (local.get $__frame_start)))
         \\(data (i32.const 0)
-        \\      "J\00\00\00\00\00\00\00{\22entry\22:[{\22symbol\22:\22-\22},{\22symbol\22:\22f\22},[{\22symbol\22:\22*\22},2,3]],\22labels\22:{}}")
-        \\(data (i32.const 128)
-        \\      "\17\00\00\00\00\00\00\00{\22entry\22:4,\22labels\22:{}}")
+        \\      "J\00\00\00{\22entry\22:[{\22symbol\22:\22-\22},{\22symbol\22:\22f\22},[{\22symbol\22:\22*\22},2,3]],\22labels\22:{}}")
+        \\(data (i32.const 116)
+        \\      "\17\00\00\00{\22entry\22:4,\22labels\22:{}}")
         \\(export "deep"
         \\        (func $deep))
         \\(type $typeof_deep
@@ -2351,10 +2410,16 @@ test "compile big" {
         \\      (param $param_b
         \\             f32)
         \\      (result f32)
+        \\      (local $__frame_start
+        \\             i32)
+        \\      (local.set $__frame_start
+        \\                 (global.get $__grappl_vstkp))
         \\      (f32.add (f32.div (local.get $param_a)
         \\                        (f32.convert_i64_s (i64.extend_i32_s (i32.const 10))))
         \\               (f32.mul (local.get $param_a)
-        \\                        (local.get $param_b))))
+        \\                        (local.get $param_b)))
+        \\      (global.set $__grappl_vstkp
+        \\                  (local.get $__frame_start)))
         \\(export "ifs"
         \\        (func $ifs))
         \\(type $typeof_ifs
@@ -2364,6 +2429,10 @@ test "compile big" {
         \\      (param $param_a
         \\             i32)
         \\      (result i32)
+        \\      (local $__frame_start
+        \\             i32)
+        \\      (local.set $__frame_start
+        \\                 (global.get $__grappl_vstkp))
         \\      (if (result i32)
         \\          (local.get $param_a)
         \\          (then (call $Confetti
@@ -2372,14 +2441,20 @@ test "compile big" {
         \\                         (i32.const 3)))
         \\          (else (call $Confetti
         \\                      (i32.const 200))
-        \\                (i32.const 5))))
+        \\                (i32.const 5)))
+        \\      (global.set $__grappl_vstkp
+        \\                  (local.get $__frame_start)))
         \\)
     ;
 
     var diagnostic = Diagnostic.init();
     if (compile(t.allocator, &parsed, &env, &user_funcs, &diagnostic)) |wat| {
+        defer t.allocator.free(wat);
+        {
+            errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
+            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
+        }
         try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
-        t.allocator.free(wat);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);

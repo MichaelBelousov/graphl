@@ -1265,7 +1265,7 @@ test "big local built graph" {
 
     var text = std.ArrayList(u8).init(a);
     defer text.deinit();
-    _ = try sexp.write(text.writer());
+    _ = try sexp.write(text.writer(), .{});
 
     try testing.expectEqualStrings(
         \\(typeof (main)
@@ -1372,7 +1372,7 @@ test "empty graph twice" {
 
     var text = std.ArrayList(u8).init(a);
     defer text.deinit();
-    _ = try second_sexp.write(text.writer());
+    _ = try second_sexp.write(text.writer(), .{});
 
     try testing.expectEqualStrings(
         \\(typeof (main)

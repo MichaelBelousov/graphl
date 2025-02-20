@@ -151,6 +151,22 @@
                     return { x: 0, y: 0, z: 0 };
                   },
                 },
+                "JavaScript-Eval": {
+                  inputs: [
+                    { name: "elementId", type: "u64" },
+                    { name: "code", type: "string" },
+                  ],
+                  outputs: [{ name: "JSON result", type: "string" }],
+                  /**
+                   * @param {bigint} elemId
+                   * @param {string} code
+                   * @returns {string}
+                   */
+                  impl(elemId, code) {
+                    'use strict'
+                    return JSON.stringify(eval(code) ?? "");
+                  }
+                },
               },
               menus: [{
                 name: "Test",

@@ -122,6 +122,8 @@ export function Ide(canvasElem, opts) {
         }
     `;
 
+    /** @typedef {WebAssembly.WebAssemblyInstantiatedSource & { instance: { exports: { memory: { buffer: ArrayBuffer} }}}} WasmInstWithMemory */
+
     let webgl2 = true;
     let gl;
     let indexBuffer;
@@ -140,12 +142,13 @@ export function Ide(canvasElem, opts) {
         shared: true,
     });
     let wasmOpt;
+    /** @type {WasmInstWithMemory} */
     let wasmResult;
     let log_string = '';
     let hidden_input;
     let touches = [];  // list of tuple (touch identifier, initial index)
     let textInputRect = [];  // x y w h of on screen keyboard editing position, or empty if none
-    /** @type {undefined | WebAssembly.WebAssemblyInstantiatedSource} */
+    /** @type {undefined | WasmInstWithMemory} */
     let lastCompiled;
 
 
@@ -574,6 +577,7 @@ export function Ide(canvasElem, opts) {
 
             const moduleBytes = compileWat_binaryen(data);
 
+            /** @type {WasmInstWithMemory} */
             let compiled;
 
             const scriptImports = {
@@ -601,7 +605,7 @@ export function Ide(canvasElem, opts) {
                         return funcInfo.func.impl(json1);
                     },
 
-                    callUserFunc_code_R(func_id, len, ptr) {
+                    callUserFunc_code_R(func_id, i1) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
@@ -610,13 +614,14 @@ export function Ide(canvasElem, opts) {
                          || funcInfo.func.outputs.length !== 0
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
-                        const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr, len));
+                        const len = new DataView(compiled.instance.exports.memory.buffer, i1, 4).getUint32(0, true);
+                        const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr + 4, len));
                         const code = JSON.parse(str);
 
                         funcInfo.func.impl(code);
                     },
 
-                    callUserFunc_code_R_string(func_id, len, ptr) {
+                    callUserFunc_code_R_string(func_id, i1) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
@@ -626,15 +631,22 @@ export function Ide(canvasElem, opts) {
                          || funcInfo.func.outputs[0].type !== "string"
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
-                        const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr, len));
+                        const len = new DataView(compiled.instance.exports.memory.buffer, i1, 4).getUint32(0, true);
+                        const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr + 4, len));
                         const code = JSON.parse(str);
 
                         const resultStr = funcInfo.func.impl(code);
-                        // FIXME: actually return strings!
-                        //utf8encoder.encodeInto(JSON.stringify(result), resultsBuffer());
+
+                        // FIXME: leaks!
+                        const resultPtr = compiled.instance.exports.__grappl_alloc(resultStr.length + 4);
+                        const resultView = new DataView(compiled.instance.exports.memory.buffer, resultPtr, resultStr.length + 4);
+                        resultView.setUint32(0, resultStr.length, true);
+                        assert(utf8encoder.encodeInto(resultStr, new Uint8Array(compiled.instance.exports.memory.buffer, resultPtr + 4, resultStr.length)).written === resultStr.length);
+                        return resultPtr;
                     },
 
-                    callUserFunc_string_R(func_id, len, ptr) {
+                        // FIXME: this is broken!
+                    callUserFunc_string_R(func_id, i1) {
                         const funcInfo = userFuncs.get(func_id);
 
                         if (funcInfo === undefined
@@ -643,7 +655,8 @@ export function Ide(canvasElem, opts) {
                          || funcInfo.func.outputs.length !== 0
                         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
 
-                        const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr, len));
+                        const len = new DataView(compiled.instance.exports.memory.buffer, i1, 4).getUint32(0, true);
+                        const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr + 4, len));
                         funcInfo.func.impl(str);
                     },
 
@@ -698,9 +711,41 @@ export function Ide(canvasElem, opts) {
 
                         return funcInfo.func.impl(i1, i2);
                     },
+
+                    /**
+                     * @param {bigint} i1
+                     * @param {number} i2
+                     * @return {number}
+                     */
+                    callUserFunc_u64_string_R_string(func_id, i1, i2) {
+                        const funcInfo = userFuncs.get(func_id);
+
+                        if (funcInfo === undefined
+                         || funcInfo.func.inputs.length !== 2
+                         || funcInfo.func.inputs[0].type !== "u32"
+                         || funcInfo.func.inputs[1].type !== "string"
+                         || funcInfo.func.outputs.length !== 1
+                         || funcInfo.func.outputs[0].type !== "string"
+                        ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
+
+                        const len = new DataView(compiled.instance.exports.memory.buffer, i2, 4).getUint32(0, true);
+                        const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr + 4, len));
+                        const code = JSON.parse(str);
+
+                        const resultStr = funcInfo.func.impl(code);
+
+                        // FIXME: leaks!
+                        const resultPtr = compiled.instance.exports.__grappl_alloc(resultStr.length + 4);
+                        const resultView = new DataView(compiled.instance.exports.memory.buffer, resultPtr, resultStr.length + 4);
+                        resultView.setUint32(0, resultStr.length, true);
+                        assert(utf8encoder.encodeInto(resultStr, new Uint8Array(compiled.instance.exports.memory.buffer, resultPtr + 4, resultStr.length)).written === resultStr.length);
+
+                        return resultPtr;
+                    },
                 },
             };
 
+            // @ts-ignore
             compiled = await WebAssembly.instantiate(moduleBytes, scriptImports);
             lastCompiled = compiled;
             // FIXME: check return type of functions and read string pointers
