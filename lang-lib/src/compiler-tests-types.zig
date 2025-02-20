@@ -307,14 +307,11 @@ test "(u64,string) -> string" {
         \\             i64)
         \\      (param $param_1
         \\             i32)
-        \\      (param $param_2
-        \\             i32)
         \\      (result i32)
         \\      (call $callUserFunc_u64_string_R_string
         \\            (i32.const 0)
         \\            (local.get $param_0)
-        \\            (local.get $param_1)
-        \\            (local.get $param_2)))
+        \\            (local.get $param_1)))
         \\(export "processInstance"
         \\        (func $processInstance))
         \\(type $typeof_processInstance

@@ -1579,7 +1579,7 @@ const Compilation = struct {
                     try wasm_call.value.list.ensureTotalCapacityPrecise(2 + arg_fragments.len);
                     // FIXME: use types to determine
                     wasm_call.value.list.addOneAssumeCapacity().* = wat_syms.call;
-                    // FIXME: leak
+                    // doesn't leak cuz arena, but maybe use separate arena?
                     wasm_call.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{func.value.symbol}) } };
 
                     for (arg_fragments) |arg_fragment| {
@@ -1852,17 +1852,13 @@ const Compilation = struct {
                 }
 
                 for (_self.params) |param| {
-                    // FIXME/HACK: for some reason I use 2 params to pass string/code pointers?
-                    const requires_2_params = param == primitive_types.string or param == primitive_types.code;
-                    for (0..if (requires_2_params) 2 else 1) |_| {
-                        const slot = signature.value.list.addOneAssumeCapacity();
-                        slot.* = Sexp.newList(a);
-                        try slot.value.list.ensureTotalCapacityPrecise(2);
-                        slot.value.list.appendAssumeCapacity(wat_syms.param);
-                        slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = param.wasm_type orelse {
-                            std.debug.panic("type '{s}' has no intrinsic wasm type!", .{param.name});
-                        } } });
-                    }
+                    const slot = signature.value.list.addOneAssumeCapacity();
+                    slot.* = Sexp.newList(a);
+                    try slot.value.list.ensureTotalCapacityPrecise(2);
+                    slot.value.list.appendAssumeCapacity(wat_syms.param);
+                    slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = param.wasm_type orelse {
+                        std.debug.panic("type '{s}' has no intrinsic wasm type!", .{param.name});
+                    } } });
                 }
 
                 for (_self.results) |result_| {
@@ -1980,55 +1976,34 @@ const Compilation = struct {
                 var user_func_sexp = Sexp.newList(alloc);
                 const thunk_len = (1 // func keyword
                 + 1 // function name
-                + 2 * params.len // twice in case they are all strings
-                + 1 * results.len + 1 // call binding
+                + params.len + 1 * results.len + 1 // call binding
                 );
                 try user_func_sexp.value.list.ensureTotalCapacityPrecise(thunk_len);
                 user_func_sexp.value.list.addOneAssumeCapacity().* = wat_syms.func;
                 user_func_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
 
-                {
-                    var i: usize = 0;
-                    for (params) |param| {
-                        const param_type = param.asPrimitivePin().value;
+                for (params, 0..) |param, i| {
+                    var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
+                    wasm_param.* = Sexp.newList(alloc);
+                    try wasm_param.value.list.ensureTotalCapacityPrecise(3);
 
-                        // FIXME/HACK: string/code should be a pointer, so don't pass it as two params
-                        const param_actual_count: usize =
-                            if (param_type == primitive_types.string or param_type == primitive_types.code)
-                            2
-                        else
-                            1;
-
-                        for (0..param_actual_count) |_| {
-                            var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
-                            wasm_param.* = Sexp.newList(alloc);
-                            try wasm_param.value.list.ensureTotalCapacityPrecise(3);
-
-                            wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.param;
-                            wasm_param.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
-                            // FIXME/HACK: this doesn't work for many types!
-                            wasm_param.value.list.addOneAssumeCapacity().* = if (param.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
-
-                            i += 1;
-                        }
-                    }
+                    wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.param;
+                    wasm_param.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
+                    // FIXME/HACK: this doesn't work for many types!
+                    wasm_param.value.list.addOneAssumeCapacity().* = if (param.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
                 }
 
-                {
-                    var i: usize = 0;
-                    for (results) |result| {
-                        //const result_type = result.asPrimitivePin().value;
+                for (results, 0..) |result, i| {
+                    _ = i;
+                    //const result_type = result.asPrimitivePin().value;
 
-                        var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
-                        wasm_param.* = Sexp.newList(alloc);
-                        try wasm_param.value.list.ensureTotalCapacityPrecise(2);
+                    var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
+                    wasm_param.* = Sexp.newList(alloc);
+                    try wasm_param.value.list.ensureTotalCapacityPrecise(2);
 
-                        wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.result;
-                        // FIXME/HACK: this doesn't work for many types!
-                        wasm_param.value.list.addOneAssumeCapacity().* = if (result.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
-
-                        i += 1;
-                    }
+                    wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.result;
+                    // FIXME/HACK: this doesn't work for many types!
+                    wasm_param.value.list.addOneAssumeCapacity().* = if (result.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
                 }
 
                 const call_body = user_func_sexp.value.list.addOneAssumeCapacity();
@@ -2036,8 +2011,7 @@ const Compilation = struct {
                 try call_body.value.list.ensureTotalCapacityPrecise(1 // call keyword
                 + 1 // thunk name
                 + 1 // func id
-                + 2 * params.len // twice in case they are strings
-                );
+                + params.len);
 
                 call_body.value.list.addOneAssumeCapacity().* = wat_syms.call;
                 call_body.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = thunk_name } };
@@ -2047,29 +2021,13 @@ const Compilation = struct {
                 func_id.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
                 func_id.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(user_func.data.id) } };
 
-                {
-                    var i: usize = 0;
-                    for (params) |param| {
-                        const param_type = param.asPrimitivePin().value;
-
-                        // FIXME/HACK: string/code should be a pointer, so don't pass it as two params
-                        const param_actual_count: usize =
-                            if (param_type == primitive_types.string or param_type == primitive_types.code)
-                            2
-                        else
-                            1;
-
-                        for (0..param_actual_count) |_| {
-                            const wasm_local = call_body.value.list.addOneAssumeCapacity();
-                            wasm_local.* = Sexp.newList(alloc);
-                            try wasm_local.value.list.ensureTotalCapacityPrecise(2);
-                            // FIXME: does this work for non-primitives?
-                            wasm_local.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.get";
-                            wasm_local.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
-
-                            i += 1;
-                        }
-                    }
+                for (params, 0..) |_, i| {
+                    const wasm_local = call_body.value.list.addOneAssumeCapacity();
+                    wasm_local.* = Sexp.newList(alloc);
+                    try wasm_local.value.list.ensureTotalCapacityPrecise(2);
+                    // FIXME: does this work for non-primitives?
+                    wasm_local.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.get";
+                    wasm_local.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
                 }
 
                 (try self.module_body.addOne()).* = user_func_sexp;
