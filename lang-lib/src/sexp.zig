@@ -76,34 +76,34 @@ pub const Sexp = struct {
         depth: usize = 0,
     };
 
-    fn writeModule(form: std.ArrayList(Sexp), writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
+    fn writeModule(form: std.ArrayList(Sexp), writer: anytype, state: WriteState, comptime opts: WriteOptions) @TypeOf(writer).Error!WriteState {
         for (form.items, 0..) |item, i| {
             if (i != 0) _ = try writer.write("\n");
             try writer.writeByteNTimes(' ', state.depth);
-            _ = try item._write(writer, .{ .depth = state.depth });
+            _ = try item._write(writer, .{ .depth = state.depth }, opts);
         }
 
         return .{ .depth = 0 };
     }
 
-    fn writeList(form: std.ArrayList(Sexp), writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
+    fn writeList(form: std.ArrayList(Sexp), writer: anytype, state: WriteState, comptime opts: WriteOptions) @TypeOf(writer).Error!WriteState {
         var depth: usize = 0;
 
         depth += try writer.write("(");
 
         if (form.items.len >= 1) {
-            depth += (try form.items[0]._write(writer, .{ .depth = state.depth + depth })).depth;
+            depth += (try form.items[0]._write(writer, .{ .depth = state.depth + depth }, opts)).depth;
         }
 
         if (form.items.len >= 2) {
             depth += try writer.write(" ");
 
-            _ = try form.items[1]._write(writer, .{ .depth = state.depth + depth });
+            _ = try form.items[1]._write(writer, .{ .depth = state.depth + depth }, opts);
 
             for (form.items[2..]) |item| {
                 _ = try writer.write("\n");
                 try writer.writeByteNTimes(' ', state.depth + depth);
-                _ = try item._write(writer, .{ .depth = state.depth + depth });
+                _ = try item._write(writer, .{ .depth = state.depth + depth }, opts);
             }
         }
 
@@ -125,11 +125,11 @@ pub const Sexp = struct {
         }
     };
 
-    fn _write(self: Self, writer: anytype, state: WriteState) @TypeOf(writer).Error!WriteState {
+    fn _write(self: Self, writer: anytype, state: WriteState, comptime opts: WriteOptions) @TypeOf(writer).Error!WriteState {
         // TODO: calculate stack space requirements?
         const write_state_or_err: @TypeOf(writer).Error!WriteState = switch (self.value) {
-            .module => |v| writeModule(v, writer, state),
-            .list => |v| writeList(v, writer, state),
+            .module => |v| writeModule(v, writer, state, opts),
+            .list => |v| writeList(v, writer, state, opts),
             inline .float, .int => |v| _: {
                 var counting_writer = std.io.countingWriter(writer);
                 try counting_writer.writer().print("{d}", .{v});
@@ -147,7 +147,25 @@ pub const Sexp = struct {
             .ownedString, .borrowedString => |v| _: {
                 // able to specify via formating params
                 var cw = std.io.countingWriter(writer);
-                try json.encodeJsonString(v, .{}, cw.writer());
+                switch (opts.string_literal_dialect) {
+                    .json => {
+                        try json.encodeJsonString(v, .{}, cw.writer());
+                    },
+                    .simple => {
+                        try cw.writer().writeByte('"');
+                        for (v) |c| switch (c) {
+                            '"' => try cw.writer().writeAll("\\\""),
+                            else => try cw.writer().writeByte(c),
+                        };
+                        try cw.writer().writeByte('"');
+                    },
+                    // FIXME: use writeWatMemoryString?
+                    .wat => {
+                        try cw.writer().writeByte('"');
+                        try cw.writer().writeAll(v);
+                        try cw.writer().writeByte('"');
+                    },
+                }
                 break :_ .{ .depth = cw.bytes_written + 2 };
             },
             .symbol => |v| _: {
@@ -164,16 +182,27 @@ pub const Sexp = struct {
         return write_state;
     }
 
-    pub fn write(self: Self, writer: anytype) !usize {
+    const WriteOptions = struct {
+        string_literal_dialect: enum {
+            json,
+            wat,
+            // HACK: backslashes can't be escaped cuz this sucks. Temporary to make encoding
+            // WAT easier
+            /// only escape quotes, not even backslashes
+            simple,
+        } = .simple,
+    };
+
+    pub fn write(self: Self, writer: anytype, comptime options: WriteOptions) !usize {
         var counting_writer = std.io.countingWriter(writer);
-        _ = try self._write(counting_writer.writer(), .{});
+        _ = try self._write(counting_writer.writer(), .{}, options);
         return @intCast(counting_writer.bytes_written);
     }
 
     pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
-        _ = try self._write(writer, .{});
+        _ = try self._write(writer, .{}, .{});
     }
 
     pub fn recursive_eq(self: Self, other: Self) bool {
@@ -263,7 +292,7 @@ test "write sexp" {
     var fixed_buffer_stream = std.io.fixedBufferStream(&buff);
     const writer = fixed_buffer_stream.writer();
 
-    const bytes_written = try root_sexp.write(writer);
+    const bytes_written = try root_sexp.write(writer, .{});
 
     try testing.expectEqualStrings(
         \\(hello 0.5
@@ -337,3 +366,22 @@ pub const primitive_type_syms = struct {
     pub const @"f32" = Sexp{ .value = .{ .symbol = "f32" } };
     pub const @"f64" = Sexp{ .value = .{ .symbol = "f64" } };
 };
+
+pub fn writeWatMemoryString(data: []const u8, writer: anytype) !void {
+    for (data) |char| {
+        switch (char) {
+            '\\' => {
+                try writer.writeAll("\\\\");
+            },
+            // printable ascii not including '\\' or '"'
+            ' '...'"' - 1, '"' + 1...'\\' - 1, '\\' + 1...127 => {
+                try writer.writeByte(char);
+            },
+            // FIXME: use ascii bit magic/table here, I'm too lazy and time pressed
+            else => {
+                try writer.writeByte('\\');
+                try std.fmt.formatInt(char, 16, .lower, .{ .width = 2, .fill = '0' }, writer);
+            },
+        }
+    }
+}

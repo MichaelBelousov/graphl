@@ -86,24 +86,7 @@ const DeferredFuncTypeInfo = struct {
 
 var empty_user_funcs = std.SinglyLinkedList(UserFunc){};
 
-fn writeWasmMemoryString(data: []const u8, writer: anytype) !void {
-    for (data) |char| {
-        switch (char) {
-            '\\' => {
-                try writer.writeAll("\\\\");
-            },
-            // printable ascii not including '\\' or '"'
-            ' '...'"' - 1, '"' + 1...'\\' - 1, '\\' + 1...127 => {
-                try writer.writeByte(char);
-            },
-            // FIXME: use ascii bit magic here, I'm too lazy and time pressed
-            else => {
-                try writer.writeByte('\\');
-                try std.fmt.formatInt(char, 16, .lower, .{ .width = 2, .fill = '0' }, writer);
-            },
-        }
-    }
-}
+const writeWatMemoryString = @import("./sexp.zig").writeWatMemoryString;
 
 pub const UserFunc = struct {
     id: usize,
@@ -1027,8 +1010,8 @@ const Compilation = struct {
         // maximum, as if every byte were replaced with '\00'
         try data_str.ensureTotalCapacity(data.len * 3);
         std.debug.assert(zig_builtin.cpu.arch.endian() == .little);
-        try writeWasmMemoryString(std.mem.asBytes(&@as(u32, @intCast(data.len))), data_str.writer());
-        try writeWasmMemoryString(data, data_str.writer());
+        try writeWatMemoryString(std.mem.asBytes(&@as(u32, @intCast(data.len))), data_str.writer());
+        try writeWatMemoryString(data, data_str.writer());
 
         const data_str_len = data_str.items.len;
 
@@ -1577,7 +1560,7 @@ const Compilation = struct {
 
                 // FIXME: handle quote
 
-                // call host functions
+                // call user functions
                 {
                     const outputs = func_node_desc.getOutputs();
                     // FIXME: horrible
@@ -2137,13 +2120,13 @@ const Compilation = struct {
             var import_iter = userfunc_imports.iterator();
             while (import_iter.next()) |import_entry| {
                 const wat = try import_entry.key_ptr.wat(self.arena.allocator(), import_entry.value_ptr.*);
-                _ = try wat.write(buffer_writer);
+                _ = try wat.write(buffer_writer, .{ .string_literal_dialect = .wat });
                 try bytes.appendSlice("\n");
             }
         }
 
         for (stack_code) |code| {
-            _ = try code.write(buffer_writer);
+            _ = try code.write(buffer_writer, .{ .string_literal_dialect = .wat });
             try bytes.appendSlice("\n");
         }
 
@@ -2153,7 +2136,7 @@ const Compilation = struct {
         try bytes.appendSlice("\n;;; END INTRINSICS\n");
 
         for (module_defs) |def| {
-            _ = try def.write(buffer_writer);
+            _ = try def.write(buffer_writer, .{ .string_literal_dialect = .wat });
             try bytes.appendSlice("\n");
         }
 

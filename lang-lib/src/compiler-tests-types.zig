@@ -366,9 +366,9 @@ test "(u64,string) -> string" {
         \\      (global.set $__grappl_vstkp
         \\                  (local.get $__frame_start)))
         \\(data (i32.const 0)
-        \\      "\\17\\00\\00\\00console.log(\\22hello\\22); 5")
+        \\      "\17\00\00\00console.log(\22hello\22); 5")
         \\(data (i32.const 39)
-        \\      "\\06\\00\\00\\00imodel")
+        \\      "\06\00\00\00imodel")
         \\)
     ;
 
