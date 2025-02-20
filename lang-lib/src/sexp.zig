@@ -166,7 +166,7 @@ pub const Sexp = struct {
                         try cw.writer().writeByte('"');
                     },
                 }
-                break :_ .{ .depth = cw.bytes_written + 2 };
+                break :_ .{ .depth = @intCast(cw.bytes_written + 2) };
             },
             .symbol => |v| _: {
                 try writer.print("{s}", .{v});

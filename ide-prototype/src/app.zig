@@ -222,7 +222,7 @@ fn combineGraphsText(
         };
         defer sexp.deinit(gpa);
 
-        _ = try sexp.write(bytes.writer());
+        _ = try sexp.write(bytes.writer(), .{});
     }
 
     return bytes;
@@ -478,7 +478,7 @@ pub fn runCurrentGraphs(self: *const @This()) !void {
     if (builtin.mode == .Debug) {
         var bytes = std.ArrayList(u8).init(gpa);
         defer bytes.deinit();
-        _ = try sexp.write(bytes.writer());
+        _ = try sexp.write(bytes.writer(), .{});
         std.log.info("graph '{s}':\n{s}", .{ self.current_graph.name, bytes.items });
     }
 
@@ -500,7 +500,7 @@ pub fn exportCurrentCompiled(self: *const @This()) !void {
     if (builtin.mode == .Debug) {
         var bytes = std.ArrayList(u8).init(gpa);
         defer bytes.deinit();
-        _ = try sexp.write(bytes.writer());
+        _ = try sexp.write(bytes.writer(), .{});
         std.log.info("graph '{s}':\n{s}", .{ self.current_graph.name, bytes.items });
     }
 
