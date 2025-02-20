@@ -409,6 +409,7 @@ const Compilation = struct {
         pub const data = Sexp{ .value = .{ .symbol = "data" } };
         pub const then = Sexp{ .value = .{ .symbol = "then" } };
         pub const @"else" = Sexp{ .value = .{ .symbol = "else" } };
+        pub const drop = Sexp{ .value = .{ .symbol = "drop" } };
 
         pub const ops = struct {
             pub const @"local.get" = Sexp{ .value = .{ .symbol = "local.get" } };
@@ -745,21 +746,21 @@ const Compilation = struct {
             // probably possible by separating the global expr_ctx from the type context
             // which can change
             var next_local: usize = 0;
-
-            var expr_ctx = ExprContext{
-                .locals_sexp = &post_analysis_locals,
-                .label_map = &label_map,
-                .local_names = func_decl.local_names,
-                .local_types = func_decl.local_types,
-                .param_names = func_decl.param_names,
-                .param_types = func_type.param_types,
-                .prologue = &prologue,
-                .frame = .{},
-                .next_local = &next_local,
-            };
-
             var result_type: ?Type = null;
-            for (func_decl.body_exprs) |*body_expr| {
+
+            for (func_decl.body_exprs, 0..) |*body_expr, i| {
+                var expr_ctx = ExprContext{
+                    .locals_sexp = &post_analysis_locals,
+                    .label_map = &label_map,
+                    .local_names = func_decl.local_names,
+                    .local_types = func_decl.local_types,
+                    .param_names = func_decl.param_names,
+                    .param_types = func_type.param_types,
+                    .prologue = &prologue,
+                    .frame = .{},
+                    .next_local = &next_local,
+                    .is_captured = i == func_decl.body_exprs.len - 1 or body_expr.label != null, // only capture the last expression or labeled
+                };
                 var expr_fragment = try self.compileExpr(body_expr, &expr_ctx);
                 errdefer expr_fragment.deinit(alloc);
                 // HACK: pointer might have been invalidated
@@ -1041,6 +1042,8 @@ const Compilation = struct {
         param_names: []const []const u8,
         param_types: []const Type,
 
+        /// whether the return value of the expression isn't discarded
+        is_captured: bool,
         frame: StackFrame,
         next_local: *usize,
         /// to append new locals to
@@ -1128,43 +1131,6 @@ const Compilation = struct {
 
         var fragment = try self._compileExpr(code_sexp, context);
 
-        // FIXME: this might break intrinsics which also use call?
-        const is_host_call = fragment.values.items.len > 0
-        //
-        and fragment.values.items[0].value == .list
-        //
-        and fragment.values.items[0].value.list.items.len > 1
-        //
-        and std.meta.eql(fragment.values.items[0].value.list.items[0], wat_syms.call)
-        //
-        and fragment.values.items[0].value.list.items[1].value == .symbol
-        //
-        and _: {
-            // FIXME: figure out a better calling convention
-            // FIXME: slow, gross, use better container
-            var next = self.user_context.funcs.first;
-            const callee = fragment.values.items[0].value.list.items[1].value.symbol;
-            while (next) |node| : (next = node.next) {
-                if (std.mem.eql(u8, node.data.node.name, callee))
-                    break :_ true;
-            }
-            break :_ false;
-        };
-
-        // FIXME: this might break intrinsics which also use call?
-        const is_captured_host_call = is_host_call
-        //
-        and fragment.values.items.len > 1
-        //
-        and fragment.values.items[1].value.list.items.len > 0
-        //
-        and std.meta.eql(fragment.values.items[1].value.list.items[0], wat_syms.ops.@"local.set");
-
-        if (is_host_call and !is_captured_host_call) {
-            // ignore a label if it is a void returning host function
-            return fragment;
-        }
-
         // FIXME: this comment is rotten, not true anymore
         // this inner wrapper marks labeled nodes to not free their contents until the context is ready
         if (code_sexp.label) |label| {
@@ -1172,18 +1138,8 @@ const Compilation = struct {
             const entry = try context.label_map.getOrPut(label[2..]);
             std.debug.assert(!entry.found_existing);
 
-            // HACK: calls might already have a local, use it
-            const local_ptr_sym = _: {
-                if (is_captured_host_call) {
-                    std.debug.assert(fragment.values.items.len == 2);
-                    std.debug.assert(fragment.values.items[1].value == .list);
-                    std.debug.assert(fragment.values.items[1].value.list.items.len == 2);
-                    std.debug.assert(std.meta.eql(fragment.values.items[1].value.list.items[0], wat_syms.ops.@"local.set"));
-                    break :_ fragment.values.items[1].value.list.items[1];
-                } else {
-                    break :_ try context.addLocal(alloc, fragment.resolved_type);
-                }
-            };
+            // calls already have a local
+            const local_ptr_sym = try context.addLocal(alloc, fragment.resolved_type);
 
             var ref_code = std.ArrayList(Sexp).init(alloc);
             try ref_code.ensureTotalCapacityPrecise(1);
@@ -1203,15 +1159,12 @@ const Compilation = struct {
                 .sexp = code_sexp,
             };
 
-            // pop the result of the label
-            if (!is_captured_host_call) {
-                try fragment.values.ensureUnusedCapacity(1);
-                const set = fragment.values.addOneAssumeCapacity();
-                set.* = Sexp.newList(alloc);
-                try set.value.list.ensureTotalCapacityPrecise(2);
-                set.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
-                set.value.list.appendAssumeCapacity(local_ptr_sym);
-            }
+            try fragment.values.ensureUnusedCapacity(1);
+            const set = fragment.values.addOneAssumeCapacity();
+            set.* = Sexp.newList(alloc);
+            try set.value.list.ensureTotalCapacityPrecise(2);
+            set.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
+            set.value.list.appendAssumeCapacity(local_ptr_sym);
         }
 
         return fragment;
@@ -1371,10 +1324,25 @@ const Compilation = struct {
                 const func = &v.items[0];
                 std.debug.assert(func.value == .symbol);
 
-                if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr or func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
+                if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr
+                //
+                or func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
                     try result.values.ensureUnusedCapacity(v.items.len - 1);
-                    for (v.items[1..]) |*expr| {
-                        var compiled = try self.compileExpr(expr, context);
+                    for (v.items[1..], 1..) |*expr, i| {
+                        var subcontext = ExprContext{
+                            .type = context.type,
+                            .local_names = context.local_names,
+                            .local_types = context.local_types,
+                            .param_names = context.param_names,
+                            .param_types = context.param_types,
+                            .prologue = context.prologue,
+                            .locals_sexp = context.locals_sexp,
+                            .frame = context.frame,
+                            .next_local = context.next_local,
+                            .label_map = context.label_map,
+                            .is_captured = i == v.items.len - 1 or expr.label != null, // only capture the last expression or labeled
+                        };
+                        var compiled = try self.compileExpr(expr, &subcontext);
                         result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, &compiled);
                         try result.values.appendSlice(compiled.values.items);
                         compiled.values.clearAndFree();
@@ -1438,6 +1406,7 @@ const Compilation = struct {
                         .frame = context.frame,
                         .next_local = context.next_local,
                         .label_map = context.label_map,
+                        .is_captured = context.is_captured,
                     };
                     arg_fragment.* = try self.compileExpr(&arg_src, &subcontext);
                 }
@@ -1537,9 +1506,8 @@ const Compilation = struct {
                         for (arg_fragments) |*arg_fragment| {
                             // FIXME: not sure I can fix this until a rewrite...
                             if (arg_fragment.values.items.len != 1) {
-                                std.debug.print("bad arg_frag: {}\n", .{arg_fragment.*});
+                                std.debug.panic("bad arg_frag: {}\n", .{arg_fragment.*});
                             }
-                            std.debug.assert(arg_fragment.values.items.len == 1);
                             try self.promoteToTypeInPlace(arg_fragment, resolved_type);
                             try wasm_op.value.list.append(arg_fragment.values.items[0]);
                             // TODO: more idiomatic move out data
@@ -1634,7 +1602,7 @@ const Compilation = struct {
 
                 // FIXME: handle quote
 
-                // call user functions
+                // ok, it must be a function in scope then (user or builtin)
                 {
                     const outputs = func_node_desc.getOutputs();
 
@@ -1673,14 +1641,8 @@ const Compilation = struct {
                         }
                     }
 
-                    if (result.resolved_type != builtin.empty_type) {
-                        const local_result_ptr_sym = try context.addLocal(alloc, result.resolved_type);
-
-                        const consume_result = result.values.addOneAssumeCapacity();
-                        consume_result.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                        try consume_result.value.list.ensureTotalCapacityPrecise(2);
-                        consume_result.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
-                        consume_result.value.list.appendAssumeCapacity(local_result_ptr_sym);
+                    if (result.resolved_type != builtin.empty_type and !context.is_captured) {
+                        result.values.appendAssumeCapacity(wat_syms.drop);
                     }
 
                     return result;
@@ -2509,6 +2471,10 @@ test "recurse" {
         \\      (param $param_n
         \\             i32)
         \\      (result i32)
+        \\      (local $__frame_start
+        \\             i32)
+        \\      (local.set $__frame_start
+        \\                 (global.get $__grappl_vstkp))
         \\      (if (result i32)
         \\          (i32.le_s (local.get $param_n)
         \\                    (i32.const 1))
@@ -2516,7 +2482,9 @@ test "recurse" {
         \\          (else (i32.mul (local.get $param_n)
         \\                         (call $factorial
         \\                               (i32.sub (local.get $param_n)
-        \\                                        (i32.const 1)))))))
+        \\                                        (i32.const 1))))))
+        \\      (global.set $__grappl_vstkp
+        \\                  (local.get $__frame_start)))
         \\)
         // TODO: clearly instead of embedding the pointer we should have a global variable
         // so the host can set that

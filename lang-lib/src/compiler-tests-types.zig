@@ -332,8 +332,6 @@ test "(u64,string) -> string ;; return literal" {
         \\             i32)
         \\      (local $__lc1
         \\             i32)
-        \\      (local $__lc2
-        \\             i32)
         \\      (local.set $__frame_start
         \\                 (i32.add (global.get $__grappl_vstkp)
         \\                          (i32.const 8)))
@@ -352,7 +350,7 @@ test "(u64,string) -> string ;; return literal" {
         \\      (i32.store (i32.add (global.get $__grappl_vstkp)
         \\                          (i32.const 4))
         \\                 (i32.const 43))
-        \\      (local.set $__lc2
+        \\      (local.set $__lc1
         \\                 (global.get $__grappl_vstkp))
         \\      (global.set $__grappl_vstkp
         \\                  (i32.add (global.get $__grappl_vstkp)
@@ -360,8 +358,8 @@ test "(u64,string) -> string ;; return literal" {
         \\      (call $JavaScript-Eval
         \\            (local.get $param_MeshId)
         \\            (local.get $__lc0))
-        \\      (local.set $__lc1)
-        \\      (local.get $__lc2)
+        \\      drop
+        \\      (local.get $__lc1)
         \\      (global.set $__grappl_vstkp
         \\                  (local.get $__frame_start)))
         \\(data (i32.const 0)
