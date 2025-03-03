@@ -47,27 +47,7 @@ const Homepage = () => {
 
       <br/>
 
-      <form
-        style={{ display: "flex", gap: "20px", justifyContent: "center" }}
-        action={`https://docs.google.com/forms/d/e/1FAIpQLSdIbJ7Ye-J5fdLjuLjSIqx6B7YKTQJfI8jk3gNTIc4CVw9ysg/formResponse?submit=Submit&usp=pp_url&entry.633639765=${emailInput}&entry.522288266=nofeedback`}
-        method="POST"
-        target="hidden-target-frame"
-        onSubmit={(_e) => {
-          // TODO: check if successful!
-        }}
-      >
-        Request the demo!
-        <input
-          className={styles.subInput}
-          ref={emailInputRef}
-          value={emailInput}
-          onChange={e => setEmailInput(e.currentTarget.value)}
-          placeholder="you@example.com"
-          type="email"
-        />
-        <input value="submit" className={styles.subButton} type="submit"></input>
-        <iframe style={{ display: "none" }} name="hidden-target-frame" />
-      </form>
+      Request the demo <a href="https://docs.google.com/forms/d/e/1FAIpQLSclHFJbbGW5nGmvV23oECXTfXuy12lmIgSoHbKx9RFLWToo7A/viewform">here</a>
     </Layout>
   );
 }
