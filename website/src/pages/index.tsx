@@ -115,12 +115,10 @@ const sexpToSql = (root: any) => {
 let fakeReadySql = "";
 let fakeReadySqlListeners = [] as ((newSql: string) => void)[];
 
-const customNodes: Record<string, Graphl.UserFuncJson> = {
+const customNodes: Record<string, Graphl.JsFunctionBinding> = {
   "Confetti": {
-    inputs: [
-      { name: "particle count", type: "i32" }
-    ],
-    //outputs: [{"name": ""}],
+    parameters: [{"name": "particleCount", type: /*graphl.Types.i32*/ 0 }],
+    results: [],
     impl(particleCount: number) {
       confetti({
         particleCount,
@@ -130,8 +128,8 @@ const customNodes: Record<string, Graphl.UserFuncJson> = {
     }
   },
   "print-query": {
-    inputs: [{ name: "query", type: "code" }],
-    outputs: [],
+    parameters: [{ name: "query", type: 5/*grappl.Types.code*/ }],
+    results: [],
     impl(code) {
       // FIXME: SORRY THIS ISN'T COMPLETELY READY YET, I PROMISE IT'S WITHIN REACH
       const sql = sexpToSql(code);
@@ -144,25 +142,29 @@ const customNodes: Record<string, Graphl.UserFuncJson> = {
   },
   // dummy nodes
   "SELECT": {
-    inputs: [{ name: "column", type: "string" }],
-    outputs: [],
+    parameters: [{ name: "column", type: 4 /*grappl.Types.string*/ }],
+    results: [],
     // TODO: remove empty impl to indicate dummy
     impl() {},
   },
   "WHERE": {
-    inputs: [{ name: "condition", type: "bool" }],
-    outputs: [],
+    parameters: [{ name: "condition", type: 6/*grappl.Types.bool*/ }],
+    results: [],
     impl() {},
   },
   "FROM": {
-    inputs: [{ name: "table", type: "string" }],
-    outputs: [],
+    parameters: [{ name: "table", type: 4 /*grappl.Types.string*/ }],
+    results: [],
     impl() {},
   },
 };
 
 const sharedOpts: Partial<Graphl.Ide.Options> = {
-  userFuncs: customNodes,
+  bindings: {
+    jsHost: {
+      functions: customNodes,
+    },
+  },
   preferences: {
     graph: {
       scrollBarsVisible: false,
@@ -231,8 +233,10 @@ const Sample = (props: {
     graphl.then(g => {
       ideRef.current = new g.Ide(canvasRef.current!, {
         ...sharedOpts,
-        graphs: {
-          main: props.graphInitState,
+        initState: {
+          graphs: {
+            main: props.graphInitState,
+          },
         },
         onMainResult: (res) => {
           if (!props.useFakeReadySql) {
@@ -293,11 +297,7 @@ const Homepage = () => {
     // in the ide dir
     <Sample
       graphInitState={{
-        fixedSignature: true,
-        outputs: [{
-          name: "result",
-          type: "i32",
-        }],
+        notRemovable: true,
         nodes: [
           {
             id: 1,
@@ -328,7 +328,7 @@ const Homepage = () => {
             type: "return",
             inputs: {
               0: { node: 1, outPin: 1 },
-              1: { int: 1 },
+              1: { int: 1},
             },
           },
         ],
@@ -340,18 +340,14 @@ const Homepage = () => {
   const sample2 = (
     <Sample
       graphInitState={{
-        fixedSignature: true,
-        outputs: [{
-          name: "result",
-          type: "i32",
-        }],
+        notRemovable: true,
         nodes: [
           {
             id: 1,
             type: "Confetti",
             inputs: {
               0: { node: 0, outPin: 0 },
-              //1: { int: 100 },
+              1: { int: 100 },
             },
             // FIXME: doesn't work
             position: { x: 200, y: 500 },
@@ -373,11 +369,7 @@ const Homepage = () => {
       resultPopoverWidth={"300px"}
       useFakeReadySql={true}
       graphInitState={{
-        fixedSignature: true,
-        outputs: [{
-          name: "result",
-          type: "i32",
-        }],
+        notRemovable: true,
         nodes: [
           {
             id: 2,
@@ -483,7 +475,7 @@ const Homepage = () => {
           write code <strong> without writing code</strong>.
         </p>
         <p style={{...mediumText, margin: "0.5em"}} {...classNames(styles["fadeInText_2"], "center")}>
-          Experience the open-source programming language that feels like a <strong>workflow engine</strong>.
+          Experience the programming language that feels like a <strong>workflow engine</strong>.
         </p>
         <p style={mediumText} {...classNames(styles["fadeInText_2"], "center")}>
           Then export to WebAssembly and <strong>run anywhere</strong>.
@@ -506,6 +498,7 @@ const Homepage = () => {
             Do all the programming stuff.
             <br />
             Math, strings, <em>if</em> this, <em>loop</em> that
+            {/* add "run button" printing math result */}
           </p>
         </div>
         {sample1}
@@ -516,6 +509,7 @@ const Homepage = () => {
             <br/>
             <br/>
             On the web, call out to the host and run JavaScript from custom nodes.
+            {/* add "run button" with confetti */}
           </p>
         </div>
         {sample2}
@@ -526,17 +520,18 @@ const Homepage = () => {
             <br />
             <br />
             Visual SQL query nodes, anyone?
+            {/* SQL sample */}
           </p>
         </div>
         {sample3}
       </div>
 
       <p style={{ textAlign: "center" }}>
-        And yes, it's <a href="https://github.com/MichaelBelousov/graphl">open source</a>.
+        And yes, it's <a href="https://github.com/MichaelBelousov/graphlt">open source</a>
       </p>
 
       <p style={{ textAlign: "center" }}>
-        Any other questions?
+        Questions?
         Reach out to us at <a href={`mailto:mike@graphl.tech`}>mike@graphl.tech</a>
       </p>
 
