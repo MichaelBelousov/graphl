@@ -115,10 +115,12 @@ const sexpToSql = (root: any) => {
 let fakeReadySql = "";
 let fakeReadySqlListeners = [] as ((newSql: string) => void)[];
 
-const customNodes: Record<string, Graphl.JsFunctionBinding> = {
+const customNodes: Record<string, Graphl.UserFuncJson> = {
   "Confetti": {
-    parameters: [{"name": "particleCount", type: /*graphl.Types.i32*/ 0 }],
-    results: [],
+    inputs: [
+      { name: "particle count", type: "i32" }
+    ],
+    //outputs: [{"name": ""}],
     impl(particleCount: number) {
       confetti({
         particleCount,
@@ -128,8 +130,8 @@ const customNodes: Record<string, Graphl.JsFunctionBinding> = {
     }
   },
   "print-query": {
-    parameters: [{ name: "query", type: 5/*grappl.Types.code*/ }],
-    results: [],
+    inputs: [{ name: "query", type: "code" }],
+    outputs: [],
     impl(code) {
       // FIXME: SORRY THIS ISN'T COMPLETELY READY YET, I PROMISE IT'S WITHIN REACH
       const sql = sexpToSql(code);
@@ -142,29 +144,25 @@ const customNodes: Record<string, Graphl.JsFunctionBinding> = {
   },
   // dummy nodes
   "SELECT": {
-    parameters: [{ name: "column", type: 4 /*grappl.Types.string*/ }],
-    results: [],
+    inputs: [{ name: "column", type: "string" }],
+    outputs: [],
     // TODO: remove empty impl to indicate dummy
     impl() {},
   },
   "WHERE": {
-    parameters: [{ name: "condition", type: 6/*grappl.Types.bool*/ }],
-    results: [],
+    inputs: [{ name: "condition", type: "bool" }],
+    outputs: [],
     impl() {},
   },
   "FROM": {
-    parameters: [{ name: "table", type: 4 /*grappl.Types.string*/ }],
-    results: [],
+    inputs: [{ name: "table", type: "string" }],
+    outputs: [],
     impl() {},
   },
 };
 
 const sharedOpts: Partial<Graphl.Ide.Options> = {
-  bindings: {
-    jsHost: {
-      functions: customNodes,
-    },
-  },
+  userFuncs: customNodes,
   preferences: {
     graph: {
       scrollBarsVisible: false,
@@ -233,10 +231,8 @@ const Sample = (props: {
     graphl.then(g => {
       ideRef.current = new g.Ide(canvasRef.current!, {
         ...sharedOpts,
-        initState: {
-          graphs: {
-            main: props.graphInitState,
-          },
+        graphs: {
+          main: props.graphInitState,
         },
         onMainResult: (res) => {
           if (!props.useFakeReadySql) {
@@ -298,6 +294,10 @@ const Homepage = () => {
     <Sample
       graphInitState={{
         fixedSignature: true,
+        outputs: [{
+          name: "result",
+          type: "i32",
+        }],
         nodes: [
           {
             id: 1,
@@ -328,7 +328,7 @@ const Homepage = () => {
             type: "return",
             inputs: {
               0: { node: 1, outPin: 1 },
-              1: { int: 1},
+              1: { int: 1 },
             },
           },
         ],
@@ -341,13 +341,17 @@ const Homepage = () => {
     <Sample
       graphInitState={{
         fixedSignature: true,
+        outputs: [{
+          name: "result",
+          type: "i32",
+        }],
         nodes: [
           {
             id: 1,
             type: "Confetti",
             inputs: {
               0: { node: 0, outPin: 0 },
-              1: { int: 100 },
+              //1: { int: 100 },
             },
             // FIXME: doesn't work
             position: { x: 200, y: 500 },
@@ -370,6 +374,10 @@ const Homepage = () => {
       useFakeReadySql={true}
       graphInitState={{
         fixedSignature: true,
+        outputs: [{
+          name: "result",
+          type: "i32",
+        }],
         nodes: [
           {
             id: 2,
@@ -475,7 +483,7 @@ const Homepage = () => {
           write code <strong> without writing code</strong>.
         </p>
         <p style={{...mediumText, margin: "0.5em"}} {...classNames(styles["fadeInText_2"], "center")}>
-          Experience the programming language that feels like a <strong>workflow engine</strong>.
+          Experience the open-source programming language that feels like a <strong>workflow engine</strong>.
         </p>
         <p style={mediumText} {...classNames(styles["fadeInText_2"], "center")}>
           Then export to WebAssembly and <strong>run anywhere</strong>.
@@ -498,7 +506,6 @@ const Homepage = () => {
             Do all the programming stuff.
             <br />
             Math, strings, <em>if</em> this, <em>loop</em> that
-            {/* add "run button" printing math result */}
           </p>
         </div>
         {sample1}
@@ -509,7 +516,6 @@ const Homepage = () => {
             <br/>
             <br/>
             On the web, call out to the host and run JavaScript from custom nodes.
-            {/* add "run button" with confetti */}
           </p>
         </div>
         {sample2}
@@ -520,7 +526,6 @@ const Homepage = () => {
             <br />
             <br />
             Visual SQL query nodes, anyone?
-            {/* SQL sample */}
           </p>
         </div>
         {sample3}

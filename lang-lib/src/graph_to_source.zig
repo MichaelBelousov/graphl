@@ -581,12 +581,18 @@ pub const GraphBuilder = struct {
                 param_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param.asPrimitivePin().value.name } };
             }
 
-            if (self.result_node_basic_desc.inputs.len < 2) return error.InvalidResultNode;
-            if (self.result_node_basic_desc.inputs[1].kind != .primitive) return error.InvalidResultNode;
-            if (self.result_node_basic_desc.inputs[1].kind.primitive != .value) return error.InvalidResultNode;
+            if (self.result_node_basic_desc.inputs.len < 1) return error.InvalidResultNode;
+            const no_result_outputs = self.result_node_basic_desc.inputs.len == 1;
+            if (no_result_outputs) {
+                // FIXME: share symbols for primitives!
+                return error.NoResultsUnimplemented;
+            } else {
+                if (self.result_node_basic_desc.inputs[1].kind != .primitive) return error.InvalidResultNode;
+                if (self.result_node_basic_desc.inputs[1].kind.primitive != .value) return error.InvalidResultNode;
 
-            // FIXME: share symbols for primitives!
-            result_type.* = Sexp{ .value = .{ .symbol = self.result_node_basic_desc.inputs[1].kind.primitive.value.name } };
+                // FIXME: share symbols for primitives!
+                result_type.* = Sexp{ .value = .{ .symbol = self.result_node_basic_desc.inputs[1].kind.primitive.value.name } };
+            }
         }
 
         {

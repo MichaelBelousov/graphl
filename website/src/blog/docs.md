@@ -45,6 +45,15 @@ const customFuncs = {
 // see the typescript types for all options
 const ide = new graphl.Ide(canvas, {
   userFuncs: customFuncs,
+  graphs: {
+    "main": {
+      fixedSignature: true,
+      outputs: [{
+        name: "result",
+        type: "i32",
+      }],
+      nodes: []
+    },
   preferences: {
     topbar: {
       visible: false,

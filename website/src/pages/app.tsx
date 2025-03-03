@@ -5,7 +5,7 @@ import SEO from '../components/seo';
 import "./app.css";
 import { confetti } from "@tsparticles/confetti";
 
-const customNodes: Record<string, graphl.JsFunctionBinding> = {
+const customNodes: Record<string, graphl.UserFuncJson> = {
   /*
   fetch: {
     // TODO: optional nodes
@@ -28,8 +28,8 @@ const customNodes: Record<string, graphl.JsFunctionBinding> = {
   },
   */
   "Confetti": {
-    parameters: [{ name: "particle count", type: graphl.Types.i32 }],
-    results: [],
+    inputs: [{ name: "particle count", type: "i32" }],
+    outputs: [],
     impl(particleCount: number) {
       confetti({
         particleCount,
@@ -50,34 +50,32 @@ const Homepage = () => {
       throw Error("bad canvas elem");
 
     const _ide = new graphl.Ide(canvasRef.current, {
-      bindings: {
-        jsHost: {
-          functions: customNodes,
+      userFuncs: customNodes,
+      graphs: {
+        "main": {
+          fixedSignature: true,
+          outputs: [{
+            name: "result",
+            type: "i32",
+          }],
+          nodes: [
+            {
+              id: 1,
+              type: "Confetti",
+              inputs: {
+                0: { node: 0, outPin: 0 },
+                1: { int: 100 },
+              },
+            },
+            {
+              id: 2,
+              type: "return",
+              inputs: {
+                0: { node: 1, outPin: 0 },
+              },
+            },
+          ],
         },
-      },
-      initState: {
-        graphs: {
-          "main": {
-            notRemovable: true,
-            nodes: [
-              {
-                id: 1,
-                type: "Confetti",
-                inputs: {
-                  0: { node: 0, outPin: 0 },
-                  1: { int: 100 },
-                },
-              },
-              {
-                id: 2,
-                type: "return",
-                inputs: {
-                  0: { node: 1, outPin: 0 },
-                },
-              },
-            ],
-          },
-        }
       }
     });
 
