@@ -297,7 +297,7 @@ const Homepage = () => {
     // in the ide dir
     <Sample
       graphInitState={{
-        notRemovable: true,
+        fixedSignature: true,
         nodes: [
           {
             id: 1,
@@ -340,7 +340,7 @@ const Homepage = () => {
   const sample2 = (
     <Sample
       graphInitState={{
-        notRemovable: true,
+        fixedSignature: true,
         nodes: [
           {
             id: 1,
@@ -369,7 +369,7 @@ const Homepage = () => {
       resultPopoverWidth={"300px"}
       useFakeReadySql={true}
       graphInitState={{
-        notRemovable: true,
+        fixedSignature: true,
         nodes: [
           {
             id: 2,
@@ -527,7 +527,11 @@ const Homepage = () => {
       </div>
 
       <p style={{ textAlign: "center" }}>
-        Questions?
+        And yes, it's <a href="https://github.com/MichaelBelousov/graphl">open source</a>.
+      </p>
+
+      <p style={{ textAlign: "center" }}>
+        Any other questions?
         Reach out to us at <a href={`mailto:mike@graphl.tech`}>mike@graphl.tech</a>
       </p>
 

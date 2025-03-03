@@ -24,55 +24,21 @@ const Faqs = () => {
         </div>
 
         <div>
-          <h2>I don't like the license</h2>
-          <ul>
-            <li>
-              <p>
-                Not a question, but, please <a href="mailto:mike@graphl.tech">reach out to me</a> and let's discuss!
-              </p>
-              <p>
-                Do please read the other relevant FAQ though.
-              </p>
-            </li>
-          </ul>
-
-
           <h2>
-            Why source-available?
-            <br/>
-            Aren't all programming language's open source now?
+            Is this a business, what's the catch? Where will you pull the carpet away to make money?
           </h2>
           <ul>
             <li>
               <p>
-                All textual languages are. Not all IDEs are. This is more of an IDE. And the textual part of the language,
-                including the entire webassembly compiler is open source <a href="https://github.com/MichaelBelousov/graphlt">here</a>.
+                We can't pull the rug away even if we wanted to, that's why we've open sourced most of it.
+                To remove that temptation.
               </p>
               <p>
-                One of my design goals has been to make sure that the visual programs
-                can be cleanly isomorphic to a textual language, and I am committed to
-                open sourcing everything at that layer. The visual IDE though I am not
-                committed to open sourcing at the moment.
+                That said, on top of the core, we have a fork for our version of the IDE, <a href="https://graphl.tech/app">https://graphl.tech/app</a>, which
+                will have some paid extras like private packages, scheduled cloud jobs, etc.
               </p>
               <p>
-                I will write more about this on my personal blog at some point, but at its core,
-                I would love to be able to work on this full-time sooner than later.
-                I think I can do that reasonably without making it free for commercial usage immediately,
-                and then once there is enough support, I think we can plan to transition even the IDE to open source.
-                I know to some that might sound like an empty promise, but I've tried to make the initial license
-                as free as possible. If you still don't like it, please refer to the previous question.
-              </p>
-            </li>
-          </ul>
-
-          <h2>What are the usage restraints?</h2>
-          <ul>
-            <li>
-              <p>
-                Go read the <a href="/commercial">license</a>.
-              </p>
-              <p>
-                If you want to use it commercially, there's a big 12-month trial period.
+                We hope to become sustainable mostly through supporting enterprises adopting Graphl in their applications.
               </p>
             </li>
           </ul>
@@ -115,7 +81,6 @@ const Faqs = () => {
               </p>
             </li>
           </ul>
-
 
         </div>
       </div>

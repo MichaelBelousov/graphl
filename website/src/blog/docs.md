@@ -6,9 +6,6 @@ date: "2024-11-22"
 
 ## Installation
 
-Be sure to read the <a href="/commercial">license</a> which has
-implications for commercial usage.
-
 ```sh
 npm install @graphl/ide
 ```
