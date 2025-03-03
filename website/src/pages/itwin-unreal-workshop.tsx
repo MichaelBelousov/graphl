@@ -29,6 +29,7 @@ const Homepage = () => {
             Please respond to your first email if you have a reason to install the demo on another
             machine.
           </li>
+          <li>May be deactivated after a couple months, especially if the iTwin fees I pay prove higher than expected</li>
           <li>Follow <a href="https://www.linkedin.com/in/michael-belousov-745ab8238/">Mike's LinkedIn</a> for
             updates while we work on adding a roadmap to the website
           </li>
@@ -36,6 +37,10 @@ const Homepage = () => {
           <li>Tutorial video is in progress</li>
         </ul>
       </p>
+
+      <hr/>
+
+      <br/>
 
       <form
         style={{ display: "flex", gap: "20px", justifyContent: "center" }}

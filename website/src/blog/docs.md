@@ -10,10 +10,12 @@ date: "2024-11-22"
 npm install @graphl/ide
 ```
 
+Note that the API is alpha and subject to change!
+
 ## Usage 
 
 ```js
-import * as graphl from "./WebBackend.js";
+import graphl from "@graphl/ide";
 import confetti from "@tsparticles/confetti";
 
 // grab the canvas you prepared
@@ -22,13 +24,13 @@ const canvas = document.getElementById("my-canvas");
 // we define custom nodes separately here
 const customFuncs = {
   "Confetti": {
-    parameters: [
+    inputs: [
       {
         name: "particle count",
-        type: graphl.Types.i32,
+        type: "i32",
       }
     ],
-    results: [],
+    outputs: [],
     impl(particleCount) {
       confetti({
         particleCount,
@@ -39,14 +41,10 @@ const customFuncs = {
   },
 };
 
-// give graphl control over that canvas with options
+// give graphl control over a canvas with options
 // see the typescript types for all options
 const ide = new graphl.Ide(canvas, {
-  bindings: {
-    jsHost: {
-      functions: customFuncs,
-    }
-  },
+  userFuncs: customFuncs,
   preferences: {
     topbar: {
       visible: false,

@@ -30,15 +30,15 @@ const Faqs = () => {
           <ul>
             <li>
               <p>
-                We can't pull the rug away even if we wanted to, that's why we've open sourced most of it.
+                We can't pull the rug away even if we wanted to, that's why we've <a href="https://github.com/MichaelBelousov/graphlt">open sourced</a> most of it.
                 To remove that temptation.
               </p>
               <p>
                 That said, on top of the core, we have a fork for our version of the IDE, <a href="https://graphl.tech/app">https://graphl.tech/app</a>, which
-                will have some paid extras like private packages, scheduled cloud jobs, etc.
+                will have some paid infrastructure like private packages, build farms, scheduled cloud runners, etc.
               </p>
               <p>
-                We hope to become sustainable mostly through supporting enterprises adopting Graphl in their applications.
+                We hope to become sustainable mostly through supporting larger groups adopting Graphl in their workflows and applications.
               </p>
             </li>
           </ul>

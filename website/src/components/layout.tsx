@@ -13,6 +13,25 @@ interface LayoutProps {
   pageDesc: string
 }
 
+const Footer = () => (
+  <footer>
+    <div className={styles.footerLinks}>
+      <div className={styles.linkColumn}>
+        <a target="_blank" href="https://docs.google.com/forms/d/e/1FAIpQLSdIbJ7Ye-J5fdLjuLjSIqx6B7YKTQJfI8jk3gNTIc4CVw9ysg/viewform?usp=sf_link">subscribe</a>
+        <a target="_blank" href="https://www.linkedin.com/in/michael-belousov-745ab8238/">LinkedIn</a>
+        <a target="_blank" href="mailto:mike@graphl.tech">Email</a>
+      </div>
+      <div className={styles.linkColumn}>
+        {/* TODO: change name to twin-sync export */}
+        <a target="_blank" href="https://www.npmjs.com/package/@graphl/ide">npm</a>
+        <a target="_blank" href="/itwin-unreal-workshop">AEC</a>
+        <Link replace={false} to="/blog/docs">docs</Link>
+      </div>
+    </div>
+    <span>&copy; {constants.companyName} 2024</span>
+  </footer>
+);
+
 const Layout = ({
   pageTitle,
   pageDesc,
@@ -33,24 +52,7 @@ const Layout = ({
         <main>{children}</main>
       </div>
       
-      <footer style={{ position: "relative", bottom: 0 }}>
-        <div className={styles.footerLinks}>
-          <div className={styles.linkColumn}>
-            <a target="_blank" href="https://docs.google.com/forms/d/e/1FAIpQLSdIbJ7Ye-J5fdLjuLjSIqx6B7YKTQJfI8jk3gNTIc4CVw9ysg/viewform?usp=sf_link">subscribe</a>
-          </div>
-          <div className={styles.linkColumn}>
-            <Link replace={false} to="/blog/docs">docs</Link>
-          </div>
-          <div className={styles.linkColumn}>
-            <a target="_blank" href="https://www.npmjs.com/package/@graphl/ide">npm</a>
-          </div>
-          <div className={styles.linkColumn}>
-            <a target="_blank" href="https://www.linkedin.com/in/michael-belousov-745ab8238/">LinkedIn</a>
-          </div>
-        </div>
-        <span>&copy; Michael Belousov</span>
-        {/*<span>&copy; {constants.companyName} 2024</span> */}
-      </footer>
+      <Footer />
     </div>
   )
 }
