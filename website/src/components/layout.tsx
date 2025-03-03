@@ -24,7 +24,7 @@ const Footer = () => (
       <div className={styles.linkColumn}>
         {/* TODO: change name to twin-sync export */}
         <a target="_blank" href="https://www.npmjs.com/package/@graphl/ide">npm</a>
-        <a target="_blank" href="/itwin-unreal-workshop">AEC</a>
+        <Link replace={false} to="/itwin-unreal-workshop">AEC</Link>
         <Link replace={false} to="/blog/docs">docs</Link>
       </div>
     </div>
