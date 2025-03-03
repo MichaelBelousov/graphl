@@ -168,6 +168,7 @@ const sharedOpts: Partial<Graphl.Ide.Options> = {
   preferences: {
     graph: {
       scrollBarsVisible: false,
+      // FIXME: need scale
       //scale: 0.7,
       //origin: { x: 0, y: 0 },
     },
