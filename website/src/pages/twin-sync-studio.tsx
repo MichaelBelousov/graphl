@@ -13,9 +13,9 @@ const Homepage = () => {
 
   // TODO: add blurbs to each canvas example
   return (
-    <Layout pageTitle="iTwin Unreal Workshop" pageDesc="The ultimate iTwin/Synchro->Unreal export experience">
+    <Layout pageTitle="Twin Sync Studio" pageDesc="The ultimate iTwin/Synchro->Unreal tool">
       <h2 style={{ textAlign: "center" }}>
-        iTwin Unreal Workshop demo
+        Twin Sync Studio demo
       </h2>
 
       <p>
