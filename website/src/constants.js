@@ -1,6 +1,6 @@
 // need something that can be expanded in the future
 // related to sites, security, vision
-const companyName = "Graphl Technologies";
+const companyName = "Graphl Technologies, LLC";
 const flagshipProductName = "Graphl";
 
 module.exports = {
