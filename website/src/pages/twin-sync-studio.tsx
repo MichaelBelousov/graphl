@@ -21,7 +21,8 @@ const Homepage = () => {
       <p>
         About the demo:
         <ul>
-          <li>Free</li>
+          <li>Request the demo <a href="https://docs.google.com/forms/d/e/1FAIpQLSclHFJbbGW5nGmvV23oECXTfXuy12lmIgSoHbKx9RFLWToo7A/viewform">here</a></li>
+          <li>Free, but will stop working in June 2025</li>
           <li>Only known to work in Unreal Engine versions 5.0.3 through 5.3.2,
             <br/>
             later Unreal Engine versions have a bug in the level sequence importer, I have submitted a bug report.
@@ -39,7 +40,6 @@ const Homepage = () => {
             Please respond to your first email if you have a reason to install the demo on another
             machine
           </li>
-          <li>Free demo may stop working in June, 2025</li>
           <li>Follow <a href="https://www.linkedin.com/in/michael-belousov-745ab8238/">Mike's LinkedIn</a> for
             updates while we work on adding a roadmap to the website
           </li>
