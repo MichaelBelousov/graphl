@@ -28,7 +28,7 @@ const Footer = () => (
         <Link replace={false} to="/blog/docs">docs</Link>
       </div>
     </div>
-    <span>&copy; {constants.companyName} 2024</span>
+    <span>&copy; {constants.companyName} {new Date().getFullYear()}</span>
   </footer>
 );
 

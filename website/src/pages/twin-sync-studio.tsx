@@ -31,7 +31,7 @@ const Homepage = () => {
           <li>Submit your email below to get an access token and download link within 48 hours</li>
           <li>
             The demo is not yet code-signed, so Windows will warn you and you need to bypass that.
-            If you want to verify your download, the md5 hash of the installer is <code><pre>4d7810965a70238ee11b33fb30be2c58</pre></code>
+            If you want to verify your download, the md5 hash of the installer is <code><pre>d6d0f815a6280667ef4117c6daf29b4a</pre></code>
           </li>
           <li>There are known bugs! But submit any you find in the Graphl help menu or by email</li>
           <li>
