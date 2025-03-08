@@ -23,6 +23,10 @@ const Homepage = () => {
         <ul>
           <li>Request the demo <a href="https://docs.google.com/forms/d/e/1FAIpQLSclHFJbbGW5nGmvV23oECXTfXuy12lmIgSoHbKx9RFLWToo7A/viewform">here</a></li>
           <li>Free, but will stop working in June 2025</li>
+          <li>
+            If you want to try it out, but don't have a Synchro Control project or iTwin, <a href="mailto:mike@graphl.tech">contact me</a> and I'll
+            give you some test files
+          </li>
           <li>Only known to work in Unreal Engine versions 5.0.3 through 5.3.2,
             <br/>
             later Unreal Engine versions have a bug in the level sequence importer, I have submitted a bug report.
