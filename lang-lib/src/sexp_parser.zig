@@ -45,6 +45,7 @@ pub const Parser = struct {
             OutOfMemory: void,
             badInteger: []const u8,
             badFloat: []const u8,
+            unterminatedString: []const u8,
         };
 
         const Code = error{
@@ -54,6 +55,7 @@ pub const Parser = struct {
             OutOfMemory,
             BadInteger,
             BadFloat,
+            UnterminatedString,
         };
 
         pub fn code(self: @This()) Code {
@@ -65,6 +67,7 @@ pub const Parser = struct {
                 .OutOfMemory => Code.OutOfMemory,
                 .badInteger => Code.BadInteger,
                 .badFloat => Code.BadFloat,
+                .unterminatedString => Code.UnterminatedString,
             };
         }
 
@@ -116,6 +119,68 @@ pub const Parser = struct {
 
     pub const Error = Diagnostic.Code;
 
+    inline fn parseStringToken(alloc: std.mem.Allocator, src: []const u8, diag: *Diagnostic) Error!Sexp {
+        _ = alloc;
+        std.debug.assert(src.len > 0 and src[0] == '"');
+        for (src, 0..) |c, i| {
+            // FIXME: escapes
+            switch (c) {
+                else => {},
+                '"' => {
+                    return Sexp{ .value = .{ .borrowedString = src[0..i + 1] } };
+                },
+            }
+        }
+
+        diag.*.result = .{ .unterminatedString = src[0..] };
+        return Error.UnexpectedEof;
+    }
+
+    inline fn parseNumberToken(src: []const u8, diag: *Diagnostic) Error!Sexp {
+        std.debug.assert(src.len > 0 and (src[0] == '-' or std.ascii.isDigit(src[0])));
+        var has_dot = false;
+        var end = 0;
+
+        // NOTE: naive and allows '000' and also '0.'
+        for (src, 0..) |c, i| {
+            switch (c) {
+                '-', '0'...'9', 'e', 'E' => { },
+                '.' => has_dot = true,
+                else => { end = i; },
+            }
+        }
+
+        const num_src = src[0..end];
+
+        // TODO: support hex
+        if (has_dot) {
+            const res = std.fmt.parseFloat(f64, num_src) catch {
+                diag.*.result = .{ .badFloat = num_src };
+                return Error.BadFloat;
+            };
+            return Sexp{.value = .{ .float = res } };
+        } else {
+            const res = std.fmt.parseInt(i64, num_src) catch {
+                diag.*.result = .{ .badInteger = num_src };
+                return Error.BadFloat;
+            };
+            return Sexp{.value = .{ .int = res } };
+        }
+    }
+
+    test parseNumberToken {
+        const arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        const diag: Diagnostic = .{};
+
+        std.testing.expectEqual((try parseNumberToken("0x10Ff)", diag)).value.int, 0x10ff);
+        std.testing.expectEqual((try parseNumberToken("1.5e2+", diag)).value.int, 0x10ff);
+        std.testing.expectEqual((try parseNumberToken("-0.5e+2-", diag)).value.int, 0x10ff);
+        std.testing.expectEqual((try parseNumberToken("-0/", diag)).value.float, -0.0);
+        std.testing.expectEqual((try parseNumberToken("-3", diag)).value.int, 0x10ff);
+    }
+
+
     // FIXME: force arena allocator
     pub fn parse(alloc: std.mem.Allocator, src: []const u8, maybe_out_diagnostic: ?*Diagnostic) Error!Sexp {
         var ignored_diagnostic: Diagnostic = undefined;
@@ -123,6 +188,8 @@ pub const Parser = struct {
         out_diag.* = Diagnostic{ .source = src };
 
         const State = enum {
+            between,
+
             symbol,
             integer,
             float,
@@ -132,99 +199,79 @@ pub const Parser = struct {
             label,
             void,
             bool,
-            char, // FIXME: use 'a' instead of classic scheme char?
 
-            // // NOTE: in graphl, ' is a quasiquote
-            // quote,
+            // NOTE: in graphlt, ' is a quasiquote
+            quote,
             // // hardquote is a classic lisp quote, aka not quasiquote ('')
-            // hardquote,
+            hardquote, // in graphlt it is ''
             // unquote, // NOTE: uses $ not ',' like in classic lisps
             // unquote_splicing, // NOTE: uses ... not ',@' like in classic lisps
 
             string,
-            string_escaped_quote,
-            between,
             line_comments,
             multiline_comment,
         };
 
-        const AlgoState = struct {
-            loc: Loc = .{},
-            state: State = .between,
-            p_src: []const u8,
-            tok_start: usize = 0,
-            stack: std.SegmentedList(Sexp, 32),
-            alloc: std.mem.Allocator,
+        var loc: Loc = .{};
+        var state: State = .between;
+        var tok_start: usize = 0;
+        var stack: std.SegmentedList(Sexp, 32) = .{};
+        defer {
+            var iter = stack.constIterator(0);
+            while (iter.next()) |item|
+                item.deinit(alloc);
+            stack.deinit(alloc);
+        }
 
-            pub fn init(a: std.mem.Allocator, _src: []const u8) !@This() {
-                return .{
-                    .p_src = _src,
-                    .stack = std.SegmentedList(Sexp, 32){},
-                    .alloc = a,
+        const c = src[loc.index];
+
+        switch (c) {
+            '0'...'9' => {
+                tok_start = loc.index;
+                state = .integer;
+                parseNumberToken(src, out_diag);
+            },
+            '(' => {
+                const top = try stack.addOne(alloc);
+                top.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                state = .between;
+                loc.increment(c);
+            },
+            ')' => {
+                const old_top = stack.pop() orelse unreachable;
+                const new_top = peek(&stack) orelse {
+                    old_top.deinit(alloc);
+                    out_diag.*.result = .{ .unmatchedCloser = loc };
+                    return error.UnmatchedCloser;
                 };
-            }
-
-            fn deinit(self: *@This()) void {
-                var iter = self.stack.constIterator(0);
-                while (iter.next()) |item|
-                    item.deinit(self.alloc);
-                self.stack.deinit(self.alloc);
-            }
-
-            /// figure out what to do right after having digested a token, based on the character after
-            fn onNextCharAfterTok(self: *@This(), algo_diag: *Diagnostic) Error!void {
-                const c = self.p_src[self.loc.index];
-                switch (c) {
-                    '0'...'9' => {
-                        self.tok_start = self.loc.index;
-                        self.state = .integer;
-                    },
-                    '(' => {
-                        const top = try self.stack.addOne(self.alloc);
-                        top.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.alloc) } };
-                        self.state = .between;
-                    },
-                    ')' => {
-                        const old_top = self.stack.pop() orelse unreachable;
-                        const new_top = peek(&self.stack) orelse {
-                            old_top.deinit(self.alloc);
-                            algo_diag.*.result = .{ .unmatchedCloser = self.loc };
-                            return error.UnmatchedCloser;
-                        };
-                        (try new_top.value.list.addOne()).* = old_top;
-                        self.state = .between;
-                    },
-                    ' ', '\t', '\n' => self.state = .between,
-                    '"' => {
-                        self.tok_start = self.loc.index + 1;
-                        self.state = .string;
-                    },
-                    '#' => {
-                        self.tok_start = self.loc.index;
-                        self.state = .hashed_tok_start;
-                    },
-                    ';' => {
-                        self.tok_start = self.loc.index;
-                        self.state = .line_comments;
-                    },
-                    '\'' => {
-                        const top = try self.stack.addOne(self.alloc);
-                        // FIXME/HACK: replace with a native quote variant in the enum
-                        top.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.alloc) } };
-                        (try top.value.list.addOne()).* = syms.quote;
-                        self.state = .between;
-                    },
-                    else => {
-                        self.tok_start = self.loc.index;
-                        self.state = .symbol;
-                    },
-                }
-            }
-
-            fn unimplemented(_: @This(), feature: []const u8) noreturn {
-                return std.debug.panic("'{s}' unimplemented!", .{feature});
-            }
-        };
+                (try new_top.value.list.addOne()).* = old_top;
+                state = .between;
+            },
+            ' ', '\t', '\n' => state = .between,
+            '"' => {
+                tok_start = loc.index + 1;
+                state = .string;
+            },
+            '#' => {
+                tok_start = loc.index;
+                state = .hashed_tok_start;
+            },
+            ';' => {
+                tok_start = loc.index;
+                state = .line_comments;
+            },
+            '\'' => {
+                const top = try stack.addOne(alloc);
+                // FIXME/HACK: replace with a native quote variant in the enum
+                top.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                (try top.value.list.addOne()).* = syms.quote;
+                state = .between;
+            },
+            else => {
+                tok_start = loc.index;
+                state = .symbol;
+            },
+        }
 
         // FIXME: confirm there is no compiler bug anymore
         var algo_state = try AlgoState.init(alloc, src);
@@ -467,8 +514,6 @@ test "parse 1" {
         \\#void
         \\#t
         \\#f
-        \\
-        // FIXME: the extra new line is necessary cuz the parser sucks
     ;
 
     var diag = Parser.Diagnostic{ .source = source };
