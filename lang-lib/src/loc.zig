@@ -30,7 +30,7 @@ pub const Loc = struct {
         return source[line_start..line_end];
     }
 
-    pub fn increment(self: *@This(), c: u8) void {
+    pub fn incrementByChar(self: *@This(), c: u8) void {
         switch (c) {
             '\n' => {
                 self.line += 1;
@@ -42,6 +42,11 @@ pub const Loc = struct {
                 self.col += 1;
             },
         }
+    }
+
+    pub fn increment(self: *@This(), src: []const u8) void {
+        const c = src[self.index];
+        return self.incrementByChar(c);
     }
 
     pub fn format(

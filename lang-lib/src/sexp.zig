@@ -315,6 +315,7 @@ pub const syms = struct {
     pub const @"false" = Sexp{ .value = .{ .symbol = "#f" } };
     pub const @"void" = Sexp{ .value = .{ .symbol = "#void" } };
     pub const quote = Sexp{ .value = .{ .symbol = "quote" } };
+    pub const hard_quote = Sexp{ .value = .{ .symbol = "hardquote" } };
 
     const builtin_nodes = @import("./nodes/builtin.zig").builtin_nodes;
 
