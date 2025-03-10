@@ -22,21 +22,27 @@ const Homepage = () => {
         About the demo:
         <ul>
           <li>Request the demo <a href="https://docs.google.com/forms/d/e/1FAIpQLSclHFJbbGW5nGmvV23oECXTfXuy12lmIgSoHbKx9RFLWToo7A/viewform">here</a></li>
-          <li>Free, but will stop working in June 2025</li>
+          <li>It is totally free, but will stop working in June 2025</li>
           <li>
             If you want to try it out, but don't have a Synchro Control project or iTwin, <a href="mailto:mike@graphl.tech">contact me</a> and I'll
             give you some test files
           </li>
+          <li><a href="https://youtu.be/Rlr3CetZ6dQ?si=hyuWOgPsTcqLzALI" target="_blank">Tutorial video</a></li>
           <li>Only known to work in Unreal Engine versions 5.0.3 through 5.3.2,
             <br/>
-            later Unreal Engine versions have a bug in the level sequence importer, I have submitted a bug report.
+            later Unreal Engine versions have a bug in the level sequence importer, which I have already reported
           </li>
-          <li>You must have visual studio installed to use the plugin (if you don't need a combined export, you can avoid it).</li>
-          <li>Similar features to the discontinued iTwin Exporter for Datasmith, but crashes much less on large data. (If it does, contact me!)</li>
+          <li>If you are not on Unreal Engine version 5.3.2, you will need Visual Studio build tools installed to compile the plugin yourself</li>
+          <li>
+            Currently you can only combine everything or nothing. Combining everything may overrun UE's 2GB static mesh asset limit so that
+            may fail. Typically combining is more performant and runs better on older hardware, if you are under that 2GB limit. In the future
+            you will be able to choose which instances are combined/merged and which aren't, to prevent hitting that limit.
+          </li>
+          <li>Appearance profiles/color animation doesn't work unless you use the "combined" export, this will be fixed in future versions</li>
           <li>Submit your email below to get an access token and download link within 48 hours</li>
           <li>
             The demo is not yet code-signed, so Windows will warn you and you need to bypass that.
-            If you want to verify your download, the md5 hash of the installer is <code><pre>fa2cba05bfd3557b95dd6fa91c838f33</pre></code>
+            If you want to verify your download, the md5 hash of the installer is <code><pre>fbe73fbdd1a104948463a2f3aa92d8b4</pre></code>
           </li>
           <li>There are known bugs! But submit any you find in the Graphl help menu or by email</li>
           <li>
@@ -48,7 +54,6 @@ const Homepage = () => {
             updates while we work on adding a roadmap to the website
           </li>
           <li>Contact <a href="mailto:mike@graphl.tech">mike@graphl.tech</a> for help</li>
-          <li>Tutorial video is in progress</li>
         </ul>
       </p>
 

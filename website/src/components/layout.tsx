@@ -28,7 +28,7 @@ const Footer = () => (
         <Link replace={false} to="/blog/docs">docs</Link>
       </div>
     </div>
-    <span>&copy; {constants.companyName} {new Date().getFullYear()}</span>
+    <span>&copy; {new Date().getFullYear()} {constants.companyName}</span>
   </footer>
 );
 
