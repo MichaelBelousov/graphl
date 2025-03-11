@@ -45,8 +45,10 @@ pub const Loc = struct {
     }
 
     pub fn increment(self: *@This(), src: []const u8) void {
-        const c = src[self.index];
-        return self.incrementByChar(c);
+        if (self.index < src.len) {
+            const c = src[self.index];
+            return self.incrementByChar(c);
+        }
     }
 
     pub fn format(

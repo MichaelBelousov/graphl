@@ -231,8 +231,9 @@ pub const Sexp = struct {
             .symbol => |v| return std.mem.eql(u8, v, other.value.symbol),
             inline .module, .list => |v, sexp_type| {
                 const other_list = @field(other.value, @tagName(sexp_type));
-                if (v.items.len != other_list.items.len)
+                if (v.items.len != other_list.items.len) {
                     return false;
+                }
                 for (v.items, other_list.items) |item, other_item| {
                     if (!item.recursive_eq(other_item))
                         return false;
