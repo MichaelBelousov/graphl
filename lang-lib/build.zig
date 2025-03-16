@@ -137,17 +137,6 @@ pub fn build(b: *std.Build) void {
 
     // const web_lib_install = b.addInstallArtifact(web_lib, .{});
     // web_step.dependOn(&web_lib_install.step);
-
-    const ide_json_gen_step = b.step("ide-json-gen", "Build ide-json-gen");
-    const ide_json_gen = b.addExecutable(.{
-        .name = "ide-json-gen",
-        .root_source_file = b.path("src/ide_json_gen.zig"),
-        .optimize = optimize,
-        .target = target,
-    });
-    b.installArtifact(ide_json_gen);
-    const ide_json_gen_install = b.addInstallArtifact(ide_json_gen, .{});
-    ide_json_gen_step.dependOn(&ide_json_gen_install.step);
 }
 
 const WabtResult = struct {
@@ -162,6 +151,7 @@ fn addWat2Wasm(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
         .style = .{ .cmake = wabt_dep.path("src/config.h.in") },
         .include_path = "wabt/config.h",
     }, .{
+        .WABT_DEBUG = optimize == .Debug,
         .WABT_VERSION_STRING = "1.0.34",
         .HAVE_SNPRINTF = 1,
         .HAVE_SSIZE_T = 1,

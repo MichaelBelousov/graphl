@@ -139,7 +139,7 @@ comptime {
         for (std.meta.declarations(@This())) |_decl| {
             const decl = @field(@This(), _decl.name);
             if (std.mem.startsWith(u8, _decl.name, "__grappl_")) {
-                @export(decl, .{ .name = _decl.name, .linkage = .strong });
+                @export(&decl, .{ .name = _decl.name, .linkage = .strong });
             }
         }
     }
