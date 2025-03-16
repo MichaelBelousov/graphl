@@ -815,6 +815,7 @@ export function Ide(canvasElem, opts) {
         const transferBuffer = () => new Uint8Array(
             wasmResult.instance.exports.memory.buffer,
             // FIXME: why is the end of the region exported? This doesn't seem to match what zig sees
+            // FIXME: the value I think is a pointer, not the actual value?
             wasmResult.instance.exports.graphl_init_start - INIT_BUFFER_SZ,
             INIT_BUFFER_SZ,
         );
