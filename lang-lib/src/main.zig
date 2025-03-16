@@ -24,8 +24,7 @@ pub const Value = @import("./nodes/builtin.zig").Value;
 pub const Sexp = @import("./sexp.zig").Sexp;
 pub const syms = @import("./sexp.zig").syms;
 pub const SexpParser = @import("./sexp_parser.zig").Parser;
-pub const compiler = @import("./compiler-wat.zig");
-// pub const compiler_wasm = @import("./compiler-wasm.zig");
+pub const compiler = @import("./compiler-wasm.zig");
 
 pub const std_options: std.Options = .{
     .log_level = if (builtin.is_test) .debug else std.log.default_level,
@@ -37,6 +36,7 @@ pub const testing = struct {
 };
 
 test {
+    _ = @import("binaryen");
     // FIXME:
     std.testing.refAllDeclsRecursive(compiler);
     // std.testing.refAllDeclsRecursive(compiler_wasm);

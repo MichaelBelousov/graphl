@@ -13,8 +13,8 @@ fn _print_sexp(sexp: *const Sexp) callconv(.C) void {
 }
 
 comptime {
-    if (builtin.target.cpu.arch != .wasm32) {
-        @export(_print_sexp, .{ .name = "_print_sexp", .linkage = .strong });
+    if (builtin.target.cpu.arch != .wasm32 and builtin.mode == .Debug) {
+        @export(&_print_sexp, .{ .name = "_print_sexp", .linkage = .strong });
     }
 }
 

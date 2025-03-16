@@ -493,62 +493,6 @@ pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
     };
 }
 
-pub const VarNodes = struct {
-    get: NodeDesc,
-    set: NodeDesc,
-
-    fn init(
-        alloc: std.mem.Allocator,
-        var_name: []const u8,
-        var_type: Type,
-    ) !VarNodes {
-        // FIXME: test and plug non-comptime alloc leaks
-        comptime var getter_outputs_slot: [if (@inComptime()) 1 else 0]Pin = undefined;
-        const _getter_outputs = if (@inComptime()) &getter_outputs_slot else try alloc.alloc(Pin, 1);
-        _getter_outputs[0] = Pin{ .name = "value", .kind = .{ .primitive = .{ .value = var_type } } };
-        const getter_outputs_slot_sealed = getter_outputs_slot;
-        const getter_outputs = if (@inComptime()) &getter_outputs_slot_sealed else _getter_outputs;
-
-        const getter_name: []const u8 = if (@inComptime())
-            std.fmt.comptimePrint("#GET#{s}", .{var_name})
-        else
-            try std.fmt.allocPrint(alloc, "#GET#{s}", .{var_name});
-
-        // FIXME: is there a better way to do this?
-        comptime var setter_inputs_slot: [if (@inComptime()) 2 else 0]Pin = undefined;
-        const _setter_inputs = if (@inComptime()) &setter_inputs_slot else try alloc.alloc(Pin, 2);
-        _setter_inputs[0] = Pin{ .name = "initiate", .kind = .{ .primitive = .exec } };
-        _setter_inputs[1] = Pin{ .name = "new value", .kind = .{ .primitive = .{ .value = var_type } } };
-        const setter_inputs_slot_sealed = setter_inputs_slot;
-        const setter_inputs = if (@inComptime()) &setter_inputs_slot_sealed else _setter_inputs;
-
-        comptime var setter_outputs_slot: [if (@inComptime()) 2 else 0]Pin = undefined;
-        const _setter_outputs = if (@inComptime()) &setter_outputs_slot else try alloc.alloc(Pin, 2);
-        _setter_outputs[0] = Pin{ .name = "continue", .kind = .{ .primitive = .exec } };
-        _setter_outputs[1] = Pin{ .name = "value", .kind = .{ .primitive = .{ .value = var_type } } };
-        const setter_outputs_slot_sealed = setter_outputs_slot;
-        const setter_outputs = if (@inComptime()) &setter_outputs_slot_sealed else _setter_outputs;
-
-        const setter_name: []const u8 =
-            if (@inComptime())
-            std.fmt.comptimePrint("#SET#{s}", .{var_name})
-        else
-            try std.fmt.allocPrint(alloc, "#SET#{s}", .{var_name});
-
-        return VarNodes{
-            .get = basicNode(&.{
-                .name = getter_name,
-                .outputs = getter_outputs,
-            }),
-            .set = basicNode(&.{
-                .name = setter_name,
-                .inputs = setter_inputs,
-                .outputs = setter_outputs,
-            }),
-        };
-    }
-};
-
 pub const BreakNodeContext = struct {
     struct_type: Type,
     out_pins: []const Pin,
@@ -557,57 +501,6 @@ pub const BreakNodeContext = struct {
         alloc.dealloc(self.out_pins);
     }
 };
-
-pub fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !NodeDesc {
-    var out_pins_slot: [if (@inComptime()) in_struct_type.field_types.len else 0]Pin = undefined;
-
-    const out_pins = if (@inComptime()) &out_pins_slot else try alloc.alloc(Pin, in_struct_type.field_types.len);
-
-    for (in_struct_type.field_types, out_pins) |field_type, *out_pin| {
-        out_pin.* = Pin{ .name = "FIXME", .kind = .{ .primitive = .{ .value = field_type } } };
-    }
-
-    const done_pins_slot = out_pins_slot;
-
-    const done_out_pins = if (@inComptime()) &done_pins_slot else out_pins;
-
-    const name = if (@inComptime())
-        std.fmt.comptimePrint("break_{s}", .{in_struct_type.name})
-    else
-        std.fmt.allocPrint(alloc, "break_{s}", .{in_struct_type.name});
-
-    const context: *const BreakNodeContext =
-        if (@inComptime()) &BreakNodeContext{
-        .struct_type = in_struct_type,
-        .out_pins = done_out_pins,
-    } else try alloc.create(BreakNodeContext{
-        .struct_type = in_struct_type,
-        .out_pins = out_pins,
-    });
-
-    const NodeImpl = struct {
-        const Self = @This();
-
-        pub fn getInputs(node: NodeDesc) []const Pin {
-            const ctx: *const BreakNodeContext = @ptrCast(node.context);
-            return &.{
-                Pin{ .name = "struct", .kind = .{ .primitive = .{ .value = ctx.struct_type } } },
-            };
-        }
-
-        pub fn getOutputs(node: NodeDesc) []const Pin {
-            const ctx: *const BreakNodeContext = @ptrCast(node.context);
-            return ctx.out_pins;
-        }
-    };
-
-    return NodeDesc{
-        .name = name,
-        .context = context,
-        ._getInputs = NodeImpl.getInputs,
-        ._getOutputs = NodeImpl.getOutputs,
-    };
-}
 
 pub const builtin_nodes = struct {
     // FIXME: replace with real macro system that isn't JSON hack
@@ -1073,18 +966,6 @@ pub const temp_ue = struct {
     };
 
     pub const nodes = struct {
-        // TODO: replace with live vars
-        // const capsule_component = VarNodes.init(
-        //     failing_allocator,
-        //     "capsule-component",
-        //     types.scene_component,
-        // ) catch unreachable;
-        // const current_spawn_point = VarNodes.init(failing_allocator, "current-spawn-point", types.scene_component) catch unreachable;
-        // const drone_state = VarNodes.init(failing_allocator, "drone-state", types.scene_component) catch unreachable;
-        // const mesh = VarNodes.init(failing_allocator, "mesh", types.scene_component) catch unreachable;
-        // const over_time = VarNodes.init(failing_allocator, "over-time", types.scene_component) catch unreachable;
-        // const speed = VarNodes.init(failing_allocator, "speed", primitive_types.f32_) catch unreachable;
-
         // pub const custom_tick_call: NodeDesc = basicNode(&.{
         //     .name = "CustomTickCall",
         //     .inputs = &.{

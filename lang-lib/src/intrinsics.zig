@@ -1,6 +1,8 @@
 //! intrinsic functions linked into compiler output for usage by the
 //! compiler's generated code
 
+// FIXME: rename everything to graphl
+
 // NOTE: the wasm ABI passes all non-singleton (containing one primitive)
 // structs by a pointer. So we must use pointers for most structs in this file
 // since we're generating WASM code to call these functions by that ABI

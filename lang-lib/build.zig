@@ -8,13 +8,12 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run library tests");
 
-    const binaryen_dep = b.dependency("binaryen-zig", .{});
+    const binaryen_dep = b.dependency("binaryen-zig", .{ .optimize = optimize, .target = target });
     //const bytebox_dep = b.dependency("bytebox", .{});
 
     const web_target_query = std.Target.Query{
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
-        //.abi = .musl,
         // https://github.com/ziglang/zig/pull/16207
         .cpu_features_add = std.Target.wasm.featureSet(&.{
             .atomics,
@@ -27,8 +26,8 @@ pub fn build(b: *std.Build) void {
     const wabt = addWat2Wasm(b, target, optimize);
     const wasm2wat = wabt.wasm2wat;
 
-    // FIXME: make the default true for tests
-    const small_intrinsics = b.option(bool, "small_intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse false;
+    // TODO: make this false in some cases
+    const small_intrinsics = b.option(bool, "small_intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse true;
 
     const intrinsics = b.addExecutable(.{
         .name = "graphl_intrinsics",
@@ -36,9 +35,14 @@ pub fn build(b: *std.Build) void {
         .target = web_target,
         .optimize = if (small_intrinsics) .ReleaseSmall else optimize,
         .strip = false, // required by current usage of intrinsics
+        .single_threaded = true,
+        .pic = true,
+        .unwind_tables = .none,
+        .error_tracing = false,
+        .code_model = .small,
     });
     intrinsics.entry = .disabled;
-    intrinsics.rdynamic = true;
+    intrinsics.rdynamic = true; // export everything
 
     // NOTE: in the future may be able to use .getEmittedAsm to get the wasm output from zig and drop
     // wasm2wat system dep, but atm it doesn't work that way
@@ -60,19 +64,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .pic = true,
     });
-    graphl_core_mod.addOptions("build_opts", lib_opts);
 
+    // TODO: get a working test VM again
     //graphl_core_mod.addImport("bytebox", bytebox_dep.module("bytebox"));
 
     const lib = b.addStaticLibrary(.{
         .name = "graph-lang",
-        .root_module = null,
-        .root_source_file = null,
-        .optimize = optimize,
-        .target = target,
+        .root_module = graphl_core_mod,
         .pic = true,
     });
-    lib.root_module.addImport("core", graphl_core_mod);
     lib.step.dependOn(&intrinsics_to_wat_step.step);
 
     b.installArtifact(lib);
@@ -89,8 +89,6 @@ pub fn build(b: *std.Build) void {
     });
     main_tests.step.dependOn(&intrinsics_to_wat_step.step);
     //main_tests.root_module.addImport("bytebox", bytebox_dep.module("bytebox"));
-    main_tests.root_module.addImport("binaryen", binaryen_dep.module("binaryen"));
-    main_tests.root_module.addOptions("build_opts", lib_opts);
 
     // FIXME: rename to graphltc
     const graphltc_tool = b.step("graphltc", "build the text version of the compiler");
@@ -99,6 +97,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("./src/graphltc.zig"),
         .target = target,
         .optimize = optimize,
+        .single_threaded = true,
     });
     graphltc_exe.step.dependOn(&intrinsics_to_wat_step.step);
     b.installArtifact(graphltc_exe);
@@ -112,6 +111,7 @@ pub fn build(b: *std.Build) void {
         &graphltc_exe.root_module,
     }) |m| {
         m.*.addImport("binaryen", binaryen_dep.module("binaryen"));
+        m.*.addOptions("build_opts", lib_opts);
         m.*.addAnonymousImport("graphl_intrinsics", .{
             .root_source_file = intrinsics_wat_file,
             .optimize = optimize,
