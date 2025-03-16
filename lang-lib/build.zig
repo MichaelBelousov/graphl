@@ -8,12 +8,12 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run library tests");
 
-    //const binaryen_dep = b.dependency("binaryen-zig", .{});
-    const bytebox_dep = b.dependency("bytebox", .{});
+    const binaryen_dep = b.dependency("binaryen-zig", .{});
+    //const bytebox_dep = b.dependency("bytebox", .{});
 
     const web_target_query = std.Target.Query{
         .cpu_arch = .wasm32,
-        .os_tag = .freestanding, // can't use freestanding cuz binaryen
+        .os_tag = .wasi,
         //.abi = .musl,
         // https://github.com/ziglang/zig/pull/16207
         .cpu_features_add = std.Target.wasm.featureSet(&.{
@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
     const small_intrinsics = b.option(bool, "small_intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse false;
 
     const intrinsics = b.addExecutable(.{
-        .name = "grappl_intrinsics",
+        .name = "graphl_intrinsics",
         .root_source_file = b.path("./src/intrinsics.zig"),
         .target = web_target,
         .optimize = if (small_intrinsics) .ReleaseSmall else optimize,
@@ -45,7 +45,7 @@ pub fn build(b: *std.Build) void {
     const intrinsics_to_wat_step = b.addRunArtifact(wasm2wat);
     intrinsics_to_wat_step.addFileArg(intrinsics.getEmittedBin());
     intrinsics_to_wat_step.addArg("-o");
-    const intrinsics_wat_file = intrinsics_to_wat_step.addOutputFileArg("grappl-intrinsics.wat");
+    const intrinsics_wat_file = intrinsics_to_wat_step.addOutputFileArg("graphl-intrinsics.wat");
     intrinsics_to_wat_step.step.dependOn(&intrinsics.step);
 
     // don't include
@@ -54,29 +54,25 @@ pub fn build(b: *std.Build) void {
     lib_opts.addOption(bool, "disable_compiler", disable_compiler);
 
     // TODO: reuse this in lib
-    const grappl_core_mod = b.addModule("grappl_core", .{
+    const graphl_core_mod = b.addModule("graphl_core", .{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
         .pic = true,
     });
-    grappl_core_mod.addAnonymousImport("grappl_intrinsics", .{
-        .root_source_file = intrinsics_wat_file,
-        .optimize = optimize,
-        .target = web_target,
-    });
-    grappl_core_mod.addOptions("build_opts", lib_opts);
+    graphl_core_mod.addOptions("build_opts", lib_opts);
 
-    grappl_core_mod.addImport("bytebox", bytebox_dep.module("bytebox"));
+    //graphl_core_mod.addImport("bytebox", bytebox_dep.module("bytebox"));
 
     const lib = b.addStaticLibrary(.{
         .name = "graph-lang",
+        .root_module = null,
         .root_source_file = null,
         .optimize = optimize,
         .target = target,
         .pic = true,
     });
-    lib.root_module.addImport("core", grappl_core_mod);
+    lib.root_module.addImport("core", graphl_core_mod);
     lib.step.dependOn(&intrinsics_to_wat_step.step);
 
     b.installArtifact(lib);
@@ -92,12 +88,8 @@ pub fn build(b: *std.Build) void {
         .filters = test_filters,
     });
     main_tests.step.dependOn(&intrinsics_to_wat_step.step);
-    main_tests.root_module.addAnonymousImport("grappl_intrinsics", .{
-        .root_source_file = intrinsics_wat_file,
-        .optimize = optimize,
-        .target = web_target,
-    });
-    main_tests.root_module.addImport("bytebox", bytebox_dep.module("bytebox"));
+    //main_tests.root_module.addImport("bytebox", bytebox_dep.module("bytebox"));
+    main_tests.root_module.addImport("binaryen", binaryen_dep.module("binaryen"));
     main_tests.root_module.addOptions("build_opts", lib_opts);
 
     // FIXME: rename to graphltc
@@ -109,18 +101,23 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     graphltc_exe.step.dependOn(&intrinsics_to_wat_step.step);
-    graphltc_exe.root_module.addAnonymousImport("grappl_intrinsics", .{
-        .root_source_file = intrinsics_wat_file,
-        .optimize = optimize,
-        .target = web_target,
-    });
     b.installArtifact(graphltc_exe);
     const graphltc_install = b.addInstallArtifact(graphltc_exe, .{});
     graphltc_tool.dependOn(&graphltc_install.step);
 
-    // inline for (.{ &lib.root_module, &main_tests.root_module, grappl_core_mod }) |m| {
-    //     m.addImport("binaryen", binaryen_dep.module("binaryen"));
-    // }
+    inline for (.{
+        &lib.root_module,
+        &main_tests.root_module,
+        graphl_core_mod,
+        &graphltc_exe.root_module,
+    }) |m| {
+        m.*.addImport("binaryen", binaryen_dep.module("binaryen"));
+        m.*.addAnonymousImport("graphl_intrinsics", .{
+            .root_source_file = intrinsics_wat_file,
+            .optimize = optimize,
+            .target = web_target,
+        });
+    }
 
     const main_tests_run = b.addRunArtifact(main_tests);
 
