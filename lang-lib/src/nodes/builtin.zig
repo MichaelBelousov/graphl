@@ -3,6 +3,7 @@
 const std = @import("std");
 const Sexp = @import("../sexp.zig").Sexp;
 const intrinsics = @import("../intrinsics.zig");
+const binaryen = @import("binaryen");
 
 const failing_allocator = std.testing.failing_allocator;
 
@@ -22,8 +23,9 @@ pub const TypeInfo = struct {
     field_types: []const Type = &.{},
     // FIXME: use a union
     func_type: ?FuncType = null,
+    /// NOTE: this could contain a binaryen.PackedType, or HeapType, etc!
     /// the wasm primitive associated with this type, if it is a primitive
-    wasm_type: ?[]const u8 = null,
+    wasm_type: ?binaryen.Type = null,
     // TODO: this should only exist on the compound-type variant of a union
     /// if this is a compound type, its (cached?) size on the stack
     size: ?u32 = null,
@@ -309,39 +311,41 @@ pub const empty_type: Type = &TypeInfo{ .name = "EMPTY_TYPE" };
 // FIXME: consider renaming to "builtin_types"
 pub const primitive_types = struct {
     // nums
-    pub const i32_: Type = &TypeInfo{ .name = "i32", .wasm_type = "i32" };
-    pub const i64_: Type = &TypeInfo{ .name = "i64", .wasm_type = "i64" };
-    pub const u32_: Type = &TypeInfo{ .name = "u32", .wasm_type = "i32" };
-    pub const u64_: Type = &TypeInfo{ .name = "u64", .wasm_type = "i64" };
-    pub const f32_: Type = &TypeInfo{ .name = "f32", .wasm_type = "f32" };
-    pub const f64_ = &TypeInfo{ .name = "f64", .wasm_type = "f64" };
+    pub const i32_: Type = &TypeInfo{ .name = "i32", .wasm_type = binaryen.Type.int32() };
+    pub const i64_: Type = &TypeInfo{ .name = "i64", .wasm_type = binaryen.Type.int64() };
+    pub const u32_: Type = &TypeInfo{ .name = "u32", .wasm_type = binaryen.Type.int32() };
+    pub const u64_: Type = &TypeInfo{ .name = "u64", .wasm_type = binaryen.Type.int64() };
+    pub const f32_: Type = &TypeInfo{ .name = "f32", .wasm_type = binaryen.Type.float32() };
+    pub const f64_ = &TypeInfo{ .name = "f64", .wasm_type = binaryen.Type.float64() };
 
-    pub const byte: Type = &TypeInfo{ .name = "byte", .wasm_type = "u8" };
+    // FIXME: I am guessing this is highly illegal and bad
+    pub const byte: Type = &TypeInfo{ .name = "byte", .wasm_type = @enumFromInt(@intFromEnum(binaryen.Type.Packed.int8())) };
     // FIXME: should I change this to u8?
-    pub const bool_: Type = &TypeInfo{ .name = "bool", .wasm_type = "i32" };
-    pub const char_: Type = &TypeInfo{ .name = "char", .wasm_type = "u32" };
-    pub const symbol: Type = &TypeInfo{ .name = "symbol", .wasm_type = "i32" };
-    pub const @"void": Type = &TypeInfo{ .name = "void" };
+    pub const bool_: Type = &TypeInfo{ .name = "bool", .wasm_type = binaryen.Type.int32() };
+    pub const char_: Type = &TypeInfo{ .name = "char", .wasm_type = binaryen.Type.int32() };
+    pub const symbol: Type = &TypeInfo{ .name = "symbol", .wasm_type = binaryen.Type.int32() };
+    pub const @"void": Type = &TypeInfo{ .name = "void", .wasm_type = binaryen.Type.none() };
 
     // FIXME: consider moving this to live in compound_types
     pub const string: Type = &TypeInfo{
         .name = "string",
-        .wasm_type = "i32",
-        .size = @sizeOf(intrinsics.GrapplString),
+        .wasm_type = binaryen.Type.stringref(),
+        //.size = @sizeOf(intrinsics.GrapplString),
     };
 
     pub const vec3: Type = &TypeInfo{
         .name = "vec3",
-        .wasm_type = "i32",
-        .size = @sizeOf(intrinsics.GrapplVec3),
+        // FIXME: this is wrong
+        .wasm_type = binaryen.Type.int32(),
+        //.size = @sizeOf(intrinsics.GrapplVec3),
     };
 
-    pub const rgba: Type = &TypeInfo{ .name = "rgba", .wasm_type = "u32" };
+    pub const rgba: Type = &TypeInfo{ .name = "rgba", .wasm_type = binaryen.Type.int32() };
 
     // FIXME: replace when we think out the macro system
     pub const code: Type = &TypeInfo{
         .name = "code",
-        .wasm_type = "i32", // this is a stand in for "string"
+        .wasm_type = binaryen.Type.stringref(), // this is a stand in for "string"
     };
 
     // pub const vec3: Type = &TypeInfo{
