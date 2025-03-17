@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub const Interned = struct {};
 
-const InternPool = struct {
+pub const InternPool = struct {
     const Hash = usize;
     const Context = struct {
         pub fn hash(self: @This(), s: Hash) u64 {

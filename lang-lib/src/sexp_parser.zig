@@ -4,6 +4,8 @@ const sexp = @import("./sexp.zig");
 const Sexp = sexp.Sexp;
 const syms = sexp.syms;
 const Loc = @import("./loc.zig").Loc;
+// const InternPool = @import("./InternPool.zig").InternPool;
+var pool = &@import("./InternPool.zig").pool;
 
 fn peek(stack: *std.SegmentedList(Sexp, 32)) ?*Sexp {
     if (stack.len == 0) return null;
@@ -385,7 +387,11 @@ pub const Parser = struct {
     }
 
     // FIXME: force arena allocator
-    pub fn parse(alloc: std.mem.Allocator, src: []const u8, maybe_out_diagnostic: ?*Diagnostic) Error!Sexp {
+    pub fn parse(
+        alloc: std.mem.Allocator,
+        src: []const u8,
+        maybe_out_diagnostic: ?*Diagnostic,
+    ) Error!Sexp {
         var ignored_diagnostic: Diagnostic = undefined;
         const out_diag = if (maybe_out_diagnostic) |d| d else &ignored_diagnostic;
         out_diag.* = Diagnostic{ .source = src };
@@ -467,7 +473,8 @@ pub const Parser = struct {
                 },
                 // FIXME: temporarily this just returns a symbol
                 '\'' => {
-                    const tok = try parseSymbolToken(src[loc.index..], loc, out_diag);
+                    var tok = try parseSymbolToken(src[loc.index..], loc, out_diag);
+                    tok.sexp.value.symbol = pool.getSymbol(tok.sexp.value.symbol);
                     // unreachable cuz we'd have already failed if we popped the last one
                     const top = peek(&stack) orelse unreachable;
                     const last = try top.value.list.addOne();

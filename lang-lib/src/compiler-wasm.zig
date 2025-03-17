@@ -33,8 +33,9 @@ const intrinsics_code = intrinsics_raw["(module $graphl_intrinsics.wasm\n".len .
 pub const Diagnostic = struct {
     err: Error = .None,
 
-    // set by compile call
-    module: *const Sexp = undefined,
+    // set upon start of compilation
+    /// the sexp parsed from the source contextually related to the stored error
+    context_sexp: *const Sexp = undefined,
 
     const Error = union(enum(u16)) {
         None = 0,
@@ -62,7 +63,7 @@ pub const Diagnostic = struct {
             .None => try writer.print("Not an error", .{}),
             .BadTopLevelForm => |decl| {
                 try writer.print("Bad Top Level Form:\n{}\n", .{decl});
-                try writer.print("in:\n{}\n", .{self.module});
+                try writer.print("in:\n{}\n", .{self.context_sexp});
             },
         }
     }
@@ -2163,18 +2164,18 @@ const Compilation = struct {
 pub fn compile(
     a: std.mem.Allocator,
     sexp: *const Sexp,
-    env: *const Env,
     user_funcs: ?*const std.SinglyLinkedList(UserFunc),
     _in_diagnostic: ?*Diagnostic,
 ) ![]const u8 {
     if (build_opts.disable_compiler) unreachable;
     var ignored_diagnostic: Diagnostic = undefined; // FIXME: why don't we init?
     const diag = if (_in_diagnostic) |d| d else &ignored_diagnostic;
-    diag.module = sexp;
+    diag.context_sexp = sexp;
 
-    var mut_env = env.spawn();
+    var env = try Env.initDefault(a);
+    defer env.deinit(a);
 
-    var unit = try Compilation.init(a, &mut_env, user_funcs, diag);
+    var unit = try Compilation.init(a, &env, user_funcs, diag);
     defer unit.deinit();
 
     return unit.compileModule(sexp);
@@ -2409,6 +2410,90 @@ test "compile big" {
 
     var diagnostic = Diagnostic.init();
     if (compile(t.allocator, &parsed, &env, &user_funcs, &diagnostic)) |wat| {
+        defer t.allocator.free(wat);
+        {
+            errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
+            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
+        }
+        try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
+    } else |err| {
+        std.debug.print("err {}:\n{}", .{ err, diagnostic });
+        try t.expect(false);
+    }
+}
+
+test "new compiler" {
+    // var env = try Env.initDefault(t.allocator);
+    // defer env.deinit(t.allocator);
+
+    var parsed = try SexpParser.parse(t.allocator,
+        \\;;; comment
+        \\(typeof (++ i32) i32)
+        \\(define (++ x)
+        \\  (begin
+        \\    (return (+ x 1))))
+    , null);
+    //std.debug.print("{any}\n", .{parsed});
+    defer parsed.deinit(t.allocator);
+
+    // imports could be in arbitrary order so just slice it off cuz length will
+    // be the same
+    const expected_prelude =
+        \\(module
+        \\(import "env"
+        \\        "callUserFunc_code_R"
+        \\        (func $callUserFunc_code_R
+        \\              (param i32)
+        \\              (param i32)))
+        \\(import "env"
+        \\        "callUserFunc_i32_R"
+        \\        (func $callUserFunc_i32_R
+        \\              (param i32)
+        \\              (param i32)))
+        \\(global $__grappl_vstkp
+        \\        (mut i32)
+        \\        (i32.const 4096))
+        \\
+    ++ compiled_prelude ++
+        \\
+        \\
+    ;
+
+    const expected =
+        \\(func $sql
+        \\      (param $param_0
+        \\             i32)
+        \\      (call $callUserFunc_code_R
+        \\            (i32.const 1)
+        \\            (local.get $param_0)))
+        \\(func $Confetti
+        \\      (param $param_0
+        \\             i32)
+        \\      (call $callUserFunc_i32_R
+        \\            (i32.const 0)
+        \\            (local.get $param_0)))
+        \\(export "++"
+        \\        (func $++))
+        \\(type $typeof_++
+        \\      (func (param i32)
+        \\            (result i32)))
+        \\(func $++
+        \\      (param $param_x
+        \\             i32)
+        \\      (result i32)
+        \\      (local $__frame_start
+        \\             i32)
+        \\      (local.set $__frame_start
+        \\                 (global.get $__grappl_vstkp))
+        \\      (i32.add (local.get $param_x)
+        \\               (i32.const 1))
+        \\      (global.set $__grappl_vstkp
+        \\                  (local.get $__frame_start)))
+        \\)
+    ;
+
+    var diagnostic = Diagnostic.init();
+    if (compile(t.allocator, &parsed, null, &diagnostic)) |wat| {
         defer t.allocator.free(wat);
         {
             errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
