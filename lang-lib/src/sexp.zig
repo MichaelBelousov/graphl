@@ -34,7 +34,7 @@ pub const Sexp = struct {
         /// this Sexp is borrowing the referenced memory, it should not be freed
         borrowedString: []const u8,
         /// always borrowed
-        symbol: []const u8,
+        symbol: [:0]const u8,
         // TODO: quote/quasiquote, etc
     },
 

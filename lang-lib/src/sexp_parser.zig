@@ -177,11 +177,13 @@ pub const Parser = struct {
     inline fn parseSymbolToken(src: []const u8, loc: Loc, diag: *Diagnostic) Error!ParseTokenResult {
         std.debug.assert(src.len > 0);
         const end = std.mem.indexOfAny(u8, src, &.{ ' ', '\n', '\t', ')' }) orelse src.len;
-        const sym = src[0..end];
-        if (sym.len == 0) {
+        const in_src_sym = src[0..end];
+        if (in_src_sym.len == 0) {
             diag.result = .{ .emptyQuote = loc };
             return Error.EmptyQuote;
         }
+
+        const sym = pool.getSymbol(in_src_sym);
         return ParseTokenResult{
             .sexp = Sexp{ .value = .{ .symbol = sym } },
             .src_span = sym,
@@ -473,8 +475,7 @@ pub const Parser = struct {
                 },
                 // FIXME: temporarily this just returns a symbol
                 '\'' => {
-                    var tok = try parseSymbolToken(src[loc.index..], loc, out_diag);
-                    tok.sexp.value.symbol = pool.getSymbol(tok.sexp.value.symbol);
+                    const tok = try parseSymbolToken(src[loc.index..], loc, out_diag);
                     // unreachable cuz we'd have already failed if we popped the last one
                     const top = peek(&stack) orelse unreachable;
                     const last = try top.value.list.addOne();

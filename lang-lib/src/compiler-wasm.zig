@@ -394,7 +394,7 @@ const Compilation = struct {
         return true;
     }
 
-    fn finishCompileTypedFunc(self: *@This(), name: []const u8, func_decl: DeferredFuncDeclInfo, func_type: DeferredFuncTypeInfo) !void {
+    fn finishCompileTypedFunc(self: *@This(), name: [:0]const u8, func_decl: DeferredFuncDeclInfo, func_type: DeferredFuncTypeInfo) !void {
         // TODO: configure std.log.debug
         //std.log.debug("compile func: '{s}'\n", .{name});
         const alloc = self.arena.allocator();
@@ -411,8 +411,6 @@ const Compilation = struct {
             },
         };
 
-
-
         std.debug.assert(func_decl.body_exprs.len >= 1);
 
         var label_map = std.StringHashMap(ExprContext.LabelData).init(alloc);
@@ -421,19 +419,20 @@ const Compilation = struct {
         var prologue = std.ArrayList(Sexp).init(alloc);
         defer prologue.deinit();
 
-        var post_analysis_locals = std.ArrayList(Sexp).init(alloc);
-        defer post_analysis_locals.deinit();
+        // TODO: use @FieldType
+        var post_analysis_locals: std.StringArrayHashMapUnmanaged(ExprContext.LocalInfo) = .{};
+        defer post_analysis_locals.deinit(self.arena.allocator());
 
         // NOTE: gross, simplify me
-        prologue.items,
-
         const local_types = try alloc.alloc(binaryen.Type, complete_func_type_desc.func_type.?.local_types.len + prologue.items.len);
         for (local_types[0..complete_func_type_desc.func_type.?.local_types.len], complete_func_type_desc.func_type.?.local_types) |*out_local_type, local_type|
-            out_local_type.* = local_type;
+            out_local_type.* = local_type.wasm_type.?;
         for (local_types[complete_func_type_desc.func_type.?.local_types.len..]) |*out_local_type|
-            out_local_type.* = binaryen.Type.i32();
+            out_local_type.* = .i32;
 
-        const body_exprs = std.ArrayList(*binaryen.Expression);
+        var body_exprs = std.ArrayList(*binaryen.Expression).init(self.arena.allocator());
+        // FIXME: is this valid use of API?
+        defer body_exprs.deinit();
 
         // FIXME: consider adding to a fresh environment as we compile instead of
         // reusing an environment populated by the caller
@@ -443,24 +442,17 @@ const Compilation = struct {
         // FIXME:
         // analyze the code to know ahead of time the return type and local count
 
-        // FIXME: make next_local automatic in the expression context
-        // probably possible by separating the global expr_ctx from the type context
-        // which can change
-        var next_local: usize = 0;
         var result_type: ?Type = null;
         var result_type_wasm: ?binaryen.Type = null;
 
         for (func_decl.body_exprs, 0..) |*body_expr, i| {
             var expr_ctx = ExprContext{
-                .locals_sexp = &post_analysis_locals,
+                .locals = &post_analysis_locals,
                 .label_map = &label_map,
-                .local_names = func_decl.local_names,
-                .local_types = func_decl.local_types,
                 .param_names = func_decl.param_names,
                 .param_types = func_type.param_types,
                 .prologue = &prologue,
                 .frame = .{},
-                .next_local = &next_local,
                 .is_captured = i == func_decl.body_exprs.len - 1 or body_expr.label != null, // only capture the last expression or labeled
             };
             var expr_fragment = try self.compileExpr(body_expr, &expr_ctx);
@@ -470,7 +462,7 @@ const Compilation = struct {
 
             std.debug.assert(func_type.result_types.len == 1);
             if (expr_fragment.resolved_type != func_type.result_types[0]) {
-                std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = expr_fragment.values } }});
+                //std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = expr_fragment.values } }});
                 std.log.warn("type: '{s}' doesn't match '{s}'", .{ expr_fragment.resolved_type.name, func_type.result_types[0].name });
                 // FIXME/HACK: re-enable but disabling now to awkwardly allow for type promotion
                 //return error.ReturnTypeMismatch;
@@ -515,16 +507,37 @@ const Compilation = struct {
         //     try impl_sexp.value.list.appendSlice(epilogue_code.value.module.items);
         // }
 
-        const body = binaryen.Expression.Block(self.module, "impl", body_exprs, binaryen.Type.auto);
+        const body = binaryen.Expression.block(self.module, "impl", body_exprs.items, binaryen.Type.auto());
+
+        const param_types = binaryen.Type.createArray();
+        const iIfF: binaryen.c.BinaryenType = binaryen.c.BinaryenTypeCreate(
+            &.{binaryen.c.BinaryenTypeInt32(),
+               binaryen.c.BinaryenTypeInt64(),
+               binaryen.c.BinaryenTypeFloat32(),
+               binaryen.c.BinaryenTypeFloat64()},
+            4,
+        );
+
+        //const param_types = try self.arena.allocator().alloc(binaryen.Type, complete_func_type_desc.func_type.?.param_types.len);
+        defer self.arena.allocator().free(param_types); // FIXME: is this necessary?
+        for (param_types, complete_func_type_desc.func_type.?.param_types) |*wasm_t, graphl_t| {
+            wasm_t.* = graphl_t.wasm_type.?;
+        }
+
+        const result_types = try self.arena.allocator().alloc(binaryen.Type, complete_func_type_desc.func_type.?.result_types.len);
+        defer self.arena.allocator().free(result_types); // FIXME: is this necessary?
+        for (result_types, complete_func_type_desc.func_type.?.result_types) |*wasm_t, graphl_t| {
+            wasm_t.* = graphl_t.wasm_type.?;
+        }
 
         const func = self.module.addFunction(
             name,
-            complete_func_type_desc.func_type.?.param_types,
-            complete_func_type_desc.func_type.?.result_types,
-            complete_func_type_desc.func_type.?.local_types,
+            param_types,
+            result_types,
+            local_types,
             body,
         );
-        
+
         _ = func;
     }
 
@@ -669,21 +682,24 @@ const Compilation = struct {
 
     const ExprContext = struct {
         type: ?Type = null,
-        local_names: []const []const u8,
-        local_types: []const Type,
         param_names: []const []const u8,
         param_types: []const Type,
 
         /// whether the return value of the expression isn't discarded
         is_captured: bool,
         frame: StackFrame,
-        next_local: *usize,
-        /// to append new locals to
-        locals: *std.ArrayList(binaryen.Type),
+
+        locals: *std.StringArrayHashMapUnmanaged(LocalInfo),
+
         /// to append setup code to
         prologue: *std.ArrayList(Sexp),
         /// to hold label references
         label_map: *std.StringHashMap(LabelData),
+
+        const LocalInfo = struct {
+            index: u32,
+            type: binaryen.Type,
+        };
 
         const LabelData = struct {
             fragment: Fragment,
@@ -926,14 +942,11 @@ const Compilation = struct {
                     for (v.items[1..], 1..) |*expr, i| {
                         var subcontext = ExprContext{
                             .type = context.type,
-                            .local_names = context.local_names,
-                            .local_types = context.local_types,
+                            .locals = context.locals,
                             .param_names = context.param_names,
                             .param_types = context.param_types,
                             .prologue = context.prologue,
-                            .locals_sexp = context.locals_sexp,
                             .frame = context.frame,
-                            .next_local = context.next_local,
                             .label_map = context.label_map,
                             .is_captured = i == v.items.len - 1 or expr.label != null, // only capture the last expression or labeled
                         };
@@ -992,14 +1005,11 @@ const Compilation = struct {
                     std.debug.assert(input_desc.asPrimitivePin() == .value);
                     var subcontext = ExprContext{
                         .type = input_desc.asPrimitivePin().value,
-                        .local_names = context.local_names,
-                        .local_types = context.local_types,
                         .param_names = context.param_names,
                         .param_types = context.param_types,
                         .prologue = context.prologue,
-                        .locals_sexp = context.locals_sexp,
+                        .locals = context.locals,
                         .frame = context.frame,
-                        .next_local = context.next_local,
                         .label_map = context.label_map,
                         .is_captured = context.is_captured,
                     };
@@ -1097,26 +1107,24 @@ const Compilation = struct {
                             resolved_type = try resolvePeerType(resolved_type, arg_fragment.resolved_type);
                         }
 
+                        std.debug.assert(arg_fragments.len == 2);
+
                         for (arg_fragments) |*arg_fragment| {
-                            // FIXME: not sure I can fix this until a rewrite...
-                            if (arg_fragment.values.items.len != 1) {
-                                std.debug.panic("bad arg_frag: {}\n", .{arg_fragment.*});
-                            }
                             try self.promoteToTypeInPlace(arg_fragment, resolved_type);
-                            try wasm_op.value.list.append(arg_fragment.expr);
-                            // TODO: more idiomatic move out data
-                            arg_fragment.values.items[0] = Sexp{ .value = .void };
                         }
+
+                        //const left_arg_frag = &arg_fragments[0];
+                        //const right_arg_frag = &arg_fragments[1];
 
                         var handled = false;
 
                         // FIXME: use a mapping to get the right type? e.g. a switch on type pointers would be nice
                         // but iirc that is broken
                         inline for (&.{
-                            .{primitive_types.i32_, "Int32", false},
-                            .{primitive_types.i64_, "Int64", false},
-                            .{primitive_types.f32_, "Float32", true},
-                            .{primitive_types.f64_, "Float64", true},
+                            .{ primitive_types.i32_, "Int32", false },
+                            .{ primitive_types.i64_, "Int64", false },
+                            .{ primitive_types.f32_, "Float32", true },
+                            .{ primitive_types.f64_, "Float64", true },
                         }) |type_info| {
                             const graphl_type, const type_byn_name, const is_float = type_info;
                             const float_type_but_int_op = @hasField(@TypeOf(builtin_op), "int_only") and is_float;
@@ -1144,107 +1152,109 @@ const Compilation = struct {
                     }
                 }
 
+                // FIXME: make this work again
                 // FIXME: this hacky interning-like code is horribly bug prone
                 // FIXME: rename to standard library cuz it's also that
                 // builtins with intrinsics
-                inline for (comptime std.meta.declarations(wat_syms.intrinsics)) |intrinsic_decl| {
-                    const intrinsic = @field(wat_syms.intrinsics, intrinsic_decl.name);
-                    const node_desc = intrinsic.node_desc;
-                    const outputs = node_desc.getOutputs();
-                    std.debug.assert(outputs.len == 1);
-                    std.debug.assert(outputs[0].kind == .primitive);
-                    std.debug.assert(outputs[0].kind.primitive == .value);
-                    result.resolved_type = outputs[0].kind.primitive.value;
+                // inline for (comptime std.meta.declarations(wat_syms.intrinsics)) |intrinsic_decl| {
+                //     const intrinsic = @field(wat_syms.intrinsics, intrinsic_decl.name);
+                //     const node_desc = intrinsic.node_desc;
+                //     const outputs = node_desc.getOutputs();
+                //     std.debug.assert(outputs.len == 1);
+                //     std.debug.assert(outputs[0].kind == .primitive);
+                //     std.debug.assert(outputs[0].kind.primitive == .value);
+                //     result.resolved_type = outputs[0].kind.primitive.value;
 
-                    if (func.value.symbol.ptr == node_desc.name().ptr) {
-                        const instruct_count: usize = if (result.resolved_type == graphl_builtin.empty_type) 1 else 2;
-                        try result.values.ensureTotalCapacityPrecise(instruct_count);
+                //     if (func.value.symbol.ptr == node_desc.name().ptr) {
+                //         const instruct_count: usize = if (result.resolved_type == graphl_builtin.empty_type) 1 else 2;
+                //         try result.values.ensureTotalCapacityPrecise(instruct_count);
 
-                        const wasm_call = result.values.addOneAssumeCapacity();
-                        wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                //         const wasm_call = result.values.addOneAssumeCapacity();
+                //         wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
 
-                        const total_args = _: {
-                            var total_args_res: usize = 2; // start with 2 for (call $FUNC_NAME ...)
-                            for (arg_fragments) |arg_frag| total_args_res += arg_frag.values.items.len;
-                            break :_ total_args_res;
-                        };
+                //         const total_args = _: {
+                //             var total_args_res: usize = 2; // start with 2 for (call $FUNC_NAME ...)
+                //             for (arg_fragments) |arg_frag| total_args_res += arg_frag.values.items.len;
+                //             break :_ total_args_res;
+                //         };
 
-                        try wasm_call.value.list.ensureTotalCapacityPrecise(total_args);
-                        // FIXME: use types to determine
-                        wasm_call.value.list.addOneAssumeCapacity().* = wat_syms.call;
-                        wasm_call.value.list.addOneAssumeCapacity().* = intrinsic.wasm_sym;
+                //         try wasm_call.value.list.ensureTotalCapacityPrecise(total_args);
+                //         // FIXME: use types to determine
+                //         wasm_call.value.list.addOneAssumeCapacity().* = wat_syms.call;
+                //         wasm_call.value.list.addOneAssumeCapacity().* = intrinsic.wasm_sym;
 
-                        for (arg_fragments, node_desc.getInputs()) |*arg_fragment, input| {
-                            try self.promoteToTypeInPlace(arg_fragment, input.kind.primitive.value);
-                            wasm_call.value.list.appendSliceAssumeCapacity(arg_fragment.values.items);
-                            for (arg_fragment.values.items) |*subarg| {
-                                // FIXME: implement move much more clearly
-                                subarg.* = Sexp{ .value = .void };
-                            }
-                        }
+                //         for (arg_fragments, node_desc.getInputs()) |*arg_fragment, input| {
+                //             try self.promoteToTypeInPlace(arg_fragment, input.kind.primitive.value);
+                //             wasm_call.value.list.appendSliceAssumeCapacity(arg_fragment.values.items);
+                //             for (arg_fragment.values.items) |*subarg| {
+                //                 // FIXME: implement move much more clearly
+                //                 subarg.* = Sexp{ .value = .void };
+                //             }
+                //         }
 
-                        // FIXME: do any intrinsics need to be recalled without labels?
-                        // if (result.resolved_type != graphl_builtin.empty_type) {
-                        //     const local_result_ptr_sym = try context.addLocal(alloc, result.resolved_type);
+                //         // FIXME: do any intrinsics need to be recalled without labels?
+                //         // if (result.resolved_type != graphl_builtin.empty_type) {
+                //         //     const local_result_ptr_sym = try context.addLocal(alloc, result.resolved_type);
 
-                        //     const consume_result = result.values.addOneAssumeCapacity();
-                        //     consume_result.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                        //     try consume_result.value.list.ensureTotalCapacityPrecise(2);
-                        //     consume_result.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
-                        //     consume_result.value.list.appendAssumeCapacity(local_result_ptr_sym);
-                        // }
+                //         //     const consume_result = result.values.addOneAssumeCapacity();
+                //         //     consume_result.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                //         //     try consume_result.value.list.ensureTotalCapacityPrecise(2);
+                //         //     consume_result.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
+                //         //     consume_result.value.list.appendAssumeCapacity(local_result_ptr_sym);
+                //         // }
 
-                        return result;
-                    }
-                }
+                //         return result;
+                //     }
+                // }
 
                 // FIXME: handle quote
 
+                // FIXME: make this work again
                 // ok, it must be a function in scope then (user or builtin)
-                {
-                    const outputs = func_node_desc.getOutputs();
+                // {
+                //     const outputs = func_node_desc.getOutputs();
 
-                    // FIXME: horrible
-                    const is_pure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .value;
-                    const is_simple_0_out_impure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec;
-                    const is_simple_1_out_impure = outputs.len == 2 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec and outputs[1].kind == .primitive and outputs[1].kind.primitive == .value;
+                //     // FIXME: horrible
+                //     const is_pure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .value;
+                //     const is_simple_0_out_impure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec;
+                //     const is_simple_1_out_impure = outputs.len == 2 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec and outputs[1].kind == .primitive and outputs[1].kind.primitive == .value;
 
-                    result.resolved_type = if (is_pure) outputs[0].kind.primitive.value else if (is_simple_0_out_impure)
-                        graphl_builtin.empty_type
-                    else if (is_simple_1_out_impure)
-                        outputs[1].kind.primitive.value
-                    else
-                        return error.UnimplementedMultiResultHostFunc;
+                //     result.resolved_type = if (is_pure) outputs[0].kind.primitive.value else if (is_simple_0_out_impure)
+                //         graphl_builtin.empty_type
+                //     else if (is_simple_1_out_impure)
+                //         outputs[1].kind.primitive.value
+                //     else
+                //         return error.UnimplementedMultiResultHostFunc;
 
-                    const instruct_count: usize = if (result.resolved_type == graphl_builtin.empty_type) 1 else 2;
+                //     const instruct_count: usize = if (result.resolved_type == graphl_builtin.empty_type) 1 else 2;
 
-                    try result.values.ensureTotalCapacityPrecise(instruct_count);
-                    const wasm_call = result.values.addOneAssumeCapacity();
-                    wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                    try wasm_call.value.list.ensureTotalCapacityPrecise(2 + arg_fragments.len);
-                    // FIXME: use types to determine
-                    wasm_call.value.list.appendAssumeCapacity(wat_syms.call);
-                    wasm_call.value.list.appendAssumeCapacity(Sexp{
-                        .value = .{
-                            // doesn't leak cuz arena, but maybe use separate arena?
-                            .symbol = try std.fmt.allocPrint(alloc, "${s}", .{func.value.symbol}),
-                        },
-                    });
+                //     try result.values.ensureTotalCapacityPrecise(instruct_count);
+                //     const wasm_call = result.values.addOneAssumeCapacity();
+                //     wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                //     try wasm_call.value.list.ensureTotalCapacityPrecise(2 + arg_fragments.len);
+                //     // FIXME: use types to determine
+                //     wasm_call.value.list.appendAssumeCapacity(wat_syms.call);
+                //     wasm_call.value.list.appendAssumeCapacity(Sexp{
+                //         .value = .{
+                //             // doesn't leak cuz arena, but maybe use separate arena?
+                //             .symbol = try std.fmt.allocPrint(alloc, "${s}", .{func.value.symbol}),
+                //         },
+                //     });
 
-                    for (arg_fragments) |arg_fragment| {
-                        for (arg_fragment.values.items) |*fragment_part| {
-                            (try wasm_call.value.list.addOne()).* = fragment_part.*;
-                            // move out
-                            fragment_part.* = Sexp{ .value = .void };
-                        }
-                    }
+                //     for (arg_fragments) |arg_fragment| {
+                //         for (arg_fragment.values.items) |*fragment_part| {
+                //             (try wasm_call.value.list.addOne()).* = fragment_part.*;
+                //             // move out
+                //             fragment_part.* = Sexp{ .value = .void };
+                //         }
+                //     }
 
-                    if (result.resolved_type != graphl_builtin.empty_type and !context.is_captured) {
-                        result.values.appendAssumeCapacity(wat_syms.drop);
-                    }
+                //     if (result.resolved_type != graphl_builtin.empty_type and !context.is_captured) {
+                //         result.values.appendAssumeCapacity(wat_syms.drop);
+                //     }
 
-                    return result;
-                }
+                //     return result;
+                // }
 
                 // otherwise we have a non builtin
                 std.log.err("unhandled call: {}", .{code_sexp});
@@ -1253,52 +1263,26 @@ const Compilation = struct {
 
             .int => |v| {
                 result.resolved_type = primitive_types.i32_;
-                try result.values.ensureTotalCapacityPrecise(1);
-                const wasm_const = result.values.addOneAssumeCapacity();
-                wasm_const.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try wasm_const.value.list.ensureTotalCapacityPrecise(2);
-
-                // FIXME: have a type context
-                wasm_const.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                wasm_const.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = v } };
-
+                result.expr = @ptrCast(binaryen.c.BinaryenExpressionConst(binaryen.c.BinaryenLiteralInt32(v)));
                 return result;
             },
 
             .float => |v| {
                 result.resolved_type = primitive_types.f64_;
-                try result.values.ensureTotalCapacityPrecise(1);
-                const wasm_const = result.values.addOneAssumeCapacity();
-                wasm_const.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try wasm_const.value.list.ensureTotalCapacityPrecise(2);
-                wasm_const.value.list.addOneAssumeCapacity().* = wat_syms.ops.f64_.@"const";
-                wasm_const.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .float = v } };
-
+                result.expr = @ptrCast(binaryen.c.BinaryenExpressionConst(binaryen.c.BinaryenLiteralFloat64(v)));
                 return result;
             },
 
             .symbol => |v| {
+                // FIXME: use string interning
                 if (v.ptr == syms.true.value.symbol.ptr) {
                     result.resolved_type = primitive_types.bool_;
-                    try result.values.ensureTotalCapacityPrecise(1);
-                    result.values.addOneAssumeCapacity().* = Sexp.newList(alloc);
-                    result.values.items[0] = Sexp.newList(alloc);
-                    try result.values.items[0].value.list.ensureTotalCapacityPrecise(2);
-                    result.values.items[0].value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                    // FIXME: these are backwards for some reason?
-                    result.values.items[0].value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 0 } };
-                    return result;
+                    result.expr = @ptrCast(binaryen.c.BinaryenExpressionConst(binaryen.c.BinaryenLiteralInt32(1)));
                 }
 
                 if (v.ptr == syms.false.value.symbol.ptr) {
                     result.resolved_type = primitive_types.bool_;
-                    try result.values.ensureTotalCapacityPrecise(1);
-                    result.values.addOneAssumeCapacity().* = Sexp.newList(alloc);
-                    try result.values.items[0].value.list.ensureTotalCapacityPrecise(2);
-                    result.values.items[0].value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                    // FIXME: these are backwards for some reason?
-                    result.values.items[0].value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 1 } };
-                    return result;
+                    result.expr = @ptrCast(binaryen.c.BinaryenExpressionConst(binaryen.c.BinaryenLiteralInt32(0)));
                 }
 
                 if (context.label_map.get(v)) |label_data| {
@@ -1312,15 +1296,23 @@ const Compilation = struct {
                 };
 
                 const info = _: {
+                    const local_entry = context.local_map.get(v);
+
                     for (context.local_names, context.local_types) |local_name, local_type| {
                         if (std.mem.eql(u8, v, local_name)) {
-                            break :_ Info{ .resolved_type = local_type, .ref = try std.fmt.allocPrint(alloc, "$local_{s}", .{v}) };
+                            break :_ Info{
+                                .resolved_type = local_type,
+                                .ref = local_entry.index,
+                            };
                         }
                     }
 
                     for (context.param_names, context.param_types) |param_name, param_type| {
                         if (std.mem.eql(u8, v, param_name)) {
-                            break :_ Info{ .resolved_type = param_type, .ref = try std.fmt.allocPrint(alloc, "$param_{s}", .{v}) };
+                            break :_ Info{
+                                .resolved_type = param_type,
+                                .ref = local_entry.index,
+                            };
                         }
                     }
 
@@ -1330,14 +1322,7 @@ const Compilation = struct {
 
                 result.resolved_type = info.resolved_type;
                 try result.values.ensureTotalCapacityPrecise(1);
-                const wasm_local_get = result.values.addOneAssumeCapacity();
-                wasm_local_get.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try wasm_local_get.value.list.ensureTotalCapacityPrecise(2);
-                wasm_local_get.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.get";
-                // FIXME: leak
-                wasm_local_get.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{
-                    .symbol = info.ref,
-                } };
+                result.expr = @ptrCast(binaryen.c.BinaryenLocalGet(self.module.c(), info.ref, info.resolved_type.wasm_type.?));
 
                 return result;
             },
@@ -1350,17 +1335,8 @@ const Compilation = struct {
             },
 
             .bool => |v| {
-                const int_val: i64 = if (v) 1 else 0;
-
-                try result.values.ensureTotalCapacityPrecise(1);
-                const val = result.values.addOneAssumeCapacity();
-
-                val.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try val.value.list.ensureTotalCapacityPrecise(2);
-                val.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                val.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = int_val } };
-
                 result.resolved_type = primitive_types.bool_;
+                result.expr = @ptrCast(binaryen.c.BinaryenExpressionConst(binaryen.c.BinaryenLiteralInt32(if (v) 1 else 0)));
                 return result;
             },
 
@@ -1394,123 +1370,122 @@ const Compilation = struct {
     pub fn compileModule(self: *@This(), sexp: *const Sexp) ![]const u8 {
         std.debug.assert(sexp.value == .module);
 
-        const alloc = self.arena.allocator();
+        // FIXME: fix user funcs
+        // const UserFuncDef = struct {
+        //     params: []Type,
+        //     results: []Type,
 
-        const UserFuncDef = struct {
-            params: []Type,
-            results: []Type,
+        //     pub fn name(_self: @This(), a: std.mem.Allocator) ![]u8 {
+        //         // FIXME: use an arraylist writer with initial capacity
+        //         var buf: [1024]u8 = undefined;
+        //         var buf_writer = std.io.fixedBufferStream(&buf);
+        //         _ = try buf_writer.write("$callUserFunc_");
+        //         for (_self.params) |param| {
+        //             _ = try buf_writer.write(param.name);
+        //             _ = try buf_writer.write("_");
+        //         }
+        //         _ = try buf_writer.write("R");
+        //         for (_self.results) |result| {
+        //             _ = try buf_writer.write("_");
+        //             _ = try buf_writer.write(result.name);
+        //         }
 
-            pub fn name(_self: @This(), a: std.mem.Allocator) ![]u8 {
-                // FIXME: use an arraylist writer with initial capacity
-                var buf: [1024]u8 = undefined;
-                var buf_writer = std.io.fixedBufferStream(&buf);
-                _ = try buf_writer.write("$callUserFunc_");
-                for (_self.params) |param| {
-                    _ = try buf_writer.write(param.name);
-                    _ = try buf_writer.write("_");
-                }
-                _ = try buf_writer.write("R");
-                for (_self.results) |result| {
-                    _ = try buf_writer.write("_");
-                    _ = try buf_writer.write(result.name);
-                }
+        //         return try a.dupe(u8, buf_writer.getWritten());
+        //     }
 
-                return try a.dupe(u8, buf_writer.getWritten());
-            }
+        //     pub fn wat(_self: @This(), a: std.mem.Allocator, in_name: []const u8) !Sexp {
+        //         // no error handling cuz arena, TODO: detect/enforce
+        //         var result = Sexp.newList(a);
 
-            pub fn wat(_self: @This(), a: std.mem.Allocator, in_name: []const u8) !Sexp {
-                // no error handling cuz arena, TODO: detect/enforce
-                var result = Sexp.newList(a);
+        //         try result.value.list.ensureTotalCapacityPrecise(4);
+        //         result.value.list.expandToCapacity();
+        //         result.value.list.items[0] = wat_syms.import;
+        //         result.value.list.items[1] = Sexp{ .value = .{ .borrowedString = "env" } };
+        //         // skip the $
+        //         result.value.list.items[2] = Sexp{ .value = .{ .borrowedString = in_name[1..] } };
+        //         result.value.list.items[3] = Sexp.newList(a);
+        //         const signature = &result.value.list.items[3];
 
-                try result.value.list.ensureTotalCapacityPrecise(4);
-                result.value.list.expandToCapacity();
-                result.value.list.items[0] = wat_syms.import;
-                result.value.list.items[1] = Sexp{ .value = .{ .borrowedString = "env" } };
-                // skip the $
-                result.value.list.items[2] = Sexp{ .value = .{ .borrowedString = in_name[1..] } };
-                result.value.list.items[3] = Sexp.newList(a);
-                const signature = &result.value.list.items[3];
+        //         // double params in case its strings
+        //         try signature.value.list.ensureTotalCapacityPrecise(2 + 1 + 2 * _self.params.len + _self.results.len);
+        //         signature.value.list.appendAssumeCapacity(wat_syms.func);
+        //         signature.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = in_name } });
 
-                // double params in case its strings
-                try signature.value.list.ensureTotalCapacityPrecise(2 + 1 + 2 * _self.params.len + _self.results.len);
-                signature.value.list.appendAssumeCapacity(wat_syms.func);
-                signature.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = in_name } });
+        //         // first is the user function index
+        //         {
+        //             const slot = signature.value.list.addOneAssumeCapacity();
+        //             slot.* = Sexp.newList(a);
+        //             try slot.value.list.ensureTotalCapacityPrecise(2);
+        //             slot.value.list.appendAssumeCapacity(wat_syms.param);
+        //             // FIXME: intern this string
+        //             slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "i32" } });
+        //         }
 
-                // first is the user function index
-                {
-                    const slot = signature.value.list.addOneAssumeCapacity();
-                    slot.* = Sexp.newList(a);
-                    try slot.value.list.ensureTotalCapacityPrecise(2);
-                    slot.value.list.appendAssumeCapacity(wat_syms.param);
-                    // FIXME: intern this string
-                    slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "i32" } });
-                }
+        //         for (_self.params) |param| {
+        //             const slot = signature.value.list.addOneAssumeCapacity();
+        //             slot.* = Sexp.newList(a);
+        //             try slot.value.list.ensureTotalCapacityPrecise(2);
+        //             slot.value.list.appendAssumeCapacity(wat_syms.param);
+        //             slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = param.wasm_type orelse {
+        //                 std.debug.panic("type '{s}' has no intrinsic wasm type!", .{param.name});
+        //             } } });
+        //         }
 
-                for (_self.params) |param| {
-                    const slot = signature.value.list.addOneAssumeCapacity();
-                    slot.* = Sexp.newList(a);
-                    try slot.value.list.ensureTotalCapacityPrecise(2);
-                    slot.value.list.appendAssumeCapacity(wat_syms.param);
-                    slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = param.wasm_type orelse {
-                        std.debug.panic("type '{s}' has no intrinsic wasm type!", .{param.name});
-                    } } });
-                }
+        //         for (_self.results) |result_| {
+        //             const slot = signature.value.list.addOneAssumeCapacity();
+        //             slot.* = Sexp.newList(a);
+        //             try slot.value.list.ensureTotalCapacityPrecise(2);
+        //             slot.value.list.appendAssumeCapacity(wat_syms.result);
+        //             slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = result_.wasm_type orelse {
+        //                 std.debug.panic("type '{s}' has no intrinsic wasm type!", .{result_.name});
+        //             } } });
+        //         }
 
-                for (_self.results) |result_| {
-                    const slot = signature.value.list.addOneAssumeCapacity();
-                    slot.* = Sexp.newList(a);
-                    try slot.value.list.ensureTotalCapacityPrecise(2);
-                    slot.value.list.appendAssumeCapacity(wat_syms.result);
-                    slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = result_.wasm_type orelse {
-                        std.debug.panic("type '{s}' has no intrinsic wasm type!", .{result_.name});
-                    } } });
-                }
+        //         return result;
+        //     }
+        // };
 
-                return result;
-            }
-        };
+        // const UserFuncDefHashCtx = struct {
+        //     pub fn hash(ctx: @This(), key: UserFuncDef) u64 {
+        //         _ = ctx;
+        //         var hasher = std.hash.Wyhash.init(0);
+        //         std.hash.autoHashStrat(&hasher, key, .Deep);
+        //         return hasher.final();
+        //     }
 
-        const UserFuncDefHashCtx = struct {
-            pub fn hash(ctx: @This(), key: UserFuncDef) u64 {
-                _ = ctx;
-                var hasher = std.hash.Wyhash.init(0);
-                std.hash.autoHashStrat(&hasher, key, .Deep);
-                return hasher.final();
-            }
+        //     pub fn eql(ctx: @This(), a: UserFuncDef, b: UserFuncDef) bool {
+        //         _ = ctx;
+        //         if (a.params.len != b.params.len) return false;
+        //         if (a.results.len != b.results.len) return false;
+        //         for (a.params, b.params) |pa, pb| if (pa != pb) return false;
+        //         for (a.results, b.results) |ra, rb| if (ra != rb) return false;
+        //         return true;
+        //     }
+        // };
 
-            pub fn eql(ctx: @This(), a: UserFuncDef, b: UserFuncDef) bool {
-                _ = ctx;
-                if (a.params.len != b.params.len) return false;
-                if (a.results.len != b.results.len) return false;
-                for (a.params, b.params) |pa, pb| if (pa != pb) return false;
-                for (a.results, b.results) |ra, rb| if (ra != rb) return false;
-                return true;
-            }
-        };
+        // var userfunc_imports: std.HashMapUnmanaged(UserFuncDef, []const u8, UserFuncDefHashCtx, 80) = .{};
 
-        var userfunc_imports: std.HashMapUnmanaged(UserFuncDef, []const u8, UserFuncDefHashCtx, 80) = .{};
-        //defer userfunc_imports.deinit(self.arena.allocator());
+        // FIXME: fix stack
+        // const stack_src =
+        //     // NOTE: safari doesn't support multimemory so the value stack is
+        //     // at a specific offset in the main memory
+        //     //\\(memory $__grappl_vstk 1)
+        //     // FIXME: really need to figure out how to customize the intrinsics output
+        //     // compiled by zig... or accept writing it manually?
+        //     // FIXME: if there is a lot of data, it will corrupt the stack,
+        //     // need to place the stack behind the data and possibly implement a routine
+        //     // for growing the stack...
+        //     \\(global $__grappl_vstkp (mut i32) (i32.const 4096))
+        // ;
 
-        const stack_src =
-            // NOTE: safari doesn't support multimemory so the value stack is
-            // at a specific offset in the main memory
-            //\\(memory $__grappl_vstk 1)
-            // FIXME: really need to figure out how to customize the intrinsics output
-            // compiled by zig... or accept writing it manually?
-            // FIXME: if there is a lot of data, it will corrupt the stack,
-            // need to place the stack behind the data and possibly implement a routine
-            // for growing the stack...
-            \\(global $__grappl_vstkp (mut i32) (i32.const 4096))
-        ;
+        // // prologue
+        // {
+        //     const stack_code = try SexpParser.parse(alloc, stack_src, null);
+        //     try self.module_body.appendSlice(stack_code.value.module.items);
+        // }
 
-        // prologue
-        {
-            const stack_code = try SexpParser.parse(alloc, stack_src, null);
-            try self.module_body.appendSlice(stack_code.value.module.items);
-        }
-
-        // TODO: parse them at comptime and get the count that way
-        const stack_code_count = comptime std.mem.count(u8, stack_src, "\n") + 1;
+        // // TODO: parse them at comptime and get the count that way
+        // const stack_code_count = comptime std.mem.count(u8, stack_src, "\n") + 1;
 
         // FIXME: memory is already created and exported by the intrinsics
         // {
@@ -1536,102 +1511,104 @@ const Compilation = struct {
         //     memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
         // }
 
-        // thunks for user provided functions
-        {
-            // TODO: for each user provided function, build a thunk and append it
-            var maybe_user_func = self.user_context.funcs.first;
-            while (maybe_user_func) |user_func| : (maybe_user_func = user_func.next) {
-                // FIXME: leak kinda but arena
-                const name = try std.fmt.allocPrint(alloc, "${s}", .{user_func.data.node.name});
+        // FIXME: fix user defined funcs
+        // // thunks for user provided functions
+        // {
+        //     // TODO: for each user provided function, build a thunk and append it
+        //     var maybe_user_func = self.user_context.funcs.first;
+        //     while (maybe_user_func) |user_func| : (maybe_user_func = user_func.next) {
+        //         // FIXME: leak kinda but arena
+        //         const name = try std.fmt.allocPrint(alloc, "${s}", .{user_func.data.node.name});
 
-                // FIXME: skip the first exec input
-                std.debug.assert(user_func.data.node.inputs[0].kind.primitive == .exec);
-                const params = user_func.data.node.inputs[1..];
+        //         // FIXME: skip the first exec input
+        //         std.debug.assert(user_func.data.node.inputs[0].kind.primitive == .exec);
+        //         const params = user_func.data.node.inputs[1..];
 
-                // FIXME: skip the first exec output
-                std.debug.assert(user_func.data.node.outputs[0].kind.primitive == .exec);
-                const results = user_func.data.node.outputs[1..];
+        //         // FIXME: skip the first exec output
+        //         std.debug.assert(user_func.data.node.outputs[0].kind.primitive == .exec);
+        //         const results = user_func.data.node.outputs[1..];
 
-                const def = UserFuncDef{
-                    .params = try self.arena.allocator().alloc(Type, params.len),
-                    .results = try self.arena.allocator().alloc(Type, results.len),
-                };
-                for (params, def.params) |param, *param_type| param_type.* = param.kind.primitive.value;
-                for (results, def.results) |result, *result_type| result_type.* = result.kind.primitive.value;
+        //         const def = UserFuncDef{
+        //             .params = try self.arena.allocator().alloc(Type, params.len),
+        //             .results = try self.arena.allocator().alloc(Type, results.len),
+        //         };
+        //         for (params, def.params) |param, *param_type| param_type.* = param.kind.primitive.value;
+        //         for (results, def.results) |result, *result_type| result_type.* = result.kind.primitive.value;
 
-                const import_entry = try userfunc_imports.getOrPut(self.arena.allocator(), def);
+        //         const import_entry = try userfunc_imports.getOrPut(self.arena.allocator(), def);
 
-                const thunk_name = _: {
-                    if (!import_entry.found_existing) {
-                        import_entry.value_ptr.* = try def.name(self.arena.allocator());
-                    }
-                    break :_ import_entry.value_ptr.*;
-                };
+        //         const thunk_name = _: {
+        //             if (!import_entry.found_existing) {
+        //                 import_entry.value_ptr.* = try def.name(self.arena.allocator());
+        //             }
+        //             break :_ import_entry.value_ptr.*;
+        //         };
 
-                var user_func_sexp = Sexp.newList(alloc);
-                const thunk_len = (1 // func keyword
-                + 1 // function name
-                + params.len + 1 * results.len + 1 // call binding
-                );
-                try user_func_sexp.value.list.ensureTotalCapacityPrecise(thunk_len);
-                user_func_sexp.value.list.addOneAssumeCapacity().* = wat_syms.func;
-                user_func_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
+        //         var user_func_sexp = Sexp.newList(alloc);
+        //         const thunk_len = (1 // func keyword
+        //         + 1 // function name
+        //         + params.len + 1 * results.len + 1 // call binding
+        //         );
+        //         try user_func_sexp.value.list.ensureTotalCapacityPrecise(thunk_len);
+        //         user_func_sexp.value.list.addOneAssumeCapacity().* = wat_syms.func;
+        //         user_func_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
 
-                for (params, 0..) |param, i| {
-                    var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
-                    wasm_param.* = Sexp.newList(alloc);
-                    try wasm_param.value.list.ensureTotalCapacityPrecise(3);
+        //         for (params, 0..) |param, i| {
+        //             var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
+        //             wasm_param.* = Sexp.newList(alloc);
+        //             try wasm_param.value.list.ensureTotalCapacityPrecise(3);
 
-                    wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.param;
-                    wasm_param.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
-                    // FIXME/HACK: this doesn't work for many types!
-                    wasm_param.value.list.addOneAssumeCapacity().* = if (param.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
-                }
+        //             wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.param;
+        //             wasm_param.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
+        //             // FIXME/HACK: this doesn't work for many types!
+        //             wasm_param.value.list.addOneAssumeCapacity().* = if (param.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
+        //         }
 
-                for (results, 0..) |result, i| {
-                    _ = i;
-                    //const result_type = result.asPrimitivePin().value;
+        //         for (results, 0..) |result, i| {
+        //             _ = i;
+        //             //const result_type = result.asPrimitivePin().value;
 
-                    var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
-                    wasm_param.* = Sexp.newList(alloc);
-                    try wasm_param.value.list.ensureTotalCapacityPrecise(2);
+        //             var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
+        //             wasm_param.* = Sexp.newList(alloc);
+        //             try wasm_param.value.list.ensureTotalCapacityPrecise(2);
 
-                    wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.result;
-                    // FIXME/HACK: this doesn't work for many types!
-                    wasm_param.value.list.addOneAssumeCapacity().* = if (result.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
-                }
+        //             wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.result;
+        //             // FIXME/HACK: this doesn't work for many types!
+        //             wasm_param.value.list.addOneAssumeCapacity().* = if (result.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
+        //         }
 
-                const call_body = user_func_sexp.value.list.addOneAssumeCapacity();
-                call_body.* = Sexp.newList(alloc);
-                try call_body.value.list.ensureTotalCapacityPrecise(1 // call keyword
-                + 1 // thunk name
-                + 1 // func id
-                + params.len);
+        //         const call_body = user_func_sexp.value.list.addOneAssumeCapacity();
+        //         call_body.* = Sexp.newList(alloc);
+        //         try call_body.value.list.ensureTotalCapacityPrecise(1 // call keyword
+        //         + 1 // thunk name
+        //         + 1 // func id
+        //         + params.len);
 
-                call_body.value.list.addOneAssumeCapacity().* = wat_syms.call;
-                call_body.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = thunk_name } };
-                const func_id = call_body.value.list.addOneAssumeCapacity();
-                func_id.* = Sexp.newList(alloc);
-                try func_id.value.list.ensureTotalCapacityPrecise(2);
-                func_id.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                func_id.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(user_func.data.id) } };
+        //         call_body.value.list.addOneAssumeCapacity().* = wat_syms.call;
+        //         call_body.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = thunk_name } };
+        //         const func_id = call_body.value.list.addOneAssumeCapacity();
+        //         func_id.* = Sexp.newList(alloc);
+        //         try func_id.value.list.ensureTotalCapacityPrecise(2);
+        //         func_id.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+        //         func_id.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(user_func.data.id) } };
 
-                for (params, 0..) |_, i| {
-                    const wasm_local = call_body.value.list.addOneAssumeCapacity();
-                    wasm_local.* = Sexp.newList(alloc);
-                    try wasm_local.value.list.ensureTotalCapacityPrecise(2);
-                    // FIXME: does this work for non-primitives?
-                    wasm_local.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.get";
-                    wasm_local.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
-                }
+        //         for (params, 0..) |_, i| {
+        //             const wasm_local = call_body.value.list.addOneAssumeCapacity();
+        //             wasm_local.* = Sexp.newList(alloc);
+        //             try wasm_local.value.list.ensureTotalCapacityPrecise(2);
+        //             // FIXME: does this work for non-primitives?
+        //             wasm_local.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.get";
+        //             wasm_local.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
+        //         }
 
-                (try self.module_body.addOne()).* = user_func_sexp;
-            }
-        }
+        //         (try self.module_body.addOne()).* = user_func_sexp;
+        //     }
+        // }
 
         for (sexp.value.module.items) |decl| {
             switch (decl.value) {
                 .list => {
+                    // FIXME: maybe distinguish without errors if something if a func, var or typeof?
                     const did_compile = (try self.compileFunc(&decl) or
                         try self.compileVar(&decl) or
                         try self.compileTypeOf(&decl));
@@ -1649,56 +1626,33 @@ const Compilation = struct {
             }
         }
 
-        var bytes = std.ArrayList(u8).init(self.arena.allocator());
-        defer bytes.deinit();
-        const buffer_writer = bytes.writer();
+        // // imports must be first in wat!
+        // {
+        //     var import_iter = userfunc_imports.iterator();
+        //     while (import_iter.next()) |import_entry| {
+        //         const wat = try import_entry.key_ptr.wat(self.arena.allocator(), import_entry.value_ptr.*);
+        //         _ = try wat.write(buffer_writer, .{ .string_literal_dialect = .wat });
+        //         try bytes.appendSlice("\n");
+        //     }
+        // }
 
-        // FIXME: come up with a way to just say assert(self.wat.like("(module"))
-        std.debug.assert(self.wat.value == .module);
-        std.debug.assert(self.wat.value.module.items.len == 1);
-        std.debug.assert(self.wat.value.module.items[0].value == .list);
-        std.debug.assert(self.wat.value.module.items[0].value.list.items.len >= 1);
-        std.debug.assert(self.wat.value.module.items[0].value.list.items[0].value == .symbol);
-        std.debug.assert(self.wat.value.module.items[0].value.list.items[0].value.symbol.ptr == wat_syms.module.value.symbol.ptr);
-        // FIXME: performantly parse the wat at compile time or use wasm merge
-        // I don't trust my parser yet
-        const module_contents = self.wat.value.module.items[0].value.list.items[1..];
-        const stack_code = module_contents[0..stack_code_count];
-        const module_defs = module_contents[stack_code_count..];
+        // for (stack_code) |code| {
+        //     _ = try code.write(buffer_writer, .{ .string_literal_dialect = .wat });
+        //     try bytes.appendSlice("\n");
+        // }
 
-        try bytes.appendSlice("(module\n");
+        // // FIXME: HACK: merge these properly...
+        // try bytes.appendSlice(intrinsics_code);
 
-        // imports must be first in wat!
-        {
-            var import_iter = userfunc_imports.iterator();
-            while (import_iter.next()) |import_entry| {
-                const wat = try import_entry.key_ptr.wat(self.arena.allocator(), import_entry.value_ptr.*);
-                _ = try wat.write(buffer_writer, .{ .string_literal_dialect = .wat });
-                try bytes.appendSlice("\n");
-            }
-        }
-
-        for (stack_code) |code| {
-            _ = try code.write(buffer_writer, .{ .string_literal_dialect = .wat });
-            try bytes.appendSlice("\n");
-        }
-
-        // FIXME: HACK: merge these properly...
-        try bytes.appendSlice(";;; BEGIN INTRINSICS\n");
-        try bytes.appendSlice(intrinsics_code);
-        try bytes.appendSlice("\n;;; END INTRINSICS\n");
-
-        for (module_defs) |def| {
-            _ = try def.write(buffer_writer, .{ .string_literal_dialect = .wat });
-            try bytes.appendSlice("\n");
-        }
-
-        try bytes.appendSlice(")");
+        // for (module_defs) |def| {
+        //     _ = try def.write(buffer_writer, .{ .string_literal_dialect = .wat });
+        //     try bytes.appendSlice("\n");
+        // }
 
         // FIXME: make the arena in this function not the caller
         // NOTE: use arena parent so that when the arena deinit's, this remains,
         // and the caller can own the memory
-        return try self.arena.child_allocator.dupe(u8, bytes.items);
+        return try self.arena.child_allocator.dupe(u8, self.module.emitBinary());
     }
 };
 

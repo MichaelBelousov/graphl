@@ -18,16 +18,16 @@ pub const InternPool = struct {
     _arena: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator),
     _map: std.HashMapUnmanaged(
         Hash,
-        []const u8,
+        [:0]const u8,
         Context,
         std.hash_map.default_max_load_percentage,
     ) = .{},
 
-    pub fn getSymbol(self: *@This(), symbol: []const u8) []const u8 {
+    pub fn getSymbol(self: *@This(), symbol: []const u8) [:0]const u8 {
         const hash = (std.hash_map.StringContext{}).hash(symbol);
         const res = self._map.getOrPut(self._arena.allocator(), hash) catch |e| std.debug.panic("OOM: {}", .{e});
         if (!res.found_existing) {
-            res.value_ptr.* = self._arena.allocator().dupe(u8, symbol) catch |e| std.debug.panic("OOM: {}", .{e});
+            res.value_ptr.* = self._arena.allocator().dupeZ(u8, symbol) catch |e| std.debug.panic("OOM: {}", .{e});
         }
         return res.value_ptr.*;
     }
