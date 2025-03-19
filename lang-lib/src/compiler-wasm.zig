@@ -190,24 +190,41 @@ fn constructor() callconv(.C) void {
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.byte, byn.c.BinaryenTypeInt32()) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.bool_, byn.c.BinaryenTypeInt32()) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.rgba, byn.c.BinaryenTypeInt32()) catch unreachable;
-    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.code, byn.c.BinaryenTypeStringref()) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.char_, byn.c.BinaryenTypeInt32()) catch unreachable;
-    // FIXME: should symbols really be a string?
-    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.symbol, byn.c.BinaryenTypeStringref()) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.void, byn.c.BinaryenTypeNone()) catch unreachable;
-    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.string, byn.c.BinaryenTypeStringref()) catch unreachable;
 
     var vec3_parts = [3]byn.c.BinaryenType{
         byn.c.BinaryenTypeFloat64(),
         byn.c.BinaryenTypeFloat64(),
         byn.c.BinaryenTypeFloat64(),
     };
-
     BinaryenHelper.type_map.putNoClobber(
         BinaryenHelper.alloc.allocator(),
         primitive_types.vec3,
         byn.c.BinaryenTypeCreate(&vec3_parts, @intCast(vec3_parts.len)),
     ) catch unreachable;
+
+    // TODO: do the same thing as guile hoot, use the stringref proposal but lower it to (array i8)
+    const tb: byn.c.TypeBuilderRef = byn.c.TypeBuilderCreate(1);
+    //byn.c.TypeBuilderSetArrayType(tb, 0, byn.c.BinaryenTypeInt32(), byn.c.BinaryenPackedTypeInt8(), 1);
+    byn.c.TypeBuilderSetArrayType(tb, 0, byn.c.BinaryenTypeInt32(), byn.c.BinaryenPackedTypeInt8(), 1);
+    // byn.c.TypeBuilderSetStructType(
+    //     tb,
+    //     1,
+    //     &.{byn.c.BinaryenTypeInt32()},
+    //     &[_]byn.c.BinaryenPackedType{byn.c.BinaryenPackedTypeNotPacked()},
+    //     &.{1},
+    //     1,
+    // );
+
+    var built_heap_types: [1]byn.c.BinaryenHeapType = undefined;
+    std.debug.assert(byn.c.TypeBuilderBuildAndDispose(tb, &built_heap_types, 0, 0));
+    const i8_array = byn.c.BinaryenTypeFromHeapType(built_heap_types[0], true);
+
+    // NOTE: stringref isn't standard
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.code, i8_array) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.symbol, i8_array) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.string, i8_array) catch unreachable;
 }
 
 // FIXME: idk if this works in wasm
@@ -370,17 +387,13 @@ const Compilation = struct {
             param_name.* = func_binding.value.symbol;
         }
 
-        const result_names = try alloc.alloc([:0]const u8, return_exprs.len);
-        errdefer alloc.free(result_names);
-        for (result_names) |*result_name| result_name.* = pool.getSymbol("result");
-
         const func_desc = DeferredFuncDeclInfo{
             .param_names = param_names,
             // TODO: read all defines at beginning of sexp or something
             .local_names = try local_names.toOwnedSlice(),
             .local_types = try local_types.toOwnedSlice(),
             .local_defaults = try local_defaults.toOwnedSlice(),
-            .result_names = result_names,
+            .result_names = &.{}, // FIXME
             .body_exprs = return_exprs,
         };
 
@@ -562,16 +575,16 @@ const Compilation = struct {
             .name = name,
             .kind = .func,
             // FIXME: can I reuse pins?
-            .inputs = try self.arena.allocator().alloc(Pin, func_decl.param_names.len + 1),
-            .outputs = try self.arena.allocator().alloc(Pin, func_decl.result_names.len + 1),
+            .inputs = try self.arena.allocator().alloc(Pin, func_type.param_types.len + 1),
+            .outputs = try self.arena.allocator().alloc(Pin, func_type.result_types.len + 1),
         };
         node_desc.inputs[0] = Pin{ .name = "in", .kind = .{ .primitive = .exec } };
         for (node_desc.inputs[1..], func_decl.param_names, func_type.param_types) |*pin, pn, pt| {
             pin.* = Pin{ .name = pn, .kind = .{ .primitive = .{ .value = pt } } };
         }
         node_desc.outputs[0] = Pin{ .name = "out", .kind = .{ .primitive = .exec } };
-        for (node_desc.outputs[1..], func_decl.result_names, func_type.result_types) |*pin, rn, rt| {
-            pin.* = Pin{ .name = rn, .kind = .{ .primitive = .{ .value = rt } } };
+        for (node_desc.outputs[1..], func_type.result_types) |*pin, rt| {
+            pin.* = Pin{ .name = "FIXME", .kind = .{ .primitive = .{ .value = rt } } };
         }
         // we must use the same allocator that env is deinited with!
         _ = try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(node_desc));
@@ -2059,34 +2072,34 @@ test "new compiler" {
     defer t.allocator.free(user_func_1.data.node.outputs);
     user_funcs.prepend(user_func_1);
 
-    // const user_func_2 = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
-    // user_func_2.* = std.SinglyLinkedList(UserFunc).Node{
-    //     .data = .{
-    //         .id = 1,
-    //         .node = .{
-    //             .name = "sql",
-    //             .inputs = try t.allocator.dupe(Pin, &.{
-    //                 Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
-    //                 Pin{
-    //                     .name = "code",
-    //                     .kind = .{ .primitive = .{ .value = primitive_types.code } },
-    //                 },
-    //             }),
-    //             .outputs = try t.allocator.dupe(Pin, &.{
-    //                 Pin{ .name = "", .kind = .{ .primitive = .exec } },
-    //             }),
-    //         },
-    //     },
-    // };
-    // defer t.allocator.destroy(user_func_2);
-    // defer t.allocator.free(user_func_2.data.node.inputs);
-    // defer t.allocator.free(user_func_2.data.node.outputs);
-    // user_funcs.prepend(user_func_2);
+    const user_func_2 = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
+    user_func_2.* = std.SinglyLinkedList(UserFunc).Node{
+        .data = .{
+            .id = 1,
+            .node = .{
+                .name = "sql",
+                .inputs = try t.allocator.dupe(Pin, &.{
+                    Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
+                    Pin{
+                        .name = "code",
+                        .kind = .{ .primitive = .{ .value = primitive_types.code } },
+                    },
+                }),
+                .outputs = try t.allocator.dupe(Pin, &.{
+                    Pin{ .name = "", .kind = .{ .primitive = .exec } },
+                }),
+            },
+        },
+    };
+    defer t.allocator.destroy(user_func_2);
+    defer t.allocator.free(user_func_2.data.node.inputs);
+    defer t.allocator.free(user_func_2.data.node.outputs);
+    user_funcs.prepend(user_func_2);
 
     var parsed = try SexpParser.parse(t.allocator,
         \\(meta version 1)
         \\(import Confetti "host/Confetti")
-        \\;;(import sql "host/sql")
+        \\(import sql "host/sql")
         \\
         \\;;; comment
         \\(typeof (++ i32) i32)
@@ -2117,25 +2130,39 @@ test "new compiler" {
 
     const expected =
         \\(module
-        \\  (type (;0;) (func (param i32) (result i32)))
-        \\  (type (;1;) (func (param i32)))
-        \\  (type (;2;) (func (param f32 f32) (result f32)))
-        \\  (type (;3;) (func (param i32 i32)))
-        \\  (import "env" "callUserFunc_i32_R" (func (;0;) (type 3)))
-        \\  (func (;1;) (type 1) (param i32)
+        \\  (type (;0;) (array (mut i8)))
+        \\  (type (;1;) (func (param i32) (result i32)))
+        \\  (type (;2;) (func (param (ref null 0))))
+        \\  (type (;3;) (func (param i32)))
+        \\  (type (;4;) (func (param f32 f32) (result f32)))
+        \\  (type (;5;) (func (param i32 (ref null 0))))
+        \\  (type (;6;) (func (param i32 i32)))
+        \\  (import "env" "callUserFunc_code_R" (func (;0;) (type 5)))
+        \\  (import "env" "callUserFunc_i32_R" (func (;1;) (type 6)))
+        \\  (export "++" (func 4))
+        \\  (export "deep" (func 5))
+        \\  (export "ifs" (func 6))
+        \\  (func (;2;) (type 2) (param (ref null 0))
+        \\    i32.const 1
+        \\    local.get 0
+        \\    call 0
+        \\  )
+        \\  (func (;3;) (type 3) (param i32)
         \\    i32.const 0
         \\    local.get 0
-        \\    call 0)
-        \\  (func (;2;) (type 0) (param i32) (result i32)
-        \\    i32.const 100
         \\    call 1
-        \\    block (result i32)  ;; label = @1
+        \\  )
+        \\  (func (;4;) (type 1) (param i32) (result i32)
+        \\    i32.const 100
+        \\    call 3
+        \\    block (result i32) ;; label = @1
         \\      local.get 0
         \\      i32.const 1
         \\      i32.add
-        \\    end)
-        \\  (func (;3;) (type 2) (param f32 f32) (result f32)
-        \\    block (result f32)  ;; label = @1
+        \\    end
+        \\  )
+        \\  (func (;5;) (type 4) (param f32 f32) (result f32)
+        \\    block (result f32) ;; label = @1
         \\      local.get 0
         \\      i32.const 10
         \\      i64.extend_i32_s
@@ -2145,23 +2172,24 @@ test "new compiler" {
         \\      local.get 1
         \\      f32.mul
         \\      f32.add
-        \\    end)
-        \\  (func (;4;) (type 0) (param i32) (result i32)
+        \\    end
+        \\  )
+        \\  (func (;6;) (type 1) (param i32) (result i32)
         \\    local.get 0
-        \\    if (result i32)  ;; label = @1
+        \\    if (result i32) ;; label = @1
         \\      i32.const 100
-        \\      call 1
+        \\      call 3
         \\      i32.const 2
         \\      i32.const 3
         \\      i32.add
         \\    else
         \\      i32.const 200
-        \\      call 1
+        \\      call 3
         \\      i32.const 10
-        \\    end)
-        \\  (export "++" (func 2))
-        \\  (export "deep" (func 3))
-        \\  (export "ifs" (func 4)))
+        \\    end
+        \\  )
+        \\  (@custom "sourceMappingURL" (after code) "\07/script")
+        \\)
         \\
     ;
 
@@ -2185,15 +2213,15 @@ pub fn expectWasmEqualsWat(wat: []const u8, wasm: []const u8) !void {
 
     try dbg_file.writeAll(wasm);
 
-    // TODO: use the wat2wasm dependency
-    const wat2wasm_run = try std.process.Child.run(.{
+    // TODO: add a wasmtools dependency
+    const wasmtools_run = try std.process.Child.run(.{
         .allocator = t.allocator,
-        .argv = &.{ "wasm2wat", "/tmp/compiler-test.wasm", "-o", "/tmp/compiler-test.wat" },
+        .argv = &.{ "wasm-tools", "print", "/tmp/compiler-test.wasm", "-o", "/tmp/compiler-test.wat" },
     });
-    defer t.allocator.free(wat2wasm_run.stdout);
-    defer t.allocator.free(wat2wasm_run.stderr);
-    if (!std.meta.eql(wat2wasm_run.term, .{ .Exited = 0 })) {
-        std.debug.print("wasm2wat exited with {any}:\n{s}\n", .{ wat2wasm_run.term, wat2wasm_run.stderr });
+    defer t.allocator.free(wasmtools_run.stdout);
+    defer t.allocator.free(wasmtools_run.stderr);
+    if (!std.meta.eql(wasmtools_run.term, .{ .Exited = 0 })) {
+        std.debug.print("wasmtools exited with {any}:\n{s}\n", .{ wasmtools_run.term, wasmtools_run.stderr });
         return error.FailTest;
     }
 
@@ -2229,16 +2257,17 @@ test "recurse" {
     const expected =
         \\(module
         \\  (type (;0;) (func (param i32) (result i32)))
+        \\  (export "factorial" (func 0))
         \\  (func (;0;) (type 0) (param i32) (result i32)
         \\    local.get 0
         \\    i32.const 1
         \\    i32.le_s
-        \\    if (result i32)  ;; label = @1
-        \\      block (result i32)  ;; label = @2
+        \\    if (result i32) ;; label = @1
+        \\      block (result i32) ;; label = @2
         \\        i32.const 1
         \\      end
         \\    else
-        \\      block (result i32)  ;; label = @2
+        \\      block (result i32) ;; label = @2
         \\        local.get 0
         \\        local.get 0
         \\        i32.const 1
@@ -2246,8 +2275,10 @@ test "recurse" {
         \\        call 0
         \\        i32.mul
         \\      end
-        \\    end)
-        \\  (export "factorial" (func 0)))
+        \\    end
+        \\  )
+        \\  (@custom "sourceMappingURL" (after code) "\07/script")
+        \\)
         \\
     ;
 
@@ -2427,14 +2458,14 @@ pub fn expectWasmOutput(
 
     try dbg_file.writeAll(wat);
 
-    const wat2wasm_run = try std.process.Child.run(.{
+    const wasmtools_run = try std.process.Child.run(.{
         .allocator = t.allocator,
-        .argv = &.{ "wat2wasm", "/tmp/compiler-test.wat", "-o", "/tmp/compiler-test.wasm" },
+        .argv = &.{ "wasm-tools", "print", "/tmp/compiler-test.wat", "-o", "/tmp/compiler-test.wasm" },
     });
-    defer t.allocator.free(wat2wasm_run.stdout);
-    defer t.allocator.free(wat2wasm_run.stderr);
-    if (!std.meta.eql(wat2wasm_run.term, .{ .Exited = 0 })) {
-        std.debug.print("wat2wasm exited with {any}:\n{s}\n", .{ wat2wasm_run.term, wat2wasm_run.stderr });
+    defer t.allocator.free(wasmtools_run.stdout);
+    defer t.allocator.free(wasmtools_run.stderr);
+    if (!std.meta.eql(wasmtools_run.term, .{ .Exited = 0 })) {
+        std.debug.print("wasmtools exited with {any}:\n{s}\n", .{ wasmtools_run.term, wasmtools_run.stderr });
         return error.FailTest;
     }
 
