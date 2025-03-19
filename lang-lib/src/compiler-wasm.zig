@@ -1983,44 +1983,25 @@ test "new compiler" {
         \\
         \\
     ;
+    _ = expected_prelude;
 
     const expected =
-        \\(func $sql
-        \\      (param $param_0
-        \\             i32)
-        \\      (call $callUserFunc_code_R
-        \\            (i32.const 1)
-        \\            (local.get $param_0)))
-        \\(func $Confetti
-        \\      (param $param_0
-        \\             i32)
-        \\      (call $callUserFunc_i32_R
-        \\            (i32.const 0)
-        \\            (local.get $param_0)))
-        \\(export "++"
-        \\        (func $++))
-        \\(type $typeof_++
-        \\      (func (param i32)
-        \\            (result i32)))
-        \\(func $++
-        \\      (param $param_x
-        \\             i32)
-        \\      (result i32)
-        \\      (local $__frame_start
-        \\             i32)
-        \\      (local.set $__frame_start
-        \\                 (global.get $__grappl_vstkp))
-        \\      (i32.add (local.get $param_x)
-        \\               (i32.const 1))
-        \\      (global.set $__grappl_vstkp
-        \\                  (local.get $__frame_start)))
-        \\)
+        \\(module
+        \\  (type (;0;) (func (param i32) (result i32)))
+        \\  (func (;0;) (type 0) (param i32) (result i32)
+        \\    block (result i32)  ;; label = @1
+        \\      local.get 0
+        \\      i32.const 1
+        \\      i32.add
+        \\    end)
+        \\  (export "++" (func 0)))
+        \\
     ;
 
     var diagnostic = Diagnostic.init();
     if (compile(t.allocator, &parsed, null, &diagnostic)) |wasm| {
         defer t.allocator.free(wasm);
-        try expectWasmEqualsWat(expected_prelude ++ expected, wasm);
+        try expectWasmEqualsWat(expected, wasm);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);
@@ -2049,7 +2030,7 @@ pub fn expectWasmEqualsWat(wat: []const u8, wasm: []const u8) !void {
         return error.FailTest;
     }
 
-    var dbg_wat_file = try tmp_dir.openFile("compiler-test.wasm", .{});
+    var dbg_wat_file = try tmp_dir.openFile("compiler-test.wat", .{});
     defer dbg_wat_file.close();
     var buff: [65536]u8 = undefined;
     const wat_data_size = try dbg_wat_file.readAll(&buff);
