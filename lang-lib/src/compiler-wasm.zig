@@ -1213,49 +1213,21 @@ const Compilation = struct {
                 // }
 
                 // FIXME: support if
-                // if (func.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
-                //     std.debug.assert(arg_fragments.len == 3);
+                if (func.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
+                    std.debug.assert(arg_fragments.len == 3);
 
-                //     result.resolved_type = try self.resolvePeerTypesWithPromotions(&arg_fragments[1], &arg_fragments[2]);
+                    result.resolved_type = try self.resolvePeerTypesWithPromotions(&arg_fragments[1], &arg_fragments[2]);
 
-                //     try result.values.ensureTotalCapacityPrecise(1);
-                //     const wasm_op = result.values.addOneAssumeCapacity();
-                //     wasm_op.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                //     try wasm_op.value.list.ensureTotalCapacityPrecise(5);
-                //     wasm_op.value.list.addOneAssumeCapacity().* = syms.@"if";
-                //     const result_type = wasm_op.value.list.addOneAssumeCapacity();
-                //     const cond = wasm_op.value.list.addOneAssumeCapacity();
-                //     const consequence = wasm_op.value.list.addOneAssumeCapacity();
-                //     const alternative = wasm_op.value.list.addOneAssumeCapacity();
+                    // FIXME: when will I remove the API usage and remove all these ifs!
+                    result.expr = @ptrCast(byn.c.BinaryenIf(
+                        self.module.c(),
+                        @ptrCast(arg_fragments[0].expr),
+                        @ptrCast(arg_fragments[1].expr),
+                        @ptrCast(arg_fragments[2].expr),
+                    ));
 
-                //     result_type.* = Sexp.newList(alloc);
-
-                //     std.debug.assert(arg_fragments[0].values.items.len == 1);
-                //     cond.* = arg_fragments[0].values.items[0];
-                //     arg_fragments[0].values.items[0] = Sexp{ .value = .void };
-
-                //     consequence.* = Sexp.newList(alloc);
-                //     try consequence.value.list.ensureTotalCapacityPrecise(1 + arg_fragments[1].values.items.len);
-                //     consequence.value.list.addOneAssumeCapacity().* = wat_syms.then;
-                //     for (arg_fragments[1].values.items) |*then_code| {
-                //         consequence.value.list.addOneAssumeCapacity().* = then_code.*;
-                //         then_code.* = Sexp{ .value = .void };
-                //     }
-
-                //     alternative.* = Sexp.newList(alloc);
-                //     try alternative.value.list.ensureTotalCapacityPrecise(1 + arg_fragments[2].values.items.len);
-                //     alternative.value.list.addOneAssumeCapacity().* = wat_syms.@"else";
-                //     for (arg_fragments[2].values.items) |*else_code| {
-                //         alternative.value.list.addOneAssumeCapacity().* = else_code.*;
-                //         else_code.* = Sexp{ .value = .void };
-                //     }
-
-                //     try result_type.value.list.ensureTotalCapacityPrecise(2);
-                //     result_type.value.list.addOneAssumeCapacity().* = wat_syms.result;
-                //     result_type.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = result.resolved_type.wasm_type.? } };
-
-                //     return result;
-                // }
+                    return result;
+                }
 
                 inline for (&binaryop_builtins) |builtin_op| {
                     if (func.value.symbol.ptr == builtin_op.sym.value.symbol.ptr) {
@@ -2105,55 +2077,31 @@ test "new compiler" {
         \\    (return (+ (/ a 10) (* a b)))))
         \\
         \\;;; comment ;; TODO: reintroduce use of a parameter
-        \\ ;;(typeof (ifs bool) i32)
-        \\ ;;(define (ifs a)
-        \\ ;;  (begin
-        \\ ;;    (if a
-        \\ ;;        (begin (Confetti 100)
-        \\ ;;               (+ 2 3))
-        \\ ;;        (begin (Confetti 200)
-        \\ ;;               5))))
+        \\(typeof (ifs bool) i32)
+        \\(define (ifs a)
+        \\  (begin
+        \\    (if a
+        \\        (begin (Confetti 100)
+        \\               (+ 2 3))
+        \\        (begin (Confetti 200)
+        \\               10))))
         \\
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
 
-    // imports could be in arbitrary order so just slice it off cuz length will
-    // be the same
-    const expected_prelude =
-        \\(module
-        \\(import "env"
-        \\        "callUserFunc_code_R"
-        \\        (func $callUserFunc_code_R
-        \\              (param i32)
-        \\              (param i32)))
-        \\(import "env"
-        \\        "callUserFunc_i32_R"
-        \\        (func $callUserFunc_i32_R
-        \\              (param i32)
-        \\              (param i32)))
-        \\(global $__grappl_vstkp
-        \\        (mut i32)
-        \\        (i32.const 4096))
-        \\
-    ++ compiled_prelude ++
-        \\
-        \\
-    ;
-    _ = expected_prelude;
-
     const expected =
         \\(module
-        \\  (type (;0;) (func (param i32)))
-        \\  (type (;1;) (func (param i32) (result i32)))
+        \\  (type (;0;) (func (param i32) (result i32)))
+        \\  (type (;1;) (func (param i32)))
         \\  (type (;2;) (func (param f32 f32) (result f32)))
         \\  (type (;3;) (func (param i32 i32)))
         \\  (import "env" "callUserFunc_i32_R" (func (;0;) (type 3)))
-        \\  (func (;1;) (type 0) (param i32)
+        \\  (func (;1;) (type 1) (param i32)
         \\    i32.const 0
         \\    local.get 0
         \\    call 0)
-        \\  (func (;2;) (type 1) (param i32) (result i32)
+        \\  (func (;2;) (type 0) (param i32) (result i32)
         \\    i32.const 100
         \\    call 1
         \\    block (result i32)  ;; label = @1
@@ -2173,8 +2121,22 @@ test "new compiler" {
         \\      f32.mul
         \\      f32.add
         \\    end)
+        \\  (func (;4;) (type 0) (param i32) (result i32)
+        \\    local.get 0
+        \\    if (result i32)  ;; label = @1
+        \\      i32.const 100
+        \\      call 1
+        \\      i32.const 2
+        \\      i32.const 3
+        \\      i32.add
+        \\    else
+        \\      i32.const 200
+        \\      call 1
+        \\      i32.const 10
+        \\    end)
         \\  (export "++" (func 2))
-        \\  (export "deep" (func 3)))
+        \\  (export "deep" (func 3))
+        \\  (export "ifs" (func 4)))
         \\
     ;
 
