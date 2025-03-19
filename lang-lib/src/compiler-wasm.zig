@@ -36,15 +36,19 @@ pub const Diagnostic = struct {
 
     // set upon start of compilation
     /// the sexp parsed from the source contextually related to the stored error
-    context_sexp: *const Sexp = undefined,
+    root_sexp: *const Sexp = undefined,
 
     const Error = union(enum(u16)) {
+        // TODO: lowercase
         None = 0,
         BadTopLevelForm: *const Sexp = 1,
+        UndefinedSymbol: [:0]const u8 = 2,
     };
 
     const Code = error{
+        // TODO: capitalize
         badTopLevelForm,
+        undefinedSymbol,
     };
 
     pub fn init() @This() {
@@ -57,14 +61,18 @@ pub const Diagnostic = struct {
         fmt_opts: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        // TODO: use contextualize
+        // TODO: add a source-contextualize function using source location
         _ = fmt_str;
         _ = fmt_opts;
         switch (self.err) {
             .None => try writer.print("Not an error", .{}),
             .BadTopLevelForm => |decl| {
-                try writer.print("Bad Top Level Form:\n{}\n", .{decl});
-                try writer.print("in:\n{}\n", .{self.context_sexp});
+                try writer.print("bad top level form:\n{}\n", .{decl});
+                try writer.print("in:\n{}\n", .{self.root_sexp});
+            },
+            // TODO: add a contextualize function?
+            .UndefinedSymbol => |sym| {
+                try writer.print("undefined symbol '{s}'\n", .{sym});
             },
         }
     }
@@ -91,7 +99,7 @@ pub const UserFunc = struct {
     node: graphl_builtin.BasicMutNodeDesc,
 };
 
-const arithmetic_builtins = .{
+const binaryop_builtins = .{
     .{
         .sym = syms.@"+",
         .wasm_name = "add",
@@ -162,6 +170,7 @@ const arithmetic_builtins = .{
 };
 
 const Compilation = struct {
+    // FIXME: consider making this an owned instance, why is it a pointer?
     /// will be edited during compilation as functions are discovered
     env: *Env,
 
@@ -178,24 +187,41 @@ const Compilation = struct {
     arena: std.heap.ArenaAllocator,
     user_context: struct {
         funcs: *const std.SinglyLinkedList(UserFunc),
+        func_map: std.StringHashMapUnmanaged(*UserFunc),
     },
+
+    // FIXME: support multiple diagnostics
     diag: *Diagnostic,
 
     pub fn init(
         alloc: std.mem.Allocator,
         env: *Env,
-        user_funcs: ?*const std.SinglyLinkedList(UserFunc),
+        maybe_user_funcs: ?*const std.SinglyLinkedList(UserFunc),
         in_diag: *Diagnostic,
     ) !@This() {
-        const result = @This(){
+        var result = @This(){
             .arena = std.heap.ArenaAllocator.init(alloc),
             .diag = in_diag,
             .env = env,
             .module = byn.Module.init(),
             .user_context = .{
-                .funcs = user_funcs orelse &empty_user_funcs,
+                .funcs = maybe_user_funcs orelse &empty_user_funcs,
+                .func_map = undefined,
             },
         };
+
+        var func_map: std.StringHashMapUnmanaged(*UserFunc) = .{};
+        errdefer func_map.deinit(result.arena.allocator());
+
+        if (maybe_user_funcs) |user_funcs| {
+            var next = user_funcs.first;
+            while (next) |cursor| : (next = cursor.next) {
+                // NOTE: I _think_ this is a valid use of an arena that is about to be copied...
+                try func_map.putNoClobber(result.arena.allocator(), cursor.data.node.name, &cursor.data);
+            }
+        }
+
+        result.user_context.func_map = func_map;
 
         result.module.setFeatures(
             byn.Features.set(&.{
@@ -319,6 +345,72 @@ const Compilation = struct {
         return true;
     }
 
+    fn compileMeta(self: *@This(), sexp: *const Sexp) !bool {
+        _ = self;
+
+        if (sexp.value != .list) return false;
+        if (sexp.value.list.items.len == 0) return false;
+        if (sexp.value.list.items[0].value != .symbol) return error.NonSymbolHead;
+        if (sexp.value.list.items[0].value.symbol.ptr != syms.meta.value.symbol.ptr) return false;
+        if (sexp.value.list.items.len < 3) return error.BadMetaSize;
+        if (sexp.value.list.items[1].value != .symbol) return error.NonSymbolMetaProperty;
+        const property = sexp.value.list.items[1].value.symbol;
+        if (property.ptr != syms.version.value.symbol.ptr) return error.NonVersionMetaProperty;
+        if (sexp.value.list.items[2].value != .int) return error.NonIntegerVersion;
+        if (sexp.value.list.items[2].value.int != 1) return error.UnsupportedVersion;
+
+        return true;
+    }
+
+    fn compileImport(self: *@This(), sexp: *const Sexp) !bool {
+        if (sexp.value != .list) return false;
+        if (sexp.value.list.items.len == 0) return false;
+        if (sexp.value.list.items[0].value != .symbol) return error.NonSymbolHead;
+        if (sexp.value.list.items[0].value.symbol.ptr != syms.import.value.symbol.ptr) return false;
+        if (sexp.value.list.items[1].value != .symbol) return error.NonSymbolBinding;
+        if (sexp.value.list.items[2].value != .ownedString) return error.NonStringPackagePath;
+
+        const import_binding = sexp.value.list.items[1].value.symbol;
+
+        const imported = try self.analyzeImportAtPath(sexp.value.list.items[2].value.ownedString);
+
+        const node_desc = try self.arena.allocator().create(graphl_builtin.BasicNodeDesc);
+
+        node_desc.* = .{
+            .name = import_binding,
+            .kind = .func,
+            .inputs = imported.inputs,
+            .outputs = imported.outputs,
+        };
+
+        // we must use the same allocator that env is deinited with!
+        _ = try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicNode(node_desc));
+
+        return true;
+    }
+
+    const ImportInfo = struct {
+        inputs: []Pin = &.{},
+        outputs: []Pin = &.{},
+    };
+
+    fn analyzeImportAtPath(self: *@This(), path: []const u8) !ImportInfo {
+        const first_slash = std.mem.indexOfScalar(u8, path, '/') orelse return error.ImportPathWithoutNamespace;
+        // TODO: support hierarchy
+        const namespace = path[0..first_slash];
+
+        if (!std.mem.eql(u8, namespace, "host")) return error.OnlyHostFuncImportsSupported;
+
+        const item_name = path[first_slash + 1 ..];
+
+        const user_func = self.user_context.func_map.get(item_name) orelse return error.NoSuchHostFunc;
+
+        return ImportInfo{
+            .inputs = user_func.node.inputs,
+            .outputs = user_func.node.outputs,
+        };
+    }
+
     fn compileVar(self: *@This(), sexp: *const Sexp) !bool {
         _ = self;
 
@@ -326,9 +418,7 @@ const Compilation = struct {
         if (sexp.value.list.items.len == 0) return false;
         if (sexp.value.list.items[0].value != .symbol) return error.NonSymbolHead;
 
-        // FIXME: parser should be aware of the define form!
-        //if (sexp.value.list.items[0].value.symbol.ptr != syms.define.value.symbol.ptr) return false;
-        if (!std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.define.value.symbol)) return false;
+        if (sexp.value.list.items[0].value.symbol.ptr != syms.define.value.symbol.ptr) return false;
 
         if (sexp.value.list.items[1].value != .symbol) return error.NonSymbolBinding;
 
@@ -343,12 +433,10 @@ const Compilation = struct {
     }
 
     fn compileTypeOf(self: *@This(), sexp: *const Sexp) !bool {
-        if (sexp.value != .list) return error.TypeDeclNotList;
+        if (sexp.value != .list) return false;
         if (sexp.value.list.items.len == 0) return error.TypeDeclListEmpty;
         if (sexp.value.list.items[0].value != .symbol) return error.NonSymbolHead;
-        // FIXME: parser should be aware of the define form!
-        //std.debug.assert(sexp.value.list.items[0].value.symbol.ptr == syms.typeof.value.symbol.ptr);
-        if (!std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.typeof.value.symbol)) return error.NotATypeDecl;
+        if (sexp.value.list.items[0].value.symbol.ptr != syms.typeof.value.symbol.ptr) return false;
 
         return try self.compileTypeOfFunc(sexp) or try self.compileTypeOfVar(sexp);
     }
@@ -731,7 +819,11 @@ const Compilation = struct {
         }
     };
 
-    const CompileExprError = std.mem.Allocator.Error || error{ UndefinedSymbol, UnimplementedMultiResultHostFunc, UnhandledCall };
+    const CompileExprError = std.mem.Allocator.Error || error{
+        UndefinedSymbol,
+        UnimplementedMultiResultHostFunc,
+        UnhandledCall,
+    };
 
     // TODO: figure out how to ergonomically skip compiling labeled exprs until they are referenced...
     // TODO: take a diagnostic
@@ -986,6 +1078,7 @@ const Compilation = struct {
                 const func_node_desc = self.env.getNode(func.value.symbol) orelse {
                     std.log.err("while in:\n{}\n", .{code_sexp});
                     std.log.err("undefined symbol1: '{}'\n", .{func});
+                    self.diag.err = .{ .UndefinedSymbol = func.value.symbol };
                     return error.UndefinedSymbol;
                 };
 
@@ -1120,7 +1213,7 @@ const Compilation = struct {
                 //     return result;
                 // }
 
-                inline for (&arithmetic_builtins) |builtin_op| {
+                inline for (&binaryop_builtins) |builtin_op| {
                     if (func.value.symbol.ptr == builtin_op.sym.value.symbol.ptr) {
                         var op: byn.Expression.Op = undefined;
 
@@ -1240,50 +1333,57 @@ const Compilation = struct {
 
                 // FIXME: make this work again
                 // ok, it must be a function in scope then (user or builtin)
-                // {
-                //     const outputs = func_node_desc.getOutputs();
+                {
+                    const outputs = func_node_desc.getOutputs();
 
-                //     // FIXME: horrible
-                //     const is_pure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .value;
-                //     const is_simple_0_out_impure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec;
-                //     const is_simple_1_out_impure = outputs.len == 2 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec and outputs[1].kind == .primitive and outputs[1].kind.primitive == .value;
+                    // FIXME: horrible
+                    const is_pure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .value;
+                    const is_simple_0_out_impure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec;
+                    const is_simple_1_out_impure = outputs.len == 2 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec and outputs[1].kind == .primitive and outputs[1].kind.primitive == .value;
 
-                //     result.resolved_type = if (is_pure) outputs[0].kind.primitive.value else if (is_simple_0_out_impure)
-                //         graphl_builtin.empty_type
-                //     else if (is_simple_1_out_impure)
-                //         outputs[1].kind.primitive.value
-                //     else
-                //         return error.UnimplementedMultiResultHostFunc;
+                    result.resolved_type =
+                        if (is_pure) outputs[0].kind.primitive.value
+                    //
+                    else if (is_simple_0_out_impure)
+                        graphl_builtin.empty_type
+                        //
+                    else if (is_simple_1_out_impure)
+                        outputs[1].kind.primitive.value
+                        //
+                    else {
+                        std.debug.print("func={s}\n", .{func_node_desc.name()});
+                        return error.UnimplementedMultiResultHostFunc;
+                    };
 
-                //     const instruct_count: usize = if (result.resolved_type == graphl_builtin.empty_type) 1 else 2;
+                    const requires_drop = result.resolved_type != graphl_builtin.empty_type and !context.is_captured;
 
-                //     try result.values.ensureTotalCapacityPrecise(instruct_count);
-                //     const wasm_call = result.values.addOneAssumeCapacity();
-                //     wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                //     try wasm_call.value.list.ensureTotalCapacityPrecise(2 + arg_fragments.len);
-                //     // FIXME: use types to determine
-                //     wasm_call.value.list.appendAssumeCapacity(wat_syms.call);
-                //     wasm_call.value.list.appendAssumeCapacity(Sexp{
-                //         .value = .{
-                //             // doesn't leak cuz arena, but maybe use separate arena?
-                //             .symbol = try std.fmt.allocPrint(alloc, "${s}", .{func.value.symbol}),
-                //         },
-                //     });
+                    const operands = try alloc.alloc(*byn.Expression, arg_fragments.len + @as(usize, if (requires_drop) 1 else 0));
 
-                //     for (arg_fragments) |arg_fragment| {
-                //         for (arg_fragment.values.items) |*fragment_part| {
-                //             (try wasm_call.value.list.addOne()).* = fragment_part.*;
-                //             // move out
-                //             fragment_part.* = Sexp{ .value = .void };
-                //         }
-                //     }
+                    defer alloc.free(operands); // FIXME: what is binaryen ownership model?
 
-                //     if (result.resolved_type != graphl_builtin.empty_type and !context.is_captured) {
-                //         result.values.appendAssumeCapacity(wat_syms.drop);
-                //     }
+                    for (arg_fragments, operands) |arg_fragment, *operand| {
+                        operand.* = arg_fragment.expr;
+                    }
 
-                //     return result;
-                // }
+                    if (requires_drop) {
+                        operands[operands.len - 1] = @ptrCast(byn.c.BinaryenDrop(
+                            self.module.c(),
+                            // FIXME: why does Drop take an argument?
+                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                        ));
+                    }
+
+                    result.expr = @ptrCast(byn.c.BinaryenCall(
+                        self.module.c(),
+                        func.value.symbol,
+                        @ptrCast(operands.ptr),
+                        @intCast(operands.len),
+                        // FIXME: derive the result type
+                        @intFromEnum(byn.Type.i32),
+                    ));
+
+                    return result;
+                }
 
                 // otherwise we have a non builtin
                 std.log.err("unhandled call: {}", .{code_sexp});
@@ -1396,98 +1496,98 @@ const Compilation = struct {
     pub fn compileModule(self: *@This(), sexp: *const Sexp) ![]const u8 {
         std.debug.assert(sexp.value == .module);
 
-        // FIXME: fix user funcs
-        // const UserFuncDef = struct {
-        //     params: []Type,
-        //     results: []Type,
+        const UserFuncDef = struct {
+            params: []Type,
+            results: []Type,
 
-        //     pub fn name(_self: @This(), a: std.mem.Allocator) ![]u8 {
-        //         // FIXME: use an arraylist writer with initial capacity
-        //         var buf: [1024]u8 = undefined;
-        //         var buf_writer = std.io.fixedBufferStream(&buf);
-        //         _ = try buf_writer.write("$callUserFunc_");
-        //         for (_self.params) |param| {
-        //             _ = try buf_writer.write(param.name);
-        //             _ = try buf_writer.write("_");
-        //         }
-        //         _ = try buf_writer.write("R");
-        //         for (_self.results) |result| {
-        //             _ = try buf_writer.write("_");
-        //             _ = try buf_writer.write(result.name);
-        //         }
+            pub fn name(_self: @This(), a: std.mem.Allocator) ![]u8 {
+                // NOTE: could use an arraylist writer with initial capacity
+                var buf: [1024]u8 = undefined;
+                var buf_writer = std.io.fixedBufferStream(&buf);
+                _ = try buf_writer.write("callUserFunc_");
+                for (_self.params) |param| {
+                    _ = try buf_writer.write(param.name);
+                    _ = try buf_writer.write("_");
+                }
+                _ = try buf_writer.write("R");
+                for (_self.results) |result| {
+                    _ = try buf_writer.write("_");
+                    _ = try buf_writer.write(result.name);
+                }
 
-        //         return try a.dupe(u8, buf_writer.getWritten());
-        //     }
+                return try a.dupe(u8, buf_writer.getWritten());
+            }
 
-        //     pub fn wat(_self: @This(), a: std.mem.Allocator, in_name: []const u8) !Sexp {
-        //         // no error handling cuz arena, TODO: detect/enforce
-        //         var result = Sexp.newList(a);
+            // NEXT: fix this
+            pub fn wat(_self: @This(), a: std.mem.Allocator, in_name: []const u8) !Sexp {
+                // no error handling cuz arena, TODO: detect/enforce
+                var result = Sexp.newList(a);
 
-        //         try result.value.list.ensureTotalCapacityPrecise(4);
-        //         result.value.list.expandToCapacity();
-        //         result.value.list.items[0] = wat_syms.import;
-        //         result.value.list.items[1] = Sexp{ .value = .{ .borrowedString = "env" } };
-        //         // skip the $
-        //         result.value.list.items[2] = Sexp{ .value = .{ .borrowedString = in_name[1..] } };
-        //         result.value.list.items[3] = Sexp.newList(a);
-        //         const signature = &result.value.list.items[3];
+                try result.value.list.ensureTotalCapacityPrecise(4);
+                result.value.list.expandToCapacity();
+                result.value.list.items[0] = wat_syms.import;
+                result.value.list.items[1] = Sexp{ .value = .{ .borrowedString = "env" } };
+                // skip the $
+                result.value.list.items[2] = Sexp{ .value = .{ .borrowedString = in_name[1..] } };
+                result.value.list.items[3] = Sexp.newList(a);
+                const signature = &result.value.list.items[3];
 
-        //         // double params in case its strings
-        //         try signature.value.list.ensureTotalCapacityPrecise(2 + 1 + 2 * _self.params.len + _self.results.len);
-        //         signature.value.list.appendAssumeCapacity(wat_syms.func);
-        //         signature.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = in_name } });
+                // double params in case its strings
+                try signature.value.list.ensureTotalCapacityPrecise(2 + 1 + 2 * _self.params.len + _self.results.len);
+                signature.value.list.appendAssumeCapacity(wat_syms.func);
+                signature.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = in_name } });
 
-        //         // first is the user function index
-        //         {
-        //             const slot = signature.value.list.addOneAssumeCapacity();
-        //             slot.* = Sexp.newList(a);
-        //             try slot.value.list.ensureTotalCapacityPrecise(2);
-        //             slot.value.list.appendAssumeCapacity(wat_syms.param);
-        //             // FIXME: intern this string
-        //             slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "i32" } });
-        //         }
+                // first is the user function index
+                {
+                    const slot = signature.value.list.addOneAssumeCapacity();
+                    slot.* = Sexp.newList(a);
+                    try slot.value.list.ensureTotalCapacityPrecise(2);
+                    slot.value.list.appendAssumeCapacity(wat_syms.param);
+                    // FIXME: intern this string
+                    slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "i32" } });
+                }
 
-        //         for (_self.params) |param| {
-        //             const slot = signature.value.list.addOneAssumeCapacity();
-        //             slot.* = Sexp.newList(a);
-        //             try slot.value.list.ensureTotalCapacityPrecise(2);
-        //             slot.value.list.appendAssumeCapacity(wat_syms.param);
-        //             slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = param.wasm_type orelse {
-        //                 std.debug.panic("type '{s}' has no intrinsic wasm type!", .{param.name});
-        //             } } });
-        //         }
+                for (_self.params) |param| {
+                    const slot = signature.value.list.addOneAssumeCapacity();
+                    slot.* = Sexp.newList(a);
+                    try slot.value.list.ensureTotalCapacityPrecise(2);
+                    slot.value.list.appendAssumeCapacity(wat_syms.param);
+                    slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = param.wasm_type orelse {
+                        std.debug.panic("type '{s}' has no intrinsic wasm type!", .{param.name});
+                    } } });
+                }
 
-        //         for (_self.results) |result_| {
-        //             const slot = signature.value.list.addOneAssumeCapacity();
-        //             slot.* = Sexp.newList(a);
-        //             try slot.value.list.ensureTotalCapacityPrecise(2);
-        //             slot.value.list.appendAssumeCapacity(wat_syms.result);
-        //             slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = result_.wasm_type orelse {
-        //                 std.debug.panic("type '{s}' has no intrinsic wasm type!", .{result_.name});
-        //             } } });
-        //         }
+                for (_self.results) |result_| {
+                    const slot = signature.value.list.addOneAssumeCapacity();
+                    slot.* = Sexp.newList(a);
+                    try slot.value.list.ensureTotalCapacityPrecise(2);
+                    slot.value.list.appendAssumeCapacity(wat_syms.result);
+                    slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = result_.wasm_type orelse {
+                        std.debug.panic("type '{s}' has no intrinsic wasm type!", .{result_.name});
+                    } } });
+                }
 
-        //         return result;
-        //     }
-        // };
+                return result;
+            }
+        };
 
-        // const UserFuncDefHashCtx = struct {
-        //     pub fn hash(ctx: @This(), key: UserFuncDef) u64 {
-        //         _ = ctx;
-        //         var hasher = std.hash.Wyhash.init(0);
-        //         std.hash.autoHashStrat(&hasher, key, .Deep);
-        //         return hasher.final();
-        //     }
+        const UserFuncDefHashCtx = struct {
+            pub fn hash(ctx: @This(), key: UserFuncDef) u64 {
+                _ = ctx;
+                var hasher = std.hash.Wyhash.init(0);
+                std.hash.autoHashStrat(&hasher, key, .Deep);
+                return hasher.final();
+            }
 
-        //     pub fn eql(ctx: @This(), a: UserFuncDef, b: UserFuncDef) bool {
-        //         _ = ctx;
-        //         if (a.params.len != b.params.len) return false;
-        //         if (a.results.len != b.results.len) return false;
-        //         for (a.params, b.params) |pa, pb| if (pa != pb) return false;
-        //         for (a.results, b.results) |ra, rb| if (ra != rb) return false;
-        //         return true;
-        //     }
-        // };
+            pub fn eql(ctx: @This(), a: UserFuncDef, b: UserFuncDef) bool {
+                _ = ctx;
+                if (a.params.len != b.params.len) return false;
+                if (a.results.len != b.results.len) return false;
+                for (a.params, b.params) |pa, pb| if (pa != pb) return false;
+                for (a.results, b.results) |ra, rb| if (ra != rb) return false;
+                return true;
+            }
+        };
 
         // var userfunc_imports: std.HashMapUnmanaged(UserFuncDef, []const u8, UserFuncDefHashCtx, 80) = .{};
 
@@ -1537,99 +1637,98 @@ const Compilation = struct {
         //     memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
         // }
 
-        // FIXME: fix user defined funcs
+        // NEXT: FIX THIS
         // // thunks for user provided functions
-        // {
-        //     // TODO: for each user provided function, build a thunk and append it
-        //     var maybe_user_func = self.user_context.funcs.first;
-        //     while (maybe_user_func) |user_func| : (maybe_user_func = user_func.next) {
-        //         // FIXME: leak kinda but arena
-        //         const name = try std.fmt.allocPrint(alloc, "${s}", .{user_func.data.node.name});
+        {
+            // TODO: for each user provided function, build a thunk and append it
+            var next = self.user_context.funcs.first;
+            while (next) |user_func| : (next = user_func.next) {
+                const name = user_func.data.node.name;
 
-        //         // FIXME: skip the first exec input
-        //         std.debug.assert(user_func.data.node.inputs[0].kind.primitive == .exec);
-        //         const params = user_func.data.node.inputs[1..];
+                // FIXME: skip the first exec input
+                std.debug.assert(user_func.data.node.inputs[0].kind.primitive == .exec);
+                const params = user_func.data.node.inputs[1..];
 
-        //         // FIXME: skip the first exec output
-        //         std.debug.assert(user_func.data.node.outputs[0].kind.primitive == .exec);
-        //         const results = user_func.data.node.outputs[1..];
+                // FIXME: skip the first exec output
+                std.debug.assert(user_func.data.node.outputs[0].kind.primitive == .exec);
+                const results = user_func.data.node.outputs[1..];
 
-        //         const def = UserFuncDef{
-        //             .params = try self.arena.allocator().alloc(Type, params.len),
-        //             .results = try self.arena.allocator().alloc(Type, results.len),
-        //         };
-        //         for (params, def.params) |param, *param_type| param_type.* = param.kind.primitive.value;
-        //         for (results, def.results) |result, *result_type| result_type.* = result.kind.primitive.value;
+                const def = UserFuncDef{
+                    .params = try self.arena.allocator().alloc(Type, params.len),
+                    .results = try self.arena.allocator().alloc(Type, results.len),
+                };
+                for (params, def.params) |param, *param_type| param_type.* = param.kind.primitive.value;
+                for (results, def.results) |result, *result_type| result_type.* = result.kind.primitive.value;
 
-        //         const import_entry = try userfunc_imports.getOrPut(self.arena.allocator(), def);
+                const import_entry = try userfunc_imports.getOrPut(self.arena.allocator(), def);
 
-        //         const thunk_name = _: {
-        //             if (!import_entry.found_existing) {
-        //                 import_entry.value_ptr.* = try def.name(self.arena.allocator());
-        //             }
-        //             break :_ import_entry.value_ptr.*;
-        //         };
+                const thunk_name = _: {
+                    if (!import_entry.found_existing) {
+                        import_entry.value_ptr.* = try def.name(self.arena.allocator());
+                    }
+                    break :_ import_entry.value_ptr.*;
+                };
 
-        //         var user_func_sexp = Sexp.newList(alloc);
-        //         const thunk_len = (1 // func keyword
-        //         + 1 // function name
-        //         + params.len + 1 * results.len + 1 // call binding
-        //         );
-        //         try user_func_sexp.value.list.ensureTotalCapacityPrecise(thunk_len);
-        //         user_func_sexp.value.list.addOneAssumeCapacity().* = wat_syms.func;
-        //         user_func_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
+                var user_func_sexp = Sexp.newList(alloc);
+                const thunk_len = (1 // func keyword
+                + 1 // function name
+                + params.len + 1 * results.len + 1 // call binding
+                );
+                try user_func_sexp.value.list.ensureTotalCapacityPrecise(thunk_len);
+                user_func_sexp.value.list.addOneAssumeCapacity().* = wat_syms.func;
+                user_func_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
 
-        //         for (params, 0..) |param, i| {
-        //             var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
-        //             wasm_param.* = Sexp.newList(alloc);
-        //             try wasm_param.value.list.ensureTotalCapacityPrecise(3);
+                for (params, 0..) |param, i| {
+                    var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
+                    wasm_param.* = Sexp.newList(alloc);
+                    try wasm_param.value.list.ensureTotalCapacityPrecise(3);
 
-        //             wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.param;
-        //             wasm_param.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
-        //             // FIXME/HACK: this doesn't work for many types!
-        //             wasm_param.value.list.addOneAssumeCapacity().* = if (param.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
-        //         }
+                    wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.param;
+                    wasm_param.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
+                    // FIXME/HACK: this doesn't work for many types!
+                    wasm_param.value.list.addOneAssumeCapacity().* = if (param.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
+                }
 
-        //         for (results, 0..) |result, i| {
-        //             _ = i;
-        //             //const result_type = result.asPrimitivePin().value;
+                for (results, 0..) |result, i| {
+                    _ = i;
+                    //const result_type = result.asPrimitivePin().value;
 
-        //             var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
-        //             wasm_param.* = Sexp.newList(alloc);
-        //             try wasm_param.value.list.ensureTotalCapacityPrecise(2);
+                    var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
+                    wasm_param.* = Sexp.newList(alloc);
+                    try wasm_param.value.list.ensureTotalCapacityPrecise(2);
 
-        //             wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.result;
-        //             // FIXME/HACK: this doesn't work for many types!
-        //             wasm_param.value.list.addOneAssumeCapacity().* = if (result.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
-        //         }
+                    wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.result;
+                    // FIXME/HACK: this doesn't work for many types!
+                    wasm_param.value.list.addOneAssumeCapacity().* = if (result.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
+                }
 
-        //         const call_body = user_func_sexp.value.list.addOneAssumeCapacity();
-        //         call_body.* = Sexp.newList(alloc);
-        //         try call_body.value.list.ensureTotalCapacityPrecise(1 // call keyword
-        //         + 1 // thunk name
-        //         + 1 // func id
-        //         + params.len);
+                const call_body = user_func_sexp.value.list.addOneAssumeCapacity();
+                call_body.* = Sexp.newList(alloc);
+                try call_body.value.list.ensureTotalCapacityPrecise(1 // call keyword
+                + 1 // thunk name
+                + 1 // func id
+                + params.len);
 
-        //         call_body.value.list.addOneAssumeCapacity().* = wat_syms.call;
-        //         call_body.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = thunk_name } };
-        //         const func_id = call_body.value.list.addOneAssumeCapacity();
-        //         func_id.* = Sexp.newList(alloc);
-        //         try func_id.value.list.ensureTotalCapacityPrecise(2);
-        //         func_id.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-        //         func_id.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(user_func.data.id) } };
+                call_body.value.list.addOneAssumeCapacity().* = wat_syms.call;
+                call_body.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = thunk_name } };
+                const func_id = call_body.value.list.addOneAssumeCapacity();
+                func_id.* = Sexp.newList(alloc);
+                try func_id.value.list.ensureTotalCapacityPrecise(2);
+                func_id.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
+                func_id.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(user_func.data.id) } };
 
-        //         for (params, 0..) |_, i| {
-        //             const wasm_local = call_body.value.list.addOneAssumeCapacity();
-        //             wasm_local.* = Sexp.newList(alloc);
-        //             try wasm_local.value.list.ensureTotalCapacityPrecise(2);
-        //             // FIXME: does this work for non-primitives?
-        //             wasm_local.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.get";
-        //             wasm_local.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
-        //         }
+                for (params, 0..) |_, i| {
+                    const wasm_local = call_body.value.list.addOneAssumeCapacity();
+                    wasm_local.* = Sexp.newList(alloc);
+                    try wasm_local.value.list.ensureTotalCapacityPrecise(2);
+                    // FIXME: does this work for non-primitives?
+                    wasm_local.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.get";
+                    wasm_local.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
+                }
 
-        //         (try self.module_body.addOne()).* = user_func_sexp;
-        //     }
-        // }
+                (try self.module_body.addOne()).* = user_func_sexp;
+            }
+        }
 
         for (sexp.value.module.items) |decl| {
             switch (decl.value) {
@@ -1637,7 +1736,9 @@ const Compilation = struct {
                     // FIXME: maybe distinguish without errors if something if a func, var or typeof?
                     const did_compile = (try self.compileFunc(&decl) or
                         try self.compileVar(&decl) or
-                        try self.compileTypeOf(&decl));
+                        try self.compileTypeOf(&decl) or
+                        try self.compileMeta(&decl) or
+                        try self.compileImport(&decl));
                     if (!did_compile) {
                         self.diag.err = Diagnostic.Error{ .BadTopLevelForm = &decl };
                         std.log.err("{}", .{self.diag});
@@ -1695,7 +1796,7 @@ pub fn compile(
     if (build_opts.disable_compiler) unreachable;
     var ignored_diagnostic: Diagnostic = undefined; // FIXME: why don't we init?
     const diag = if (_in_diagnostic) |d| d else &ignored_diagnostic;
-    diag.context_sexp = sexp;
+    diag.root_sexp = sexp;
 
     var env = try Env.initDefault(a);
     defer env.deinit(a);
@@ -1951,12 +2052,81 @@ test "new compiler" {
     // var env = try Env.initDefault(t.allocator);
     // defer env.deinit(t.allocator);
 
+    var user_funcs = std.SinglyLinkedList(UserFunc){};
+
+    const user_func_1 = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
+    user_func_1.* = std.SinglyLinkedList(UserFunc).Node{
+        .data = .{ .id = 0, .node = .{
+            .name = "Confetti",
+            .inputs = try t.allocator.dupe(Pin, &.{
+                Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
+                Pin{
+                    .name = "particleCount",
+                    .kind = .{ .primitive = .{ .value = primitive_types.i32_ } },
+                },
+            }),
+            .outputs = try t.allocator.dupe(Pin, &.{
+                Pin{ .name = "", .kind = .{ .primitive = .exec } },
+            }),
+        } },
+    };
+    defer t.allocator.destroy(user_func_1);
+    defer t.allocator.free(user_func_1.data.node.inputs);
+    defer t.allocator.free(user_func_1.data.node.outputs);
+    user_funcs.prepend(user_func_1);
+
+    const user_func_2 = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
+    user_func_2.* = std.SinglyLinkedList(UserFunc).Node{
+        .data = .{
+            .id = 1,
+            .node = .{
+                .name = "sql",
+                .inputs = try t.allocator.dupe(Pin, &.{
+                    Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
+                    Pin{
+                        .name = "code",
+                        .kind = .{ .primitive = .{ .value = primitive_types.code } },
+                    },
+                }),
+                .outputs = try t.allocator.dupe(Pin, &.{
+                    Pin{ .name = "", .kind = .{ .primitive = .exec } },
+                }),
+            },
+        },
+    };
+    defer t.allocator.destroy(user_func_2);
+    defer t.allocator.free(user_func_2.data.node.inputs);
+    defer t.allocator.free(user_func_2.data.node.outputs);
+    user_funcs.prepend(user_func_2);
+
     var parsed = try SexpParser.parse(t.allocator,
+        \\(meta version 1)
+        \\(import Confetti "host/Confetti")
+        \\(import sql "host/sql")
+        \\
         \\;;; comment
         \\(typeof (++ i32) i32)
         \\(define (++ x)
         \\  (begin
+        \\    (Confetti 100)
         \\    (return (+ x 1))))
+        \\
+        \\;;; comment
+        \\(typeof (deep f32 f32) f32)
+        \\(define (deep a b)
+        \\  (begin
+        \\    (return (+ (/ a 10) (* a b)))))
+        \\
+        \\;;; comment ;; TODO: reintroduce use of a parameter
+        \\ ;;(typeof (ifs bool) i32)
+        \\ ;;(define (ifs a)
+        \\ ;;  (begin
+        \\ ;;    (if a
+        \\ ;;        (begin (Confetti 100)
+        \\ ;;               (+ 2 3))
+        \\ ;;        (begin (Confetti 200)
+        \\ ;;               5))))
+        \\
     , null);
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
@@ -1988,18 +2158,31 @@ test "new compiler" {
     const expected =
         \\(module
         \\  (type (;0;) (func (param i32) (result i32)))
+        \\  (type (;1;) (func (param f32 f32) (result f32)))
         \\  (func (;0;) (type 0) (param i32) (result i32)
         \\    block (result i32)  ;; label = @1
         \\      local.get 0
         \\      i32.const 1
         \\      i32.add
         \\    end)
-        \\  (export "++" (func 0)))
-        \\
+        \\  (func (;1;) (type 1) (param f32 f32) (result f32)
+        \\    block (result f32)  ;; label = @1
+        \\      local.get 0
+        \\      i32.const 10
+        \\      i64.extend_i32_s
+        \\      f32.convert_i64_s
+        \\      f32.div
+        \\      local.get 0
+        \\      local.get 1
+        \\      f32.mul
+        \\      f32.add
+        \\    end)
+        \\  (export "++" (func 0))
+        \\  (export "deep" (func 1)))
     ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, null, &diagnostic)) |wasm| {
+    if (compile(t.allocator, &parsed, &user_funcs, &diagnostic)) |wasm| {
         defer t.allocator.free(wasm);
         try expectWasmEqualsWat(expected, wasm);
     } else |err| {

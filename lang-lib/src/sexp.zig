@@ -305,6 +305,8 @@ test "write sexp" {
 
 // TODO: move into the environment as known syms
 pub const syms = struct {
+    pub const meta = Sexp{ .value = .{ .symbol = "meta" } };
+    pub const version = Sexp{ .value = .{ .symbol = "version" } };
     pub const import = Sexp{ .value = .{ .symbol = "import" } };
     pub const define = Sexp{ .value = .{ .symbol = "define" } };
     pub const typeof = Sexp{ .value = .{ .symbol = "typeof" } };
