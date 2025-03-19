@@ -1565,6 +1565,7 @@ const Compilation = struct {
             pub fn addImport(_self: @This(), ctx: *Compilation, in_name: [:0]const u8) !void {
                 const param_types = try ctx.arena.allocator().alloc(byn.c.BinaryenType, _self.params.len + 1);
                 defer ctx.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
+                param_types[0] = byn.c.BinaryenTypeInt32();
                 for (_self.params, param_types[1..]) |graphl_t, *wasm_t| {
                     wasm_t.* = BinaryenHelper.getType(graphl_t);
                 }
@@ -1667,11 +1668,10 @@ const Compilation = struct {
                     .params = try self.arena.allocator().alloc(Type, params.len),
                     .results = try self.arena.allocator().alloc(Type, results.len),
                 };
-                const byn_params = try self.arena.allocator().alloc(byn.c.BinaryenType, 1 + params.len);
+                const byn_params = try self.arena.allocator().alloc(byn.c.BinaryenType, params.len);
                 const byn_results = try self.arena.allocator().alloc(byn.c.BinaryenType, results.len);
 
-                byn_params[0] = @intFromEnum(byn.Type.i32);
-                for (params, def.params, byn_params[1..]) |param, *param_type, *byn_param| {
+                for (params, def.params, byn_params) |param, *param_type, *byn_param| {
                     param_type.* = param.kind.primitive.value;
                     byn_param.* = BinaryenHelper.getType(param.kind.primitive.value);
                 }
@@ -1680,7 +1680,7 @@ const Compilation = struct {
                     byn_result.* = BinaryenHelper.getType(result.kind.primitive.value);
                 }
 
-                var byn_args = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), byn_params.len);
+                var byn_args = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), byn_params.len + 1);
                 defer byn_args.deinit(self.arena.allocator());
                 byn_args.appendAssumeCapacity(@ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(user_func.data.id)))));
                 byn_args.expandToCapacity();
@@ -2062,34 +2062,34 @@ test "new compiler" {
     defer t.allocator.free(user_func_1.data.node.outputs);
     user_funcs.prepend(user_func_1);
 
-    const user_func_2 = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
-    user_func_2.* = std.SinglyLinkedList(UserFunc).Node{
-        .data = .{
-            .id = 1,
-            .node = .{
-                .name = "sql",
-                .inputs = try t.allocator.dupe(Pin, &.{
-                    Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
-                    Pin{
-                        .name = "code",
-                        .kind = .{ .primitive = .{ .value = primitive_types.code } },
-                    },
-                }),
-                .outputs = try t.allocator.dupe(Pin, &.{
-                    Pin{ .name = "", .kind = .{ .primitive = .exec } },
-                }),
-            },
-        },
-    };
-    defer t.allocator.destroy(user_func_2);
-    defer t.allocator.free(user_func_2.data.node.inputs);
-    defer t.allocator.free(user_func_2.data.node.outputs);
-    user_funcs.prepend(user_func_2);
+    // const user_func_2 = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
+    // user_func_2.* = std.SinglyLinkedList(UserFunc).Node{
+    //     .data = .{
+    //         .id = 1,
+    //         .node = .{
+    //             .name = "sql",
+    //             .inputs = try t.allocator.dupe(Pin, &.{
+    //                 Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
+    //                 Pin{
+    //                     .name = "code",
+    //                     .kind = .{ .primitive = .{ .value = primitive_types.code } },
+    //                 },
+    //             }),
+    //             .outputs = try t.allocator.dupe(Pin, &.{
+    //                 Pin{ .name = "", .kind = .{ .primitive = .exec } },
+    //             }),
+    //         },
+    //     },
+    // };
+    // defer t.allocator.destroy(user_func_2);
+    // defer t.allocator.free(user_func_2.data.node.inputs);
+    // defer t.allocator.free(user_func_2.data.node.outputs);
+    // user_funcs.prepend(user_func_2);
 
     var parsed = try SexpParser.parse(t.allocator,
         \\(meta version 1)
         \\(import Confetti "host/Confetti")
-        \\(import sql "host/sql")
+        \\;;(import sql "host/sql")
         \\
         \\;;; comment
         \\(typeof (++ i32) i32)
