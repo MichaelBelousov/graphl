@@ -370,13 +370,17 @@ const Compilation = struct {
             param_name.* = func_binding.value.symbol;
         }
 
+        const result_names = try alloc.alloc([:0]const u8, return_exprs.len);
+        errdefer alloc.free(result_names);
+        for (result_names) |*result_name| result_name.* = pool.getSymbol("result");
+
         const func_desc = DeferredFuncDeclInfo{
             .param_names = param_names,
             // TODO: read all defines at beginning of sexp or something
             .local_names = try local_names.toOwnedSlice(),
             .local_types = try local_types.toOwnedSlice(),
             .local_defaults = try local_defaults.toOwnedSlice(),
-            .result_names = &.{},
+            .result_names = result_names,
             .body_exprs = return_exprs,
         };
 
@@ -551,6 +555,26 @@ const Compilation = struct {
                 .result_types = func_type.result_types,
             },
         };
+
+        // now that we have func
+        const node_desc = try self.arena.allocator().create(graphl_builtin.BasicMutNodeDesc);
+        node_desc.* = .{
+            .name = name,
+            .kind = .func,
+            // FIXME: can I reuse pins?
+            .inputs = try self.arena.allocator().alloc(Pin, func_decl.param_names.len + 1),
+            .outputs = try self.arena.allocator().alloc(Pin, func_decl.result_names.len + 1),
+        };
+        node_desc.inputs[0] = Pin{ .name = "in", .kind = .{ .primitive = .exec } };
+        for (node_desc.inputs[1..], func_decl.param_names, func_type.param_types) |*pin, pn, pt| {
+            pin.* = Pin{ .name = pn, .kind = .{ .primitive = .{ .value = pt } } };
+        }
+        node_desc.outputs[0] = Pin{ .name = "out", .kind = .{ .primitive = .exec } };
+        for (node_desc.outputs[1..], func_decl.result_names, func_type.result_types) |*pin, rn, rt| {
+            pin.* = Pin{ .name = rn, .kind = .{ .primitive = .{ .value = rt } } };
+        }
+        // we must use the same allocator that env is deinited with!
+        _ = try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(node_desc));
 
         std.debug.assert(func_decl.body_exprs.len >= 1);
 
@@ -1757,6 +1781,7 @@ pub fn compile(
     const diag = if (_in_diagnostic) |d| d else &ignored_diagnostic;
     diag.root_sexp = sexp;
 
+    // FIXME: use the arena inside the compilation instead of the raw allocator
     var env = try Env.initDefault(a);
     defer env.deinit(a);
 
@@ -2189,23 +2214,6 @@ test "recurse" {
     // FIXME: support expression functions
     //     \\(define (++ x) (+ x 1))
 
-    var env = try Env.initDefault(t.allocator);
-    defer env.deinit(t.allocator);
-
-    // FIXME: easier in the IDE to just pass the augmented env, but probably
-    // better if the compiler can take a default env
-    _ = try env.addNode(t.allocator, graphl_builtin.basicNode(&.{
-        .name = "factorial",
-        .inputs = &.{
-            Pin{ .name = "in", .kind = .{ .primitive = .exec } },
-            Pin{ .name = "n", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
-        },
-        .outputs = &.{
-            Pin{ .name = "out", .kind = .{ .primitive = .exec } },
-            Pin{ .name = "n", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
-        },
-    }));
-
     var parsed = try SexpParser.parse(t.allocator,
         \\(typeof (factorial i32) i32)
         \\(define (factorial n)
@@ -2218,46 +2226,35 @@ test "recurse" {
     //std.debug.print("{any}\n", .{parsed});
     defer parsed.deinit(t.allocator);
 
-    const expected = try std.fmt.allocPrint(t.allocator,
+    const expected =
         \\(module
-        \\(global $__grappl_vstkp
-        \\        (mut i32)
-        \\        (i32.const 4096))
-        \\{s}
-        \\(export "factorial"
-        \\        (func $factorial))
-        \\(type $typeof_factorial
-        \\      (func (param i32)
-        \\            (result i32)))
-        \\(func $factorial
-        \\      (param $param_n
-        \\             i32)
-        \\      (result i32)
-        \\      (local $__frame_start
-        \\             i32)
-        \\      (local.set $__frame_start
-        \\                 (global.get $__grappl_vstkp))
-        \\      (if (result i32)
-        \\          (i32.le_s (local.get $param_n)
-        \\                    (i32.const 1))
-        \\          (then (i32.const 1))
-        \\          (else (i32.mul (local.get $param_n)
-        \\                         (call $factorial
-        \\                               (i32.sub (local.get $param_n)
-        \\                                        (i32.const 1))))))
-        \\      (global.set $__grappl_vstkp
-        \\                  (local.get $__frame_start)))
-        \\)
-        // TODO: clearly instead of embedding the pointer we should have a global variable
-        // so the host can set that
-    , .{compiled_prelude});
-    defer t.allocator.free(expected);
+        \\  (type (;0;) (func (param i32) (result i32)))
+        \\  (func (;0;) (type 0) (param i32) (result i32)
+        \\    local.get 0
+        \\    i32.const 1
+        \\    i32.le_s
+        \\    if (result i32)  ;; label = @1
+        \\      block (result i32)  ;; label = @2
+        \\        i32.const 1
+        \\      end
+        \\    else
+        \\      block (result i32)  ;; label = @2
+        \\        local.get 0
+        \\        local.get 0
+        \\        i32.const 1
+        \\        i32.sub
+        \\        call 0
+        \\        i32.mul
+        \\      end
+        \\    end)
+        \\  (export "factorial" (func 0)))
+        \\
+    ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &env, null, &diagnostic)) |wat| {
-        defer t.allocator.free(wat);
-        try t.expectEqualStrings(expected, wat);
-        try expectWasmOutput(6, wat, "factorial", .{3});
+    if (compile(t.allocator, &parsed, null, &diagnostic)) |wasm| {
+        defer t.allocator.free(wasm);
+        try expectWasmEqualsWat(expected, wasm);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);
