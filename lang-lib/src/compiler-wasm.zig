@@ -169,6 +169,50 @@ const binaryop_builtins = .{
     },
 };
 
+const BinaryenHelper = struct {
+    var alloc = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var type_map: std.AutoHashMapUnmanaged(Type, byn.c.BinaryenType) = .{};
+
+    pub fn getType(graphl_type: Type) byn.c.BinaryenType {
+        return type_map.get(graphl_type) orelse std.debug.panic("No binaryen type registered for graphl type '{s}'", .{graphl_type.name});
+    }
+};
+
+fn constructor() callconv(.C) void {
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.i32_, byn.c.BinaryenTypeInt32()) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.i64_, byn.c.BinaryenTypeInt64()) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.u32_, byn.c.BinaryenTypeInt32()) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.u64_, byn.c.BinaryenTypeInt64()) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.f32_, byn.c.BinaryenTypeFloat32()) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.f64_, byn.c.BinaryenTypeFloat64()) catch unreachable;
+
+    // FIXME: bytes should have custom width in arrays! they shouldn't take 4 bytes...
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.byte, byn.c.BinaryenTypeInt32()) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.bool_, byn.c.BinaryenTypeInt32()) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.rgba, byn.c.BinaryenTypeInt32()) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.code, byn.c.BinaryenTypeStringref()) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.char_, byn.c.BinaryenTypeInt32()) catch unreachable;
+    // FIXME: should symbols really be a string?
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.symbol, byn.c.BinaryenTypeStringref()) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.void, byn.c.BinaryenTypeNone()) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.string, byn.c.BinaryenTypeStringref()) catch unreachable;
+
+    var vec3_parts = [3]byn.c.BinaryenType{
+        byn.c.BinaryenTypeFloat64(),
+        byn.c.BinaryenTypeFloat64(),
+        byn.c.BinaryenTypeFloat64(),
+    };
+
+    BinaryenHelper.type_map.putNoClobber(
+        BinaryenHelper.alloc.allocator(),
+        primitive_types.vec3,
+        byn.c.BinaryenTypeCreate(&vec3_parts, @intCast(vec3_parts.len)),
+    ) catch unreachable;
+}
+
+// FIXME: idk if this works in wasm
+export const _compiler_init_array: [1]*const fn () callconv(.C) void linksection(".init_array") = .{&constructor};
+
 const Compilation = struct {
     // FIXME: consider making this an owned instance, why is it a pointer?
     /// will be edited during compilation as functions are discovered
@@ -523,7 +567,7 @@ const Compilation = struct {
         // NOTE: gross, simplify me
         const local_types = try alloc.alloc(byn.Type, complete_func_type_desc.func_type.?.local_types.len + prologue.items.len);
         for (local_types[0..complete_func_type_desc.func_type.?.local_types.len], complete_func_type_desc.func_type.?.local_types) |*out_local_type, local_type|
-            out_local_type.* = local_type.wasm_type.?;
+            out_local_type.* = @enumFromInt(BinaryenHelper.getType(local_type));
         for (local_types[complete_func_type_desc.func_type.?.local_types.len..]) |*out_local_type|
             out_local_type.* = .i32;
 
@@ -540,7 +584,8 @@ const Compilation = struct {
         // analyze the code to know ahead of time the return type and local count
 
         var result_type: ?Type = null;
-        var result_type_wasm: ?byn.Type = null;
+        // FIXME: not used?
+        var result_type_wasm: ?byn.c.BinaryenType = null;
 
         for (func_decl.body_exprs, 0..) |*body_expr, i| {
             var expr_ctx = ExprContext{
@@ -572,8 +617,8 @@ const Compilation = struct {
         var is_compound_result_type: bool = undefined;
 
         // now that we have the result type:
-        if (result_type != null and result_type.?.wasm_type != null) {
-            result_type_wasm = result_type.?.wasm_type.?;
+        if (result_type != null) {
+            result_type_wasm = BinaryenHelper.getType(result_type.?);
 
             // TODO: support user compound types
             is_compound_result_type = _: {
@@ -616,14 +661,14 @@ const Compilation = struct {
         const param_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.func_type.?.param_types.len);
         defer self.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
         for (param_types, complete_func_type_desc.func_type.?.param_types) |*wasm_t, graphl_t| {
-            wasm_t.* = @intFromEnum(graphl_t.wasm_type.?);
+            wasm_t.* = BinaryenHelper.getType(graphl_t);
         }
         const param_type_byn: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(param_types.ptr, @intCast(param_types.len));
 
         const result_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.func_type.?.result_types.len);
         defer self.arena.allocator().free(result_types); // FIXME: what is the binaryen ownership model?
         for (result_types, complete_func_type_desc.func_type.?.result_types) |*wasm_t, graphl_t| {
-            wasm_t.* = @intFromEnum(graphl_t.wasm_type.?);
+            wasm_t.* = BinaryenHelper.getType(graphl_t);
         }
         const result_type_byn: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(result_types.ptr, @intCast(result_types.len));
 
@@ -878,8 +923,7 @@ const Compilation = struct {
             const local_idx = try context.addLocal(self, fragment.resolved_type, null);
 
             const ref_code_fragment = Fragment{
-                //.expr = byn.Expression.localGet(local_idx, fragment.resolved_type.wasm_type.?),
-                .expr = byn.Expression.localGet(self.module, local_idx, fragment.resolved_type.wasm_type.?),
+                .expr = byn.Expression.localGet(self.module, local_idx, @enumFromInt(BinaryenHelper.getType(fragment.resolved_type))),
                 .resolved_type = fragment.resolved_type,
             };
 
@@ -1447,7 +1491,7 @@ const Compilation = struct {
                 };
 
                 result.resolved_type = info.resolved_type;
-                result.expr = @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), info.ref, @intFromEnum(info.resolved_type.wasm_type.?)));
+                result.expr = @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), info.ref, BinaryenHelper.getType(info.resolved_type)));
 
                 return result;
             },
@@ -1522,14 +1566,14 @@ const Compilation = struct {
                 const param_types = try ctx.arena.allocator().alloc(byn.c.BinaryenType, _self.params.len + 1);
                 defer ctx.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
                 for (_self.params, param_types[1..]) |graphl_t, *wasm_t| {
-                    wasm_t.* = @intFromEnum(graphl_t.wasm_type.?);
+                    wasm_t.* = BinaryenHelper.getType(graphl_t);
                 }
                 const params: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(param_types.ptr, @intCast(param_types.len));
 
                 const result_types = try ctx.arena.allocator().alloc(byn.c.BinaryenType, _self.results.len);
                 defer ctx.arena.allocator().free(result_types); // FIXME: what is the binaryen ownership model?
                 for (_self.results, result_types) |graphl_t, *wasm_t| {
-                    wasm_t.* = @intFromEnum(graphl_t.wasm_type.?);
+                    wasm_t.* = BinaryenHelper.getType(graphl_t);
                 }
                 const results: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(result_types.ptr, @intCast(result_types.len));
 
@@ -1626,13 +1670,14 @@ const Compilation = struct {
                 const byn_params = try self.arena.allocator().alloc(byn.c.BinaryenType, 1 + params.len);
                 const byn_results = try self.arena.allocator().alloc(byn.c.BinaryenType, results.len);
 
-                for (params, def.params, byn_params) |param, *param_type, *byn_param| {
+                byn_params[0] = @intFromEnum(byn.Type.i32);
+                for (params, def.params, byn_params[1..]) |param, *param_type, *byn_param| {
                     param_type.* = param.kind.primitive.value;
-                    byn_param.* = @intFromEnum(param.kind.primitive.value.wasm_type.?);
+                    byn_param.* = BinaryenHelper.getType(param.kind.primitive.value);
                 }
                 for (results, def.results, byn_results) |result, *result_type, *byn_result| {
                     result_type.* = result.kind.primitive.value;
-                    byn_result.* = @intFromEnum(result.kind.primitive.value.wasm_type.?);
+                    byn_result.* = BinaryenHelper.getType(result.kind.primitive.value);
                 }
 
                 var byn_args = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), byn_params.len);
@@ -1641,7 +1686,7 @@ const Compilation = struct {
                 byn_args.expandToCapacity();
 
                 for (params, 0.., byn_args.items[1..]) |p, i, *byn_arg| {
-                    byn_arg.* = byn.Expression.localGet(self.module, @intCast(i), p.kind.primitive.value.wasm_type.?);
+                    byn_arg.* = byn.Expression.localGet(self.module, @intCast(i), @enumFromInt(BinaryenHelper.getType(p.kind.primitive.value)));
                 }
 
                 const import_entry = try userfunc_imports.getOrPut(self.arena.allocator(), def);

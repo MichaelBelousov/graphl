@@ -59,7 +59,8 @@ fn constructor() callconv(.C) void {
     }
 }
 
-export const init_array: [1]*const fn () callconv(.C) void linksection(".init_array") = .{&constructor};
+// FIXME: does this work in wasm?
+export const _pool_init_array: [1]*const fn () callconv(.C) void linksection(".init_array") = .{&constructor};
 
 test "smoke" {
     const hello1 = "hello";

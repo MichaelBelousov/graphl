@@ -23,9 +23,6 @@ pub const TypeInfo = struct {
     field_types: []const Type = &.{},
     // FIXME: use a union
     func_type: ?FuncType = null,
-    /// NOTE: this could contain a binaryen.PackedType, or HeapType, etc!
-    /// the wasm primitive associated with this type, if it is a primitive
-    wasm_type: ?binaryen.Type = null,
     // TODO: this should only exist on the compound-type variant of a union
     /// if this is a compound type, its (cached?) size on the stack
     size: ?u32 = null,
@@ -311,42 +308,39 @@ pub const empty_type: Type = &TypeInfo{ .name = "EMPTY_TYPE" };
 // FIXME: consider renaming to "builtin_types"
 pub const primitive_types = struct {
     // nums
-    pub const i32_: Type = &TypeInfo{ .name = "i32", .wasm_type = .i32 };
-    pub const i64_: Type = &TypeInfo{ .name = "i64", .wasm_type = .i64 };
-    pub const u32_: Type = &TypeInfo{ .name = "u32", .wasm_type = .i32 };
-    pub const u64_: Type = &TypeInfo{ .name = "u64", .wasm_type = .i64 };
-    pub const f32_: Type = &TypeInfo{ .name = "f32", .wasm_type = .f32 };
-    pub const f64_ = &TypeInfo{ .name = "f64", .wasm_type = .f64 };
+    pub const i32_: Type = &TypeInfo{ .name = "i32" };
+    pub const i64_: Type = &TypeInfo{ .name = "i64" };
+    pub const u32_: Type = &TypeInfo{ .name = "u32" };
+    pub const u64_: Type = &TypeInfo{ .name = "u64" };
+    pub const f32_: Type = &TypeInfo{ .name = "f32" };
+    pub const f64_ = &TypeInfo{ .name = "f64" };
 
     // TODO: it's ok to store one byte in i32 I guess, but try to pack it
     // when laying out types, definitely arrays
-    pub const byte: Type = &TypeInfo{ .name = "byte", .wasm_type = .i32 };
+    pub const byte: Type = &TypeInfo{ .name = "byte" };
     // FIXME: should I change this to u8?
-    pub const bool_: Type = &TypeInfo{ .name = "bool", .wasm_type = .i32 };
-    pub const char_: Type = &TypeInfo{ .name = "char", .wasm_type = .i32 };
-    pub const symbol: Type = &TypeInfo{ .name = "symbol", .wasm_type = .i32 };
-    pub const @"void": Type = &TypeInfo{ .name = "void", .wasm_type = .none };
+    pub const bool_: Type = &TypeInfo{ .name = "bool" };
+    pub const char_: Type = &TypeInfo{ .name = "char" };
+    pub const symbol: Type = &TypeInfo{ .name = "symbol" };
+    pub const @"void": Type = &TypeInfo{ .name = "void" };
 
     // FIXME: consider moving this to live in compound_types
     pub const string: Type = &TypeInfo{
         .name = "string",
-        .wasm_type = .stringref,
         //.size = @sizeOf(intrinsics.GrapplString),
     };
 
     pub const vec3: Type = &TypeInfo{
         .name = "vec3",
         // FIXME: this is wrong
-        .wasm_type = .i32,
         //.size = @sizeOf(intrinsics.GrapplVec3),
     };
 
-    pub const rgba: Type = &TypeInfo{ .name = "rgba", .wasm_type = .i32 };
+    pub const rgba: Type = &TypeInfo{ .name = "rgba" };
 
     // FIXME: replace when we think out the macro system
     pub const code: Type = &TypeInfo{
         .name = "code",
-        .wasm_type = .stringref,
     };
 
     // pub const vec3: Type = &TypeInfo{
