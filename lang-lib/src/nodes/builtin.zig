@@ -510,7 +510,7 @@ pub const BreakNodeContext = struct {
 pub const builtin_nodes = struct {
     // FIXME: replace with real macro system that isn't JSON hack
     pub const json_quote: NodeDesc = basicNode(&.{
-        .name = "quote",
+        .name = "quote", // FIXME: rename this or remove it
         .inputs = &.{
             Pin{ .name = "code", .kind = .{ .primitive = .{ .value = primitive_types.code } } },
         },

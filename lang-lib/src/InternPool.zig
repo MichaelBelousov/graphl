@@ -44,9 +44,6 @@ fn addSourceSymbol(self: *InternPool, symbol: [:0]const u8) void {
     res.value_ptr.* = symbol;
     if (res.found_existing) {
         std.debug.panic("source symbol already exists for: '{s}'\n", .{symbol});
-        unreachable;
-    } else {
-        std.debug.print("source symbol added for: '{s}'\n", .{symbol});
     }
 }
 

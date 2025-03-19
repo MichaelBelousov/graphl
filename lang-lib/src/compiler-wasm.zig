@@ -439,9 +439,9 @@ const Compilation = struct {
         for (local_types[complete_func_type_desc.func_type.?.local_types.len..]) |*out_local_type|
             out_local_type.* = .i32;
 
-        var body_exprs = std.ArrayList(*byn.Expression).init(self.arena.allocator());
+        var body_exprs = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), func_decl.body_exprs.len);
         // FIXME: is this valid use of API?
-        defer body_exprs.deinit();
+        defer body_exprs.deinit(self.arena.allocator());
 
         // FIXME: consider adding to a fresh environment as we compile instead of
         // reusing an environment populated by the caller
@@ -466,16 +466,19 @@ const Compilation = struct {
             };
             var expr_fragment = try self.compileExpr(body_expr, &expr_ctx);
             errdefer expr_fragment.deinit(alloc);
+            body_exprs.appendAssumeCapacity(expr_fragment.expr);
 
+            // TODO: only need to set this on the last one
             result_type = expr_fragment.resolved_type;
+        }
 
-            std.debug.assert(func_type.result_types.len == 1);
-            if (expr_fragment.resolved_type != func_type.result_types[0]) {
-                //std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = expr_fragment.values } }});
-                std.log.warn("type: '{s}' doesn't match '{s}'", .{ expr_fragment.resolved_type.name, func_type.result_types[0].name });
-                // FIXME/HACK: re-enable but disabling now to awkwardly allow for type promotion
-                //return error.ReturnTypeMismatch;
-            }
+        // FIXME: use a compound result type to avoid this check
+        std.debug.assert(func_type.result_types.len == 1);
+        if (result_type.? != func_type.result_types[0]) {
+            //std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = expr_fragment.values } }});
+            std.log.warn("type: '{s}' doesn't match '{s}'", .{ result_type.?.name, func_type.result_types[0].name });
+            // FIXME/HACK: re-enable but disabling now to awkwardly allow for type promotion
+            //return error.ReturnTypeMismatch;
         }
 
         var is_compound_result_type: bool = undefined;
@@ -516,7 +519,11 @@ const Compilation = struct {
         //     try impl_sexp.value.list.appendSlice(epilogue_code.value.module.items);
         // }
 
-        const body = try byn.Expression.block(self.module, "impl", body_exprs.items, byn.Type.auto());
+        // FIXME
+        if (body_exprs.items.len == 0) return error.EmptyBody;
+
+        //const body = try byn.Expression.block(self.module, "impl", body_exprs.items, byn.Type.auto());
+        const body = try byn.Expression.block(self.module, "impl", body_exprs.items, .i32);
 
         const param_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.func_type.?.param_types.len);
         defer self.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
@@ -541,6 +548,8 @@ const Compilation = struct {
         );
 
         _ = func;
+
+        _ = byn.c.BinaryenAddFunctionExport(self.module.c(), name, name);
     }
 
     /// A fragment of compiled code and the type of its final variable
@@ -1320,6 +1329,17 @@ const Compilation = struct {
                             .resolved_type = local_entry.type,
                             .ref = local_entry.index,
                         };
+                    }
+
+                    // FIXME: use a map?
+                    for (context.param_names, context.param_types, 0..) |pn, pt, i| {
+                        // FIXME: this is ok because everything is a symbol, but should prob use a special type
+                        if (pn.ptr == v.ptr) {
+                            break :_ Info{
+                                .resolved_type = pt,
+                                .ref = @intCast(i),
+                            };
+                        }
                     }
 
                     std.log.err("undefined symbol2 '{s}'", .{v});
