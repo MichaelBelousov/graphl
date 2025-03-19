@@ -8,17 +8,17 @@ const binaryen = @import("binaryen");
 const failing_allocator = std.testing.failing_allocator;
 
 pub const FuncType = struct {
-    param_names: []const []const u8 = &.{},
+    param_names: []const [:0]const u8 = &.{},
     param_types: []const Type = &.{},
-    local_names: []const []const u8 = &.{},
+    local_names: []const [:0]const u8 = &.{},
     local_types: []const Type = &.{},
-    result_names: []const []const u8 = &.{},
+    result_names: []const [:0]const u8 = &.{},
     result_types: []const Type = &.{},
 };
 
 pub const TypeInfo = struct {
-    name: []const u8,
-    field_names: []const []const u8 = &.{},
+    name: [:0]const u8,
+    field_names: []const [:0]const u8 = &.{},
     // should structs allow constrained generic fields?
     field_types: []const Type = &.{},
     // FIXME: use a union
@@ -92,9 +92,9 @@ pub const NodeDesc = struct {
     _getInputs: *const fn (*const NodeDesc) []const Pin,
     _getOutputs: *const fn (*const NodeDesc) []const Pin,
     /// name is relative to the env it is stored in
-    _getName: *const fn (*const NodeDesc) []const u8,
+    _getName: *const fn (*const NodeDesc) [:0]const u8,
 
-    pub fn name(self: *const @This()) []const u8 {
+    pub fn name(self: *const @This()) [:0]const u8 {
         return self._getName(self);
     }
 
@@ -419,7 +419,7 @@ pub const compound_builtin_types = struct {
 // }
 
 pub const BasicNodeDesc = struct {
-    name: []const u8,
+    name: [:0]const u8,
     hidden: bool = false,
     // FIXME: remove in favor of nodes directly referencing whether they are a getter/setter
     kind: NodeDescKind = .func,
@@ -443,7 +443,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
             return desc.outputs;
         }
 
-        pub fn getName(node: *const NodeDesc) []const u8 {
+        pub fn getName(node: *const NodeDesc) [:0]const u8 {
             const desc: *const BasicNodeDesc = @alignCast(@ptrCast(node.context));
             return desc.name;
         }
@@ -460,7 +460,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
 }
 
 pub const BasicMutNodeDesc = struct {
-    name: []const u8,
+    name: [:0]const u8,
     hidden: bool = false,
     kind: NodeDescKind = .func,
     inputs: []Pin = &.{},
@@ -482,7 +482,7 @@ pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
             return desc.outputs;
         }
 
-        pub fn getName(node: *const NodeDesc) []const u8 {
+        pub fn getName(node: *const NodeDesc) [:0]const u8 {
             const desc: *const BasicMutNodeDesc = @alignCast(@ptrCast(node.context));
             return desc.name;
         }

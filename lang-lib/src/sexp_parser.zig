@@ -5,7 +5,7 @@ const Sexp = sexp.Sexp;
 const syms = sexp.syms;
 const Loc = @import("./loc.zig").Loc;
 // const InternPool = @import("./InternPool.zig").InternPool;
-var pool = &@import("./InternPool.zig").pool;
+const pool = &@import("./InternPool.zig").pool;
 
 fn peek(stack: *std.SegmentedList(Sexp, 32)) ?*Sexp {
     if (stack.len == 0) return null;

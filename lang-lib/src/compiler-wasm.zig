@@ -24,6 +24,7 @@ const TypeInfo = @import("./nodes/builtin.zig").TypeInfo;
 const Type = @import("./nodes/builtin.zig").Type;
 const builtin_nodes = @import("./nodes/builtin.zig").builtin_nodes;
 const Pin = @import("./nodes/builtin.zig").Pin;
+const pool = &@import("./InternPool.zig").pool;
 
 // FIXME: use intrinsics as the base and merge/link in our functions
 const intrinsics = @import("./intrinsics.zig");
@@ -70,11 +71,11 @@ pub const Diagnostic = struct {
 };
 
 const DeferredFuncDeclInfo = struct {
-    param_names: []const []const u8,
-    local_names: []const []const u8,
+    param_names: []const [:0]const u8,
+    local_names: []const [:0]const u8,
     local_types: []const Type,
     local_defaults: []const Sexp,
-    result_names: []const []const u8,
+    result_names: []const [:0]const u8,
     body_exprs: []const Sexp,
 };
 
@@ -94,14 +95,17 @@ const arithmetic_builtins = .{
     .{
         .sym = syms.@"+",
         .wasm_name = "add",
+        .signless = true,
     },
     .{
         .sym = syms.@"-",
         .wasm_name = "sub",
+        .signless = true,
     },
     .{
         .sym = syms.@"*",
         .wasm_name = "mul",
+        .signless = true,
     },
     .{
         .sym = syms.@"/",
@@ -112,11 +116,14 @@ const arithmetic_builtins = .{
         .sym = syms.@"==",
         .wasm_name = "eq",
         .result_type = primitive_types.bool_,
+        .signless = true,
     },
+    // FIXME restore
     .{
         .sym = syms.@"!=",
         .wasm_name = "ne",
         .result_type = primitive_types.bool_,
+        .signless = true,
     },
     .{
         .sym = syms.@"<",
@@ -143,12 +150,14 @@ const arithmetic_builtins = .{
         .wasm_name = "and",
         .int_only = true,
         .result_type = primitive_types.bool_,
+        .signless = true,
     },
     .{
         .sym = syms.@"or",
         .wasm_name = "or",
         .int_only = true,
         .result_type = primitive_types.bool_,
+        .signless = true,
     },
 };
 
@@ -165,7 +174,7 @@ const Compilation = struct {
         func_types: std.StringHashMapUnmanaged(DeferredFuncTypeInfo) = .{},
     } = .{},
 
-    module: *binaryen.Module,
+    module: *byn.Module,
     arena: std.heap.ArenaAllocator,
     user_context: struct {
         funcs: *const std.SinglyLinkedList(UserFunc),
@@ -182,19 +191,19 @@ const Compilation = struct {
             .arena = std.heap.ArenaAllocator.init(alloc),
             .diag = in_diag,
             .env = env,
-            .module = binaryen.Module.init(),
+            .module = byn.Module.init(),
             .user_context = .{
                 .funcs = user_funcs orelse &empty_user_funcs,
             },
         };
 
         result.module.setFeatures(
-            binaryen.Features.set(&.{
-                binaryen.Features.GC(),
-                binaryen.Features.MutableGlobals(),
-                binaryen.Features.ReferenceTypes(),
-                binaryen.Features.Multivalue(),
-                binaryen.Features.Strings(),
+            byn.Features.set(&.{
+                byn.Features.GC(),
+                byn.Features.MutableGlobals(),
+                byn.Features.ReferenceTypes(),
+                byn.Features.Multivalue(),
+                byn.Features.Strings(),
             }),
         );
 
@@ -237,7 +246,7 @@ const Compilation = struct {
         if (body.value.list.items[0].value != .symbol) return error.FuncBodyWithoutBegin;
         if (body.value.list.items[0].value.symbol.ptr != syms.begin.value.symbol.ptr) return error.FuncBodyWithoutBegin;
 
-        var local_names = std.ArrayList([]const u8).init(alloc);
+        var local_names = std.ArrayList([:0]const u8).init(alloc);
         defer local_names.deinit();
 
         var local_types = std.ArrayList(Type).init(alloc);
@@ -284,7 +293,7 @@ const Compilation = struct {
 
         const func_bindings = sexp.value.list.items[1].value.list.items[1..];
 
-        const param_names = try alloc.alloc([]const u8, func_bindings.len);
+        const param_names = try alloc.alloc([:0]const u8, func_bindings.len);
         errdefer alloc.free(param_names);
 
         for (func_bindings, param_names) |func_binding, *param_name| {
@@ -328,7 +337,7 @@ const Compilation = struct {
         const var_name_mangled = var_name;
         _ = var_name_mangled;
 
-        //binaryen.Expression;
+        //byn.Expression;
 
         return true;
     }
@@ -424,13 +433,13 @@ const Compilation = struct {
         defer post_analysis_locals.deinit(self.arena.allocator());
 
         // NOTE: gross, simplify me
-        const local_types = try alloc.alloc(binaryen.Type, complete_func_type_desc.func_type.?.local_types.len + prologue.items.len);
+        const local_types = try alloc.alloc(byn.Type, complete_func_type_desc.func_type.?.local_types.len + prologue.items.len);
         for (local_types[0..complete_func_type_desc.func_type.?.local_types.len], complete_func_type_desc.func_type.?.local_types) |*out_local_type, local_type|
             out_local_type.* = local_type.wasm_type.?;
         for (local_types[complete_func_type_desc.func_type.?.local_types.len..]) |*out_local_type|
             out_local_type.* = .i32;
 
-        var body_exprs = std.ArrayList(*binaryen.Expression).init(self.arena.allocator());
+        var body_exprs = std.ArrayList(*byn.Expression).init(self.arena.allocator());
         // FIXME: is this valid use of API?
         defer body_exprs.deinit();
 
@@ -443,7 +452,7 @@ const Compilation = struct {
         // analyze the code to know ahead of time the return type and local count
 
         var result_type: ?Type = null;
-        var result_type_wasm: ?binaryen.Type = null;
+        var result_type_wasm: ?byn.Type = null;
 
         for (func_decl.body_exprs, 0..) |*body_expr, i| {
             var expr_ctx = ExprContext{
@@ -507,33 +516,26 @@ const Compilation = struct {
         //     try impl_sexp.value.list.appendSlice(epilogue_code.value.module.items);
         // }
 
-        const body = binaryen.Expression.block(self.module, "impl", body_exprs.items, binaryen.Type.auto());
+        const body = try byn.Expression.block(self.module, "impl", body_exprs.items, byn.Type.auto());
 
-        const param_types = binaryen.Type.createArray();
-        const iIfF: binaryen.c.BinaryenType = binaryen.c.BinaryenTypeCreate(
-            &.{binaryen.c.BinaryenTypeInt32(),
-               binaryen.c.BinaryenTypeInt64(),
-               binaryen.c.BinaryenTypeFloat32(),
-               binaryen.c.BinaryenTypeFloat64()},
-            4,
-        );
-
-        //const param_types = try self.arena.allocator().alloc(binaryen.Type, complete_func_type_desc.func_type.?.param_types.len);
-        defer self.arena.allocator().free(param_types); // FIXME: is this necessary?
+        const param_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.func_type.?.param_types.len);
+        defer self.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
         for (param_types, complete_func_type_desc.func_type.?.param_types) |*wasm_t, graphl_t| {
-            wasm_t.* = graphl_t.wasm_type.?;
+            wasm_t.* = @intFromEnum(graphl_t.wasm_type.?);
         }
+        const param_type_byn: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(param_types.ptr, @intCast(param_types.len));
 
-        const result_types = try self.arena.allocator().alloc(binaryen.Type, complete_func_type_desc.func_type.?.result_types.len);
-        defer self.arena.allocator().free(result_types); // FIXME: is this necessary?
+        const result_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.func_type.?.result_types.len);
+        defer self.arena.allocator().free(result_types); // FIXME: what is the binaryen ownership model?
         for (result_types, complete_func_type_desc.func_type.?.result_types) |*wasm_t, graphl_t| {
-            wasm_t.* = graphl_t.wasm_type.?;
+            wasm_t.* = @intFromEnum(graphl_t.wasm_type.?);
         }
+        const result_type_byn: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(result_types.ptr, @intCast(result_types.len));
 
         const func = self.module.addFunction(
             name,
-            param_types,
-            result_types,
+            @enumFromInt(param_type_byn),
+            @enumFromInt(result_type_byn),
             local_types,
             body,
         );
@@ -544,14 +546,10 @@ const Compilation = struct {
     /// A fragment of compiled code and the type of its final variable
     const Fragment = struct {
         /// values used to reference this fragment
-        expr: *binaryen.Expression,
+        expr: *byn.Expression,
         /// offset in the stack frame for the value in this fragment
         frame_offset: u32 = 0,
         resolved_type: Type = graphl_builtin.empty_type,
-
-        pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-            (Sexp{ .value = .{ .list = self.values } }).deinit(alloc);
-        }
     };
 
     // find the nearest super type (if any) of two types
@@ -605,10 +603,9 @@ const Compilation = struct {
         return resolved_type;
     }
 
+    // TODO: use an actual type graph/tree and search in it
     // promote the type of a fragment, adding necessary conversion code to the fragment
     fn promoteToTypeInPlace(self: *@This(), fragment: *Fragment, target_type: Type) !void {
-        const alloc = self.arena.allocator();
-
         var i: usize = 0;
         const MAX_ITERS = 128;
         while (fragment.resolved_type != target_type) : (i += 1) {
@@ -617,41 +614,34 @@ const Compilation = struct {
                 std.debug.panic("max iters resolving types: {s} -> {s}", .{ fragment.resolved_type.name, target_type.name });
             }
 
-            if (fragment.values.items.len != 1) {
-                std.log.err("invalid fragment value count!", .{});
-                @panic("invalid fragment value count!");
-            }
-
             if (fragment.resolved_type == primitive_types.bool_) {
                 fragment.resolved_type = primitive_types.i32_;
                 continue;
             }
 
-            const prev = fragment.values.items[0];
-            fragment.values.items[0] = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-            try fragment.values.items[0].value.list.ensureTotalCapacityPrecise(2);
-            const converter = fragment.values.items[0].value.list.addOneAssumeCapacity();
-            fragment.values.items[0].value.list.addOneAssumeCapacity().* = prev;
+            var op: byn.Expression.Op = undefined;
 
             if (fragment.resolved_type == primitive_types.i32_) {
-                converter.* = binaryen.Expression.Op.extendSInt32();
+                op = byn.Expression.Op.extendSInt32();
                 fragment.resolved_type = primitive_types.i64_;
             } else if (fragment.resolved_type == primitive_types.i64_) {
-                converter.* = binaryen.Expression.Op.convertSInt64ToFloat32();
+                op = byn.Expression.Op.convertSInt64ToFloat32();
                 fragment.resolved_type = primitive_types.f32_;
             } else if (fragment.resolved_type == primitive_types.u32_) {
-                converter.* = binaryen.Expression.Op.extendUInt32();
+                op = byn.Expression.Op.extendUInt32();
                 fragment.resolved_type = primitive_types.i64_;
             } else if (fragment.resolved_type == primitive_types.u64_) {
-                converter.* = binaryen.Expression.Op.convertUInt64ToFloat32();
+                op = byn.Expression.Op.convertUInt64ToFloat32();
                 fragment.resolved_type = primitive_types.f32_;
             } else if (fragment.resolved_type == primitive_types.f32_) {
-                converter.* = binaryen.Expression.Op.promoteFloat32();
+                op = byn.Expression.Op.promoteFloat32();
                 fragment.resolved_type = primitive_types.f64_;
             } else {
                 std.log.err("unimplemented type promotion: {s} -> {s}", .{ fragment.resolved_type.name, target_type.name });
                 std.debug.panic("unimplemented type promotion: {s} -> {s}", .{ fragment.resolved_type.name, target_type.name });
             }
+
+            fragment.expr = byn.Expression.unaryOp(self.module, op, fragment.expr);
         }
     }
 
@@ -695,10 +685,11 @@ const Compilation = struct {
         prologue: *std.ArrayList(Sexp),
         /// to hold label references
         label_map: *std.StringHashMap(LabelData),
+        next_local_index: u32 = 0,
 
         const LocalInfo = struct {
             index: u32,
-            type: binaryen.Type,
+            type: Type,
         };
 
         const LabelData = struct {
@@ -707,16 +698,31 @@ const Compilation = struct {
             sexp: *const Sexp,
         };
 
+        fn nextAnonymousLocalName(self: *@This()) [:0]const u8 {
+            // TODO: use stackMaxesPrint
+            var buf: [128]u8 = undefined;
+            const sym = std.fmt.bufPrint(&buf, "_$$local{}", .{self.next_local_index}) catch unreachable;
+            self.next_local_index += 1;
+            return pool.getSymbol(sym);
+        }
+
         /// sometimes, e.g. when creating a vstack slot, we need a local to
         /// hold the pointer to it
         /// @returns a Sexp{.value = .symbol}
-        pub fn addLocal(self: *@This(), type_: Type) !usize {
-            try self.locals.append(type_.wasm_type.?);
-            return self.locals.items.len - 1;
+        pub fn addLocal(self: *@This(), ctx: *Compilation, type_: Type, symbol: ?[:0]const u8) !u32 {
+            try self.locals.put(
+                ctx.arena.allocator(),
+                symbol orelse self.nextAnonymousLocalName(),
+                .{
+                    .index = @intCast(self.locals.count()),
+                    .type = type_,
+                },
+            );
+            return @intCast(self.locals.count() - 1);
         }
     };
 
-    const CompileExprError = std.mem.Allocator.Error || error{ UndefinedSymbol, UnimplementedMultiResultHostFunc };
+    const CompileExprError = std.mem.Allocator.Error || error{ UndefinedSymbol, UnimplementedMultiResultHostFunc, UnhandledCall };
 
     // TODO: figure out how to ergonomically skip compiling labeled exprs until they are referenced...
     // TODO: take a diagnostic
@@ -727,7 +733,6 @@ const Compilation = struct {
         context: *ExprContext,
     ) CompileExprError!Fragment {
         std.log.debug("compiling expr: '{}'\n", .{code_sexp});
-        const alloc = self.arena.allocator();
 
         // FIXME: destroy this
         // HACK: oh god this is bad...
@@ -746,7 +751,7 @@ const Compilation = struct {
             break :_ false;
         }) {
             const fragment = Fragment{
-                .values = std.ArrayList(Sexp).init(alloc),
+                .expr = @ptrCast(byn.c.BinaryenNop(self.module.c())),
                 .resolved_type = primitive_types.code,
             };
 
@@ -769,10 +774,11 @@ const Compilation = struct {
             std.debug.assert(!entry.found_existing);
 
             // calls already have a local
-            const local_idx = try context.addLocal(fragment.resolved_type);
+            const local_idx = try context.addLocal(self, fragment.resolved_type, null);
 
             const ref_code_fragment = Fragment{
-                .expr = binaryen.Expression.localGet(local_idx, fragment.resolved_type.wasm_type.?),
+                //.expr = byn.Expression.localGet(local_idx, fragment.resolved_type.wasm_type.?),
+                .expr = byn.Expression.localGet(self.module, local_idx, fragment.resolved_type.wasm_type.?),
                 .resolved_type = fragment.resolved_type,
             };
 
@@ -795,6 +801,7 @@ const Compilation = struct {
     }
 
     fn stackAllocIntrinsicCode(
+        self: *@This(),
         alloc: *std.heap.ArenaAllocator,
         comptime IntrinsicType: type,
         //data: ?IntrinsicType,
@@ -871,9 +878,10 @@ const Compilation = struct {
 
         // try alloc_code.value.module.insertSlice(1, set_code.items);
 
+        // FIXME: nop
         return Fragment{
-            .frame_offset = @sizeOf(IntrinsicType),
-            .values = alloc_code.value.module,
+            //.frame_offset = @sizeOf(IntrinsicType),
+            .expr = @ptrCast(byn.c.BinaryenNop(self.module.c())),
             .resolved_type = graphl_builtin.empty_type,
         };
     }
@@ -889,7 +897,7 @@ const Compilation = struct {
         const alloc = self.arena.allocator();
 
         var result = Fragment{
-            .values = std.ArrayList(Sexp).init(alloc),
+            .expr = @ptrCast(byn.c.BinaryenNop(self.module.c())),
         };
 
         // FIXME: replace nullable context.type with empty_type
@@ -922,9 +930,11 @@ const Compilation = struct {
             // FIXME: wasteful to translate to an in-memory jsonValue, just write it directly as JSON to the stream
             var jws = std.json.writeStream(bytes.writer(), .{ .escape_unicode = true });
             try (json.Value{ .object = quote_json_root }).jsonStringify(&jws);
+            try bytes.append(0);
 
             // TODO: check lifetime of binaryen expressions...
-            result.expr = binaryen.Expression.stringConst(bytes.items);
+            // FIXME: figure out binaryen errors
+            result.expr = byn.Expression.stringConst(self.module, @ptrCast(bytes.items)) catch unreachable;
 
             return result;
         }
@@ -938,7 +948,11 @@ const Compilation = struct {
                 if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr
                 //
                 or func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
-                    try result.values.ensureUnusedCapacity(v.items.len - 1);
+                    // FIXME: we can drop this if we don't use the arena
+                    var body_exprs = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), v.items.len - 1);
+                    // FIXME: is this valid use of API?
+                    defer body_exprs.deinit(self.arena.allocator());
+
                     for (v.items[1..], 1..) |*expr, i| {
                         var subcontext = ExprContext{
                             .type = context.type,
@@ -952,9 +966,10 @@ const Compilation = struct {
                         };
                         var compiled = try self.compileExpr(expr, &subcontext);
                         result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, &compiled);
-                        try result.values.appendSlice(compiled.values.items);
-                        compiled.values.clearAndFree();
+                        body_exprs.appendAssumeCapacity(compiled.expr);
                     }
+
+                    result.expr = @ptrCast(byn.Expression.block(self.module, "impl", body_exprs.items, byn.Type.auto()) catch unreachable);
                     return result;
                 }
 
@@ -967,10 +982,10 @@ const Compilation = struct {
 
                 const arg_fragments = try alloc.alloc(Fragment, v.items.len - 1);
                 // initialize as empty to prevent errdefer from freeing corrupt data
-                for (arg_fragments) |*frag| frag.* = Fragment{ .values = std.ArrayList(Sexp).init(alloc) };
+                for (arg_fragments) |*frag| frag.* = Fragment{ .expr = @ptrCast(byn.c.BinaryenNop(self.module.c())) };
 
                 // TODO: also undo context state
-                errdefer for (arg_fragments) |*frag| frag.deinit(alloc);
+                // FIXME: do we need to deinit the binaryen IR tree in the error case?
                 defer alloc.free(arg_fragments);
 
                 const if_inputs = [_]Pin{
@@ -1098,8 +1113,7 @@ const Compilation = struct {
 
                 inline for (&arithmetic_builtins) |builtin_op| {
                     if (func.value.symbol.ptr == builtin_op.sym.value.symbol.ptr) {
-                        try result.values.ensureTotalCapacityPrecise(1);
-                        var op: binaryen.Expression.Op = undefined;
+                        var op: byn.Expression.Op = undefined;
 
                         var resolved_type = graphl_builtin.empty_type;
 
@@ -1121,8 +1135,10 @@ const Compilation = struct {
                         // FIXME: use a mapping to get the right type? e.g. a switch on type pointers would be nice
                         // but iirc that is broken
                         inline for (&.{
-                            .{ primitive_types.i32_, "Int32", false },
-                            .{ primitive_types.i64_, "Int64", false },
+                            .{ primitive_types.i32_, "SInt32", false },
+                            .{ primitive_types.i64_, "SInt64", false },
+                            .{ primitive_types.u32_, "UInt32", false },
+                            .{ primitive_types.u64_, "UInt64", false },
                             .{ primitive_types.f32_, "Float32", true },
                             .{ primitive_types.f64_, "Float64", true },
                         }) |type_info| {
@@ -1130,11 +1146,15 @@ const Compilation = struct {
                             const float_type_but_int_op = @hasField(@TypeOf(builtin_op), "int_only") and is_float;
                             if (!handled and !float_type_but_int_op) {
                                 if (resolved_type == graphl_type) {
-                                    op = @field(binaryen.Expression.Op, builtin_op.wasm_name ++ type_byn_name)();
+                                    const signless = @hasField(@TypeOf(builtin_op), "signless");
+                                    const opName = comptime if (signless and !is_float) builtin_op.wasm_name ++ type_byn_name[1..] else builtin_op.wasm_name ++ type_byn_name;
+                                    op = @field(byn.Expression.Op, opName)();
                                     handled = true;
                                 }
                             }
                         }
+
+                        result.expr = byn.Expression.binaryOp(self.module, op, arg_fragments[0].expr, arg_fragments[1].expr);
 
                         // REPORT ME: try to prefer an else on the above for loop, currently couldn't get it to compile right
                         if (!handled) {
@@ -1263,13 +1283,13 @@ const Compilation = struct {
 
             .int => |v| {
                 result.resolved_type = primitive_types.i32_;
-                result.expr = @ptrCast(binaryen.c.BinaryenExpressionConst(binaryen.c.BinaryenLiteralInt32(v)));
+                result.expr = @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v))));
                 return result;
             },
 
             .float => |v| {
                 result.resolved_type = primitive_types.f64_;
-                result.expr = @ptrCast(binaryen.c.BinaryenExpressionConst(binaryen.c.BinaryenLiteralFloat64(v)));
+                result.expr = @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat64(v)));
                 return result;
             },
 
@@ -1277,43 +1297,29 @@ const Compilation = struct {
                 // FIXME: use string interning
                 if (v.ptr == syms.true.value.symbol.ptr) {
                     result.resolved_type = primitive_types.bool_;
-                    result.expr = @ptrCast(binaryen.c.BinaryenExpressionConst(binaryen.c.BinaryenLiteralInt32(1)));
+                    result.expr = @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(1)));
                 }
 
                 if (v.ptr == syms.false.value.symbol.ptr) {
                     result.resolved_type = primitive_types.bool_;
-                    result.expr = @ptrCast(binaryen.c.BinaryenExpressionConst(binaryen.c.BinaryenLiteralInt32(0)));
+                    result.expr = @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)));
                 }
 
                 if (context.label_map.get(v)) |label_data| {
                     return label_data.fragment;
                 }
 
-                // FIXME: use hashmap instead
                 const Info = struct {
                     resolved_type: Type,
-                    ref: []const u8,
+                    ref: u32,
                 };
 
                 const info = _: {
-                    const local_entry = context.local_map.get(v);
-
-                    for (context.local_names, context.local_types) |local_name, local_type| {
-                        if (std.mem.eql(u8, v, local_name)) {
-                            break :_ Info{
-                                .resolved_type = local_type,
-                                .ref = local_entry.index,
-                            };
-                        }
-                    }
-
-                    for (context.param_names, context.param_types) |param_name, param_type| {
-                        if (std.mem.eql(u8, v, param_name)) {
-                            break :_ Info{
-                                .resolved_type = param_type,
-                                .ref = local_entry.index,
-                            };
-                        }
+                    if (context.locals.getPtr(v)) |local_entry| {
+                        break :_ Info{
+                            .resolved_type = local_entry.type,
+                            .ref = local_entry.index,
+                        };
                     }
 
                     std.log.err("undefined symbol2 '{s}'", .{v});
@@ -1321,14 +1327,14 @@ const Compilation = struct {
                 };
 
                 result.resolved_type = info.resolved_type;
-                try result.values.ensureTotalCapacityPrecise(1);
-                result.expr = @ptrCast(binaryen.c.BinaryenLocalGet(self.module.c(), info.ref, info.resolved_type.wasm_type.?));
+                result.expr = @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), info.ref, @intFromEnum(info.resolved_type.wasm_type.?)));
 
                 return result;
             },
 
             .borrowedString, .ownedString => |v| {
-                result.expr = binaryen.Expression.stringConst(v);
+                // FIXME: gross, require 0 terminated strings
+                result.expr = byn.Expression.stringConst(self.module, try self.arena.allocator().dupeZ(u8, v)) catch unreachable;
                 //result.frame_offset += @sizeOf(intrinsics.GrapplString);
                 result.resolved_type = primitive_types.string;
                 return result;
@@ -1336,7 +1342,7 @@ const Compilation = struct {
 
             .bool => |v| {
                 result.resolved_type = primitive_types.bool_;
-                result.expr = @ptrCast(binaryen.c.BinaryenExpressionConst(binaryen.c.BinaryenLiteralInt32(if (v) 1 else 0)));
+                result.expr = @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(if (v) 1 else 0)));
                 return result;
             },
 
@@ -1652,7 +1658,11 @@ const Compilation = struct {
         // FIXME: make the arena in this function not the caller
         // NOTE: use arena parent so that when the arena deinit's, this remains,
         // and the caller can own the memory
-        return try self.arena.child_allocator.dupe(u8, self.module.emitBinary());
+        const wasm_result = self.module.emitBinary("/script");
+        defer byn.c.free(wasm_result.binary.ptr);
+        // FIXME: return source map too
+        defer byn.c.free(wasm_result.source_map.ptr);
+        return try self.arena.child_allocator.dupe(u8, wasm_result.binary);
     }
 };
 
@@ -2349,4 +2359,4 @@ test {
 }
 
 const bytebox = @import("bytebox");
-const binaryen = @import("binaryen");
+const byn = @import("binaryen");
