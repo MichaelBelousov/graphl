@@ -2144,15 +2144,24 @@ test "new compiler" {
 
     const expected =
         \\(module
-        \\  (type (;0;) (func (param i32) (result i32)))
-        \\  (type (;1;) (func (param f32 f32) (result f32)))
-        \\  (func (;0;) (type 0) (param i32) (result i32)
+        \\  (type (;0;) (func (param i32)))
+        \\  (type (;1;) (func (param i32) (result i32)))
+        \\  (type (;2;) (func (param f32 f32) (result f32)))
+        \\  (type (;3;) (func (param i32 i32)))
+        \\  (import "env" "callUserFunc_i32_R" (func (;0;) (type 3)))
+        \\  (func (;1;) (type 0) (param i32)
+        \\    i32.const 0
+        \\    local.get 0
+        \\    call 0)
+        \\  (func (;2;) (type 1) (param i32) (result i32)
+        \\    i32.const 100
+        \\    call 1
         \\    block (result i32)  ;; label = @1
         \\      local.get 0
         \\      i32.const 1
         \\      i32.add
         \\    end)
-        \\  (func (;1;) (type 1) (param f32 f32) (result f32)
+        \\  (func (;3;) (type 2) (param f32 f32) (result f32)
         \\    block (result f32)  ;; label = @1
         \\      local.get 0
         \\      i32.const 10
@@ -2164,8 +2173,9 @@ test "new compiler" {
         \\      f32.mul
         \\      f32.add
         \\    end)
-        \\  (export "++" (func 0))
-        \\  (export "deep" (func 1)))
+        \\  (export "++" (func 2))
+        \\  (export "deep" (func 3)))
+        \\
     ;
 
     var diagnostic = Diagnostic.init();
