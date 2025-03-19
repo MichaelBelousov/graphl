@@ -1998,17 +1998,48 @@ test "new compiler" {
     ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, null, &diagnostic)) |wat| {
-        defer t.allocator.free(wat);
-        {
-            errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
-        }
-        try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
+    if (compile(t.allocator, &parsed, null, &diagnostic)) |wasm| {
+        defer t.allocator.free(wasm);
+        try expectWasmEqualsWat(expected_prelude ++ expected, wasm);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);
     }
+}
+
+pub fn expectWasmEqualsWat(wat: []const u8, wasm: []const u8) !void {
+    // FIXME: convenience
+    var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
+    defer tmp_dir.close();
+
+    var dbg_file = try tmp_dir.createFile("compiler-test.wasm", .{});
+    defer dbg_file.close();
+
+    try dbg_file.writeAll(wasm);
+
+    // TODO: use the wat2wasm dependency
+    const wat2wasm_run = try std.process.Child.run(.{
+        .allocator = t.allocator,
+        .argv = &.{ "wasm2wat", "/tmp/compiler-test.wasm", "-o", "/tmp/compiler-test.wat" },
+    });
+    defer t.allocator.free(wat2wasm_run.stdout);
+    defer t.allocator.free(wat2wasm_run.stderr);
+    if (!std.meta.eql(wat2wasm_run.term, .{ .Exited = 0 })) {
+        std.debug.print("wasm2wat exited with {any}:\n{s}\n", .{ wat2wasm_run.term, wat2wasm_run.stderr });
+        return error.FailTest;
+    }
+
+    var dbg_wat_file = try tmp_dir.openFile("compiler-test.wasm", .{});
+    defer dbg_wat_file.close();
+    var buff: [65536]u8 = undefined;
+    const wat_data_size = try dbg_wat_file.readAll(&buff);
+
+    const wat_data = buff[0..wat_data_size];
+
+    return std.testing.expectEqualStrings(
+        wat,
+        wat_data,
+    );
 }
 
 test "recurse" {

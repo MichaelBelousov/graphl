@@ -38,8 +38,31 @@ pub const InternPool = struct {
     }
 };
 
+fn addSourceSymbol(self: *InternPool, symbol: [:0]const u8) void {
+    const hash = (std.hash_map.StringContext{}).hash(symbol);
+    const res = self._map.getOrPut(self._arena.allocator(), hash) catch |e| std.debug.panic("OOM: {}", .{e});
+    res.value_ptr.* = symbol;
+    if (res.found_existing) {
+        std.debug.panic("source symbol already exists for: '{s}'\n", .{symbol});
+        unreachable;
+    } else {
+        std.debug.print("source symbol added for: '{s}'\n", .{symbol});
+    }
+}
+
 // TODO: only one pool can exist per process?
 pub var pool: InternPool = .{};
+
+fn constructor() callconv(.C) void {
+    const syms = @import("./sexp.zig").syms;
+    const sym_decls = @typeInfo(syms).@"struct".decls;
+    inline for (sym_decls) |sym_decl| {
+        const sym = @field(syms, sym_decl.name);
+        _ = addSourceSymbol(&pool, sym.value.symbol);
+    }
+}
+
+export const init_array: [1]*const fn () callconv(.C) void linksection(".init_array") = .{&constructor};
 
 test "smoke" {
     const hello1 = "hello";

@@ -315,7 +315,7 @@ pub const syms = struct {
     pub const @"true" = Sexp{ .value = .{ .symbol = "#t" } };
     pub const @"false" = Sexp{ .value = .{ .symbol = "#f" } };
     pub const @"void" = Sexp{ .value = .{ .symbol = "#void" } };
-    pub const quote = Sexp{ .value = .{ .symbol = "quote" } };
+    pub const quote = Sexp{ .value = .{ .symbol = "_quote" } }; // FIXME: currently json_quote is quote lol
     pub const hard_quote = Sexp{ .value = .{ .symbol = "hardquote" } };
 
     const builtin_nodes = @import("./nodes/builtin.zig").builtin_nodes;
@@ -348,7 +348,7 @@ pub const syms = struct {
     pub const make_vec3 = Sexp{ .value = .{ .symbol = builtin_nodes.make_vec3.name() } };
     pub const vec3_x = Sexp{ .value = .{ .symbol = builtin_nodes.vec3_x.name() } };
     pub const vec3_y = Sexp{ .value = .{ .symbol = builtin_nodes.vec3_y.name() } };
-    pub const vec3_z = Sexp{ .value = .{ .symbol = builtin_nodes.vec3_y.name() } };
+    pub const vec3_z = Sexp{ .value = .{ .symbol = builtin_nodes.vec3_z.name() } };
 
     pub const make_rgba = Sexp{ .value = .{ .symbol = builtin_nodes.make_rgba.name() } };
     pub const rgba_r = Sexp{ .value = .{ .symbol = builtin_nodes.rgba_r.name() } };
