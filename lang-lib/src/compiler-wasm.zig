@@ -1500,7 +1500,7 @@ const Compilation = struct {
             params: []Type,
             results: []Type,
 
-            pub fn name(_self: @This(), a: std.mem.Allocator) ![]u8 {
+            pub fn name(_self: @This(), a: std.mem.Allocator) ![:0]u8 {
                 // NOTE: could use an arraylist writer with initial capacity
                 var buf: [1024]u8 = undefined;
                 var buf_writer = std.io.fixedBufferStream(&buf);
@@ -1515,59 +1515,25 @@ const Compilation = struct {
                     _ = try buf_writer.write(result.name);
                 }
 
-                return try a.dupe(u8, buf_writer.getWritten());
+                return try a.dupeZ(u8, buf_writer.getWritten());
             }
 
-            // NEXT: fix this
-            pub fn wat(_self: @This(), a: std.mem.Allocator, in_name: []const u8) !Sexp {
-                // no error handling cuz arena, TODO: detect/enforce
-                var result = Sexp.newList(a);
-
-                try result.value.list.ensureTotalCapacityPrecise(4);
-                result.value.list.expandToCapacity();
-                result.value.list.items[0] = wat_syms.import;
-                result.value.list.items[1] = Sexp{ .value = .{ .borrowedString = "env" } };
-                // skip the $
-                result.value.list.items[2] = Sexp{ .value = .{ .borrowedString = in_name[1..] } };
-                result.value.list.items[3] = Sexp.newList(a);
-                const signature = &result.value.list.items[3];
-
-                // double params in case its strings
-                try signature.value.list.ensureTotalCapacityPrecise(2 + 1 + 2 * _self.params.len + _self.results.len);
-                signature.value.list.appendAssumeCapacity(wat_syms.func);
-                signature.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = in_name } });
-
-                // first is the user function index
-                {
-                    const slot = signature.value.list.addOneAssumeCapacity();
-                    slot.* = Sexp.newList(a);
-                    try slot.value.list.ensureTotalCapacityPrecise(2);
-                    slot.value.list.appendAssumeCapacity(wat_syms.param);
-                    // FIXME: intern this string
-                    slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = "i32" } });
+            pub fn addImport(_self: @This(), ctx: *Compilation, in_name: [:0]const u8) !void {
+                const param_types = try ctx.arena.allocator().alloc(byn.c.BinaryenType, _self.params.len + 1);
+                defer ctx.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
+                for (_self.params, param_types[1..]) |graphl_t, *wasm_t| {
+                    wasm_t.* = @intFromEnum(graphl_t.wasm_type.?);
                 }
+                const params: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(param_types.ptr, @intCast(param_types.len));
 
-                for (_self.params) |param| {
-                    const slot = signature.value.list.addOneAssumeCapacity();
-                    slot.* = Sexp.newList(a);
-                    try slot.value.list.ensureTotalCapacityPrecise(2);
-                    slot.value.list.appendAssumeCapacity(wat_syms.param);
-                    slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = param.wasm_type orelse {
-                        std.debug.panic("type '{s}' has no intrinsic wasm type!", .{param.name});
-                    } } });
+                const result_types = try ctx.arena.allocator().alloc(byn.c.BinaryenType, _self.results.len);
+                defer ctx.arena.allocator().free(result_types); // FIXME: what is the binaryen ownership model?
+                for (_self.results, result_types) |graphl_t, *wasm_t| {
+                    wasm_t.* = @intFromEnum(graphl_t.wasm_type.?);
                 }
+                const results: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(result_types.ptr, @intCast(result_types.len));
 
-                for (_self.results) |result_| {
-                    const slot = signature.value.list.addOneAssumeCapacity();
-                    slot.* = Sexp.newList(a);
-                    try slot.value.list.ensureTotalCapacityPrecise(2);
-                    slot.value.list.appendAssumeCapacity(wat_syms.result);
-                    slot.value.list.appendAssumeCapacity(Sexp{ .value = .{ .symbol = result_.wasm_type orelse {
-                        std.debug.panic("type '{s}' has no intrinsic wasm type!", .{result_.name});
-                    } } });
-                }
-
-                return result;
+                _ = byn.c.BinaryenAddFunctionImport(ctx.module.c(), in_name, "env", in_name, params, results);
             }
         };
 
@@ -1589,7 +1555,7 @@ const Compilation = struct {
             }
         };
 
-        // var userfunc_imports: std.HashMapUnmanaged(UserFuncDef, []const u8, UserFuncDefHashCtx, 80) = .{};
+        var userfunc_imports: std.HashMapUnmanaged(UserFuncDef, [:0]const u8, UserFuncDefHashCtx, 80) = .{};
 
         // FIXME: fix stack
         // const stack_src =
@@ -1657,8 +1623,26 @@ const Compilation = struct {
                     .params = try self.arena.allocator().alloc(Type, params.len),
                     .results = try self.arena.allocator().alloc(Type, results.len),
                 };
-                for (params, def.params) |param, *param_type| param_type.* = param.kind.primitive.value;
-                for (results, def.results) |result, *result_type| result_type.* = result.kind.primitive.value;
+                const byn_params = try self.arena.allocator().alloc(byn.c.BinaryenType, 1 + params.len);
+                const byn_results = try self.arena.allocator().alloc(byn.c.BinaryenType, results.len);
+
+                for (params, def.params, byn_params) |param, *param_type, *byn_param| {
+                    param_type.* = param.kind.primitive.value;
+                    byn_param.* = @intFromEnum(param.kind.primitive.value.wasm_type.?);
+                }
+                for (results, def.results, byn_results) |result, *result_type, *byn_result| {
+                    result_type.* = result.kind.primitive.value;
+                    byn_result.* = @intFromEnum(result.kind.primitive.value.wasm_type.?);
+                }
+
+                var byn_args = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), byn_params.len);
+                defer byn_args.deinit(self.arena.allocator());
+                byn_args.appendAssumeCapacity(@ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(user_func.data.id)))));
+                byn_args.expandToCapacity();
+
+                for (params, 0.., byn_args.items[1..]) |p, i, *byn_arg| {
+                    byn_arg.* = byn.Expression.localGet(self.module, @intCast(i), p.kind.primitive.value.wasm_type.?);
+                }
 
                 const import_entry = try userfunc_imports.getOrPut(self.arena.allocator(), def);
 
@@ -1669,64 +1653,25 @@ const Compilation = struct {
                     break :_ import_entry.value_ptr.*;
                 };
 
-                var user_func_sexp = Sexp.newList(alloc);
-                const thunk_len = (1 // func keyword
-                + 1 // function name
-                + params.len + 1 * results.len + 1 // call binding
+                const byn_param = byn.c.BinaryenTypeCreate(byn_params.ptr, @intCast(byn_params.len));
+                const byn_result = byn.c.BinaryenTypeCreate(byn_results.ptr, @intCast(byn_results.len));
+
+                const func = self.module.addFunction(
+                    name,
+                    @enumFromInt(byn_param),
+                    @enumFromInt(byn_result),
+                    &.{},
+                    @ptrCast(byn.c.BinaryenCall(
+                        self.module.c(),
+                        thunk_name,
+                        @ptrCast(byn_args.items.ptr),
+                        @intCast(byn_args.items.len),
+                        // FIXME: derive the result type
+                        @intFromEnum(byn.Type.i32),
+                    )),
                 );
-                try user_func_sexp.value.list.ensureTotalCapacityPrecise(thunk_len);
-                user_func_sexp.value.list.addOneAssumeCapacity().* = wat_syms.func;
-                user_func_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
 
-                for (params, 0..) |param, i| {
-                    var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
-                    wasm_param.* = Sexp.newList(alloc);
-                    try wasm_param.value.list.ensureTotalCapacityPrecise(3);
-
-                    wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.param;
-                    wasm_param.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
-                    // FIXME/HACK: this doesn't work for many types!
-                    wasm_param.value.list.addOneAssumeCapacity().* = if (param.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
-                }
-
-                for (results, 0..) |result, i| {
-                    _ = i;
-                    //const result_type = result.asPrimitivePin().value;
-
-                    var wasm_param = user_func_sexp.value.list.addOneAssumeCapacity();
-                    wasm_param.* = Sexp.newList(alloc);
-                    try wasm_param.value.list.ensureTotalCapacityPrecise(2);
-
-                    wasm_param.value.list.addOneAssumeCapacity().* = wat_syms.result;
-                    // FIXME/HACK: this doesn't work for many types!
-                    wasm_param.value.list.addOneAssumeCapacity().* = if (result.asPrimitivePin().value.wasm_type) |wasm_type| Sexp{ .value = .{ .symbol = wasm_type } } else wat_syms.ops.i32_.self;
-                }
-
-                const call_body = user_func_sexp.value.list.addOneAssumeCapacity();
-                call_body.* = Sexp.newList(alloc);
-                try call_body.value.list.ensureTotalCapacityPrecise(1 // call keyword
-                + 1 // thunk name
-                + 1 // func id
-                + params.len);
-
-                call_body.value.list.addOneAssumeCapacity().* = wat_syms.call;
-                call_body.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = thunk_name } };
-                const func_id = call_body.value.list.addOneAssumeCapacity();
-                func_id.* = Sexp.newList(alloc);
-                try func_id.value.list.ensureTotalCapacityPrecise(2);
-                func_id.value.list.addOneAssumeCapacity().* = wat_syms.ops.i32_.@"const";
-                func_id.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = @intCast(user_func.data.id) } };
-
-                for (params, 0..) |_, i| {
-                    const wasm_local = call_body.value.list.addOneAssumeCapacity();
-                    wasm_local.* = Sexp.newList(alloc);
-                    try wasm_local.value.list.ensureTotalCapacityPrecise(2);
-                    // FIXME: does this work for non-primitives?
-                    wasm_local.value.list.addOneAssumeCapacity().* = wat_syms.ops.@"local.get";
-                    wasm_local.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "$param_{}", .{i}) } };
-                }
-
-                (try self.module_body.addOne()).* = user_func_sexp;
+                _ = func;
             }
         }
 
@@ -1753,15 +1698,12 @@ const Compilation = struct {
             }
         }
 
-        // // imports must be first in wat!
-        // {
-        //     var import_iter = userfunc_imports.iterator();
-        //     while (import_iter.next()) |import_entry| {
-        //         const wat = try import_entry.key_ptr.wat(self.arena.allocator(), import_entry.value_ptr.*);
-        //         _ = try wat.write(buffer_writer, .{ .string_literal_dialect = .wat });
-        //         try bytes.appendSlice("\n");
-        //     }
-        // }
+        {
+            var import_iter = userfunc_imports.iterator();
+            while (import_iter.next()) |import_entry| {
+                try import_entry.key_ptr.addImport(self, import_entry.value_ptr.*);
+            }
+        }
 
         // for (stack_code) |code| {
         //     _ = try code.write(buffer_writer, .{ .string_literal_dialect = .wat });
