@@ -1,3 +1,0 @@
-[submodule "tools/kaitai-webassembly"]
-	path = tools/kaitai-webassembly
-	url = https://github.com/evacchi/kaitai-webassembly
