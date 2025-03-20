@@ -193,33 +193,39 @@ fn constructor() callconv(.C) void {
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.char_, byn.c.BinaryenTypeInt32()) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.void, byn.c.BinaryenTypeNone()) catch unreachable;
 
-    var vec3_parts = [3]byn.c.BinaryenType{
-        byn.c.BinaryenTypeFloat64(),
-        byn.c.BinaryenTypeFloat64(),
-        byn.c.BinaryenTypeFloat64(),
-    };
-    BinaryenHelper.type_map.putNoClobber(
-        BinaryenHelper.alloc.allocator(),
-        primitive_types.vec3,
-        byn.c.BinaryenTypeCreate(&vec3_parts, @intCast(vec3_parts.len)),
-    ) catch unreachable;
-
     // TODO: do the same thing as guile hoot, use the stringref proposal but lower it to (array i8)
-    const tb: byn.c.TypeBuilderRef = byn.c.TypeBuilderCreate(1);
+    const tb: byn.c.TypeBuilderRef = byn.c.TypeBuilderCreate(2);
     //byn.c.TypeBuilderSetArrayType(tb, 0, byn.c.BinaryenTypeInt32(), byn.c.BinaryenPackedTypeInt8(), 1);
     byn.c.TypeBuilderSetArrayType(tb, 0, byn.c.BinaryenTypeInt32(), byn.c.BinaryenPackedTypeInt8(), 1);
-    // byn.c.TypeBuilderSetStructType(
-    //     tb,
-    //     1,
-    //     &.{byn.c.BinaryenTypeInt32()},
-    //     &[_]byn.c.BinaryenPackedType{byn.c.BinaryenPackedTypeNotPacked()},
-    //     &.{1},
-    //     1,
-    // );
+    byn.c.TypeBuilderSetStructType(
+        tb,
+        1,
+        &[_]byn.c.BinaryenType{
+            byn.c.BinaryenTypeFloat64(),
+            byn.c.BinaryenTypeFloat64(),
+            byn.c.BinaryenTypeFloat64(),
+        },
+        &[_]byn.c.BinaryenPackedType{
+            byn.c.BinaryenPackedTypeNotPacked(),
+            byn.c.BinaryenPackedTypeNotPacked(),
+            byn.c.BinaryenPackedTypeNotPacked(),
+        },
+        &.{ 1, 1, 1 },
+        3,
+    );
 
-    var built_heap_types: [1]byn.c.BinaryenHeapType = undefined;
+    var built_heap_types: [2]byn.c.BinaryenHeapType = undefined;
     std.debug.assert(byn.c.TypeBuilderBuildAndDispose(tb, &built_heap_types, 0, 0));
     const i8_array = byn.c.BinaryenTypeFromHeapType(built_heap_types[0], true);
+    const vec3 = byn.c.BinaryenTypeFromHeapType(built_heap_types[1], true);
+
+    // var vec3_parts = [3]byn.c.BinaryenType{
+    //     byn.c.BinaryenTypeFloat64(),
+    //     byn.c.BinaryenTypeFloat64(),
+    //     byn.c.BinaryenTypeFloat64(),
+    // };
+
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.vec3, vec3) catch unreachable;
 
     // NOTE: stringref isn't standard
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.code, i8_array) catch unreachable;
@@ -2317,14 +2323,10 @@ test "vec3 ref" {
     defer t.allocator.free(user_func_1.data.node.outputs);
     user_funcs.prepend(user_func_1);
 
-    {
-        var maybe_cursor = user_funcs.first;
-        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-            _ = try env.addNode(t.allocator, graphl_builtin.basicMutableNode(&cursor.data.node));
-        }
-    }
-
     var parsed = try SexpParser.parse(t.allocator,
+        \\(meta version 1)
+        \\(import ModelCenter "host/ModelCenter")
+        \\
         \\(typeof (processInstance u64
         \\                         vec3
         \\                         vec3)
@@ -2341,24 +2343,6 @@ test "vec3 ref" {
     //std.debug.print("{any}\n", .{parsed});
     // FIXME: there is some double-free happening here?
     defer parsed.deinit(t.allocator);
-
-    // imports could be in arbitrary order so just slice it off cuz length will
-    // be the same
-    const expected_prelude =
-        \\(module
-        \\(import "env"
-        \\        "callUserFunc_R_vec3"
-        \\        (func $callUserFunc_R_vec3
-        \\              (param i32)
-        \\              (result i32)))
-        \\(global $__grappl_vstkp
-        \\        (mut i32)
-        \\        (i32.const 4096))
-        \\
-    ++ compiled_prelude ++
-        \\
-        \\
-    ;
 
     const expected =
         \\(func $ModelCenter
@@ -2429,14 +2413,9 @@ test "vec3 ref" {
     ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &env, &user_funcs, &diagnostic)) |wat| {
-        defer t.allocator.free(wat);
-        {
-            errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
-        }
-        try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
-        //try expectWasmOutput(6, wat, "processInstance", .{3});
+    if (compile(t.allocator, &parsed, &user_funcs, &diagnostic)) |wasm| {
+        defer t.allocator.free(wasm);
+        try expectWasmEqualsWat(expected, wasm);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);
