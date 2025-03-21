@@ -232,12 +232,6 @@ fn constructor() callconv(.C) void {
     const i8_array = byn.c.BinaryenTypeFromHeapType(built_heap_types[0], true);
     const vec3 = byn.c.BinaryenTypeFromHeapType(built_heap_types[1], true);
 
-    // var vec3_parts = [3]byn.c.BinaryenType{
-    //     byn.c.BinaryenTypeFloat64(),
-    //     byn.c.BinaryenTypeFloat64(),
-    //     byn.c.BinaryenTypeFloat64(),
-    // };
-
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.vec3, vec3) catch unreachable;
 
     // NOTE: stringref isn't standard
@@ -311,6 +305,31 @@ const Compilation = struct {
                 byn.Features.Multivalue(),
                 byn.Features.Strings(),
             }),
+        );
+
+        // const segmentNames = [_][]const u8{ "0", "1" };
+        // const segmentDatas = [_][]const u8{ "empty", "empty" };
+        // const segmentPassives = [_]bool{ false, true };
+        // const segmentOffsets = [_]byn.c.BinaryenExpressionRef{
+        //     byn.c.BinaryenConst(result.module.c(), byn.c.BinaryenLiteralInt32(10)),
+        //     null,
+        // };
+        // const segmentSizes = [_]byn.c.BinaryenIndex{ 12, 12 };
+
+        byn.c.BinaryenSetMemory(
+            result.module.c(),
+            1,
+            256,
+            "memory", // exportName (causes export unless null)
+            null, // segmentNames
+            null, // segmentDatas
+            null, // segmentPassives
+            null, // segmentOffsets
+            null, // segmentSizes
+            0, // numSegments
+            false, // shared
+            false, // memory64
+            "0", // name
         );
 
         return result;
@@ -712,7 +731,8 @@ const Compilation = struct {
         if (body_exprs.items.len == 0) return error.EmptyBody;
 
         //const body = try byn.Expression.block(self.module, "impl", body_exprs.items, .i32);
-        const body = try byn.Expression.block(self.module, name, body_exprs.items, byn.Type.auto());
+        // FIXME: pass name?
+        const body = try byn.Expression.block(self.module, null, body_exprs.items, byn.Type.auto());
 
         const param_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.func_type.?.param_types.len);
         defer self.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
@@ -1171,7 +1191,16 @@ const Compilation = struct {
                         body_exprs.appendAssumeCapacity(compiled.expr);
                     }
 
-                    result.expr = @ptrCast(byn.Expression.block(self.module, "begin", body_exprs.items, byn.Type.auto()) catch unreachable);
+                    if (func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
+                        result.expr = @ptrCast(byn.Expression.block(self.module, func.value.symbol, body_exprs.items, byn.Type.auto()) catch unreachable);
+                    } else if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
+                        // FIXME: support multi value return as struct
+                        std.debug.assert(body_exprs.items.len == 1);
+                        result.expr = @ptrCast(byn.c.BinaryenReturn(self.module.c(), body_exprs.items[0].c()));
+                    } else {
+                        unreachable;
+                    }
+
                     return result;
                 }
 
@@ -1796,12 +1825,12 @@ const Compilation = struct {
         // NEXT: create a script that can take wat output (e.g. from wasm-tools print on the intrinsic generated code)
         // and generate the necessary zig code to rebuild that IR tree in our binaryen module context
 
+        std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_x".ptr, "Vec3->X".ptr));
         if (builtin.mode == .Debug) {
-            byn.c.BinaryenModulePrint(vec3_module);
             //byn.c.BinaryenModulePrintStackIR(vec3_module);
             //byn.c.BinaryenModulePrintStackIR(self.module.c());
-            //byn.c.BinaryenModulePrint(self.module.c());
-            //     std.debug.assert(byn.c.BinaryenModuleValidate(self.module.c()));
+            byn.c.BinaryenModulePrint(self.module.c());
+            std.debug.assert(byn.c.BinaryenModuleValidate(self.module.c()));
         }
         // TODO:
         //byn.c.BinaryenModuleOptimize(self.module.c());
