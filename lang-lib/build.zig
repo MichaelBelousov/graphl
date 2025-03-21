@@ -121,6 +121,13 @@ pub fn build(b: *std.Build) void {
 
     test_step.dependOn(&main_tests_run.step);
 
+    const cgdb_step = b.step("cgdb", "run tests under cgdb");
+
+    const cgdb_tests = b.addSystemCommand(&.{"cgdb"});
+    cgdb_tests.addArtifactArg(main_tests);
+
+    cgdb_step.dependOn(&cgdb_tests.step);
+
     // const web_step = b.step("web", "Build for web");
     // const web_lib = b.addExecutable(.{
     //     .name = "graph-lang",
