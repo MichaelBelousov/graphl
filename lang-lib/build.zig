@@ -23,41 +23,27 @@ pub fn build(b: *std.Build) void {
     };
     const web_target = b.resolveTargetQuery(web_target_query);
 
-    const wabt = addWat2Wasm(b, target, optimize);
-    const wasm2wat = wabt.wasm2wat;
-
     // TODO: make this false in some cases
     const small_intrinsics = b.option(bool, "small_intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse true;
 
-    var intrinsics_comps = std.ArrayList(*std.Build.Step.Compile).init(b.allocator);
+    const intrinsics = .{
+        .vec3 = b.addExecutable(.{
+            .name = "graphl_intrinsics_vec3",
+            .root_source_file = b.path("./src/intrinsics/vec3/impl.zig"),
+            .target = web_target,
+            .optimize = if (small_intrinsics) .ReleaseSmall else optimize,
+            // the compiler must choose whether to strip or not
+            .strip = false,
+            .single_threaded = true,
+            .pic = true,
+            .unwind_tables = .none,
+            .error_tracing = false,
+            .code_model = .small,
+        }),
+    };
 
-    {
-        const intrinsics_dir = try std.fs.openDirAbsolute(b.pathResolve(&.{"src/intrinsics"}), .{ .iterate = true });
-        defer intrinsics_dir.close();
-        var walker = try intrinsics_dir.walk(b.allocator);
-        while (try walker.next()) |entry| {
-            if (entry.kind != .directory) continue;
-            if (std.mem.eql(u8, entry.basename, "impl.zig")) {
-                const intrinsics = b.addExecutable(.{
-                    .name = std.fmt.allocPrint(b.allocator, "graphl_intrinsics_{s}", .{entry.path}),
-                    .root_source_file = b.path(entry.path),
-                    .target = web_target,
-                    .optimize = if (small_intrinsics) .ReleaseSmall else optimize,
-                    // the compiler must choose whether to strip or not
-                    .strip = false,
-                    .single_threaded = true,
-                    .pic = true,
-                    .unwind_tables = .none,
-                    .error_tracing = false,
-                    .code_model = .small,
-                });
-                intrinsics.entry = .disabled;
-                intrinsics.rdynamic = true; // export everything
-
-                try intrinsics_comps.append(intrinsics);
-            }
-        }
-    }
+    intrinsics.vec3.entry = .disabled;
+    intrinsics.vec3.rdynamic = true; // export everything
 
     // don't include
     const disable_compiler = b.option(bool, "disable_compiler", "don't include code for display-only scenarios, e.g. don't include the compiler") orelse false;
@@ -113,9 +99,7 @@ pub fn build(b: *std.Build) void {
         main_tests,
         graphltc_exe,
     }) |c| {
-        for (intrinsics_comps.items) |intrinsic| {
-            c.step.dependOn(&intrinsic.step);
-        }
+        c.step.dependOn(&intrinsics.vec3.step);
     }
 
     inline for (.{
@@ -126,8 +110,8 @@ pub fn build(b: *std.Build) void {
     }) |m| {
         m.*.addImport("binaryen", binaryen_dep.module("binaryen"));
         m.*.addOptions("build_opts", lib_opts);
-        m.*.addAnonymousImport("graphl_intrinsics", .{
-            .root_source_file = intrinsics_wat_file,
+        m.*.addAnonymousImport("graphl_intrinsics_vec3", .{
+            .root_source_file = intrinsics.vec3.getEmittedBin(),
             .optimize = optimize,
             .target = web_target,
         });
@@ -153,6 +137,7 @@ pub fn build(b: *std.Build) void {
     // web_step.dependOn(&web_lib_install.step);
 }
 
+// TODO: remove, doesn't work with gc extension, I need wasm-tools instead do stopped using this
 const WabtResult = struct {
     wasm2wat: *std.Build.Step.Compile,
     wat2wasm: *std.Build.Step.Compile,

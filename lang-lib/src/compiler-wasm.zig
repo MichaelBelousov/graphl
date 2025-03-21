@@ -27,9 +27,11 @@ const Pin = @import("./nodes/builtin.zig").Pin;
 const pool = &@import("./InternPool.zig").pool;
 
 // FIXME: use intrinsics as the base and merge/link in our functions
-const intrinsics = @import("./intrinsics.zig");
-const intrinsics_raw = @embedFile("graphl_intrinsics");
-const intrinsics_code = intrinsics_raw["(module $graphl_intrinsics.wasm\n".len .. intrinsics_raw.len - 2];
+//const intrinsics = @import("./intrinsics.zig");
+// NEXT: the idea is to (at build/comptime if possible) convert the wasm to binaryen-IR, which we
+// can just use
+const intrinsics_vec3 = @embedFile("graphl_intrinsics_vec3");
+const intrinsics_code = ""; // FIXME
 
 pub const Diagnostic = struct {
     err: Error = .None,
@@ -1790,8 +1792,15 @@ const Compilation = struct {
         //     try bytes.appendSlice("\n");
         // }
 
+        const vec3_module = byn.c.BinaryenModuleRead(@constCast(intrinsics_vec3.ptr), intrinsics_vec3.len);
+        // NEXT: create a script that can take wat output (e.g. from wasm-tools print on the intrinsic generated code)
+        // and generate the necessary zig code to rebuild that IR tree in our binaryen module context
+
         if (builtin.mode == .Debug) {
-            byn.c.BinaryenModulePrint(self.module.c());
+            byn.c.BinaryenModulePrint(vec3_module);
+            //byn.c.BinaryenModulePrintStackIR(vec3_module);
+            //byn.c.BinaryenModulePrintStackIR(self.module.c());
+            //byn.c.BinaryenModulePrint(self.module.c());
             //     std.debug.assert(byn.c.BinaryenModuleValidate(self.module.c()));
         }
         // TODO:
