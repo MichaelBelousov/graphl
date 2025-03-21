@@ -17,7 +17,30 @@ const targetFuncId = `;${targetFuncIndex};`;
 
 const targetFunc = sexp.find(s => s[0] === "func" && s[1][0] === targetFuncId);
 const targetFuncInstStart = targetFunc.findIndex(s => s !== "func" && ![targetFuncId, "type", "param", "result"].includes(s[0]));
-const targetFuncInstructions = targetFunc.slice(targetFuncInstStart);
+const instructions = targetFunc.slice(targetFuncInstStart);
 
-console.log(targetFuncInstructions);
+const localsTypes = [];
+for (const local of targetFunc.slice(0, instructions)) {
+  localTypes.push();
+}
+
+console.log(instructions);
+
+let index = 0;
+const resultChunks = [];
+
+const BYN = process.env.PREFIX ?? "byn.c"
+
+const transform = {
+  "local.get"() {
+    const localId = instructions[index + 1];
+    console.log(`${BYN}.BinaryenLocalGet()`);
+  }
+};
+
+while (index < instructions.length) {
+  transform[instructions]();
+}
+
+
 
