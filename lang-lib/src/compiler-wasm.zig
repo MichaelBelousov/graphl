@@ -2355,6 +2355,63 @@ test "recurse" {
     }
 }
 
+test "factorial iterative" {
+    var parsed = try SexpParser.parse(t.allocator,
+        \\(typeof (factorial i64) i64)
+        \\(define (factorial n)
+        \\  (typeof acc i64)
+        \\  (define acc 1)
+        \\  (begin
+        \\    <!if
+        \\    (if (<= n 1)
+        \\        (begin (return acc))
+        \\        (begin
+        \\          (set! acc (* acc n))
+        \\          (set! n (- n 1))
+        \\          >!if))))
+        \\
+    , null);
+    //std.debug.print("{any}\n", .{parsed});
+    defer parsed.deinit(t.allocator);
+
+    const expected =
+        \\(module
+        \\  (type (;0;) (func (param i32) (result i32)))
+        \\  (export "factorial" (func 0))
+        \\  (func (;0;) (type 0) (param i32) (result i32)
+        \\    local.get 0
+        \\    i32.const 1
+        \\    i32.le_s
+        \\    if (result i32) ;; label = @1
+        \\      block (result i32) ;; label = @2
+        \\        i32.const 1
+        \\      end
+        \\    else
+        \\      block (result i32) ;; label = @2
+        \\        local.get 0
+        \\        local.get 0
+        \\        i32.const 1
+        \\        i32.sub
+        \\        call 0
+        \\        i32.mul
+        \\      end
+        \\    end
+        \\  )
+        \\  (@custom "sourceMappingURL" (after code) "\07/script")
+        \\)
+        \\
+    ;
+
+    var diagnostic = Diagnostic.init();
+    if (compile(t.allocator, &parsed, null, &diagnostic)) |wasm| {
+        defer t.allocator.free(wasm);
+        try expectWasmEqualsWat(expected, wasm);
+    } else |err| {
+        std.debug.print("err {}:\n{}", .{ err, diagnostic });
+        try t.expect(false);
+    }
+}
+
 // TODO: better name
 test "vec3 ref" {
     var env = try Env.initDefault(t.allocator);

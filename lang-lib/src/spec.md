@@ -1,5 +1,37 @@
 # Graphl(t) Spec
 
+## Graph Encoding/Parsing
+
+### callbacks/functional programming
+
+Directly passing a function as an argument in graphlt is equivalent to a direct execution
+in a lambda. This is for parity with the visual representation which must do that
+
+```scm
+(define (foreach a (cb x))
+  (typeof i i32)
+  (define i 0)
+  <!if
+  (if (>= i a.len)
+    (begin
+      (cb (get a i))
+      (set! i (+ i 1))
+      >!if
+    )
+    return
+  )
+)
+
+;; the intention here is for array references to be settable...
+(define (++ x) (set! x (+ x 1))
+
+;; for loop callback
+(define (f a)
+  (foreach a
+    (lambda (x))
+)
+```
+
 ## Types
 
 ## Functions

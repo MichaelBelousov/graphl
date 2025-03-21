@@ -5,6 +5,7 @@ const PageWriter = @import("./PageWriter.zig").PageWriter;
 const io = std.io;
 const testing = std.testing;
 const json = std.json;
+const pool = &@import("./InternPool.zig").pool;
 
 // FIXME: don't include in non-debug builds
 
@@ -54,10 +55,22 @@ pub const Sexp = struct {
         //     alloc.free(l);
     }
 
-    /// returns an empty Sexp list
-    pub fn newList(alloc: std.mem.Allocator) Sexp {
+    pub fn emptyList(alloc: std.mem.Allocator) Sexp {
         return Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
     }
+
+    pub fn emptyListCapacity(alloc: std.mem.Allocator, capacity: usize) !Sexp {
+        return Sexp{ .value = .{ .list = try std.ArrayList(Sexp).initCapacity(alloc, capacity) } };
+    }
+
+    pub fn symbol(sym: [:0]const u8) Sexp {
+        return Sexp{ .value = .{ .symbol = pool.getSymbol(sym) } };
+    }
+
+    pub fn int(value: i64) Sexp {
+        return Sexp{ .value = .{ .int = value } };
+    }
+
 
     /// returns an empty Sexp module
     pub fn newModule(alloc: std.mem.Allocator) Sexp {

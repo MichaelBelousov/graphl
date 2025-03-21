@@ -1,3 +1,7 @@
+//! parses the graphlt form of s-expressions
+//! I should probably rename them to like gexp
+//! since they are a full graph with backlinks
+
 const std = @import("std");
 const builtin = @import("builtin");
 const sexp = @import("./sexp.zig");
@@ -568,21 +572,21 @@ const t = std.testing;
 
 test "parse all" {
     var expected = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(t.allocator) } };
-    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .int = 0 }, .label = "#!label1" };
-    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .int = 2 } };
-    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .ownedString = "hel\"lo\nworld" }, .label = "#!label2" };
-    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) }, .label = "#!label3" };
-    (try expected.value.module.items[3].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "+" } };
-    (try expected.value.module.items[3].value.list.addOne()).* = Sexp{ .value = .{ .int = 3 } };
-    (try expected.value.module.items[3].value.list.addOne()).* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } };
-    (try expected.value.module.items[3].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .symbol = "-" } };
-    (try expected.value.module.items[3].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 210 } };
-    (try expected.value.module.items[3].value.list.items[2].value.list.addOne()).* = Sexp{ .value = .{ .int = 5 } };
-    (try expected.value.module.addOne()).* = syms.void;
-    (try expected.value.module.addOne()).* = syms.true;
-    (try expected.value.module.addOne()).* = syms.false;
-    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .symbol = "'sym" } };
-    (try expected.value.module.addOne()).* = Sexp{ .value = .{ .ownedString = "" } };
+    try expected.value.module.append(Sexp{ .value = .{ .int = 0 }, .label = "#!label1" });
+    try expected.value.module.append(Sexp{ .value = .{ .int = 2 } });
+    try expected.value.module.append(Sexp{ .value = .{ .ownedString = "hel\"lo\nworld" }, .label = "#!label2" });
+    try expected.value.module.append(Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) }, .label = "#!label3" });
+    try expected.value.module.items[3].value.list.append(Sexp{ .value = .{ .symbol = "+" } });
+    try expected.value.module.items[3].value.list.append(Sexp{ .value = .{ .int = 3 } });
+    try expected.value.module.items[3].value.list.append(Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } });
+    try expected.value.module.items[3].value.list.items[2].value.list.append(Sexp{ .value = .{ .symbol = "-" } });
+    try expected.value.module.items[3].value.list.items[2].value.list.append(Sexp{ .value = .{ .int = 210 } });
+    try expected.value.module.items[3].value.list.items[2].value.list.append(Sexp{ .value = .{ .int = 5 } });
+    try expected.value.module.append(syms.void);
+    try expected.value.module.append(syms.true);
+    try expected.value.module.append(syms.false);
+    try expected.value.module.append(Sexp{ .value = .{ .symbol = "'sym" } });
+    try expected.value.module.append(Sexp{ .value = .{ .ownedString = "" } });
     defer {
         // don't free fake ownedString
         expected.value.module.items[2] = Sexp{ .value = .void };
@@ -603,6 +607,116 @@ test "parse all" {
         \\#f
         \\'sym
         \\""
+    ;
+
+    var diag = Parser.Diagnostic{ .source = source };
+    defer if (diag.result != .none) {
+        std.debug.print("diag={}", .{diag});
+    };
+    var actual = try Parser.parse(t.allocator, source, &diag);
+    defer actual.deinit(t.allocator);
+
+    const result = expected.recursive_eq(actual);
+
+    if (!result) {
+        std.debug.print("====== ACTUAL ===========\n", .{});
+        std.debug.print("{any}\n", .{actual});
+        std.debug.print("====== EXPECTED =========\n", .{});
+        std.debug.print("{any}\n", .{expected});
+        std.debug.print("=========================\n", .{});
+    }
+
+    try t.expect(result);
+}
+
+test "parse factorial iterative with graph reference" {
+    var expected = Sexp{ .value = .{ .module = try std.ArrayList(Sexp).initCapacity(t.allocator, 1) } };
+    // try expected.value.module.append(Sexp{ .value = .{ .list = try std.ArrayList(Sexp).initCapacity(t.allocator, 5) } });
+    try expected.value.module.append(try .emptyListCapacity(t.allocator, 5));
+
+    const def = &expected.value.module.items[0].value.list;
+    def.appendAssumeCapacity(.symbol("define"));
+    def.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 2));
+    def.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
+    def.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
+    def.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
+
+    const func_decl = &def.items[1].value.list;
+    func_decl.appendAssumeCapacity(.symbol("factorial"));
+    func_decl.appendAssumeCapacity(.symbol("n"));
+
+    const var_type = &def.items[2].value.list;
+    var_type.appendAssumeCapacity(.symbol("typeof"));
+    var_type.appendAssumeCapacity(.symbol("acc"));
+    var_type.appendAssumeCapacity(.symbol("i32"));
+
+    const var_decl = &def.items[3].value.list;
+    var_decl.appendAssumeCapacity(.symbol("define"));
+    var_decl.appendAssumeCapacity(.symbol("acc"));
+    var_decl.appendAssumeCapacity(.int(1));
+
+    const body = &def.items[4].value.list;
+    body.appendAssumeCapacity(.symbol("begin"));
+    body.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 4));
+
+    body.items[1].label = "if";
+    const @"if" = &body.items[1].value.list;
+    @"if".appendAssumeCapacity(.symbol("if"));
+    @"if".appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
+    @"if".appendAssumeCapacity(try .emptyListCapacity(t.allocator, 2));
+    @"if".appendAssumeCapacity(try .emptyListCapacity(t.allocator, 4));
+
+    const cond = &@"if".items[1].value.list;
+    cond.appendAssumeCapacity(.symbol("<="));
+    cond.appendAssumeCapacity(.symbol("n"));
+    cond.appendAssumeCapacity(.int(1));
+
+    const then = &@"if".items[2].value.list;
+    then.appendAssumeCapacity(.symbol("begin"));
+    then.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 2));
+    const then_return = &then.items[1].value.list;
+    then_return.appendAssumeCapacity(.symbol("return"));
+    then_return.appendAssumeCapacity(.symbol("acc"));
+
+    const @"else" = &@"if".items[3].value.list;
+    @"else".appendAssumeCapacity(.symbol("begin"));
+    @"else".appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
+    @"else".appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
+    @"else".appendAssumeCapacity(.symbol(">!if")); // TODO: different kind of symbol?
+
+    const set_acc = &@"else".items[1].value.list;
+    set_acc.appendAssumeCapacity(.symbol("set!"));
+    set_acc.appendAssumeCapacity(.symbol("acc"));
+    set_acc.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
+    const set_acc_expr = &set_acc.items[2].value.list;
+    set_acc_expr.appendAssumeCapacity(.symbol("*"));
+    set_acc_expr.appendAssumeCapacity(.symbol("acc"));
+    set_acc_expr.appendAssumeCapacity(.symbol("n"));
+
+    const set_n = &@"else".items[2].value.list;
+    set_n.appendAssumeCapacity(.symbol("set!"));
+    set_n.appendAssumeCapacity(.symbol("n"));
+    set_n.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
+    const set_n_expr = &set_n.items[2].value.list;
+    set_n_expr.appendAssumeCapacity(.symbol("-"));
+    set_n_expr.appendAssumeCapacity(.symbol("n"));
+    set_n_expr.appendAssumeCapacity(.int(1));
+
+    defer expected.deinit(t.allocator);
+
+    const source =
+        \\(define (factorial n)
+        \\  (typeof acc i64)
+        \\  (define acc 1)
+        \\  (begin
+        \\    <!if
+        \\    (if (<= n 1)
+        \\        (begin (return acc))
+        \\        (begin
+        \\          (set! acc (* acc n))
+        \\          (set! n (- n 1))
+        \\          >!if))))
+        \\
     ;
 
     var diag = Parser.Diagnostic{ .source = source };
