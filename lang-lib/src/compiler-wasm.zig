@@ -197,20 +197,31 @@ fn constructor() callconv(.C) void {
     const tb: byn.c.TypeBuilderRef = byn.c.TypeBuilderCreate(2);
     //byn.c.TypeBuilderSetArrayType(tb, 0, byn.c.BinaryenTypeInt32(), byn.c.BinaryenPackedTypeInt8(), 1);
     byn.c.TypeBuilderSetArrayType(tb, 0, byn.c.BinaryenTypeInt32(), byn.c.BinaryenPackedTypeInt8(), 1);
+
+    var vec3_parts = .{
+        .types = [_]byn.c.BinaryenType{
+            byn.c.BinaryenTypeFloat64(),
+            byn.c.BinaryenTypeFloat64(),
+            byn.c.BinaryenTypeFloat64(),
+        },
+        .@"packed" = [_]byn.c.BinaryenPackedType{
+            byn.c.BinaryenPackedTypeNotPacked(),
+            byn.c.BinaryenPackedTypeNotPacked(),
+            byn.c.BinaryenPackedTypeNotPacked(),
+        },
+        .mut = BinaryenHelper.alloc.allocator().dupe(bool, &[_]bool{
+            true,
+            true,
+            true,
+        }) catch unreachable,
+    };
+
     byn.c.TypeBuilderSetStructType(
         tb,
         1,
-        &[_]byn.c.BinaryenType{
-            byn.c.BinaryenTypeFloat64(),
-            byn.c.BinaryenTypeFloat64(),
-            byn.c.BinaryenTypeFloat64(),
-        },
-        &[_]byn.c.BinaryenPackedType{
-            byn.c.BinaryenPackedTypeNotPacked(),
-            byn.c.BinaryenPackedTypeNotPacked(),
-            byn.c.BinaryenPackedTypeNotPacked(),
-        },
-        &.{ 1, 1, 1 },
+        &vec3_parts.types,
+        &vec3_parts.@"packed",
+        vec3_parts.mut.ptr,
         3,
     );
 
@@ -698,8 +709,8 @@ const Compilation = struct {
         // FIXME
         if (body_exprs.items.len == 0) return error.EmptyBody;
 
-        //const body = try byn.Expression.block(self.module, "impl", body_exprs.items, byn.Type.auto());
-        const body = try byn.Expression.block(self.module, "impl", body_exprs.items, .i32);
+        //const body = try byn.Expression.block(self.module, "impl", body_exprs.items, .i32);
+        const body = try byn.Expression.block(self.module, name, body_exprs.items, byn.Type.auto());
 
         const param_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.func_type.?.param_types.len);
         defer self.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
@@ -723,9 +734,10 @@ const Compilation = struct {
             body,
         );
 
-        _ = func;
+        std.debug.assert(func != null);
 
-        _ = byn.c.BinaryenAddFunctionExport(self.module.c(), name, name);
+        const export_ref = byn.c.BinaryenAddFunctionExport(self.module.c(), name, name);
+        std.debug.assert(export_ref != null);
     }
 
     /// A fragment of compiled code and the type of its final variable
@@ -1157,7 +1169,7 @@ const Compilation = struct {
                         body_exprs.appendAssumeCapacity(compiled.expr);
                     }
 
-                    result.expr = @ptrCast(byn.Expression.block(self.module, "impl", body_exprs.items, byn.Type.auto()) catch unreachable);
+                    result.expr = @ptrCast(byn.Expression.block(self.module, "begin", body_exprs.items, byn.Type.auto()) catch unreachable);
                     return result;
                 }
 
@@ -1427,7 +1439,7 @@ const Compilation = struct {
                     if (requires_drop) {
                         operands[operands.len - 1] = @ptrCast(byn.c.BinaryenDrop(
                             self.module.c(),
-                            // FIXME: why does Drop take an argument?
+                            // FIXME: why does Drop take an argument? is that a WAST thing?
                             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
                         ));
                     }
@@ -1593,7 +1605,7 @@ const Compilation = struct {
                 }
                 const results: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(result_types.ptr, @intCast(result_types.len));
 
-                _ = byn.c.BinaryenAddFunctionImport(ctx.module.c(), in_name, "env", in_name, params, results);
+                byn.c.BinaryenAddFunctionImport(ctx.module.c(), in_name, "env", in_name, params, results);
             }
         };
 
@@ -1731,7 +1743,7 @@ const Compilation = struct {
                     )),
                 );
 
-                _ = func;
+                std.debug.assert(func != null);
             }
         }
 
@@ -1778,7 +1790,14 @@ const Compilation = struct {
         //     try bytes.appendSlice("\n");
         // }
 
-        // FIXME: make the arena in this function not the caller
+        if (builtin.mode == .Debug) {
+            byn.c.BinaryenModulePrint(self.module.c());
+            //     std.debug.assert(byn.c.BinaryenModuleValidate(self.module.c()));
+        }
+        // TODO:
+        //byn.c.BinaryenModuleOptimize(self.module.c());
+
+        // FIXME: make the arena in this function instead of in the caller
         // NOTE: use arena parent so that when the arena deinit's, this remains,
         // and the caller can own the memory
         const wasm_result = self.module.emitBinary("/script");
