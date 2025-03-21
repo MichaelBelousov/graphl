@@ -29,28 +29,35 @@ pub fn build(b: *std.Build) void {
     // TODO: make this false in some cases
     const small_intrinsics = b.option(bool, "small_intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse true;
 
-    const intrinsics = b.addExecutable(.{
-        .name = "graphl_intrinsics",
-        .root_source_file = b.path("./src/intrinsics.zig"),
-        .target = web_target,
-        .optimize = if (small_intrinsics) .ReleaseSmall else optimize,
-        .strip = false, // required by current usage of intrinsics
-        .single_threaded = true,
-        .pic = true,
-        .unwind_tables = .none,
-        .error_tracing = false,
-        .code_model = .small,
-    });
-    intrinsics.entry = .disabled;
-    intrinsics.rdynamic = true; // export everything
+    var intrinsics_comps = std.ArrayList(*std.Build.Step.Compile).init(b.allocator);
 
-    // NOTE: in the future may be able to use .getEmittedAsm to get the wasm output from zig and drop
-    // wasm2wat system dep, but atm it doesn't work that way
-    const intrinsics_to_wat_step = b.addRunArtifact(wasm2wat);
-    intrinsics_to_wat_step.addFileArg(intrinsics.getEmittedBin());
-    intrinsics_to_wat_step.addArg("-o");
-    const intrinsics_wat_file = intrinsics_to_wat_step.addOutputFileArg("graphl-intrinsics.wat");
-    intrinsics_to_wat_step.step.dependOn(&intrinsics.step);
+    {
+        const intrinsics_dir = try std.fs.openDirAbsolute(b.pathResolve(&.{"src/intrinsics"}), .{ .iterate = true });
+        defer intrinsics_dir.close();
+        var walker = try intrinsics_dir.walk(b.allocator);
+        while (try walker.next()) |entry| {
+            if (entry.kind != .directory) continue;
+            if (std.mem.eql(u8, entry.basename, "impl.zig")) {
+                const intrinsics = b.addExecutable(.{
+                    .name = std.fmt.allocPrint(b.allocator, "graphl_intrinsics_{s}", .{entry.path}),
+                    .root_source_file = b.path(entry.path),
+                    .target = web_target,
+                    .optimize = if (small_intrinsics) .ReleaseSmall else optimize,
+                    // the compiler must choose whether to strip or not
+                    .strip = false,
+                    .single_threaded = true,
+                    .pic = true,
+                    .unwind_tables = .none,
+                    .error_tracing = false,
+                    .code_model = .small,
+                });
+                intrinsics.entry = .disabled;
+                intrinsics.rdynamic = true; // export everything
+
+                try intrinsics_comps.append(intrinsics);
+            }
+        }
+    }
 
     // don't include
     const disable_compiler = b.option(bool, "disable_compiler", "don't include code for display-only scenarios, e.g. don't include the compiler") orelse false;
@@ -73,7 +80,6 @@ pub fn build(b: *std.Build) void {
         .root_module = graphl_core_mod,
         .pic = true,
     });
-    lib.step.dependOn(&intrinsics_to_wat_step.step);
 
     b.installArtifact(lib);
 
@@ -87,7 +93,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .filters = test_filters,
     });
-    main_tests.step.dependOn(&intrinsics_to_wat_step.step);
     //main_tests.root_module.addImport("bytebox", bytebox_dep.module("bytebox"));
 
     // FIXME: rename to graphltc
@@ -99,10 +104,19 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .single_threaded = true,
     });
-    graphltc_exe.step.dependOn(&intrinsics_to_wat_step.step);
     b.installArtifact(graphltc_exe);
     const graphltc_install = b.addInstallArtifact(graphltc_exe, .{});
     graphltc_tool.dependOn(&graphltc_install.step);
+
+    inline for (.{
+        lib,
+        main_tests,
+        graphltc_exe,
+    }) |c| {
+        for (intrinsics_comps.items) |intrinsic| {
+            c.step.dependOn(&intrinsic.step);
+        }
+    }
 
     inline for (.{
         &lib.root_module,
