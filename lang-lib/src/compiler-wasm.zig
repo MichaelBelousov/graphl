@@ -37,15 +37,14 @@ const intrinsics_code = ""; // FIXME
 pub const Diagnostic = struct {
     err: Error = .None,
 
-    // FIXME: why not take a pointer to the whole ModuleContext?
     // set upon start of compilation
     /// the sexp parsed from the source contextually related to the stored error
-    root_sexp: *const Sexp = undefined,
+    graphlt_module: *const ModuleContext = undefined,
 
     const Error = union(enum(u16)) {
         // TODO: lowercase
         None = 0,
-        BadTopLevelForm: *const Sexp = 1,
+        BadTopLevelForm: u32 = 1,
         UndefinedSymbol: [:0]const u8 = 2,
     };
 
@@ -70,9 +69,8 @@ pub const Diagnostic = struct {
         _ = fmt_opts;
         switch (self.err) {
             .None => try writer.print("Not an error", .{}),
-            .BadTopLevelForm => |decl| {
-                try writer.print("bad top level form:\n{}\n", .{decl});
-                try writer.print("in:\n{}\n", .{self.root_sexp});
+            .BadTopLevelForm => |idx| {
+                try writer.print("bad top level form:\n{}\n", .{Sexp.withContext(self.graphlt_module, idx)});
             },
             // TODO: add a contextualize function?
             .UndefinedSymbol => |sym| {
@@ -465,7 +463,9 @@ const Compilation = struct {
     fn compileMeta(self: *@This(), sexp_index: u32) !bool {
         if (Sexp.findPatternMismatch(self.graphlt_module, sexp_index,
             \\(meta version 1)
-        )) |_| return false;
+        )) |_| {
+            return false;
+        }
 
         const sexp = self.graphlt_module.get(sexp_index);
 
@@ -544,11 +544,11 @@ const Compilation = struct {
         const sexp = self.graphlt_module.get(sexp_index);
 
         const is_typeof_var = Sexp.findPatternMismatch(self.graphlt_module, sexp_index,
-            \\(define SYMBOL ...ANY)
+            \\(typeof SYMBOL ...ANY)
         ) == null;
 
         const is_typeof_func = Sexp.findPatternMismatch(self.graphlt_module, sexp_index,
-            \\(define (SYMBOL ...SYMBOL) ...ANY)
+            \\(typeof (SYMBOL ...SYMBOL) ...ANY)
         ) == null;
 
         if (is_typeof_var) {
@@ -1815,13 +1815,14 @@ const Compilation = struct {
                         try self.compileMeta(idx) or
                         try self.compileImport(decl));
                     if (!did_compile) {
-                        self.diag.err = Diagnostic.Error{ .BadTopLevelForm = decl };
+                        self.diag.err = Diagnostic.Error{ .BadTopLevelForm = idx };
                         std.log.err("{}", .{self.diag});
                         return error.badTopLevelForm;
                     }
                 },
                 else => {
-                    self.diag.err = Diagnostic.Error{ .BadTopLevelForm = decl };
+                    self.diag.err = Diagnostic.Error{ .BadTopLevelForm = idx };
+                    std.log.err("{}", .{self.diag});
                     std.log.err("{}", .{self.diag});
                     return error.badTopLevelForm;
                 },
@@ -1882,7 +1883,7 @@ pub fn compile(
     if (build_opts.disable_compiler) unreachable;
     var ignored_diagnostic: Diagnostic = undefined; // FIXME: why don't we init?
     const diag = if (_in_diagnostic) |d| d else &ignored_diagnostic;
-    diag.root_sexp = graphlt_module.getRoot();
+    diag.graphlt_module = graphlt_module;
 
     // FIXME: use the arena inside the compilation instead of the raw allocator
     var env = try Env.initDefault(a);

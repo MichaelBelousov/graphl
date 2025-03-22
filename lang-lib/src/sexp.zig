@@ -392,7 +392,7 @@ pub const Sexp = struct {
         pctx: *const ModuleContext,
         lvisited: *std.AutoHashMap(u32, void),
     ) ?u32 {
-        // FIXME: make sure this is correct...
+        // FIXME: make sure this is correct, I haven't tested this with labels
         if (lvisited.contains(self_index)) return null;
         lvisited.put(self_index, {}) catch unreachable;
 
@@ -483,7 +483,18 @@ pub const Sexp = struct {
         var lvisited = std.AutoHashMap(u32, void).init(arena.allocator());
         defer lvisited.deinit();
 
-        return _findPatternMismatch(index, lctx, 0, &pattern_module.module, &lvisited);
+        // for now, only allow pattern matching 1 element. Technically we could just loop through all the root
+        // elements and compare them
+        std.debug.assert(pattern_module.module.getRoot().value.module.items.len == 1);
+
+        return _findPatternMismatch(
+            index,
+            lctx,
+            // compare the first element of the module, not the entire module
+            1,
+            &pattern_module.module,
+            &lvisited,
+        );
     }
 
     pub fn recursive_eq(self: *const Self, lctx: *ModuleContext, other: *const Self, rctx: *ModuleContext) bool {
@@ -546,7 +557,8 @@ pub const Sexp = struct {
         }
     };
 
-    fn withContext(module: *const ModuleContext, index: u32) WithModCtx {
+    // TODO: rename
+    pub fn withContext(module: *const ModuleContext, index: u32) WithModCtx {
         return WithModCtx{ .module = module, .index = index };
     }
 };
@@ -589,6 +601,11 @@ test "findPatternMismatch" {
         .{ .source = "(typeof f 2)", .pattern = "(typeof SYMBOL ...ANY)", .should_match = true },
         .{ .source = "(typeof f)", .pattern = "(typeof SYMBOL ...ANY)", .should_match = true },
         .{ .source = "(define (bar x) (begin me))", .pattern = "(define (SYMBOL ...SYMBOL) (begin ...ANY))", .should_match = true },
+        .{ .source = "(meta version 2)", .pattern = "(meta version 1)", .should_match = false },
+        .{ .source = "(meta version 1)", .pattern = "(meta version 1)", .should_match = true },
+        .{ .source = "(typeof (++ i32) i32)", .pattern = "(define (SYMBOL ...SYMBOL) ...ANY)", .should_match = true },
+
+            \\
     }) |info| {
         var diag = Parser.Diagnostic{ .source = info.source };
         defer if (diag.result != .none) {
@@ -598,7 +615,7 @@ test "findPatternMismatch" {
         var parsed = try Parser.parse(t.allocator, info.source, &diag);
         defer parsed.deinit();
 
-        const maybe_mismatch = Sexp.findPatternMismatch(&parsed.module, 0, info.pattern);
+        const maybe_mismatch = Sexp.findPatternMismatch(&parsed.module, 1, info.pattern);
 
         errdefer {
             if (maybe_mismatch) |mismatch| {
