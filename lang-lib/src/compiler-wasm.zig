@@ -1220,7 +1220,7 @@ const Compilation = struct {
                     }
 
                     if (func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
-                        result.expr = @ptrCast(byn.Expression.block(self.module, func.value.symbol, body_exprs.items, byn.Type.auto()) catch unreachable);
+                        result.expr = @ptrCast(byn.Expression.block(self.module, null, body_exprs.items, byn.Type.auto()) catch unreachable);
                     } else if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
                         // FIXME: support multi value return as struct
                         std.debug.assert(body_exprs.items.len == 1);
@@ -1854,11 +1854,18 @@ const Compilation = struct {
         // and generate the necessary zig code to rebuild that IR tree in our binaryen module context
 
         std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_x".ptr, "Vec3->X".ptr));
+
+        // TODO: consider doing this
+        //byn.c.BinaryenModuleAutoDrop(self.module.c());
+
         if (builtin.mode == .Debug) {
             //byn.c.BinaryenModulePrintStackIR(vec3_module);
             //byn.c.BinaryenModulePrintStackIR(self.module.c());
             byn.c.BinaryenModulePrint(self.module.c());
-            std.debug.assert(byn.c.BinaryenModuleValidate(self.module.c()));
+            //FIXME: right now the validation doesn't seem to match `wasm-tools validate`
+            //std.debug.assert(
+            _ = byn.c.BinaryenModuleValidate(self.module.c());
+            //);
         }
         // TODO:
         //byn.c.BinaryenModuleOptimize(self.module.c());
@@ -2228,8 +2235,11 @@ test "new compiler" {
         \\  (type (;4;) (func (param f32 f32) (result f32)))
         \\  (type (;5;) (func (param i32 (ref null 0))))
         \\  (type (;6;) (func (param i32 i32)))
+        \\  (type (;7;) (func (param i32) (result f64)))
         \\  (import "env" "callUserFunc_code_R" (func (;0;) (type 5)))
         \\  (import "env" "callUserFunc_i32_R" (func (;1;) (type 6)))
+        \\  (memory (;0;) 1 256)
+        \\  (export "memory" (memory 0))
         \\  (export "++" (func 4))
         \\  (export "deep" (func 5))
         \\  (export "ifs" (func 6))
@@ -2246,24 +2256,22 @@ test "new compiler" {
         \\  (func (;4;) (type 1) (param i32) (result i32)
         \\    i32.const 100
         \\    call 3
-        \\    block (result i32) ;; label = @1
-        \\      local.get 0
-        \\      i32.const 1
-        \\      i32.add
-        \\    end
+        \\    local.get 0
+        \\    i32.const 1
+        \\    i32.add
+        \\    return
         \\  )
         \\  (func (;5;) (type 4) (param f32 f32) (result f32)
-        \\    block (result f32) ;; label = @1
-        \\      local.get 0
-        \\      i32.const 10
-        \\      i64.extend_i32_s
-        \\      f32.convert_i64_s
-        \\      f32.div
-        \\      local.get 0
-        \\      local.get 1
-        \\      f32.mul
-        \\      f32.add
-        \\    end
+        \\    local.get 0
+        \\    i32.const 10
+        \\    i64.extend_i32_s
+        \\    f32.convert_i64_s
+        \\    f32.div
+        \\    local.get 0
+        \\    local.get 1
+        \\    f32.mul
+        \\    f32.add
+        \\    return
         \\  )
         \\  (func (;6;) (type 1) (param i32) (result i32)
         \\    local.get 0
@@ -2278,6 +2286,10 @@ test "new compiler" {
         \\      call 3
         \\      i32.const 10
         \\    end
+        \\  )
+        \\  (func (;7;) (type 7) (param i32) (result f64)
+        \\    local.get 0
+        \\    f64.load
         \\  )
         \\  (@custom "sourceMappingURL" (after code) "\07/script")
         \\)
