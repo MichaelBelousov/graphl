@@ -3,7 +3,8 @@ const builtin = @import("builtin");
 const FileBuffer = @import("./FileBuffer.zig");
 const PageWriter = @import("./PageWriter.zig").PageWriter;
 const io = std.io;
-const testing = std.testing;
+const testing = std.testing; // TODO: consolidate
+const t = std.testing;
 const json = std.json;
 const pool = &@import("./InternPool.zig").pool;
 const Parser = @import("./sexp_parser.zig").Parser;
@@ -386,23 +387,24 @@ pub const Sexp = struct {
 
     fn _findPatternMismatch(
         self_index: u32,
-        lctx: *ModuleContext,
+        lctx: *const ModuleContext,
         pat_index: u32,
         pctx: *const ModuleContext,
         lvisited: *std.AutoHashMap(u32, void),
     ) ?u32 {
-        if (lvisited.contains(self_index)) return true;
+        // FIXME: make sure this is correct...
+        if (lvisited.contains(self_index)) return null;
         lvisited.put(self_index, {}) catch unreachable;
 
         const self: *const Sexp = lctx.get(self_index);
         const pattern: *const Sexp = pctx.get(pat_index);
 
-        if (pattern.value == .symbol and pattern.value.symbol == pool.getSymbol("ANY")) {
+        if (pattern.value == .symbol and pattern.value.symbol.ptr == pool.getSymbol("ANY").ptr) {
             return null;
         }
 
-        if (pattern.value == .symbol and pattern.value.symbol == pool.getSymbol("SYMBOL")) {
-            return self.value == .symbol;
+        if (pattern.value == .symbol and pattern.value.symbol.ptr == pool.getSymbol("SYMBOL").ptr) {
+            return if (self.value == .symbol) null else self_index;
         }
 
         if (std.meta.activeTag(self.value) != std.meta.activeTag(pattern.value)) {
@@ -416,33 +418,33 @@ pub const Sexp = struct {
             return self_index;
 
         switch (self.value) {
-            .float => |v| return v == pattern.value.float,
-            .bool => |v| return v == pattern.value.bool,
-            .void => return true,
-            .int => |v| return v == pattern.value.int,
-            .ownedString => |v| return std.mem.eql(u8, v, pattern.value.ownedString),
-            .borrowedString => |v| return std.mem.eql(u8, v, pattern.value.borrowedString),
-            .symbol => |v| return std.mem.eql(u8, v, pattern.value.symbol),
+            .float => |v| return if (v == pattern.value.float) null else self_index,
+            .bool => |v| return if (v == pattern.value.bool) null else self_index,
+            .void => return null,
+            .int => |v| return if (v == pattern.value.int) null else self_index,
+            .ownedString => |v| return if (std.mem.eql(u8, v, pattern.value.ownedString)) null else self_index,
+            .borrowedString => |v| return if (std.mem.eql(u8, v, pattern.value.borrowedString)) null else self_index,
+            // TODO: it's pooled, can do a cheaper comparison
+            .symbol => |v| return if (std.mem.eql(u8, v, pattern.value.symbol)) null else self_index,
             inline .module, .list => |v, sexp_type| {
                 const pattern_list = @field(pattern.value, @tagName(sexp_type));
                 var i: usize = 0;
                 outer: while (i < v.items.len and i < pattern_list.items.len) : (i += 1) {
                     const item_idx = v.items[i];
                     const pattern_item_idx = pattern_list.items[i];
-                    const item = lctx.get(item_idx);
                     const pattern_item = pctx.get(pattern_item_idx);
-                    if (pattern_item.value == .symbol and pattern_item.value.symbol == pool.getSymbol("...SYMBOL")) {
-                        std.debug.assert(i == pattern_list.len - 1); // rest pattern must be last
+                    if (pattern_item.value == .symbol and pattern_item.value.symbol.ptr == pool.getSymbol("...SYMBOL").ptr) {
+                        std.debug.assert(i == pattern_list.items.len - 1); // rest pattern must be last
                         for (v.items[i+1..]) |rest_item_idx| {
                             const rest_item = lctx.get(item_idx);
                             if (rest_item.value != .symbol)
                                 return rest_item_idx;
                             break :outer;
                         }
-                    } else if (pattern_item.value == .symbol and pattern_item.value.symbol == pool.getSymbol("...ANY")) {
+                    } else if (pattern_item.value == .symbol and pattern_item.value.symbol.ptr == pool.getSymbol("...ANY").ptr) {
                         break :outer;
                     }
-                    if (_findPatternMismatch(item, lctx, pattern_item, pctx, lvisited)) |mismatch|
+                    if (_findPatternMismatch(item_idx, lctx, pattern_item_idx, pctx, lvisited)) |mismatch|
                         return mismatch;
                 }
                 return null;
@@ -480,7 +482,7 @@ pub const Sexp = struct {
         var lvisited = std.AutoHashMap(u32, void).init(arena.allocator());
         defer lvisited.deinit();
 
-        return _findPatternMismatch(index, lctx, 0, pattern_module.module, lvisited);
+        return _findPatternMismatch(index, lctx, 0, &pattern_module.module, &lvisited);
     }
 
     pub fn recursive_eq(self: *const Self, lctx: *ModuleContext, other: *const Self, rctx: *ModuleContext) bool {
@@ -522,6 +524,29 @@ pub const Sexp = struct {
             },
         };
     }
+
+    /// struct to temporarily hold a module context to do things like formatting
+    pub const WithModCtx = struct {
+        module: *const ModuleContext,
+        index: u32,
+
+        pub fn format(self: *const @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = fmt;
+            _ = options;
+
+            var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+            defer arena.deinit();
+            var emitted_labels = std.AutoHashMap([*:0]const u8, void).init(arena.allocator());
+
+            _ = try self.module.get(self.index)._write(self.module, writer, .{
+                .emitted_labels = &emitted_labels,
+            }, .{});
+        }
+    };
+
+    fn withContext(module: *const ModuleContext, index: u32) WithModCtx {
+        return WithModCtx{ .module = module, .index = index };
+    }
 };
 
 test "free sexp" {
@@ -550,6 +575,30 @@ test "write sexp" {
         \\       0.5
         \\       1)
     , buff[0..bytes_written]);
+}
+
+test "findPatternMismatch" {
+    inline for (&.{
+        .{ .source = "(define (f x y) 2)", .pattern = "(define (SYMBOL ...SYMBOLS) ...ANY)", .should_match = true },
+        //.{ .source = "(define (f x y) 2)", .pattern = "(define (SYMBOL ...SYMBOLS) ...ANY)", .should_match = false },
+    }) |info| {
+        var diag = Parser.Diagnostic{ .source = info.source };
+        defer if (diag.result != .none) {
+            std.debug.print("source=\n{s}\n", .{info.source});
+            std.debug.print("diag={}\n", .{diag});
+        };
+        var parsed = try Parser.parse(t.allocator, info.source, &diag);
+        defer parsed.deinit();
+
+        const maybe_mismatch = Sexp.findPatternMismatch(&parsed.module, 0, info.pattern);
+
+        if (maybe_mismatch) |mismatch| {
+            std.debug.print("mismatch:\n{}\n", .{Sexp.withContext(&parsed.module, mismatch)});
+        }
+
+        try t.expectEqual(info.should_match, maybe_mismatch == null);
+    }
+
 }
 
 // TODO: move into the environment as known syms
