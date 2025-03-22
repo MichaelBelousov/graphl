@@ -12,9 +12,9 @@ const Loc = @import("./loc.zig").Loc;
 // const InternPool = @import("./InternPool.zig").InternPool;
 const pool = &@import("./InternPool.zig").pool;
 
-fn peek(stack: *std.SegmentedList(Sexp, 32)) ?*Sexp {
+fn peek(stack: *std.SegmentedList(u32, 32)) ?u32 {
     if (stack.len == 0) return null;
-    return stack.uncheckedAt(stack.len - 1);
+    return stack.uncheckedAt(stack.len - 1).*;
 }
 
 pub const SpacePrint = struct {
@@ -387,7 +387,7 @@ pub const Parser = struct {
     };
 
     // TODO: rename token "parse" functions to token "scan" functions
-    inline fn parseHashStartedToken(src: []const u8, loc: Loc, diag: *Diagnostic) Error!ParseHashStartedTokenResult {
+    inline fn parseHashStartedToken(src: []const u8, loc: Loc, diag: *Diagnostic) Error!ParseTokenResult {
         std.debug.assert(src.len >= 1);
 
         for (src[1..]) |c| {
@@ -397,20 +397,20 @@ pub const Parser = struct {
                         ' ', '\n', '\t', ')' => {},
                         else => break,
                     };
-                    return .{ .sexp = .{
+                    return .{
                         .sexp = syms.true,
                         .src_span = src[0..2],
-                    } };
+                    };
                 },
                 'f' => {
                     if (src.len > 2) switch (src[2]) {
                         ' ', '\n', '\t', ')' => {},
                         else => break,
                     };
-                    return .{ .sexp = .{
+                    return .{
                         .sexp = syms.false,
                         .src_span = src[0..2],
-                    } };
+                    };
                 },
                 'v' => {
                     if (!std.mem.eql(u8, src[2..5], "oid"))
@@ -419,14 +419,14 @@ pub const Parser = struct {
                         ' ', '\n', '\t', ')' => {},
                         else => break,
                     };
-                    return .{ .sexp = .{
+                    return .{
                         .sexp = syms.void,
                         .src_span = src[0..5],
-                    } };
+                    };
                 },
-                '!' => {
-                    return .{ .label = try parseLabelToken(src, loc, diag) };
-                },
+                // '!' => {
+                //     return .{ .label = try parseLabelToken(src, loc, diag) };
+                // },
                 // '|' => {
                 //     return parseMultiLineComment(src, loc, diag);
                 // },
@@ -439,8 +439,12 @@ pub const Parser = struct {
     }
 
     pub const ParseResult = struct {
-        module: *ModuleContext,
+        module: ModuleContext,
         arena: std.heap.ArenaAllocator,
+
+        pub fn deinit(self: *@This()) void {
+            self.arena.deinit();
+        }
     };
 
     // FIXME: force arena allocator?
@@ -455,40 +459,37 @@ pub const Parser = struct {
 
         var out_arena = std.heap.ArenaAllocator.init(in_alloc);
         errdefer out_arena.deinit();
+        const out_alloc = out_arena.allocator();
 
         var local_arena = std.heap.ArenaAllocator.init(in_alloc);
         defer local_arena.deinit();
+        const local_alloc = local_arena.allocator();
 
-        var label_map = std.AutoHashMapUnmanaged([]const u8, struct {
-            target: *Sexp,
+        // FIXME: make sure to reuse the hashing of the pool
+        var label_map = std.AutoHashMapUnmanaged([*:0]const u8, struct {
+            target: u32,
             loc: Loc,
         }){};
-        // no defer, re use local arena
+        // no defer; arena
         //defer label_map.deinit(in_alloc);
 
-        var sexps = try std.ArrayListUnmanaged(Sexp).initCapacity(out_arena.allocator(), 256);
-        errdefer {
-            for (sexps.items) |_sexp|
-                _sexp.deinit(out_arena.allocator());
-        }
-        defer sexps.deinit(out_arena.allocator());
-
-        // set up module root
-        sexps.addOneAssumeCapacity(.emptyModule);
-
+        var module = try ModuleContext.initCapacity(out_alloc, 256);
+        // no defer; arena
+        //errdefer module.deinit(out_alloc);
 
         var loc: Loc = .{};
         // TODO: store the the opener position and whether it's a quote
         var stack: std.SegmentedList(u32, 32) = .{};
-        // uses temp allocator, don't deinit
+        // uses local arena allocator, don't deinit
         //defer stack.deinit(alloc);
 
-        try stack.append(in_alloc, Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } });
+        // module at top of the stack
+        try stack.append(local_alloc, 0);
 
         // if a label appears alone on a line, it becomes the "active" label and attaches to the next
         // parsed atom
         var active_label: ?[:0]const u8 = null;
-        var last_sexp: ?*Sexp = null;
+        var last_sexp: ?u32 = null;
 
         const helper = struct {
             _stack: *@TypeOf(stack),
@@ -496,19 +497,22 @@ pub const Parser = struct {
             _last_sexp: *@TypeOf(last_sexp),
             _active_label: *@TypeOf(active_label),
             _label_map: *@TypeOf(label_map),
+            _out_alloc: @TypeOf(out_alloc),
+            _local_alloc: @TypeOf(local_alloc),
+            _module: *@TypeOf(module),
+            _out_diag: @TypeOf(out_diag),
 
-            fn pushSexp(self: *const @This(), in_sexp: Sexp) !void {
+            fn pushExistingSexp(self: *const @This(), index: u32) !void {
                 // not reachable because invalidly trying to pop the module scope is handled
                 const top = peek(self._stack) orelse unreachable;
-                const last = try top.value.list.addOne();
-                last.* = in_sexp;
-                self._last_sexp = last;
+                try self._module.get(top).value.list.append(self._out_alloc, index);
+                self._last_sexp.* = index;
 
                 if (self._active_label.*) |label| {
-                    const put_res = try self._label_map.getOrPut(alloc, label);
+                    const put_res = try self._label_map.getOrPut(self._local_alloc, label.ptr);
                     if (put_res.found_existing) {
-                        out_diag.code = Diagnostic.Result{ .duplicateLabel = .{
-                            .first = put_res.value_ptr.location,
+                        self._out_diag.result = Diagnostic.Result{ .duplicateLabel = .{
+                            .first = put_res.value_ptr.loc,
                             .name = label,
                             .second = self._loc.*,
                         } };
@@ -517,11 +521,16 @@ pub const Parser = struct {
 
                     put_res.value_ptr.* = .{
                         .loc = self._loc.*,
-                        .name = label,
+                        .target = index,
                     };
 
                     self._active_label.* = null;
                 }
+            }
+
+            fn pushSexp(self: *const @This(), in_sexp: Sexp) !void {
+                const new_idx = try self._module.add(self._out_alloc, in_sexp);
+                return self.pushExistingSexp(new_idx);
             }
         }{
             ._loc = &loc,
@@ -529,6 +538,10 @@ pub const Parser = struct {
             ._last_sexp = &last_sexp,
             ._active_label = &active_label,
             ._label_map = &label_map,
+            ._out_alloc = out_alloc,
+            ._local_alloc = local_alloc,
+            ._module = &module,
+            ._out_diag = out_diag,
         };
 
         while (loc.index < src.len) : (loc.increment(src)) {
@@ -545,60 +558,38 @@ pub const Parser = struct {
                     for (0..tok.src_span.len - 1) |_| loc.increment(src);
                 },
                 '(' => {
-                    try stack.append(alloc, Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } });
+                    try stack.append(local_alloc, try module.add(out_alloc, .empty_list));
                 },
                 ')' => {
                     const old_top = stack.pop() orelse unreachable;
                     const new_top = peek(&stack) orelse {
-                        old_top.deinit(alloc);
                         out_diag.*.result = .{ .unmatchedCloser = loc };
                         return error.UnmatchedCloser;
                     };
-                    // FIXME: well this isn't conducive to internal pointers at all...
-                    try new_top.value.list.append(old_top);
+                    try module.get(new_top).body().append(out_alloc, old_top);
                     last_sexp = old_top;
                 },
                 '"' => {
-                    const tok = try parseStringToken(alloc, src[loc.index..], out_diag);
+                    const tok = try parseStringToken(out_alloc, src[loc.index..], out_diag);
                     try helper.pushSexp(tok.sexp);
                     // unreachable cuz we'd have already failed if we popped the last one
                     for (0..tok.src_span.len - 1) |_| loc.increment(src);
                 },
                 '#' => {
                     // TODO: consider making all these token scanners
-                    const hash_tok = try parseHashStartedToken(src[loc.index..], loc, out_diag);
-                    switch (hash_tok) {
-                        .sexp => |tok| {
-                            // unreachable cuz we'd have already failed if we popped the last one
-                            const top = peek(&stack) orelse unreachable;
-                            const last = try top.value.list.addOne();
-                            last.* = tok.sexp;
-                            for (0..tok.src_span.len - 1) |_| loc.increment(src);
-                        },
-                        // FIXME: remove this possibility
-                        .label => |label| {
-                            const top = peek(&stack) orelse unreachable;
-                            const last = if (top.value.list.items.len > 0)
-                                &top.value.list.items[top.value.list.items.len - 1]
-                            else
-                                top;
-                            last.label = label;
-                            for (0..label.len - 1) |_| loc.increment(src);
-                        },
-                    }
+                    const tok = try parseHashStartedToken(src[loc.index..], loc, out_diag);
+                    try helper.pushSexp(tok.sexp);
+                    for (0..tok.src_span.len - 1) |_| loc.increment(src);
                 },
                 ';' => {
                     const comment = parseLineComment(src, loc);
                     // note we increment the newline which wasn't included
                     for (comment) |_| loc.increment(src);
                 },
-                // FIXME: temporarily this just returns a symbol
+                // FIXME: temporarily this just returns an unquoted symbol
                 '\'' => {
                     const tok = try parseSymbolToken(src[loc.index..], loc, out_diag);
-                    // unreachable cuz we'd have already failed if we popped the last one
-                    const top = peek(&stack) orelse unreachable;
-                    const last = try top.value.list.addOne();
-                    last.* = tok.sexp;
+                    try helper.pushSexp(tok.sexp);
                     for (0..tok.src_span.len - 1) |_| loc.increment(src);
                 },
                 // ascii table
@@ -619,36 +610,44 @@ pub const Parser = struct {
                 '{'...'~',
                 => {
                     const tok = try parseSymbolToken(src[loc.index..], loc, out_diag);
+                    const sym = pool.getSymbol(tok.src_span);
                     // might not be a symbol, could be a label jump or label
-                    if (std.mem.startsWith(u8, src[loc.index..], ">!")) {
+                    if (std.mem.startsWith(u8, sym, ">!")) {
                         // is label jump
-                        if (try label_map.getPtr(tok.src_span[2..])) |label_info| {
-                            try helper.pushSexp(label_info.sexp);
+                        const label_name = pool.getSymbol(tok.src_span[2..]);
+                        if (label_map.getPtr(label_name.ptr)) |label_info| {
+                            try helper.pushExistingSexp(label_info.target);
                         } else {
                             // FIXME: should be able to reference "eventual" labels
-                            out_diag.code = Diagnostic.Result{ .unknownLabel = .{
-                                .name = tok.src_span,
+                            out_diag.result = Diagnostic.Result{ .unknownLabel = .{
+                                .name = label_name,
                                 .loc = loc,
                             } };
+                            return Diagnostic.Code.UnknownLabel;
                         }
-                    } else if (std.mem.startsWith(u8, src[loc.index..], "<!")) {
+                    } else if (std.mem.startsWith(u8, sym, "<!")) {
                         // is label
+                        const label_name = pool.getSymbol(tok.src_span[2..]);
                         if (last_sexp) |last| {
-                            const put_res = try label_map.getOrPut(alloc, last.label);
+                            const put_res = try label_map.getOrPut(local_alloc, label_name.ptr);
                             if (put_res.found_existing) {
-                                out_diag.code = Diagnostic.Result{ .duplicateLabel = .{
-                                    .first = put_res.value_ptr.location,
-                                    .name = last.label,
+                                out_diag.result = Diagnostic.Result{ .duplicateLabel = .{
+                                    .first = put_res.value_ptr.loc,
+                                    .name = label_name,
                                     .second = loc,
                                 } };
+                                return Diagnostic.Code.DuplicateLabel;
                             }
-                            last.label = tok.src_span;
+                            put_res.value_ptr.* = .{
+                                .target = last,
+                                .loc = loc,
+                            };
                         } else {
-                            active_label = tok.src_span;
+                            active_label = label_name;
                         }
                     } else {
                         // is regular symbol
-                        helper.pushSexp(tok.sexp);
+                        try helper.pushSexp(tok.sexp);
                     }
 
                     for (0..tok.src_span.len - 1) |_| loc.increment(src);
@@ -670,19 +669,9 @@ pub const Parser = struct {
             return Error.UnmatchedOpener;
         }
 
-        const top = peek(&stack) orelse unreachable;
-
-        // TODO: move
-        const result = Sexp{ .value = .{ .module = top.value.list } };
-        errdefer result.deinit();
-
-        stack.uncheckedAt(0).* = Sexp{ .value = .void };
-
         return ParseResult{
-            .module = .{
-                .arena = sexps,
-            },
-            .arena = arena,
+            .module = module,
+            .arena = out_arena,
         };
     }
 };
@@ -781,78 +770,80 @@ test "parse all" {
 }
 
 test "parse factorial iterative with graph reference" {
-    var expected = Sexp{ .value = .{ .module = try std.ArrayList(Sexp).initCapacity(t.allocator, 1) } };
-    // try expected.value.module.append(Sexp{ .value = .{ .list = try std.ArrayList(Sexp).initCapacity(t.allocator, 5) } });
-    try expected.value.module.append(try .emptyListCapacity(t.allocator, 5));
+    const a = t.allocator;
 
-    const def = &expected.value.module.items[0].value.list;
-    def.appendAssumeCapacity(.symbol("define"));
-    def.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 2));
-    def.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
-    def.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
-    def.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
+    // NOTE: without setting capacity, the get/add orders below will crash
+    var module = try ModuleContext.initCapacity(a, 44);
+    defer module.deinit(a);
 
-    const func_decl = &def.items[1].value.list;
-    func_decl.appendAssumeCapacity(.symbol("factorial"));
-    func_decl.appendAssumeCapacity(.symbol("n"));
+    try module.getRoot().value.module.append(a, try module.add(a, try .emptyListCapacity(a, 5)));
 
-    const var_type = &def.items[2].value.list;
-    var_type.appendAssumeCapacity(.symbol("typeof"));
-    var_type.appendAssumeCapacity(.symbol("acc"));
-    var_type.appendAssumeCapacity(.symbol("i32"));
+    const def = module.getRoot().value.module.items[0];
+    module.get(def).value.list.appendAssumeCapacity(try module.add(a, .symbol("define")));
+    module.get(def).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(a, 2)));
+    module.get(def).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(a, 3)));
+    module.get(def).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(a, 3)));
+    module.get(def).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(a, 3)));
 
-    const var_decl = &def.items[3].value.list;
-    var_decl.appendAssumeCapacity(.symbol("define"));
-    var_decl.appendAssumeCapacity(.symbol("acc"));
-    var_decl.appendAssumeCapacity(.int(1));
+    const func_decl = module.get(def).value.list.items[1];
+    module.get(func_decl).value.list.appendAssumeCapacity(try module.add(a, .symbol("factorial")));
+    module.get(func_decl).value.list.appendAssumeCapacity(try module.add(a, .symbol("n")));
 
-    const body = &def.items[4].value.list;
-    body.appendAssumeCapacity(.symbol("begin"));
-    body.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 4));
+    const var_type = module.get(def).value.list.items[2];
+    module.get(var_type).value.list.appendAssumeCapacity(try module.add(a, .symbol("typeof")));
+    module.get(var_type).value.list.appendAssumeCapacity(try module.add(a, .symbol("acc")));
+    module.get(var_type).value.list.appendAssumeCapacity(try module.add(a, .symbol("i32")));
 
-    const @"if" = &body.items[1].value.list;
-    @"if".appendAssumeCapacity(.symbol("if"));
-    @"if".appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
-    @"if".appendAssumeCapacity(try .emptyListCapacity(t.allocator, 2));
-    @"if".appendAssumeCapacity(try .emptyListCapacity(t.allocator, 4));
+    const var_decl = module.get(def).value.list.items[3];
+    module.get(var_decl).value.list.appendAssumeCapacity(try module.add(a, .symbol("define")));
+    module.get(var_decl).value.list.appendAssumeCapacity(try module.add(a, .symbol("acc")));
+    module.get(var_decl).value.list.appendAssumeCapacity(try module.add(a, .int(1)));
 
-    const cond = &@"if".items[1].value.list;
-    cond.appendAssumeCapacity(.symbol("<="));
-    cond.appendAssumeCapacity(.symbol("n"));
-    cond.appendAssumeCapacity(.int(1));
+    const body = module.get(def).value.list.items[4];
+    module.get(body).value.list.appendAssumeCapacity(try module.add(a, .symbol("begin")));
+    module.get(body).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 4)));
 
-    const then = &@"if".items[2].value.list;
-    then.appendAssumeCapacity(.symbol("begin"));
-    then.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 2));
-    const then_return = &then.items[1].value.list;
-    then_return.appendAssumeCapacity(.symbol("return"));
-    then_return.appendAssumeCapacity(.symbol("acc"));
+    const @"if" = module.get(body).value.list.items[1];
+    module.get(@"if").value.list.appendAssumeCapacity(try module.add(a, .symbol("if")));
+    module.get(@"if").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 3)));
+    module.get(@"if").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 2)));
+    module.get(@"if").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 4)));
 
-    const @"else" = &@"if".items[3].value.list;
-    @"else".appendAssumeCapacity(.symbol("begin"));
-    @"else".appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
-    @"else".appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
-    @"else".appendAssumeCapacity(.symbol(">!if")); // TODO: different kind of symbol?
+    const cond = module.get(@"if").value.list.items[1];
+    module.get(cond).value.list.appendAssumeCapacity(try module.add(a, .symbol("<=")));
+    module.get(cond).value.list.appendAssumeCapacity(try module.add(a, .symbol("n")));
+    module.get(cond).value.list.appendAssumeCapacity(try module.add(a, .int(1)));
 
-    const set_acc = &@"else".items[1].value.list;
-    set_acc.appendAssumeCapacity(.symbol("set!"));
-    set_acc.appendAssumeCapacity(.symbol("acc"));
-    set_acc.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
-    const set_acc_expr = &set_acc.items[2].value.list;
-    set_acc_expr.appendAssumeCapacity(.symbol("*"));
-    set_acc_expr.appendAssumeCapacity(.symbol("acc"));
-    set_acc_expr.appendAssumeCapacity(.symbol("n"));
+    const then = module.get(@"if").value.list.items[2];
+    module.get(then).value.list.appendAssumeCapacity(try module.add(a, .symbol("begin")));
+    module.get(then).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 2)));
+    const then_return = module.get(then).value.list.items[1];
+    module.get(then_return).value.list.appendAssumeCapacity(try module.add(a, .symbol("return")));
+    module.get(then_return).value.list.appendAssumeCapacity(try module.add(a, .symbol("acc")));
 
-    const set_n = &@"else".items[2].value.list;
-    set_n.appendAssumeCapacity(.symbol("set!"));
-    set_n.appendAssumeCapacity(.symbol("n"));
-    set_n.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
-    const set_n_expr = &set_n.items[2].value.list;
-    set_n_expr.appendAssumeCapacity(.symbol("-"));
-    set_n_expr.appendAssumeCapacity(.symbol("n"));
-    set_n_expr.appendAssumeCapacity(.int(1));
+    const @"else" = module.get(@"if").value.list.items[3];
+    module.get(@"else").value.list.appendAssumeCapacity(try module.add(a, .symbol("begin")));
+    module.get(@"else").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 3)));
+    module.get(@"else").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 3)));
+    module.get(@"else").value.list.appendAssumeCapacity(try module.add(a, .symbol(">!if"))); // TODO: different kind of symbol?
 
-    defer expected.deinit(t.allocator);
+    const set_acc = module.get(@"else").value.list.items[1];
+    module.get(set_acc).value.list.appendAssumeCapacity(try module.add(a, .symbol("set!")));
+    module.get(set_acc).value.list.appendAssumeCapacity(try module.add(a, .symbol("acc")));
+    module.get(set_acc).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 3)));
+    const set_acc_expr = module.get(set_acc).value.list.items[2];
+    module.get(set_acc_expr).value.list.appendAssumeCapacity(try module.add(a, .symbol("*")));
+    module.get(set_acc_expr).value.list.appendAssumeCapacity(try module.add(a, .symbol("acc")));
+    module.get(set_acc_expr).value.list.appendAssumeCapacity(try module.add(a, .symbol("n")));
+
+    const set_n = module.get(@"else").value.list.items[2];
+    module.get(set_n).value.list.appendAssumeCapacity(try module.add(a, .symbol("set!")));
+    module.get(set_n).value.list.appendAssumeCapacity(try module.add(a, .symbol("n")));
+    module.get(set_n).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 3)));
+    const set_n_expr = module.get(set_n).value.list.items[2];
+    module.get(set_n_expr).value.list.appendAssumeCapacity(try module.add(a, .symbol("-")));
+    module.get(set_n_expr).value.list.appendAssumeCapacity(try module.add(a, .symbol("n")));
+    module.get(set_n_expr).value.list.appendAssumeCapacity(try module.add(a, .int(1)));
 
     const source =
         \\(define (factorial n)
@@ -873,16 +864,16 @@ test "parse factorial iterative with graph reference" {
     defer if (diag.result != .none) {
         std.debug.print("diag={}", .{diag});
     };
-    var actual = try Parser.parse(t.allocator, source, &diag);
-    defer actual.deinit(t.allocator);
+    var parsed = try Parser.parse(t.allocator, source, &diag);
+    defer parsed.deinit();
 
-    const result = expected.recursive_eq(actual);
+    const result = module.getRoot().recursive_eq(parsed.module.getRoot(), &module);
 
     if (!result) {
         std.debug.print("====== ACTUAL ===========\n", .{});
-        std.debug.print("{any}\n", .{actual});
+        std.debug.print("{}\n", .{parsed.module});
         std.debug.print("====== EXPECTED =========\n", .{});
-        std.debug.print("{any}\n", .{expected});
+        std.debug.print("{}\n", .{module});
         std.debug.print("=========================\n", .{});
     }
 

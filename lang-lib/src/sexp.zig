@@ -25,16 +25,41 @@ comptime {
 //
 // consider making `.x` a special syntax which accesses .x from an object
 
+// TODO: add an init function that initializes the root for you
 pub const ModuleContext = struct {
-    arena: []const Sexp,
+    arena: std.ArrayListUnmanaged(Sexp) = .{},
 
-    pub fn getRoot(self: *@This()) *Sexp {
-        return self.arena[0];
+    pub inline fn add(self: *@This(), alloc: std.mem.Allocator, sexp: Sexp) !u32 {
+        try self.arena.append(alloc, sexp);
+        return @intCast(self.arena.items.len - 1);
     }
 
+    pub inline fn get(self: *const @This(), index: u32) *Sexp {
+        return &self.arena.items[index];
+    }
+
+
+    pub inline fn getRoot(self: *const @This()) *Sexp {
+        return self.get(0);
+    }
+
+    pub fn init(alloc: std.mem.Allocator) !@This() {
+        return initCapacity(alloc, 1);
+    }
+
+    pub fn initCapacity(alloc: std.mem.Allocator, capacity: usize) !@This() {
+        var arena = try std.ArrayListUnmanaged(Sexp).initCapacity(alloc, capacity);
+        arena.appendAssumeCapacity(try .emptyModuleCapacity(alloc, capacity - 1));
+
+        return @This(){
+            .arena = arena,
+        };
+    }
+
+
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-        getRoot().deinit(self, alloc);
-        alloc.free(self.arena);
+        self.getRoot().deinit(self, alloc);
+        self.arena.deinit(alloc);
     }
 
     pub fn format(self: *const @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -42,7 +67,6 @@ pub const ModuleContext = struct {
         _ = options;
         _ = try self.getRoot()._write(self, writer, .{}, .{});
     }
-
 };
 
 /// modules and lists contain u32 indices into a ModuleContext's arena
@@ -74,12 +98,12 @@ pub const Sexp = struct {
     pub fn deinit(self: *@This(), mod_ctx: *const ModuleContext, alloc: std.mem.Allocator) void {
         switch (self.value) {
             .ownedString => |v| alloc.free(v),
-            .list, .module => |v| {
+            .list, .module => |*v| {
                 for (v.items) |item_idx| {
-                    const item = &mod_ctx.arena[item_idx];
-                    item.deinit(alloc);
+                    const item = &mod_ctx.arena.items[item_idx];
+                    item.deinit(mod_ctx, alloc);
                 }
-                v.deinit();
+                v.deinit(alloc);
             },
             .void, .int, .float, .bool, .borrowedString, .symbol => {},
         }
@@ -88,6 +112,8 @@ pub const Sexp = struct {
     pub fn emptyList() Sexp {
         return Sexp{ .value = .{ .list = .empty } };
     }
+
+    pub const empty_list = Sexp{ .value = .{ .list = .empty } };
 
     pub fn emptyListCapacity(alloc: std.mem.Allocator, capacity: usize) !Sexp {
         return Sexp{ .value = .{ .list = try std.ArrayListUnmanaged(u32).initCapacity(alloc, capacity) } };
@@ -110,6 +136,13 @@ pub const Sexp = struct {
         return Sexp{ .value = .{ .module = try std.ArrayListUnmanaged(u32).initCapacity(alloc, capacity) } };
     }
 
+    pub fn body(self: *Self) *std.ArrayListUnmanaged(u32) {
+        return switch (self.value) {
+            .list, .module => |*v| v,
+            .ownedString, .void, .int, .float, .bool, .borrowedString, .symbol => @panic("can only call toOwnedSlice on modules and lists"),
+        };
+    }
+
 
     pub fn toOwnedSlice(self: *Self) ![]Sexp {
         return switch (self.value) {
@@ -123,10 +156,10 @@ pub const Sexp = struct {
         depth: usize = 0,
     };
 
-    fn writeModule(mod_ctx: *const ModuleContext, form: std.ArrayListUnmanaged(u32), writer: anytype, state: WriteState, comptime opts: WriteOptions) @TypeOf(writer).Error!WriteState {
+    fn writeModule(mod_ctx: *const ModuleContext, form: *const std.ArrayListUnmanaged(u32), writer: anytype, state: WriteState, comptime opts: WriteOptions) @TypeOf(writer).Error!WriteState {
         for (form.items, 0..) |item_idx, i| {
             if (i != 0) _ = try writer.write("\n");
-            const item = &mod_ctx.arena[item_idx];
+            const item = &mod_ctx.arena.items[item_idx];
             try writer.writeByteNTimes(' ', state.depth);
             _ = try item._write(mod_ctx, writer, .{ .depth = state.depth }, opts);
         }
@@ -140,19 +173,19 @@ pub const Sexp = struct {
         depth += try writer.write("(");
 
         if (form.items.len >= 1) {
-            depth += (try mod_ctx.arena[form.items[0]]._write(mod_ctx, writer, .{ .depth = state.depth + depth }, opts)).depth;
+            depth += (try mod_ctx.arena.items[form.items[0]]._write(mod_ctx, writer, .{ .depth = state.depth + depth }, opts)).depth;
         }
 
         if (form.items.len >= 2) {
             depth += try writer.write(" ");
 
-            _ = try mod_ctx.arena[form.items[1]]._write(mod_ctx, writer, .{ .depth = state.depth + depth }, opts);
+            _ = try mod_ctx.arena.items[form.items[1]]._write(mod_ctx, writer, .{ .depth = state.depth + depth }, opts);
 
             for (form.items[2..]) |item_idx| {
-                const item = &mod_ctx.arena[item_idx];
+                const item = &mod_ctx.arena.items[item_idx];
                 _ = try writer.write("\n");
                 try writer.writeByteNTimes(' ', state.depth + depth);
-                _ = try item._write(writer, .{ .depth = state.depth + depth }, opts);
+                _ = try item._write(mod_ctx, writer, .{ .depth = state.depth + depth }, opts);
             }
         }
 
@@ -177,8 +210,8 @@ pub const Sexp = struct {
     fn _write(self: *const Self, mod_ctx: *const ModuleContext, writer: anytype, state: WriteState, comptime opts: WriteOptions) @TypeOf(writer).Error!WriteState {
         // TODO: calculate stack space requirements?
         const write_state_or_err: @TypeOf(writer).Error!WriteState = switch (self.value) {
-            .module => |v| writeModule(mod_ctx, v, writer, state, opts),
-            .list => |v| writeList(mod_ctx, v, writer, state, opts),
+            .module => |v| writeModule(mod_ctx, &v, writer, state, opts),
+            .list => |v| writeList(mod_ctx, &v, writer, state, opts),
             inline .float, .int => |v| _: {
                 var counting_writer = std.io.countingWriter(writer);
                 try counting_writer.writer().print("{d}", .{v});
@@ -243,7 +276,7 @@ pub const Sexp = struct {
         return @intCast(counting_writer.bytes_written);
     }
 
-    pub fn recursive_eq(self: Self, other: Self) bool {
+    pub fn recursive_eq(self: *const Self, other: *const Self, mod_ctx: *ModuleContext) bool {
         if (std.meta.activeTag(self.value) != std.meta.activeTag(other.value))
             return false;
 
@@ -266,8 +299,10 @@ pub const Sexp = struct {
                 if (v.items.len != other_list.items.len) {
                     return false;
                 }
-                for (v.items, other_list.items) |item, other_item| {
-                    if (!item.recursive_eq(other_item))
+                for (v.items, other_list.items) |item_idx, other_item_idx| {
+                    const item = mod_ctx.get(item_idx);
+                    const other_item = mod_ctx.get(other_item_idx);
+                    if (!recursive_eq(item, other_item, mod_ctx))
                         return false;
                 }
                 return true;
