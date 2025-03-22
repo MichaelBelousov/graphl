@@ -437,10 +437,11 @@ pub const Sexp = struct {
                         std.debug.assert(i == pattern_list.items.len - 1); // rest pattern must be last
                         for (v.items[i+1..]) |rest_item_idx| {
                             const rest_item = lctx.get(item_idx);
-                            if (rest_item.value != .symbol)
+                            if (rest_item.value != .symbol) {
                                 return rest_item_idx;
-                            break :outer;
+                            }
                         }
+                        break :outer;
                     } else if (pattern_item.value == .symbol and pattern_item.value.symbol.ptr == pool.getSymbol("...ANY").ptr) {
                         break :outer;
                     }
@@ -579,8 +580,14 @@ test "write sexp" {
 
 test "findPatternMismatch" {
     inline for (&.{
-        .{ .source = "(define (f x y) 2)", .pattern = "(define (SYMBOL ...SYMBOLS) ...ANY)", .should_match = true },
-        //.{ .source = "(define (f x y) 2)", .pattern = "(define (SYMBOL ...SYMBOLS) ...ANY)", .should_match = false },
+        .{ .source = "(define (f x y) 2)", .pattern = "(define (SYMBOL ...SYMBOL) ...ANY)", .should_match = true },
+        .{ .source = "(define (f x y) 2)", .pattern = "(define (SYMBOL SYMBOL SYMBOL) ...ANY)", .should_match = true },
+        .{ .source = "(define (f) (g))", .pattern = "(define (SYMBOL ...SYMBOL) ...ANY)", .should_match = true },
+        .{ .source = "(define (f))", .pattern = "(define (SYMBOL ...SYMBOL) ...ANY)", .should_match = true },
+        .{ .source = "(define f)", .pattern = "(define (SYMBOL ...SYMBOL) ...ANY)", .should_match = false },
+        .{ .source = "(typeof f 2)", .pattern = "(typeof SYMBOL ...ANY)", .should_match = true },
+        .{ .source = "(typeof f)", .pattern = "(typeof SYMBOL ...ANY)", .should_match = true },
+        .{ .source = "(define (bar x) (begin me))", .pattern = "(define (SYMBOL ...SYMBOL) (begin ...ANY))", .should_match = true },
     }) |info| {
         var diag = Parser.Diagnostic{ .source = info.source };
         defer if (diag.result != .none) {
@@ -592,8 +599,10 @@ test "findPatternMismatch" {
 
         const maybe_mismatch = Sexp.findPatternMismatch(&parsed.module, 0, info.pattern);
 
-        if (maybe_mismatch) |mismatch| {
-            std.debug.print("mismatch:\n{}\n", .{Sexp.withContext(&parsed.module, mismatch)});
+        errdefer {
+            if (maybe_mismatch) |mismatch| {
+                std.debug.print("mismatch:\n{}\nin:\n{s}\n", .{Sexp.withContext(&parsed.module, mismatch), info.source});
+            }
         }
 
         try t.expectEqual(info.should_match, maybe_mismatch == null);
