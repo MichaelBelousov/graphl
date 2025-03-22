@@ -27,6 +27,7 @@ comptime {
 
 // TODO: add an init function that initializes the root for you
 pub const ModuleContext = struct {
+    // TODO: rename from arena, which means something else in zig
     arena: std.ArrayListUnmanaged(Sexp) = .{},
 
     pub inline fn add(self: *@This(), alloc: std.mem.Allocator, sexp: Sexp) !u32 {
@@ -104,18 +105,38 @@ pub const Sexp = struct {
 
     const Self = @This();
 
-    pub fn deinit(self: *@This(), mod_ctx: *const ModuleContext, alloc: std.mem.Allocator) void {
+    fn _deinit(
+        self: *@This(),
+        mod_ctx: *const ModuleContext,
+        alloc: std.mem.Allocator,
+        visited: *std.AutoHashMap(*const Sexp, void),
+    ) void {
+        if (visited.contains(self))
+            return;
+        visited.put(self, {}) catch unreachable;
         switch (self.value) {
-            .ownedString => |v| alloc.free(v),
+            .ownedString => |v| {
+                alloc.free(v);
+            },
             .list, .module => |*v| {
                 for (v.items) |item_idx| {
                     const item = &mod_ctx.arena.items[item_idx];
-                    item.deinit(mod_ctx, alloc);
+                    item._deinit(mod_ctx, alloc, visited);
                 }
                 v.deinit(alloc);
             },
             .void, .int, .float, .bool, .borrowedString, .symbol => {},
         }
+    }
+
+
+    pub fn deinit(self: *@This(), mod_ctx: *const ModuleContext, alloc: std.mem.Allocator) void {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        var visited = std.AutoHashMap(*const Sexp, void).init(arena.allocator());
+        defer visited.deinit();
+
+        return self._deinit(mod_ctx, alloc, &visited);
     }
 
     pub fn emptyList() Sexp {
@@ -306,9 +327,19 @@ pub const Sexp = struct {
         return @intCast(counting_writer.bytes_written);
     }
 
-    pub fn recursive_eq(self: *const Self, other: *const Self, mod_ctx: *ModuleContext) bool {
-        if (std.meta.activeTag(self.value) != std.meta.activeTag(other.value))
+    pub fn _recursive_eq(
+        self: *const Self,
+        lctx: *ModuleContext,
+        other: *const Self,
+        rctx: *ModuleContext,
+        lvisited: *std.AutoHashMap(*const Sexp, void),
+    ) bool {
+        if (lvisited.contains(self)) return true;
+        lvisited.put(self, {}) catch unreachable;
+
+        if (std.meta.activeTag(self.value) != std.meta.activeTag(other.value)) {
             return false;
+        }
 
         if ((self.comment == null) != (other.comment == null))
             return false;
@@ -319,7 +350,7 @@ pub const Sexp = struct {
         if ((self.label == null) != (other.label == null))
             return false;
 
-        if (self.label.?.ptr != other.label.?.ptr)
+        if (self.label != null and self.label.?.ptr != other.label.?.ptr)
             return false;
 
         switch (self.value) {
@@ -336,14 +367,23 @@ pub const Sexp = struct {
                     return false;
                 }
                 for (v.items, other_list.items) |item_idx, other_item_idx| {
-                    const item = mod_ctx.get(item_idx);
-                    const other_item = mod_ctx.get(other_item_idx);
-                    if (!recursive_eq(item, other_item, mod_ctx))
+                    const item = lctx.get(item_idx);
+                    const other_item = rctx.get(other_item_idx);
+                    if (!_recursive_eq(item, lctx, other_item, rctx, lvisited))
                         return false;
                 }
                 return true;
             },
         }
+    }
+
+    pub fn recursive_eq(self: *const Self, lctx: *ModuleContext, other: *const Self, rctx: *ModuleContext) bool {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        var lvisited = std.AutoHashMap(*const Sexp, void).init(arena.allocator());
+        defer lvisited.deinit();
+
+        return _recursive_eq(self, lctx, other, rctx, &lvisited);
     }
 
     pub fn jsonValue(self: @This(), alloc: std.mem.Allocator) !json.Value {

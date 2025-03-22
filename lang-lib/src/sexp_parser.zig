@@ -818,7 +818,7 @@ test "parse factorial iterative with graph reference" {
     const var_type = module.get(def).value.list.items[2];
     module.get(var_type).value.list.appendAssumeCapacity(try module.add(a, .symbol("typeof")));
     module.get(var_type).value.list.appendAssumeCapacity(try module.add(a, .symbol("acc")));
-    module.get(var_type).value.list.appendAssumeCapacity(try module.add(a, .symbol("i32")));
+    module.get(var_type).value.list.appendAssumeCapacity(try module.add(a, .symbol("i64")));
 
     const var_decl = module.get(def).value.list.items[3];
     module.get(var_decl).value.list.appendAssumeCapacity(try module.add(a, .symbol("define")));
@@ -830,6 +830,7 @@ test "parse factorial iterative with graph reference" {
     module.get(body).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 4)));
 
     const @"if" = module.get(body).value.list.items[1];
+    module.get(@"if").label = pool.getSymbol("if");
     module.get(@"if").value.list.appendAssumeCapacity(try module.add(a, .symbol("if")));
     module.get(@"if").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 3)));
     module.get(@"if").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 2)));
@@ -893,10 +894,12 @@ test "parse factorial iterative with graph reference" {
     var parsed = try Parser.parse(t.allocator, source, &diag);
     defer parsed.deinit();
 
-    std.debug.print("====== ACTUAL ===========\n", .{});
-    std.debug.print("{}\n", .{parsed.module});
-
-    const result = module.getRoot().recursive_eq(parsed.module.getRoot(), &module);
+    const result = Sexp.recursive_eq(
+        module.getRoot(),
+        &module,
+        parsed.module.getRoot(),
+        &parsed.module,
+    );
 
     if (!result) {
         std.debug.print("====== ACTUAL ===========\n", .{});
