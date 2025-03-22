@@ -6,6 +6,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const sexp = @import("./sexp.zig");
 const Sexp = sexp.Sexp;
+const ModuleContext = sexp.ModuleContext;
 const syms = sexp.syms;
 const Loc = @import("./loc.zig").Loc;
 // const InternPool = @import("./InternPool.zig").InternPool;
@@ -43,6 +44,7 @@ pub const Parser = struct {
         source: []const u8,
         result: Result = .none,
 
+        // fixme, make camel case
         const Result = union(enum(u16)) {
             none = 0,
             expectedFraction: Loc,
@@ -54,6 +56,15 @@ pub const Parser = struct {
             badFloat: []const u8,
             unterminatedString: []const u8,
             emptyQuote: Loc,
+            duplicateLabel: struct {
+                first: Loc,
+                second: Loc,
+                name: []const u8,
+            },
+            unknownLabel: struct {
+                loc: Loc,
+                name: []const u8,
+            },
         };
 
         const Code = error{
@@ -66,9 +77,12 @@ pub const Parser = struct {
             BadFloat,
             UnterminatedString,
             EmptyQuote,
+            DuplicateLabel,
+            UnknownLabel,
         };
 
         pub fn code(self: @This()) Code {
+            // fixme: capitalize
             return switch (self.result) {
                 .none => unreachable,
                 .expectedFraction => Code.ExpectedFraction,
@@ -80,6 +94,8 @@ pub const Parser = struct {
                 .badFloat => Code.BadFloat,
                 .unterminatedString => Code.UnterminatedString,
                 .emptyQuote => Code.EmptyQuote,
+                .duplicateLabel => Code.DuplicateLabel,
+                .unknownLabel => Code.UnknownLabel,
             };
         }
 
@@ -129,6 +145,36 @@ pub const Parser = struct {
                         \\  | {s}
                         \\    {}^
                     , .{ loc, try loc.containing_line(self.source), SpacePrint.init(loc.col - 1) });
+                },
+                .duplicateLabel => |info| {
+                    return try writer.print(
+                        \\Found duplicate label '{s}' at {}
+                        \\  | {s}
+                        \\    {}^
+                        \\note: first found at {}
+                        \\  | {s}
+                        \\    {}^
+                    , .{
+                        info.name,
+                        info.second,
+                        try info.second.containing_line(self.source),
+                        SpacePrint.init(info.second.col - 1),
+                        info.first,
+                        try info.first.containing_line(self.source),
+                        SpacePrint.init(info.first.col - 1),
+                    });
+                },
+                .unknownLabel => |info| {
+                    return try writer.print(
+                        \\Unknown label '{s}' at {}
+                        \\  | {s}
+                        \\    {}^
+                    , .{
+                        info.name,
+                        info.loc,
+                        try info.loc.containing_line(self.source),
+                        SpacePrint.init(info.loc.col - 1),
+                    });
                 },
             };
         }
@@ -392,27 +438,98 @@ pub const Parser = struct {
         return Error.UnknownToken;
     }
 
-    // FIXME: force arena allocator
+    pub const ParseResult = struct {
+        module: *ModuleContext,
+        arena: std.heap.ArenaAllocator,
+    };
+
+    // FIXME: force arena allocator?
     pub fn parse(
-        alloc: std.mem.Allocator,
+        in_alloc: std.mem.Allocator,
         src: []const u8,
         maybe_out_diagnostic: ?*Diagnostic,
-    ) Error!Sexp {
+    ) Error!ParseResult {
         var ignored_diagnostic: Diagnostic = undefined;
         const out_diag = if (maybe_out_diagnostic) |d| d else &ignored_diagnostic;
         out_diag.* = Diagnostic{ .source = src };
 
+        var out_arena = std.heap.ArenaAllocator.init(in_alloc);
+        errdefer out_arena.deinit();
+
+        var local_arena = std.heap.ArenaAllocator.init(in_alloc);
+        defer local_arena.deinit();
+
+        var label_map = std.AutoHashMapUnmanaged([]const u8, struct {
+            target: *Sexp,
+            loc: Loc,
+        }){};
+        // no defer, re use local arena
+        //defer label_map.deinit(in_alloc);
+
+        var sexps = try std.ArrayListUnmanaged(Sexp).initCapacity(out_arena.allocator(), 256);
+        errdefer {
+            for (sexps.items) |_sexp|
+                _sexp.deinit(out_arena.allocator());
+        }
+        defer sexps.deinit(out_arena.allocator());
+
+        // set up module root
+        sexps.addOneAssumeCapacity(.emptyModule);
+
+
         var loc: Loc = .{};
         // TODO: store the the opener position and whether it's a quote
-        var stack: std.SegmentedList(Sexp, 32) = .{};
-        defer stack.deinit(alloc);
-        errdefer {
-            var iter = stack.constIterator(0);
-            while (iter.next()) |item|
-                item.deinit(alloc);
-        }
+        var stack: std.SegmentedList(u32, 32) = .{};
+        // uses temp allocator, don't deinit
+        //defer stack.deinit(alloc);
 
-        try stack.append(alloc, Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } });
+        try stack.append(in_alloc, Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } });
+
+        // if a label appears alone on a line, it becomes the "active" label and attaches to the next
+        // parsed atom
+        var active_label: ?[:0]const u8 = null;
+        var last_sexp: ?*Sexp = null;
+
+        const helper = struct {
+            _stack: *@TypeOf(stack),
+            _loc: *@TypeOf(loc),
+            _last_sexp: *@TypeOf(last_sexp),
+            _active_label: *@TypeOf(active_label),
+            _label_map: *@TypeOf(label_map),
+
+            fn pushSexp(self: *const @This(), in_sexp: Sexp) !void {
+                // not reachable because invalidly trying to pop the module scope is handled
+                const top = peek(self._stack) orelse unreachable;
+                const last = try top.value.list.addOne();
+                last.* = in_sexp;
+                self._last_sexp = last;
+
+                if (self._active_label.*) |label| {
+                    const put_res = try self._label_map.getOrPut(alloc, label);
+                    if (put_res.found_existing) {
+                        out_diag.code = Diagnostic.Result{ .duplicateLabel = .{
+                            .first = put_res.value_ptr.location,
+                            .name = label,
+                            .second = self._loc.*,
+                        } };
+                        return Diagnostic.Code.DuplicateLabel;
+                    }
+
+                    put_res.value_ptr.* = .{
+                        .loc = self._loc.*,
+                        .name = label,
+                    };
+
+                    self._active_label.* = null;
+                }
+            }
+        }{
+            ._loc = &loc,
+            ._stack = &stack,
+            ._last_sexp = &last_sexp,
+            ._active_label = &active_label,
+            ._label_map = &label_map,
+        };
 
         while (loc.index < src.len) : (loc.increment(src)) {
             const c = src[loc.index];
@@ -424,10 +541,7 @@ pub const Parser = struct {
             switch (c) {
                 '-', '0'...'9' => {
                     const tok = try parseNumberOrUnaryNegationToken(src[loc.index..], loc, out_diag);
-                    // unreachable cuz we'd have already failed if we popped the last one
-                    const top = peek(&stack) orelse unreachable;
-                    const last = try top.value.list.addOne();
-                    last.* = tok.sexp;
+                    try helper.pushSexp(tok.sexp);
                     for (0..tok.src_span.len - 1) |_| loc.increment(src);
                 },
                 '(' => {
@@ -440,14 +554,14 @@ pub const Parser = struct {
                         out_diag.*.result = .{ .unmatchedCloser = loc };
                         return error.UnmatchedCloser;
                     };
+                    // FIXME: well this isn't conducive to internal pointers at all...
                     try new_top.value.list.append(old_top);
+                    last_sexp = old_top;
                 },
                 '"' => {
                     const tok = try parseStringToken(alloc, src[loc.index..], out_diag);
+                    try helper.pushSexp(tok.sexp);
                     // unreachable cuz we'd have already failed if we popped the last one
-                    const top = peek(&stack) orelse unreachable;
-                    const last = try top.value.list.addOne();
-                    last.* = tok.sexp;
                     for (0..tok.src_span.len - 1) |_| loc.increment(src);
                 },
                 '#' => {
@@ -461,6 +575,7 @@ pub const Parser = struct {
                             last.* = tok.sexp;
                             for (0..tok.src_span.len - 1) |_| loc.increment(src);
                         },
+                        // FIXME: remove this possibility
                         .label => |label| {
                             const top = peek(&stack) orelse unreachable;
                             const last = if (top.value.list.items.len > 0)
@@ -504,13 +619,44 @@ pub const Parser = struct {
                 '{'...'~',
                 => {
                     const tok = try parseSymbolToken(src[loc.index..], loc, out_diag);
-                    // unreachable cuz we'd have already failed if we popped the last one
-                    const top = peek(&stack) orelse unreachable;
-                    const last = try top.value.list.addOne();
-                    last.* = tok.sexp;
+                    // might not be a symbol, could be a label jump or label
+                    if (std.mem.startsWith(u8, src[loc.index..], ">!")) {
+                        // is label jump
+                        if (try label_map.getPtr(tok.src_span[2..])) |label_info| {
+                            try helper.pushSexp(label_info.sexp);
+                        } else {
+                            // FIXME: should be able to reference "eventual" labels
+                            out_diag.code = Diagnostic.Result{ .unknownLabel = .{
+                                .name = tok.src_span,
+                                .loc = loc,
+                            } };
+                        }
+                    } else if (std.mem.startsWith(u8, src[loc.index..], "<!")) {
+                        // is label
+                        if (last_sexp) |last| {
+                            const put_res = try label_map.getOrPut(alloc, last.label);
+                            if (put_res.found_existing) {
+                                out_diag.code = Diagnostic.Result{ .duplicateLabel = .{
+                                    .first = put_res.value_ptr.location,
+                                    .name = last.label,
+                                    .second = loc,
+                                } };
+                            }
+                            last.label = tok.src_span;
+                        } else {
+                            active_label = tok.src_span;
+                        }
+                    } else {
+                        // is regular symbol
+                        helper.pushSexp(tok.sexp);
+                    }
+
                     for (0..tok.src_span.len - 1) |_| loc.increment(src);
                 },
-                ' ', '\n', '\t' => {},
+                ' ', '\t' => {},
+                '\n' => {
+                    last_sexp = null;
+                },
                 else => {
                     out_diag.*.result = .{ .unknownToken = loc };
                     return Error.UnknownToken;
@@ -532,7 +678,12 @@ pub const Parser = struct {
 
         stack.uncheckedAt(0).* = Sexp{ .value = .void };
 
-        return result;
+        return ParseResult{
+            .module = .{
+                .arena = sexps,
+            },
+            .arena = arena,
+        };
     }
 };
 
@@ -571,7 +722,7 @@ fn escapeStr(alloc: std.mem.Allocator, src: []const u8) ![]u8 {
 const t = std.testing;
 
 test "parse all" {
-    var expected = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(t.allocator) } };
+    var expected = Sexp{ .value = .{ .module = std.ArrayListUnmanaged(u32).init(t.allocator) } };
     try expected.value.module.append(Sexp{ .value = .{ .int = 0 }, .label = "#!label1" });
     try expected.value.module.append(Sexp{ .value = .{ .int = 2 } });
     try expected.value.module.append(Sexp{ .value = .{ .ownedString = "hel\"lo\nworld" }, .label = "#!label2" });
@@ -659,7 +810,6 @@ test "parse factorial iterative with graph reference" {
     body.appendAssumeCapacity(.symbol("begin"));
     body.appendAssumeCapacity(try .emptyListCapacity(t.allocator, 4));
 
-    body.items[1].label = "if";
     const @"if" = &body.items[1].value.list;
     @"if".appendAssumeCapacity(.symbol("if"));
     @"if".appendAssumeCapacity(try .emptyListCapacity(t.allocator, 3));
