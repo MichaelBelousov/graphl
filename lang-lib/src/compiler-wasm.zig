@@ -15,6 +15,7 @@ const build_opts = @import("build_opts");
 const std = @import("std");
 const json = std.json;
 const Sexp = @import("./sexp.zig").Sexp;
+const ModuleContext = @import("./sexp.zig").ModuleContext;
 const syms = @import("./sexp.zig").syms;
 const primitive_type_syms = @import("./sexp.zig").primitive_type_syms;
 const graphl_builtin = @import("./nodes/builtin.zig");
@@ -36,6 +37,7 @@ const intrinsics_code = ""; // FIXME
 pub const Diagnostic = struct {
     err: Error = .None,
 
+    // FIXME: why not take a pointer to the whole ModuleContext?
     // set upon start of compilation
     /// the sexp parsed from the source contextually related to the stored error
     root_sexp: *const Sexp = undefined,
@@ -84,9 +86,10 @@ const DeferredFuncDeclInfo = struct {
     param_names: []const [:0]const u8,
     local_names: []const [:0]const u8,
     local_types: []const Type,
-    local_defaults: []const Sexp,
+    /// indices into the graphlt module context
+    local_defaults: []const u32,
     result_names: []const [:0]const u8,
-    body_exprs: []const Sexp,
+    body_exprs: []const u32,
 };
 
 const DeferredFuncTypeInfo = struct {
@@ -256,6 +259,7 @@ const Compilation = struct {
         /// typeof's of functions that need function param names
         func_types: std.StringHashMapUnmanaged(DeferredFuncTypeInfo) = .{},
     } = .{},
+    graphlt_module: *const ModuleContext,
 
     module: *byn.Module,
     arena: std.heap.ArenaAllocator,
@@ -269,11 +273,13 @@ const Compilation = struct {
 
     pub fn init(
         alloc: std.mem.Allocator,
+        graphlt_module: *const ModuleContext,
         env: *Env,
         maybe_user_funcs: ?*const std.SinglyLinkedList(UserFunc),
         in_diag: *Diagnostic,
     ) !@This() {
         var result = @This(){
+            .graphlt_module = graphlt_module,
             .arena = std.heap.ArenaAllocator.init(alloc),
             .diag = in_diag,
             .env = env,
@@ -345,31 +351,38 @@ const Compilation = struct {
         self.arena.deinit();
     }
 
-    fn compileFunc(self: *@This(), sexp: *const Sexp) !bool {
+    fn compileFunc(self: *@This(), sexp_index: u32) !bool {
         const alloc = self.arena.allocator();
+        const sexp: *const Sexp = self.graphlt_module.get(sexp_index);
 
-        if (sexp.value != .list) return false;
-        if (sexp.value.list.items.len == 0) return false;
-        if (sexp.value.list.items[0].value != .symbol) return error.NonSymbolHead;
+        if (Sexp.findPatternMismatch(self.graphlt_module, sexp_index,
+            \\(define (SYMBOL ...SYMBOL) (begin ...ANY))
+        )) |_| return false;
+
+        // if (sexp.value != .list) return false;
+        // if (sexp.value.list.items.len == 0) return false;
+        // if (sexp.getWithModule(0, self.graphlt_module) != .symbol) return error.NonSymbolHead;
 
         // FIXME: parser should be aware of the define form!
         //if (sexp.value.list.items[0].value.symbol.ptr != syms.define.value.symbol.ptr) return false;
-        if (!std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.define.value.symbol)) return false;
+        //if (!std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.define.value.symbol)) return false;
 
-        if (sexp.value.list.items.len <= 2) return false;
-        if (sexp.value.list.items[1].value != .list) return false;
-        if (sexp.value.list.items[1].value.list.items.len < 1) return error.FuncBindingsListEmpty;
-        for (sexp.value.list.items[1].value.list.items) |*def_item| {
-            if (def_item.value != .symbol) return error.FuncParamBindingNotSymbol;
-        }
+        // if (sexp.value.list.items.len <= 2) return false;
+        // if (sexp.value.list.items[1].value != .list) return false;
+        // if (sexp.value.list.items[1].value.list.items.len < 1) return error.FuncBindingsListEmpty;
+        // for (sexp.value.list.items[1].value.list.items) |*def_item| {
+        //     if (def_item.value != .symbol) return error.FuncParamBindingNotSymbol;
+        // }
 
-        if (sexp.value.list.items.len < 3) return error.FuncWithoutBody;
-        const body = sexp.value.list.items[2];
-        // NOTE: if there are no locals this should be ok!
-        if (body.value != .list) return error.FuncBodyNotList;
-        if (body.value.list.items.len < 1) return error.FuncBodyWithoutBegin;
-        if (body.value.list.items[0].value != .symbol) return error.FuncBodyWithoutBegin;
-        if (body.value.list.items[0].value.symbol.ptr != syms.begin.value.symbol.ptr) return error.FuncBodyWithoutBegin;
+        // if (sexp.value.list.items.len < 3) return error.FuncWithoutBody;
+        // const body = sexp.value.list.items[2];
+        // // NOTE: if there are no locals this should be ok!
+        // if (body.value != .list) return error.FuncBodyNotList;
+        // if (body.value.list.items.len < 1) return error.FuncBodyWithoutBegin;
+        // if (body.value.list.items[0].value != .symbol) return error.FuncBodyWithoutBegin;
+        // if (body.value.list.items[0].value.symbol.ptr != syms.begin.value.symbol.ptr) return error.FuncBodyWithoutBegin;
+
+        const body = sexp.getWithModule(2, self.graphlt_module);
 
         var local_names = std.ArrayList([:0]const u8).init(alloc);
         defer local_names.deinit();
@@ -377,33 +390,37 @@ const Compilation = struct {
         var local_types = std.ArrayList(Type).init(alloc);
         defer local_types.deinit();
 
-        var local_defaults = std.ArrayList(Sexp).init(alloc);
+        var local_defaults = std.ArrayList(u32).init(alloc);
         defer local_defaults.deinit();
 
         var first_non_def: usize = 0;
-        for (body.value.list.items[1..], 1..) |maybe_local_def, i| {
+        for (body.value.list.items[1..], 1..) |maybe_local_def_idx, i| {
+            const maybe_local_def = self.graphlt_module.get(maybe_local_def_idx);
             first_non_def = i;
-            // locals are all in one block at the beginning. If it's not a local def, stop looking for more
-            if (maybe_local_def.value != .list) break;
-            if (maybe_local_def.value.list.items.len < 3) break;
-            if (maybe_local_def.value.list.items[0].value.symbol.ptr != syms.define.value.symbol.ptr and maybe_local_def.value.list.items[0].value.symbol.ptr != syms.typeof.value.symbol.ptr)
-                break;
-            if (maybe_local_def.value.list.items[1].value != .symbol) return error.LocalBindingNotSymbol;
+            // if (maybe_local_def.value != .list) break;
+            // if (maybe_local_def.value.list.items.len < 3) break;
+            // if (maybe_local_def.value.list.items[0].value.symbol.ptr != syms.define.value.symbol.ptr and maybe_local_def.value.list.items[0].value.symbol.ptr != syms.typeof.value.symbol.ptr)
+            //     break;
+            // if (maybe_local_def.value.list.items[1].value != .symbol) return error.LocalBindingNotSymbol;
 
-            const is_typeof = maybe_local_def.value.list.items[0].value.symbol.ptr == syms.typeof.value.symbol.ptr;
-            const local_name = maybe_local_def.value.list.items[1].value.symbol;
+            const is_def = Sexp.findPatternMismatch(self.graphlt_module, maybe_local_def_idx, "(define SYMBOL ...ANY)") == null;
+            const is_typeof = Sexp.findPatternMismatch(self.graphlt_module, maybe_local_def_idx, "(typeof SYMBOL ...ANY)") == null;
+            // locals are all in one block at the beginning. If it's not a local def, stop looking for more
+            if (!is_def and !is_typeof) break;
+
+            const local_name = maybe_local_def.getWithModule(1, self.graphlt_module).value.symbol;
 
             // FIXME: typeofs must come before or after because the name isn't inserted in order!
             if (is_typeof) {
-                const local_type = maybe_local_def.value.list.items[2];
+                const local_type = maybe_local_def.getWithModule(2, self.graphlt_module);
                 if (local_type.value != .symbol)
                     return error.LocalBindingTypeNotSymbol;
                 // TODO: diagnostic
                 (try local_types.addOne()).* = self.env.getType(local_type.value.symbol) orelse return error.TypeNotFound;
             } else {
                 const local_default = maybe_local_def.value.list.items[2];
-                (try local_defaults.addOne()).* = local_default;
-                (try local_names.addOne()).* = local_name;
+                try local_defaults.append(local_default);
+                try local_names.append(local_name);
             }
         }
 
@@ -411,17 +428,18 @@ const Compilation = struct {
 
         const return_exprs = body.value.list.items[first_non_def..];
 
-        const func_name = sexp.value.list.items[1].value.list.items[0].value.symbol;
+        const func_name = sexp.getWithModule(1, self.graphlt_module).getWithModule(0, self.graphlt_module).value.symbol;
         //const params = sexp.value.list.items[1].value.list.items[1..];
         const func_name_mangled = func_name;
         _ = func_name_mangled;
 
-        const func_bindings = sexp.value.list.items[1].value.list.items[1..];
+        const func_bindings_idxs = sexp.getWithModule(1, self.graphlt_module).value.list.items[1..];
 
-        const param_names = try alloc.alloc([:0]const u8, func_bindings.len);
+        const param_names = try alloc.alloc([:0]const u8, func_bindings_idxs.len);
         errdefer alloc.free(param_names);
 
-        for (func_bindings, param_names) |func_binding, *param_name| {
+        for (func_bindings_idxs, param_names) |func_binding_idx, *param_name| {
+            const func_binding = self.graphlt_module.get(func_binding_idx);
             param_name.* = func_binding.value.symbol;
         }
 
@@ -510,18 +528,14 @@ const Compilation = struct {
         };
     }
 
-    fn compileVar(self: *@This(), sexp: *const Sexp) !bool {
-        _ = self;
+    fn compileVar(self: *@This(), sexp_index: u32) !bool {
+        const sexp = self.graphlt_module.get(sexp_index);
 
-        if (sexp.value != .list) return false;
-        if (sexp.value.list.items.len == 0) return false;
-        if (sexp.value.list.items[0].value != .symbol) return error.NonSymbolHead;
+        if (Sexp.findPatternMismatch(self.graphlt_module, sexp_index,
+            \\(define SYMBOL ...ANY)")
+        )) |_| return false;
 
-        if (sexp.value.list.items[0].value.symbol.ptr != syms.define.value.symbol.ptr) return false;
-
-        if (sexp.value.list.items[1].value != .symbol) return error.NonSymbolBinding;
-
-        const var_name = sexp.value.list.items[1].value.symbol;
+        const var_name = sexp.getWithModule(1, self.graphlt_module).value.symbol;
         //const params = sexp.value.list.items[1].value.list.items[1..];
         const var_name_mangled = var_name;
         _ = var_name_mangled;
@@ -531,31 +545,42 @@ const Compilation = struct {
         return true;
     }
 
-    fn compileTypeOf(self: *@This(), sexp: *const Sexp) !bool {
-        if (sexp.value != .list) return false;
-        if (sexp.value.list.items.len == 0) return error.TypeDeclListEmpty;
-        if (sexp.value.list.items[0].value != .symbol) return error.NonSymbolHead;
-        if (sexp.value.list.items[0].value.symbol.ptr != syms.typeof.value.symbol.ptr) return false;
+    fn compileTypeOf(self: *@This(), sexp_index: u32) !bool {
+        const sexp = self.graphlt_module.get(sexp_index);
 
-        return try self.compileTypeOfFunc(sexp) or try self.compileTypeOfVar(sexp);
+        const is_typeof_var = Sexp.findPatternMismatch(self.graphlt_module, sexp_index,
+            \\(define SYMBOL ...ANY)")
+        ) == null;
+
+        const is_typeof_func = Sexp.findPatternMismatch(self.graphlt_module, sexp_index,
+            \\(define (SYMBOL ...SYMBOL) ...ANY)")
+        ) == null;
+
+        if (is_typeof_var) {
+            return self.compileTypeOfVar(sexp);
+        } else if (is_typeof_func) {
+            return self.compileTypeOfFunc(sexp);
+        } else {
+            return false;
+        }
     }
 
     /// e.g. (typeof (f i32) i32)
     fn compileTypeOfFunc(self: *@This(), sexp: *const Sexp) !bool {
         const alloc = self.arena.allocator();
 
-        std.debug.assert(sexp.value == .list);
-        std.debug.assert(sexp.value.list.items[0].value == .symbol);
-        // FIXME: parser should be aware of the define form!
-        //std.debug.assert(sexp.value.list.items[0].value.symbol.ptr == syms.typeof.value.symbol.ptr);
-        std.debug.assert(std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.typeof.value.symbol));
+        // std.debug.assert(sexp.value == .list);
+        // std.debug.assert(sexp.value.list.items[0].value == .symbol);
+        // // FIXME: parser should be aware of the define form!
+        // //std.debug.assert(sexp.value.list.items[0].value.symbol.ptr == syms.typeof.value.symbol.ptr);
+        // std.debug.assert(std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.typeof.value.symbol));
 
-        if (sexp.value.list.items[1].value != .list) return false;
-        if (sexp.value.list.items[1].value.list.items.len == 0) return error.FuncTypeDeclListEmpty;
-        for (sexp.value.list.items[1].value.list.items) |*def_item| {
-            // FIXME: function types names must be simple symbols (for now)
-            if (def_item.value != .symbol) return error.FuncBindingsListEmpty;
-        }
+        // if (sexp.value.list.items[1].value != .list) return false;
+        // if (sexp.value.list.items[1].value.list.items.len == 0) return error.FuncTypeDeclListEmpty;
+        // for (sexp.value.list.items[1].value.list.items) |*def_item| {
+        //     // FIXME: function types names must be simple symbols (for now)
+        //     if (def_item.value != .symbol) return error.FuncBindingsListEmpty;
+        // }
 
         const func_name = sexp.value.list.items[1].value.list.items[0].value.symbol;
         const param_type_exprs = sexp.value.list.items[1].value.list.items[1..];
@@ -662,7 +687,8 @@ const Compilation = struct {
         // FIXME: not used?
         var result_type_wasm: ?byn.c.BinaryenType = null;
 
-        for (func_decl.body_exprs, 0..) |*body_expr, i| {
+        for (func_decl.body_exprs, 0..) |body_expr_idx, i| {
+            const body_expr = self.graphlt_module.get(body_expr_idx);
             var expr_ctx = ExprContext{
                 .locals = &post_analysis_locals,
                 .label_map = &label_map,
@@ -1576,28 +1602,26 @@ const Compilation = struct {
     }
 
     fn compileTypeOfVar(self: *@This(), sexp: *const Sexp) !bool {
-        _ = self;
-        std.debug.assert(sexp.value == .list);
-        std.debug.assert(sexp.value.list.items[0].value == .symbol);
-        // FIXME: parser should be aware of the define form!
-        //std.debug.assert(sexp.value.list.items[0].value.symbol.ptr == syms.typeof.value.symbol.ptr);
-        std.debug.assert(std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.typeof.value.symbol));
+        // std.debug.assert(sexp.value == .list);
+        // std.debug.assert(sexp.value.list.items[0].value == .symbol);
+        // // FIXME: parser should be aware of the define form!
+        // //std.debug.assert(sexp.value.list.items[0].value.symbol.ptr == syms.typeof.value.symbol.ptr);
+        // std.debug.assert(std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.typeof.value.symbol));
 
-        if (sexp.value.list.items[1].value != .symbol) return false;
-        // shit, I need to evaluate macros in the compiler, don't I
-        if (sexp.value.list.items[2].value != .symbol) return error.VarTypeNotSymbol;
+        // if (sexp.value.list.items[1].value != .symbol) return false;
+        // if (sexp.value.list.items[2].value != .symbol) return error.VarTypeNotSymbol;
 
-        const var_name = sexp.value.list.items[1].value.symbol;
+        const var_name = sexp.getWithModule(1, self.graphlt_module).value.symbol;
         _ = var_name;
-        const type_name = sexp.value.list.items[2].value.symbol;
+        const type_name = sexp.getWithModule(2, self.graphlt_module).value.symbol;
         _ = type_name;
+
+        // FIXME: implement
 
         return true;
     }
 
-    pub fn compileModule(self: *@This(), sexp: *const Sexp) ![]const u8 {
-        std.debug.assert(sexp.value == .module);
-
+    pub fn compileModule(self: *@This(), graphlt_module: *const ModuleContext) ![]const u8 {
         const UserFuncDef = struct {
             params: []Type,
             results: []Type,
@@ -1778,23 +1802,24 @@ const Compilation = struct {
             }
         }
 
-        for (sexp.value.module.items) |decl| {
+        for (graphlt_module.getRoot().value.module.items) |idx| {
+            const decl = graphlt_module.get(idx);
             switch (decl.value) {
                 .list => {
                     // FIXME: maybe distinguish without errors if something if a func, var or typeof?
-                    const did_compile = (try self.compileFunc(&decl) or
-                        try self.compileVar(&decl) or
-                        try self.compileTypeOf(&decl) or
-                        try self.compileMeta(&decl) or
-                        try self.compileImport(&decl));
+                    const did_compile = (try self.compileFunc(idx) or
+                        try self.compileVar(idx) or
+                        try self.compileTypeOf(decl) or
+                        try self.compileMeta(decl) or
+                        try self.compileImport(decl));
                     if (!did_compile) {
-                        self.diag.err = Diagnostic.Error{ .BadTopLevelForm = &decl };
+                        self.diag.err = Diagnostic.Error{ .BadTopLevelForm = decl };
                         std.log.err("{}", .{self.diag});
                         return error.badTopLevelForm;
                     }
                 },
                 else => {
-                    self.diag.err = Diagnostic.Error{ .BadTopLevelForm = &decl };
+                    self.diag.err = Diagnostic.Error{ .BadTopLevelForm = decl };
                     std.log.err("{}", .{self.diag});
                     return error.badTopLevelForm;
                 },
@@ -1848,23 +1873,23 @@ const Compilation = struct {
 
 pub fn compile(
     a: std.mem.Allocator,
-    sexp: *const Sexp,
+    graphlt_module: *const ModuleContext,
     user_funcs: ?*const std.SinglyLinkedList(UserFunc),
     _in_diagnostic: ?*Diagnostic,
 ) ![]const u8 {
     if (build_opts.disable_compiler) unreachable;
     var ignored_diagnostic: Diagnostic = undefined; // FIXME: why don't we init?
     const diag = if (_in_diagnostic) |d| d else &ignored_diagnostic;
-    diag.root_sexp = sexp;
+    diag.root_sexp = graphlt_module.getRoot();
 
     // FIXME: use the arena inside the compilation instead of the raw allocator
     var env = try Env.initDefault(a);
     defer env.deinit(a);
 
-    var unit = try Compilation.init(a, &env, user_funcs, diag);
+    var unit = try Compilation.init(a, graphlt_module, &env, user_funcs, diag);
     defer unit.deinit();
 
-    return unit.compileModule(sexp);
+    return unit.compileModule(graphlt_module);
 }
 
 const t = std.testing;
@@ -2527,7 +2552,7 @@ test "vec3 ref" {
     ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &user_funcs, &diagnostic)) |wasm| {
+    if (compile(t.allocator, &parsed.module, &user_funcs, &diagnostic)) |wasm| {
         defer t.allocator.free(wasm);
         try expectWasmEqualsWat(expected, wasm);
     } else |err| {

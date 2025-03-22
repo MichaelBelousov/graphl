@@ -6,6 +6,7 @@ const io = std.io;
 const testing = std.testing;
 const json = std.json;
 const pool = &@import("./InternPool.zig").pool;
+const Parser = @import("./sexp_parser.zig").Parser;
 
 // FIXME: don't include in non-debug builds
 
@@ -169,10 +170,16 @@ pub const Sexp = struct {
     pub fn body(self: *Self) *std.ArrayListUnmanaged(u32) {
         return switch (self.value) {
             .list, .module => |*v| v,
-            .ownedString, .void, .int, .float, .bool, .borrowedString, .symbol => @panic("can only call toOwnedSlice on modules and lists"),
+            .ownedString, .void, .int, .float, .bool, .borrowedString, .symbol => @panic("can only call 'body' on modules and lists"),
         };
     }
 
+    pub fn getWithModule(self: *const Self, index: usize, mod_ctx: *const ModuleContext) *Sexp {
+        return switch (self.value) {
+            .list, .module => |*v| mod_ctx.get(v.items[index]),
+            .ownedString, .void, .int, .float, .bool, .borrowedString, .symbol => @panic("can only call 'getWithModule' on modules and lists"),
+        };
+    }
 
     pub fn toOwnedSlice(self: *Self) ![]Sexp {
         return switch (self.value) {
@@ -375,6 +382,105 @@ pub const Sexp = struct {
                 return true;
             },
         }
+    }
+
+    fn _findPatternMismatch(
+        self_index: u32,
+        lctx: *ModuleContext,
+        pat_index: u32,
+        pctx: *const ModuleContext,
+        lvisited: *std.AutoHashMap(u32, void),
+    ) ?u32 {
+        if (lvisited.contains(self_index)) return true;
+        lvisited.put(self_index, {}) catch unreachable;
+
+        const self: *const Sexp = lctx.get(self_index);
+        const pattern: *const Sexp = pctx.get(pat_index);
+
+        if (pattern.value == .symbol and pattern.value.symbol == pool.getSymbol("ANY")) {
+            return null;
+        }
+
+        if (pattern.value == .symbol and pattern.value.symbol == pool.getSymbol("SYMBOL")) {
+            return self.value == .symbol;
+        }
+
+        if (std.meta.activeTag(self.value) != std.meta.activeTag(pattern.value)) {
+            return self_index;
+        }
+
+        if ((self.label == null) != (pattern.label == null))
+            return self_index;
+
+        if (self.label != null and self.label.?.ptr != pattern.label.?.ptr)
+            return self_index;
+
+        switch (self.value) {
+            .float => |v| return v == pattern.value.float,
+            .bool => |v| return v == pattern.value.bool,
+            .void => return true,
+            .int => |v| return v == pattern.value.int,
+            .ownedString => |v| return std.mem.eql(u8, v, pattern.value.ownedString),
+            .borrowedString => |v| return std.mem.eql(u8, v, pattern.value.borrowedString),
+            .symbol => |v| return std.mem.eql(u8, v, pattern.value.symbol),
+            inline .module, .list => |v, sexp_type| {
+                const pattern_list = @field(pattern.value, @tagName(sexp_type));
+                var i: usize = 0;
+                outer: while (i < v.items.len and i < pattern_list.items.len) : (i += 1) {
+                    const item_idx = v.items[i];
+                    const pattern_item_idx = pattern_list.items[i];
+                    const item = lctx.get(item_idx);
+                    const pattern_item = pctx.get(pattern_item_idx);
+                    if (pattern_item.value == .symbol and pattern_item.value.symbol == pool.getSymbol("...SYMBOL")) {
+                        std.debug.assert(i == pattern_list.len - 1); // rest pattern must be last
+                        for (v.items[i+1..]) |rest_item_idx| {
+                            const rest_item = lctx.get(item_idx);
+                            if (rest_item.value != .symbol)
+                                return rest_item_idx;
+                            break :outer;
+                        }
+                    } else if (pattern_item.value == .symbol and pattern_item.value.symbol == pool.getSymbol("...ANY")) {
+                        break :outer;
+                    }
+                    if (_findPatternMismatch(item, lctx, pattern_item, pctx, lvisited)) |mismatch|
+                        return mismatch;
+                }
+                return null;
+            },
+        }
+    }
+
+    // TODO: add a special "wildcard" type to the Sexp.value union specifically for
+    // pattern matching mode
+    // TODO: make (a subset of) the parser work at comptime
+    /// returns null if it matches, otherwise returns the sexp index at which it mismatched
+    /// the pattern matching language looks like:
+    /// ```scm
+    /// (define (SYMBOL ...SYMBOL) ...ANY)
+    /// ````
+    /// where uppercase SYMBOL or e.g. FLOAT (unimplemented) requires that to be matched, and ...
+    /// (which must occur at the last index of a list) will match 0 or more of that type
+    ///
+    /// Eventually it may be extended to support named captures in the pattern so it's easier to tell where
+    /// a mismatch occurred
+    pub fn findPatternMismatch(
+        lctx: *const ModuleContext,
+        index: u32,
+        comptime pattern: []const u8,
+    ) ?u32 {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        var pat_diag = Parser.Diagnostic{ .source = pattern };
+        var pattern_module = Parser.parse(std.heap.page_allocator, pattern, &pat_diag) catch {
+            std.debug.print("Pattern match error: {}\n", .{pat_diag});
+            //pat_diag.contextualize(std.io.getStdErr().writer());
+            unreachable; 
+        };
+        defer pattern_module.deinit();
+        var lvisited = std.AutoHashMap(u32, void).init(arena.allocator());
+        defer lvisited.deinit();
+
+        return _findPatternMismatch(index, lctx, 0, pattern_module.module, lvisited);
     }
 
     pub fn recursive_eq(self: *const Self, lctx: *ModuleContext, other: *const Self, rctx: *ModuleContext) bool {
