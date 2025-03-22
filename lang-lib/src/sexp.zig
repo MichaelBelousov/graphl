@@ -495,20 +495,21 @@ pub const Sexp = struct {
         return _recursive_eq(self, lctx, other, rctx, &lvisited);
     }
 
-    pub fn jsonValue(self: @This(), alloc: std.mem.Allocator) !json.Value {
+    pub fn jsonValue(self: @This(), mod: *const ModuleContext, alloc: std.mem.Allocator) !json.Value {
         return switch (self.value) {
             .list => |v| _: {
                 var result = json.Array.init(alloc);
                 try result.ensureTotalCapacityPrecise(v.items.len);
-                for (v.items) |item| {
-                    (try result.addOne()).* = try item.jsonValue(alloc);
+                for (v.items) |item_idx| {
+                    const item = mod.get(item_idx);
+                    (try result.addOne()).* = try item.jsonValue(mod, alloc);
                 }
                 break :_ json.Value{ .array = result };
             },
             .module => |v| _: {
                 var result = json.ObjectMap.init(alloc);
                 // TODO: ensureTotalCapacityPrecise
-                try result.put("module", try (Sexp{ .value = .{ .list = v } }).jsonValue(alloc));
+                try result.put("module", try (Sexp{ .value = .{ .list = v } }).jsonValue(mod, alloc));
                 break :_ json.Value{ .object = result };
             },
             .float => |v| json.Value{ .float = v },

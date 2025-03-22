@@ -462,19 +462,14 @@ const Compilation = struct {
         return true;
     }
 
-    fn compileMeta(self: *@This(), sexp: *const Sexp) !bool {
-        _ = self;
+    fn compileMeta(self: *@This(), sexp_index: u32) !bool {
+        if (Sexp.findPatternMismatch(self.graphlt_module, sexp_index,
+            \\(meta version 1)
+        )) |_| return false;
 
-        if (sexp.value != .list) return false;
-        if (sexp.value.list.items.len == 0) return false;
-        if (sexp.value.list.items[0].value != .symbol) return error.NonSymbolHead;
-        if (sexp.value.list.items[0].value.symbol.ptr != syms.meta.value.symbol.ptr) return false;
-        if (sexp.value.list.items.len < 3) return error.BadMetaSize;
-        if (sexp.value.list.items[1].value != .symbol) return error.NonSymbolMetaProperty;
-        const property = sexp.value.list.items[1].value.symbol;
-        if (property.ptr != syms.version.value.symbol.ptr) return error.NonVersionMetaProperty;
-        if (sexp.value.list.items[2].value != .int) return error.NonIntegerVersion;
-        if (sexp.value.list.items[2].value.int != 1) return error.UnsupportedVersion;
+        const sexp = self.graphlt_module.get(sexp_index);
+
+        if (sexp.getWithModule(2, self.graphlt_module).value.int != 1) return error.UnsupportedVersion;
 
         return true;
     }
@@ -482,14 +477,14 @@ const Compilation = struct {
     fn compileImport(self: *@This(), sexp: *const Sexp) !bool {
         if (sexp.value != .list) return false;
         if (sexp.value.list.items.len == 0) return false;
-        if (sexp.value.list.items[0].value != .symbol) return error.NonSymbolHead;
-        if (sexp.value.list.items[0].value.symbol.ptr != syms.import.value.symbol.ptr) return false;
-        if (sexp.value.list.items[1].value != .symbol) return error.NonSymbolBinding;
-        if (sexp.value.list.items[2].value != .ownedString) return error.NonStringPackagePath;
+        if (sexp.getWithModule(0, self.graphlt_module).value != .symbol) return error.NonSymbolHead;
+        if (sexp.getWithModule(0, self.graphlt_module).value.symbol.ptr != syms.import.value.symbol.ptr) return false;
+        if (sexp.getWithModule(1, self.graphlt_module).value != .symbol) return error.NonSymbolBinding;
+        if (sexp.getWithModule(2, self.graphlt_module).value != .ownedString) return error.NonStringPackagePath;
 
-        const import_binding = sexp.value.list.items[1].value.symbol;
+        const import_binding = sexp.getWithModule(1, self.graphlt_module).value.symbol;
 
-        const imported = try self.analyzeImportAtPath(sexp.value.list.items[2].value.ownedString);
+        const imported = try self.analyzeImportAtPath(sexp.getWithModule(2, self.graphlt_module).value.ownedString);
 
         const node_desc = try self.arena.allocator().create(graphl_builtin.BasicNodeDesc);
 
@@ -532,7 +527,7 @@ const Compilation = struct {
         const sexp = self.graphlt_module.get(sexp_index);
 
         if (Sexp.findPatternMismatch(self.graphlt_module, sexp_index,
-            \\(define SYMBOL ...ANY)")
+            \\(define SYMBOL ...ANY)
         )) |_| return false;
 
         const var_name = sexp.getWithModule(1, self.graphlt_module).value.symbol;
@@ -549,11 +544,11 @@ const Compilation = struct {
         const sexp = self.graphlt_module.get(sexp_index);
 
         const is_typeof_var = Sexp.findPatternMismatch(self.graphlt_module, sexp_index,
-            \\(define SYMBOL ...ANY)")
+            \\(define SYMBOL ...ANY)
         ) == null;
 
         const is_typeof_func = Sexp.findPatternMismatch(self.graphlt_module, sexp_index,
-            \\(define (SYMBOL ...SYMBOL) ...ANY)")
+            \\(define (SYMBOL ...SYMBOL) ...ANY)
         ) == null;
 
         if (is_typeof_var) {
@@ -582,17 +577,18 @@ const Compilation = struct {
         //     if (def_item.value != .symbol) return error.FuncBindingsListEmpty;
         // }
 
-        const func_name = sexp.value.list.items[1].value.list.items[0].value.symbol;
-        const param_type_exprs = sexp.value.list.items[1].value.list.items[1..];
+        const func_name = sexp.getWithModule(1, self.graphlt_module).getWithModule(0, self.graphlt_module).value.symbol;
+        const param_type_expr_idxs = sexp.getWithModule(1, self.graphlt_module).value.list.items[1..];
 
         // FIXME: types must be symbols (for now)
-        if (sexp.value.list.items[2].value != .symbol) return error.FuncTypeDeclResultNotASymbol;
+        if (sexp.getWithModule(2, self.graphlt_module).value != .symbol) return error.FuncTypeDeclResultNotASymbol;
 
-        const result_type_name = sexp.value.list.items[2].value.symbol;
+        const result_type_name = sexp.getWithModule(2, self.graphlt_module).value.symbol;
 
-        const param_types = try alloc.alloc(Type, param_type_exprs.len);
+        const param_types = try alloc.alloc(Type, param_type_expr_idxs.len);
         errdefer alloc.free(param_types);
-        for (param_type_exprs, param_types) |type_expr, *type_| {
+        for (param_type_expr_idxs, param_types) |type_expr_idx, *type_| {
+            const type_expr = self.graphlt_module.get(type_expr_idx);
             const param_type = type_expr.value.symbol;
             type_.* = self.env.getType(param_type) orelse return error.UnknownType;
         }
@@ -698,7 +694,7 @@ const Compilation = struct {
                 .frame = .{},
                 .is_captured = i == func_decl.body_exprs.len - 1 or body_expr.label != null, // only capture the last expression or labeled
             };
-            var expr_fragment = try self.compileExpr(body_expr, &expr_ctx);
+            var expr_fragment = try self.compileExpr(body_expr_idx, &expr_ctx);
             errdefer expr_fragment.deinit(alloc);
             body_exprs.appendAssumeCapacity(expr_fragment.expr);
 
@@ -977,11 +973,13 @@ const Compilation = struct {
     // TODO: take a diagnostic
     fn compileExpr(
         self: *@This(),
-        code_sexp: *const Sexp,
+        code_sexp_idx: u32,
         /// not const because we may be expanding the frame to include this value
         context: *ExprContext,
     ) CompileExprError!Fragment {
-        std.log.debug("compiling expr: '{}'\n", .{code_sexp});
+        std.log.debug("compiling expr: '{}'\n", .{code_sexp_idx});
+
+        const code_sexp = self.graphlt_module.get(code_sexp_idx);
 
         // FIXME: destroy this
         // HACK: oh god this is bad...
@@ -989,10 +987,10 @@ const Compilation = struct {
         //
         and code_sexp.value.list.items.len > 0
         //
-        and code_sexp.value.list.items[0].value == .symbol
+        and code_sexp.getWithModule(0, self.graphlt_module).value == .symbol
         //
         and _: {
-            const sym = code_sexp.value.list.items[0].value.symbol;
+            const sym = code_sexp.getWithModule(0, self.graphlt_module).value.symbol;
             inline for (&.{ "SELECT", "WHERE", "FROM" }) |hack| {
                 if (std.mem.eql(u8, sym, hack))
                     break :_ true;
@@ -1015,7 +1013,7 @@ const Compilation = struct {
             return fragment;
         }
 
-        const fragment = try self._compileExpr(code_sexp, context);
+        const fragment = try self._compileExpr(code_sexp_idx, context);
 
         if (code_sexp.label) |label| {
             // HACK: we know the label is "#!{s}"
@@ -1138,11 +1136,13 @@ const Compilation = struct {
     // is not a primitive/singleton type (u32, f32, i64, etc)
     fn _compileExpr(
         self: *@This(),
-        code_sexp: *const Sexp,
+        code_sexp_idx: u32,
         /// not const because we may be expanding the frame to include this value
         context: *ExprContext,
     ) CompileExprError!Fragment {
         const alloc = self.arena.allocator();
+
+        const code_sexp = self.graphlt_module.get(code_sexp_idx);
 
         var result = Fragment{
             .expr = @ptrCast(byn.c.BinaryenNop(self.module.c())),
@@ -1163,14 +1163,15 @@ const Compilation = struct {
             var quote_json_root = json.ObjectMap.init(alloc);
             defer quote_json_root.deinit();
 
-            try quote_json_root.put("entry", try expr_sexp.jsonValue(alloc));
+            // FIXME: I'm sure this breaks on the new self-referencing sexp...
+            try quote_json_root.put("entry", try expr_sexp.jsonValue(self.graphlt_module, alloc));
 
             var labels_json = json.ObjectMap.init(alloc);
             defer labels_json.deinit();
             {
                 var label_iter = context.label_map.iterator();
                 while (label_iter.next()) |entry| {
-                    try labels_json.put(entry.key_ptr.*, try entry.value_ptr.sexp.jsonValue(alloc));
+                    try labels_json.put(entry.key_ptr.*, try entry.value_ptr.sexp.jsonValue(self.graphlt_module, alloc));
                 }
             }
             try quote_json_root.put("labels", json.Value{ .object = labels_json });
@@ -1190,7 +1191,7 @@ const Compilation = struct {
         switch (code_sexp.value) {
             .list => |v| {
                 std.debug.assert(v.items.len >= 1);
-                const func = &v.items[0];
+                const func = self.graphlt_module.get(v.items[0]);
                 std.debug.assert(func.value == .symbol);
 
                 if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr
@@ -1201,7 +1202,8 @@ const Compilation = struct {
                     // FIXME: is this valid use of API?
                     defer body_exprs.deinit(self.arena.allocator());
 
-                    for (v.items[1..], 1..) |*expr, i| {
+                    for (v.items[1..], 1..) |expr_idx, i| {
+                        const expr = self.graphlt_module.get(expr_idx);
                         var subcontext = ExprContext{
                             .type = context.type,
                             .locals = context.locals,
@@ -1212,7 +1214,7 @@ const Compilation = struct {
                             .label_map = context.label_map,
                             .is_captured = i == v.items.len - 1 or expr.label != null, // only capture the last expression or labeled
                         };
-                        var compiled = try self.compileExpr(expr, &subcontext);
+                        var compiled = try self.compileExpr(expr_idx, &subcontext);
                         result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, &compiled);
                         body_exprs.appendAssumeCapacity(compiled.expr);
                     }
@@ -1274,7 +1276,7 @@ const Compilation = struct {
                     }
                 };
 
-                for (v.items[1..], arg_fragments, input_descs) |arg_src, *arg_fragment, input_desc| {
+                for (v.items[1..], arg_fragments, input_descs) |arg_src_idx, *arg_fragment, input_desc| {
                     std.debug.assert(input_desc.asPrimitivePin() == .value);
                     var subcontext = ExprContext{
                         .type = input_desc.asPrimitivePin().value,
@@ -1286,7 +1288,7 @@ const Compilation = struct {
                         .label_map = context.label_map,
                         .is_captured = context.is_captured,
                     };
-                    arg_fragment.* = try self.compileExpr(&arg_src, &subcontext);
+                    arg_fragment.* = try self.compileExpr(arg_src_idx, &subcontext);
                 }
 
                 // FIXME: support set!
@@ -1388,7 +1390,7 @@ const Compilation = struct {
 
                         // REPORT ME: try to prefer an else on the above for loop, currently couldn't get it to compile right
                         if (!handled) {
-                            std.log.err("unimplemented type resolution: '{s}' for code:\n{s}\n", .{ result.resolved_type.name, code_sexp });
+                            std.log.err("unimplemented type resolution: '{s}' for code:\n{}\n", .{ result.resolved_type.name, code_sexp });
                             std.debug.panic("unimplemented type resolution: '{s}'", .{result.resolved_type.name});
                         }
 
@@ -1809,8 +1811,8 @@ const Compilation = struct {
                     // FIXME: maybe distinguish without errors if something if a func, var or typeof?
                     const did_compile = (try self.compileFunc(idx) or
                         try self.compileVar(idx) or
-                        try self.compileTypeOf(decl) or
-                        try self.compileMeta(decl) or
+                        try self.compileTypeOf(idx) or
+                        try self.compileMeta(idx) or
                         try self.compileImport(decl));
                     if (!did_compile) {
                         self.diag.err = Diagnostic.Error{ .BadTopLevelForm = decl };
@@ -2214,7 +2216,7 @@ test "new compiler" {
         \\
     , null);
     //std.debug.print("{any}\n", .{parsed});
-    defer parsed.deinit(t.allocator);
+    defer parsed.deinit();
 
     const expected =
         \\(module
@@ -2282,7 +2284,7 @@ test "new compiler" {
     ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &user_funcs, &diagnostic)) |wasm| {
+    if (compile(t.allocator, &parsed.module, &user_funcs, &diagnostic)) |wasm| {
         defer t.allocator.free(wasm);
         try expectWasmEqualsWat(expected, wasm);
     } else |err| {
