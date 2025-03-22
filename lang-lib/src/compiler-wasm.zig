@@ -2488,15 +2488,15 @@ test "vec3 ref" {
         \\(define (processInstance MeshId
         \\                         Origin
         \\                         Rotation)
-        \\        (begin (ModelCenter) #!__label1
-        \\               (if (> (Vec3->X __label1)
+        \\        (begin (ModelCenter) <!__label1
+        \\               (if (> (Vec3->X >!__label1)
         \\                      2)
         \\                   (begin (return "my_export"))
         \\                   (begin (return "EXPORT2")))))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     // FIXME: there is some double-free happening here?
-    defer parsed.deinit(t.allocator);
+    defer parsed.deinit();
 
     const expected =
         \\(func $ModelCenter
