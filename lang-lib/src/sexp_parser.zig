@@ -509,6 +509,8 @@ pub const Parser = struct {
                 self._last_sexp.* = index;
 
                 if (self._active_label.*) |label| {
+                    self._module.get(index).label = label;
+
                     const put_res = try self._label_map.getOrPut(self._local_alloc, label.ptr);
                     if (put_res.found_existing) {
                         self._out_diag.result = Diagnostic.Result{ .duplicateLabel = .{
@@ -558,7 +560,30 @@ pub const Parser = struct {
                     for (0..tok.src_span.len - 1) |_| loc.increment(src);
                 },
                 '(' => {
-                    try stack.append(local_alloc, try module.add(out_alloc, .empty_list));
+                    const added = try module.add(out_alloc, .empty_list);
+
+                    if (active_label) |label| {
+                        module.get(added).label = label;
+
+                        const put_res = try label_map.getOrPut(local_alloc, label.ptr);
+                        if (put_res.found_existing) {
+                            out_diag.result = Diagnostic.Result{ .duplicateLabel = .{
+                                .first = put_res.value_ptr.loc,
+                                .name = label,
+                                .second = loc,
+                            } };
+                            return Diagnostic.Code.DuplicateLabel;
+                        }
+
+                        put_res.value_ptr.* = .{
+                            .loc = loc,
+                            .target = added,
+                        };
+
+                        active_label = null;
+                    }
+
+                    try stack.append(local_alloc, added);
                 },
                 ')' => {
                     const old_top = stack.pop() orelse unreachable;
@@ -629,6 +654,7 @@ pub const Parser = struct {
                         // is label
                         const label_name = pool.getSymbol(tok.src_span[2..]);
                         if (last_sexp) |last| {
+                            module.get(last).label = label_name;
                             const put_res = try label_map.getOrPut(local_alloc, label_name.ptr);
                             if (put_res.found_existing) {
                                 out_diag.result = Diagnostic.Result{ .duplicateLabel = .{
@@ -825,7 +851,7 @@ test "parse factorial iterative with graph reference" {
     module.get(@"else").value.list.appendAssumeCapacity(try module.add(a, .symbol("begin")));
     module.get(@"else").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 3)));
     module.get(@"else").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 3)));
-    module.get(@"else").value.list.appendAssumeCapacity(try module.add(a, .symbol(">!if"))); // TODO: different kind of symbol?
+    module.get(@"else").value.list.appendAssumeCapacity(@"if");
 
     const set_acc = module.get(@"else").value.list.items[1];
     module.get(set_acc).value.list.appendAssumeCapacity(try module.add(a, .symbol("set!")));
@@ -866,6 +892,9 @@ test "parse factorial iterative with graph reference" {
     };
     var parsed = try Parser.parse(t.allocator, source, &diag);
     defer parsed.deinit();
+
+    std.debug.print("====== ACTUAL ===========\n", .{});
+    std.debug.print("{}\n", .{parsed.module});
 
     const result = module.getRoot().recursive_eq(parsed.module.getRoot(), &module);
 

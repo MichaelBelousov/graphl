@@ -65,7 +65,14 @@ pub const ModuleContext = struct {
     pub fn format(self: *const @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
-        _ = try self.getRoot()._write(self, writer, .{}, .{});
+
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        var emitted_labels = std.AutoHashMap([*:0]const u8, void).init(arena.allocator());
+
+        _ = try self.getRoot()._write(self, writer, .{
+            .emitted_labels = &emitted_labels,
+        }, .{});
     }
 };
 
@@ -74,6 +81,8 @@ pub const Sexp = struct {
     comment: ?[]const u8 = null,
     /// optional text span, when parsed from a source file, mostly for diagnostics
     span: ?[]const u8 = null,
+    /// optional label
+    label: ?[:0]const u8 = null,
     value: union(enum) {
         /// holds indices into the arena
         module: std.ArrayListUnmanaged(u32),
@@ -154,6 +163,7 @@ pub const Sexp = struct {
     const WriteState = struct {
         /// number of spaces we are in
         depth: usize = 0,
+        emitted_labels: *std.AutoHashMap([*:0]const u8, void),
     };
 
     fn writeModule(mod_ctx: *const ModuleContext, form: *const std.ArrayListUnmanaged(u32), writer: anytype, state: WriteState, comptime opts: WriteOptions) @TypeOf(writer).Error!WriteState {
@@ -161,10 +171,10 @@ pub const Sexp = struct {
             if (i != 0) _ = try writer.write("\n");
             const item = &mod_ctx.arena.items[item_idx];
             try writer.writeByteNTimes(' ', state.depth);
-            _ = try item._write(mod_ctx, writer, .{ .depth = state.depth }, opts);
+            _ = try item._write(mod_ctx, writer, .{ .depth = state.depth, .emitted_labels = state.emitted_labels }, opts);
         }
 
-        return .{ .depth = 0 };
+        return .{ .depth = 0, .emitted_labels = state.emitted_labels };
     }
 
     fn writeList(mod_ctx: *const ModuleContext, form: *const std.ArrayListUnmanaged(u32), writer: anytype, state: WriteState, comptime opts: WriteOptions) @TypeOf(writer).Error!WriteState {
@@ -173,25 +183,25 @@ pub const Sexp = struct {
         depth += try writer.write("(");
 
         if (form.items.len >= 1) {
-            depth += (try mod_ctx.arena.items[form.items[0]]._write(mod_ctx, writer, .{ .depth = state.depth + depth }, opts)).depth;
+            depth += (try mod_ctx.arena.items[form.items[0]]._write(mod_ctx, writer, .{ .depth = state.depth + depth, .emitted_labels = state.emitted_labels }, opts,)).depth;
         }
 
         if (form.items.len >= 2) {
             depth += try writer.write(" ");
 
-            _ = try mod_ctx.arena.items[form.items[1]]._write(mod_ctx, writer, .{ .depth = state.depth + depth }, opts);
+            _ = try mod_ctx.arena.items[form.items[1]]._write(mod_ctx, writer, .{ .depth = state.depth + depth, .emitted_labels = state.emitted_labels }, opts);
 
             for (form.items[2..]) |item_idx| {
                 const item = &mod_ctx.arena.items[item_idx];
                 _ = try writer.write("\n");
                 try writer.writeByteNTimes(' ', state.depth + depth);
-                _ = try item._write(mod_ctx, writer, .{ .depth = state.depth + depth }, opts);
+                _ = try item._write(mod_ctx, writer, .{ .depth = state.depth + depth, .emitted_labels = state.emitted_labels }, opts);
             }
         }
 
         _ = try writer.write(")");
 
-        return .{ .depth = depth };
+        return .{ .depth = depth, .emitted_labels = state.emitted_labels, };
     }
 
     // eventually we want to format special forms specially
@@ -208,6 +218,26 @@ pub const Sexp = struct {
     };
 
     fn _write(self: *const Self, mod_ctx: *const ModuleContext, writer: anytype, state: WriteState, comptime opts: WriteOptions) @TypeOf(writer).Error!WriteState {
+        if (self.label) |label| {
+            if (state.emitted_labels.contains(label.ptr)) {
+                _ = try writer.write(">!");
+                _ = try writer.write(label);
+                return .{
+                    .depth = ">!".len + label.len,
+                    .emitted_labels = state.emitted_labels,
+                };
+            } else {
+                // FIXME: handle OOM better
+                state.emitted_labels.put(label.ptr, {}) catch unreachable;
+                _ = try writer.write("\n");
+                _ = try writer.writeByteNTimes(' ', state.depth);
+                _ = try writer.write("<!");
+                _ = try writer.write(label);
+                _ = try writer.write("\n");
+                _ = try writer.writeByteNTimes(' ', state.depth);
+            }
+        }
+
         // TODO: calculate stack space requirements?
         const write_state_or_err: @TypeOf(writer).Error!WriteState = switch (self.value) {
             .module => |v| writeModule(mod_ctx, &v, writer, state, opts),
@@ -215,16 +245,16 @@ pub const Sexp = struct {
             inline .float, .int => |v| _: {
                 var counting_writer = std.io.countingWriter(writer);
                 try counting_writer.writer().print("{d}", .{v});
-                break :_ .{ .depth = @intCast(counting_writer.bytes_written) };
+                break :_ .{ .depth = @intCast(counting_writer.bytes_written), .emitted_labels = state.emitted_labels };
             },
             .bool => |v| _: {
                 _ = try writer.write(if (v) syms.true.value.symbol else syms.false.value.symbol);
                 std.debug.assert(syms.true.value.symbol.len == syms.false.value.symbol.len);
-                break :_ .{ .depth = syms.true.value.symbol.len };
+                break :_ .{ .depth = syms.true.value.symbol.len, .emitted_labels = state.emitted_labels };
             },
             .void => _: {
                 _ = try writer.write(syms.void.value.symbol);
-                break :_ .{ .depth = syms.void.value.symbol.len };
+                break :_ .{ .depth = syms.void.value.symbol.len, .emitted_labels = state.emitted_labels };
             },
             .ownedString, .borrowedString => |v| _: {
                 // able to specify via formating params
@@ -248,11 +278,11 @@ pub const Sexp = struct {
                         try cw.writer().writeByte('"');
                     },
                 }
-                break :_ .{ .depth = @intCast(cw.bytes_written + 2) };
+                break :_ .{ .depth = @intCast(cw.bytes_written + 2), .emitted_labels = state.emitted_labels };
             },
             .symbol => |v| _: {
                 try writer.print("{s}", .{v});
-                break :_ .{ .depth = v.len };
+                break :_ .{ .depth = v.len, .emitted_labels = state.emitted_labels };
             },
         };
 
@@ -284,6 +314,12 @@ pub const Sexp = struct {
             return false;
 
         if (!std.meta.eql(self.comment, other.comment))
+            return false;
+
+        if ((self.label == null) != (other.label == null))
+            return false;
+
+        if (self.label.?.ptr != other.label.?.ptr)
             return false;
 
         switch (self.value) {
