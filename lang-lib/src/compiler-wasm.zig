@@ -15,6 +15,7 @@ const build_opts = @import("build_opts");
 const std = @import("std");
 const json = std.json;
 const Sexp = @import("./sexp.zig").Sexp;
+const Loc = @import("./loc.zig").Loc;
 const ModuleContext = @import("./sexp.zig").ModuleContext;
 const syms = @import("./sexp.zig").syms;
 const primitive_type_syms = @import("./sexp.zig").primitive_type_syms;
@@ -26,6 +27,10 @@ const Type = @import("./nodes/builtin.zig").Type;
 const builtin_nodes = @import("./nodes/builtin.zig").builtin_nodes;
 const Pin = @import("./nodes/builtin.zig").Pin;
 const pool = &@import("./InternPool.zig").pool;
+
+const t = std.testing;
+const SexpParser = @import("./sexp_parser.zig").Parser;
+const SpacePrint = @import("./sexp_parser.zig").SpacePrint;
 
 // FIXME: use intrinsics as the base and merge/link in our functions
 //const intrinsics = @import("./intrinsics.zig");
@@ -45,7 +50,7 @@ pub const Diagnostic = struct {
         // TODO: lowercase
         None = 0,
         BadTopLevelForm: u32 = 1,
-        UndefinedSymbol: [:0]const u8 = 2,
+        UndefinedSymbol: u32 = 2,
     };
 
     const Code = error{
@@ -73,8 +78,36 @@ pub const Diagnostic = struct {
                 try writer.print("bad top level form:\n{}\n", .{Sexp.withContext(self.graphlt_module, idx)});
             },
             // TODO: add a contextualize function?
-            .UndefinedSymbol => |sym| {
-                try writer.print("undefined symbol '{s}'\n", .{sym});
+            .UndefinedSymbol => |sym_id| {
+                // FIXME: HACK
+                const sexp = self.graphlt_module.get(sym_id);
+
+                if (sexp.span != null and self.graphlt_module.source != null) {
+                    const span = sexp.span.?;
+                    const byte_offset: usize = span.ptr - self.graphlt_module.source.?.ptr;
+
+                    var loc: Loc = .{};
+                    while (loc.index != byte_offset) {
+                        loc.increment(self.graphlt_module.source.?);
+                    }
+
+                    try writer.print(
+                        \\Undefined symbol '{s}' in {}:
+                        \\  | {s}
+                        \\    {}^
+                        \\
+                    , .{
+                        sexp.value.symbol,
+                        loc,
+                        try loc.containing_line(self.graphlt_module.source.?),
+                        SpacePrint.init(loc.col - 1),
+                    });
+                } else {
+                    try writer.print(
+                        \\undefined symbol '{s}'
+                        \\
+                    , .{sexp.value.symbol});
+                }
             },
         }
     }
@@ -354,8 +387,13 @@ const Compilation = struct {
         const sexp: *const Sexp = self.graphlt_module.get(sexp_index);
 
         if (Sexp.findPatternMismatch(self.graphlt_module, sexp_index,
-            \\(define (SYMBOL ...SYMBOL) (begin ...ANY))
-        )) |_| return false;
+            \\(define (SYMBOL ...SYMBOL) ...ANY)
+        )) |mismatch| {
+            _ = mismatch;
+            return false;
+        }
+
+        // TODO: make sure the last one starts with begin?
 
         // if (sexp.value != .list) return false;
         // if (sexp.value.list.items.len == 0) return false;
@@ -408,6 +446,7 @@ const Compilation = struct {
 
             const local_name = maybe_local_def.getWithModule(1, self.graphlt_module).value.symbol;
 
+            std.debug.print("found local: '{s}'\n", .{local_name});
             // FIXME: typeofs must come before or after because the name isn't inserted in order!
             if (is_typeof) {
                 const local_type = maybe_local_def.getWithModule(2, self.graphlt_module);
@@ -628,25 +667,44 @@ const Compilation = struct {
             },
         };
 
+        // FIXME: must use a subenv for each function!
+        for (func_decl.local_names, func_decl.local_types) |local_name, local_type| {
+            std.debug.print("adding local: {s}", .{local_name});
+            const node_desc = try self.arena.allocator().create(graphl_builtin.BasicMutNodeDesc);
+            node_desc.* = .{
+                .name = local_name,
+                .kind = .get,
+                .inputs = &.{},
+                .outputs = try self.arena.allocator().alloc(Pin, func_type.result_types.len + 1),
+            };
+            node_desc.outputs[0] = Pin{ .name = local_name, .kind = .{ .primitive = .{ .value = local_type } } };
+
+            // FIXME: why must this be mutable?
+            // we must use the same allocator that env is deinited with!
+            _ = try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(node_desc));
+        }
+
         // now that we have func
-        const node_desc = try self.arena.allocator().create(graphl_builtin.BasicMutNodeDesc);
-        node_desc.* = .{
-            .name = name,
-            .kind = .func,
-            // FIXME: can I reuse pins?
-            .inputs = try self.arena.allocator().alloc(Pin, func_type.param_types.len + 1),
-            .outputs = try self.arena.allocator().alloc(Pin, func_type.result_types.len + 1),
-        };
-        node_desc.inputs[0] = Pin{ .name = "in", .kind = .{ .primitive = .exec } };
-        for (node_desc.inputs[1..], func_decl.param_names, func_type.param_types) |*pin, pn, pt| {
-            pin.* = Pin{ .name = pn, .kind = .{ .primitive = .{ .value = pt } } };
+        {
+            const node_desc = try self.arena.allocator().create(graphl_builtin.BasicMutNodeDesc);
+            node_desc.* = .{
+                .name = name,
+                .kind = .func,
+                // FIXME: can I reuse pins?
+                .inputs = try self.arena.allocator().alloc(Pin, func_type.param_types.len + 1),
+                .outputs = try self.arena.allocator().alloc(Pin, func_type.result_types.len + 1),
+            };
+            node_desc.inputs[0] = Pin{ .name = "in", .kind = .{ .primitive = .exec } };
+            for (node_desc.inputs[1..], func_decl.param_names, func_type.param_types) |*pin, pn, pt| {
+                pin.* = Pin{ .name = pn, .kind = .{ .primitive = .{ .value = pt } } };
+            }
+            node_desc.outputs[0] = Pin{ .name = "out", .kind = .{ .primitive = .exec } };
+            for (node_desc.outputs[1..], func_type.result_types) |*pin, rt| {
+                pin.* = Pin{ .name = "FIXME", .kind = .{ .primitive = .{ .value = rt } } };
+            }
+            // we must use the same allocator that env is deinited with!
+            _ = try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(node_desc));
         }
-        node_desc.outputs[0] = Pin{ .name = "out", .kind = .{ .primitive = .exec } };
-        for (node_desc.outputs[1..], func_type.result_types) |*pin, rt| {
-            pin.* = Pin{ .name = "FIXME", .kind = .{ .primitive = .{ .value = rt } } };
-        }
-        // we must use the same allocator that env is deinited with!
-        _ = try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(node_desc));
 
         std.debug.assert(func_decl.body_exprs.len >= 1);
 
@@ -1236,7 +1294,7 @@ const Compilation = struct {
                 const func_node_desc = self.env.getNode(func.value.symbol) orelse {
                     std.log.err("while in:\n{}\n", .{code_sexp});
                     std.log.err("undefined symbol1: '{}'\n", .{func});
-                    self.diag.err = .{ .UndefinedSymbol = func.value.symbol };
+                    self.diag.err = .{ .UndefinedSymbol = code_sexp_idx };
                     return error.UndefinedSymbol;
                 };
 
@@ -1573,6 +1631,8 @@ const Compilation = struct {
                     }
 
                     std.log.err("undefined symbol2 '{s}'", .{v});
+                    // FIXME: add location to this error
+                    self.diag.err = .{ .UndefinedSymbol = code_sexp_idx };
                     return error.UndefinedSymbol;
                 };
 
@@ -1901,9 +1961,6 @@ pub fn compile(
 
     return unit.compileModule(graphlt_module);
 }
-
-const t = std.testing;
-const SexpParser = @import("./sexp_parser.zig").Parser;
 
 pub const compiled_prelude = (
     \\;;; BEGIN INTRINSICS
@@ -2412,7 +2469,7 @@ test "factorial iterative" {
         \\
     , null);
     //std.debug.print("{any}\n", .{parsed});
-    defer parsed.deinit(t.allocator);
+    defer parsed.deinit();
 
     const expected =
         \\(module
@@ -2443,7 +2500,7 @@ test "factorial iterative" {
     ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, null, &diagnostic)) |wasm| {
+    if (compile(t.allocator, &parsed.module, null, &diagnostic)) |wasm| {
         defer t.allocator.free(wasm);
         try expectWasmEqualsWat(expected, wasm);
     } else |err| {

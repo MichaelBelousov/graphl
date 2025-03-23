@@ -236,7 +236,7 @@ pub const Parser = struct {
 
         const sym = pool.getSymbol(in_src_sym);
         return ParseTokenResult{
-            .sexp = Sexp{ .value = .{ .symbol = sym }, .span = sym },
+            .sexp = Sexp{ .value = .{ .symbol = sym }, .span = in_src_sym },
         };
     }
 
@@ -480,6 +480,7 @@ pub const Parser = struct {
         //defer label_map.deinit(in_alloc);
 
         var module = try ModuleContext.initCapacity(out_alloc, 256);
+        module.source = src;
         // no defer; arena
         //errdefer module.deinit(out_alloc);
 

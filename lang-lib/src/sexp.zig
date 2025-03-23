@@ -31,6 +31,7 @@ comptime {
 pub const ModuleContext = struct {
     // TODO: rename from arena, which means something else in zig
     arena: std.ArrayListUnmanaged(Sexp) = .{},
+    source: ?[]const u8 = null,
 
     pub inline fn add(self: *@This(), alloc: std.mem.Allocator, sexp: Sexp) !u32 {
         try self.arena.append(alloc, sexp);
