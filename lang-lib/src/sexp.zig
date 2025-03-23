@@ -603,9 +603,24 @@ test "findPatternMismatch" {
         .{ .source = "(define (bar x) (begin me))", .pattern = "(define (SYMBOL ...SYMBOL) (begin ...ANY))", .should_match = true },
         .{ .source = "(meta version 2)", .pattern = "(meta version 1)", .should_match = false },
         .{ .source = "(meta version 1)", .pattern = "(meta version 1)", .should_match = true },
-        .{ .source = "(typeof (++ i32) i32)", .pattern = "(define (SYMBOL ...SYMBOL) ...ANY)", .should_match = true },
-
-            \\
+        .{ .source = "(typeof (++ i32) i32)", .pattern = "(typeof (SYMBOL ...SYMBOL) ...ANY)", .should_match = true },
+        .{
+            .source = 
+                \\(define (factorial n)
+                \\  (typeof acc i64)
+                \\  (define acc 1)
+                \\  (begin
+                \\    <!if
+                \\    (if (<= n 1)
+                \\        (begin (return acc))
+                \\        (begin
+                \\          (set! acc (* acc n))
+                \\          (set! n (- n 1))
+                \\          >!if))))
+            ,
+            .pattern = "(define (SYMBOL ...SYMBOL) ...ANY)",
+            .should_match = true,
+        },
     }) |info| {
         var diag = Parser.Diagnostic{ .source = info.source };
         defer if (diag.result != .none) {

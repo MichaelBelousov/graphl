@@ -196,7 +196,6 @@ pub const Parser = struct {
 
     const ParseTokenResult = struct {
         sexp: Sexp,
-        src_span: []const u8,
     };
 
     inline fn parseStringToken(alloc: std.mem.Allocator, src: []const u8, diag: *Diagnostic) Error!ParseTokenResult {
@@ -211,8 +210,10 @@ pub const Parser = struct {
                     },
                     '"' => {
                         return .{
-                            .src_span = src[0 .. i + 1],
-                            .sexp = Sexp{ .value = .{ .ownedString = try escapeStr(alloc, src[1..i]) } },
+                            .sexp = Sexp{
+                                .value = .{ .ownedString = try escapeStr(alloc, src[1..i]) },
+                                .span = src[0 .. i + 1],
+                            },
                         };
                     },
                 },
@@ -235,8 +236,7 @@ pub const Parser = struct {
 
         const sym = pool.getSymbol(in_src_sym);
         return ParseTokenResult{
-            .sexp = Sexp{ .value = .{ .symbol = sym } },
-            .src_span = sym,
+            .sexp = Sexp{ .value = .{ .symbol = sym }, .span = sym },
         };
     }
 
@@ -320,8 +320,10 @@ pub const Parser = struct {
 
         if (state == .sign)
             return .{
-                .sexp = syms.@"-",
-                .src_span = src[0..1],
+                .sexp = Sexp{
+                    .value = syms.@"-".value,
+                    .span = src[0..1],
+                },
             };
 
         const num_src = src[0..right_after];
@@ -332,8 +334,7 @@ pub const Parser = struct {
                 return Error.BadFloat;
             };
             return .{
-                .sexp = Sexp{ .value = .{ .float = res } },
-                .src_span = num_src,
+                .sexp = Sexp{ .value = .{ .float = res }, .span = num_src },
             };
         } else {
             const res = std.fmt.parseInt(i64, num_src, 10) catch {
@@ -341,8 +342,7 @@ pub const Parser = struct {
                 return Error.BadFloat;
             };
             return .{
-                .sexp = Sexp{ .value = .{ .int = res } },
-                .src_span = num_src,
+                .sexp = Sexp{ .value = .{ .int = res }, .span = num_src },
             };
         }
     }
@@ -398,8 +398,10 @@ pub const Parser = struct {
                         else => break,
                     };
                     return .{
-                        .sexp = syms.true,
-                        .src_span = src[0..2],
+                        .sexp = .{
+                            .value = syms.true.value,
+                            .span = src[0..2],
+                        },
                     };
                 },
                 'f' => {
@@ -408,8 +410,10 @@ pub const Parser = struct {
                         else => break,
                     };
                     return .{
-                        .sexp = syms.false,
-                        .src_span = src[0..2],
+                        .sexp = .{
+                            .value = syms.false.value,
+                            .span = src[0..2],
+                        },
                     };
                 },
                 'v' => {
@@ -420,8 +424,10 @@ pub const Parser = struct {
                         else => break,
                     };
                     return .{
-                        .sexp = syms.void,
-                        .src_span = src[0..5],
+                        .sexp = .{
+                            .value = syms.void.value,
+                            .span = src[0..5],
+                        },
                     };
                 },
                 // '!' => {
@@ -557,7 +563,7 @@ pub const Parser = struct {
                 '-', '0'...'9' => {
                     const tok = try parseNumberOrUnaryNegationToken(src[loc.index..], loc, out_diag);
                     try helper.pushSexp(tok.sexp);
-                    for (0..tok.src_span.len - 1) |_| loc.increment(src);
+                    for (0..tok.sexp.span.?.len - 1) |_| loc.increment(src);
                 },
                 '(' => {
                     const added = try module.add(out_alloc, .empty_list);
@@ -598,13 +604,13 @@ pub const Parser = struct {
                     const tok = try parseStringToken(out_alloc, src[loc.index..], out_diag);
                     try helper.pushSexp(tok.sexp);
                     // unreachable cuz we'd have already failed if we popped the last one
-                    for (0..tok.src_span.len - 1) |_| loc.increment(src);
+                    for (0..tok.sexp.span.?.len - 1) |_| loc.increment(src);
                 },
                 '#' => {
                     // TODO: consider making all these token scanners
                     const tok = try parseHashStartedToken(src[loc.index..], loc, out_diag);
                     try helper.pushSexp(tok.sexp);
-                    for (0..tok.src_span.len - 1) |_| loc.increment(src);
+                    for (0..tok.sexp.span.?.len - 1) |_| loc.increment(src);
                 },
                 ';' => {
                     const comment = parseLineComment(src, loc);
@@ -615,7 +621,7 @@ pub const Parser = struct {
                 '\'' => {
                     const tok = try parseSymbolToken(src[loc.index..], loc, out_diag);
                     try helper.pushSexp(tok.sexp);
-                    for (0..tok.src_span.len - 1) |_| loc.increment(src);
+                    for (0..tok.sexp.span.?.len - 1) |_| loc.increment(src);
                 },
                 // ascii table
                 '!',
@@ -635,11 +641,11 @@ pub const Parser = struct {
                 '{'...'~',
                 => {
                     const tok = try parseSymbolToken(src[loc.index..], loc, out_diag);
-                    const sym = pool.getSymbol(tok.src_span);
+                    const sym = pool.getSymbol(tok.sexp.span.?);
                     // might not be a symbol, could be a label jump or label
                     if (std.mem.startsWith(u8, sym, ">!")) {
                         // is label jump
-                        const label_name = pool.getSymbol(tok.src_span[2..]);
+                        const label_name = pool.getSymbol(tok.sexp.span.?[2..]);
                         if (label_map.getPtr(label_name.ptr)) |label_info| {
                             try helper.pushExistingSexp(label_info.target);
                         } else {
@@ -652,7 +658,7 @@ pub const Parser = struct {
                         }
                     } else if (std.mem.startsWith(u8, sym, "<!")) {
                         // is label
-                        const label_name = pool.getSymbol(tok.src_span[2..]);
+                        const label_name = pool.getSymbol(tok.sexp.span.?[2..]);
                         if (last_sexp) |last| {
                             module.get(last).label = label_name;
                             const put_res = try label_map.getOrPut(local_alloc, label_name.ptr);
@@ -676,7 +682,7 @@ pub const Parser = struct {
                         try helper.pushSexp(tok.sexp);
                     }
 
-                    for (0..tok.src_span.len - 1) |_| loc.increment(src);
+                    for (0..tok.sexp.span.?.len - 1) |_| loc.increment(src);
                 },
                 ' ', '\t' => {},
                 '\n' => {
