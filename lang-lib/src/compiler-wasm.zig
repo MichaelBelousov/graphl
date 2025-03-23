@@ -418,7 +418,7 @@ const Compilation = struct {
         // if (body.value.list.items[0].value != .symbol) return error.FuncBodyWithoutBegin;
         // if (body.value.list.items[0].value.symbol.ptr != syms.begin.value.symbol.ptr) return error.FuncBodyWithoutBegin;
 
-        const body = sexp.getWithModule(2, self.graphlt_module);
+        const body_expr_idxs = sexp.value.list.items[2..];
 
         var local_names = std.ArrayList([:0]const u8).init(alloc);
         defer local_names.deinit();
@@ -430,7 +430,7 @@ const Compilation = struct {
         defer local_defaults.deinit();
 
         var first_non_def: usize = 0;
-        for (body.value.list.items[1..], 1..) |maybe_local_def_idx, i| {
+        for (body_expr_idxs, 0..) |maybe_local_def_idx, i| {
             const maybe_local_def = self.graphlt_module.get(maybe_local_def_idx);
             first_non_def = i;
             // if (maybe_local_def.value != .list) break;
@@ -446,7 +446,6 @@ const Compilation = struct {
 
             const local_name = maybe_local_def.getWithModule(1, self.graphlt_module).value.symbol;
 
-            std.debug.print("found local: '{s}'\n", .{local_name});
             // FIXME: typeofs must come before or after because the name isn't inserted in order!
             if (is_typeof) {
                 const local_type = maybe_local_def.getWithModule(2, self.graphlt_module);
@@ -461,9 +460,9 @@ const Compilation = struct {
             }
         }
 
-        std.debug.assert(first_non_def < body.value.list.items.len);
+        std.debug.assert(first_non_def < body_expr_idxs.len);
 
-        const return_exprs = body.value.list.items[first_non_def..];
+        const return_exprs = body_expr_idxs[first_non_def..];
 
         const func_name = sexp.getWithModule(1, self.graphlt_module).getWithModule(0, self.graphlt_module).value.symbol;
         //const params = sexp.value.list.items[1].value.list.items[1..];
@@ -653,6 +652,8 @@ const Compilation = struct {
     fn finishCompileTypedFunc(self: *@This(), name: [:0]const u8, func_decl: DeferredFuncDeclInfo, func_type: DeferredFuncTypeInfo) !void {
         // TODO: configure std.log.debug
         //std.log.debug("compile func: '{s}'\n", .{name});
+
+        // FIXME: remove this allocator it's very unobvious when rereading code
         const alloc = self.arena.allocator();
 
         const complete_func_type_desc = TypeInfo{
@@ -666,23 +667,6 @@ const Compilation = struct {
                 .result_types = func_type.result_types,
             },
         };
-
-        // FIXME: must use a subenv for each function!
-        for (func_decl.local_names, func_decl.local_types) |local_name, local_type| {
-            std.debug.print("adding local: {s}", .{local_name});
-            const node_desc = try self.arena.allocator().create(graphl_builtin.BasicMutNodeDesc);
-            node_desc.* = .{
-                .name = local_name,
-                .kind = .get,
-                .inputs = &.{},
-                .outputs = try self.arena.allocator().alloc(Pin, func_type.result_types.len + 1),
-            };
-            node_desc.outputs[0] = Pin{ .name = local_name, .kind = .{ .primitive = .{ .value = local_type } } };
-
-            // FIXME: why must this be mutable?
-            // we must use the same allocator that env is deinited with!
-            _ = try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(node_desc));
-        }
 
         // now that we have func
         {
@@ -714,9 +698,36 @@ const Compilation = struct {
         var prologue = std.ArrayList(Sexp).init(alloc);
         defer prologue.deinit();
 
+        // FIXME: rename
         // TODO: use @FieldType
         var post_analysis_locals: std.StringArrayHashMapUnmanaged(ExprContext.LocalInfo) = .{};
         defer post_analysis_locals.deinit(self.arena.allocator());
+
+        for (func_decl.local_names, func_decl.local_types) |local_name, local_type| {
+            const put_res = try post_analysis_locals.getOrPutValue(alloc, local_name, .{
+                .index = @intCast(post_analysis_locals.count()),
+                .type = local_type,
+            });
+
+            if (put_res.found_existing) {
+                // FIXME: return diagnostic error
+                return error.DuplicateVariable;
+            }
+
+            // FIXME: why not add this to the env as a getter?
+            // const node_desc = try self.arena.allocator().create(graphl_builtin.BasicMutNodeDesc);
+            // node_desc.* = .{
+            //     .name = local_name,
+            //     .kind = .get,
+            //     .inputs = &.{},
+            //     .outputs = try self.arena.allocator().alloc(Pin, func_type.result_types.len + 1),
+            // };
+            // node_desc.outputs[0] = Pin{ .name = local_name, .kind = .{ .primitive = .{ .value = local_type } } };
+
+            // // FIXME: why must this be mutable?
+            // // we must use the same allocator that env is deinited with!
+            // _ = try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(node_desc));
+        }
 
         // NOTE: gross, simplify me
         const local_types = try alloc.alloc(byn.Type, complete_func_type_desc.func_type.?.local_types.len + prologue.items.len);
@@ -1042,11 +1053,11 @@ const Compilation = struct {
         // FIXME: destroy this
         // HACK: oh god this is bad...
         if (code_sexp.label != null and code_sexp.value == .list
-        //
+            //
         and code_sexp.value.list.items.len > 0
-        //
+            //
         and code_sexp.getWithModule(0, self.graphlt_module).value == .symbol
-        //
+            //
         and _: {
             const sym = code_sexp.getWithModule(0, self.graphlt_module).value.symbol;
             inline for (&.{ "SELECT", "WHERE", "FROM" }) |hack| {
@@ -1253,7 +1264,7 @@ const Compilation = struct {
                 std.debug.assert(func.value == .symbol);
 
                 if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr
-                //
+                    //
                 or func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
                     // FIXME: we can drop this if we don't use the arena
                     var body_exprs = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), v.items.len - 1);
@@ -1531,17 +1542,17 @@ const Compilation = struct {
 
                     result.resolved_type =
                         if (is_pure) outputs[0].kind.primitive.value
-                    //
-                    else if (is_simple_0_out_impure)
-                        graphl_builtin.empty_type
-                        //
-                    else if (is_simple_1_out_impure)
-                        outputs[1].kind.primitive.value
-                        //
-                    else {
-                        std.debug.print("func={s}\n", .{func_node_desc.name()});
-                        return error.UnimplementedMultiResultHostFunc;
-                    };
+                            //
+                        else if (is_simple_0_out_impure)
+                            graphl_builtin.empty_type
+                                //
+                        else if (is_simple_1_out_impure)
+                            outputs[1].kind.primitive.value
+                                //
+                        else {
+                            std.debug.print("func={s}\n", .{func_node_desc.name()});
+                            return error.UnimplementedMultiResultHostFunc;
+                        };
 
                     const requires_drop = result.resolved_type != graphl_builtin.empty_type and !context.is_captured;
 
@@ -1549,7 +1560,7 @@ const Compilation = struct {
 
                     defer alloc.free(operands); // FIXME: what is binaryen ownership model?
 
-                    for (arg_fragments, operands) |arg_fragment, *operand| {
+                    for (arg_fragments, operands[0..arg_fragments.len]) |arg_fragment, *operand| {
                         operand.* = arg_fragment.expr;
                     }
 
@@ -2039,14 +2050,13 @@ test "compile big" {
         \\;;; comment
         \\(typeof (++ i32) i32)
         \\(define (++ x)
-        \\  (begin
-        \\    (typeof a i32)
-        \\    (define a 2) ;; FIXME: make i64 to test type promotion
-        \\    (sql (- f (* 2 3)))
-        \\    (sql 4)
-        \\    (set! a 1)
-        \\    (Confetti 100)
-        \\    (return (max x a))))
+        \\  (typeof a i32)
+        \\  (define a 2) ;; FIXME: make i64 to test type promotion
+        \\  (sql (- f (* 2 3)))
+        \\  (sql 4)
+        \\  (set! a 1)
+        \\  (Confetti 100)
+        \\  (return (max x a)))
         \\
         \\;;; comment
         \\(typeof (deep f32 f32) f32)
