@@ -1,16 +1,10 @@
 .{
-    // This is the default name used by packages depending on this one. For
-    // example, when a user runs `zig fetch --save <url>`, this field is used
-    // as the key in the `dependencies` table. Although the user can choose a
-    // different name, most users will stick with this provided value.
-    //
-    // It is redundant to include "zig" in this name because it is already
-    // within the Zig package namespace.
-    .name = "dvui-frontend",
+    .name = .graphl_ide,
+    .fingerprint = 0xae892f76d528d40d,
 
     // This is a [Semantic Version](https://semver.org/).
     // In a future version of Zig it will be used for package deduplication.
-    .version = "0.0.0",
+    .version = "0.1.0",
 
     // This field is optional.
     // This is currently advisory only; Zig does not yet do anything
@@ -24,28 +18,16 @@
     // internet connectivity.
     .dependencies = .{
         .dvui = .{
-            .url = "https://github.com/david-vanderson/dvui/archive/afb856095fcf39471af254c2f2731b3de2b0b2d9.zip",
-            .hash = "122040f30b68694be0c2a4043084b100e519084684cf3dc7eaf3fb12a8360e00c55f",
+            .url = "https://github.com/david-vanderson/dvui/archive/797501bcb94014fdc049cf7c813e87dde2222fae.zip",
+            .hash = "dvui-0.2.0-AQFJmRSOygDqdfLgLTVsPQEJWwVU_zyash87RHBZrqXe",
         },
-        .@"binaryen-zig" = .{
-            .url = "https://github.com/MichaelBelousov/binaryen-zig/archive/e015a2d950bb367d99b09954083ef4e9a2e65686.zip",
-            .hash = "1220e7341510769f42f6b0afa4bc3d6fd976a68b51678c6586647e8000d59a0be45c",
-        },
-        .grappl_core = .{
+        .graphl = .{
             .path = "../lang-lib",
         },
-        .wabt = .{
-            .url = "https://github.com/WebAssembly/wabt/archive/39f85a791cbbad91a253a851841a29777efdc2cd.tar.gz",
-            .hash = "1220097b5cfb369f95493a753b0b12525f065e2cf607d62e314d54c54aa1071a1eed",
-        },
-        .bytebox = .{
-            .url = "https://github.com/rdunnington/bytebox/archive/5931f4fa85b4a65d4edbb8810f8e767da1143e14.zip",
-            .hash = "1220d8e9eef6dae932311d5f0bb0e21b3ebe0dc488c93a9ad440d6b79fefb0e9f9c4",
-        },
-        .@"binaryen-cpp" = .{
-            .url = "https://github.com/WebAssembly/binaryen/archive/690576cda63d59ae0cfc3906e1146a7a4278db43.zip",
-            .hash = "1220157cf700dee7c94ba946e99dd0a62dc890b5111482b31420279c82819eda3e06",
-        },
+        // .bytebox = .{
+        //     .url = "https://github.com/rdunnington/bytebox/archive/5931f4fa85b4a65d4edbb8810f8e767da1143e14.zip",
+        //     .hash = "1220d8e9eef6dae932311d5f0bb0e21b3ebe0dc488c93a9ad440d6b79fefb0e9f9c4",
+        // },
     },
     .paths = .{
         "build.zig",

@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
     //
     const web_target_query = std.Target.Query{
         .cpu_arch = .wasm32,
-        .os_tag = .freestanding, // can't use freestanding cuz binaryen
+        .os_tag = .wasi,
         //.abi = .musl,
         // https://github.com/ziglang/zig/pull/16207
         .cpu_features_add = std.Target.wasm.featureSet(&.{
@@ -34,16 +34,9 @@ pub fn build(b: *std.Build) void {
 
     // TODO:
     const dvui_dep = b.dependency("dvui", .{ .target = native_target, .optimize = optimize });
-    const grappl_core_dep = b.dependency("grappl_core", .{
+    const graphl_core_dep = b.dependency("graphl", .{
         .optimize = optimize,
         .small_intrinsics = true,
-    });
-    const bytebox_dep = b.dependency("bytebox", .{});
-
-    const binaryen_dep = b.dependency("binaryen-cpp", .{
-        .target = web_target,
-        .optimize = optimize,
-        //.force_web = true,
     });
 
     const exe = b.addExecutable(.{
@@ -65,8 +58,7 @@ pub fn build(b: *std.Build) void {
     });
 
     ide_module.addImport("dvui", dvui_dep.module("dvui_raylib"));
-    ide_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
-    ide_module.addImport("bytebox", bytebox_dep.module("bytebox"));
+    ide_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
 
     exe.linkLibC();
 
@@ -76,24 +68,7 @@ pub fn build(b: *std.Build) void {
 
     exe.root_module.addImport("dvui", dvui_dep.module("dvui_web"));
     exe.root_module.addImport("WebBackend", dvui_dep.module("WebBackend"));
-    exe.root_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
-
-    // TODO: build wasm_opt without emscripten
-    const wasm_opt_emscripten_build = b.addSystemCommand(&.{
-        "sh",
-        "-c",
-        std.fmt.allocPrint(b.allocator,
-            \\echo "building binaryen..."
-            \\cd {0s};
-            \\emcmake cmake -DBUILD_FOR_BROWSER=ON -DBUILD_TESTS=OFF \
-            \\  -DCMAKE_BUILD_TYPE=Release --target wasm-opt 2>&1  \
-            \\  | tee build.log || echo failed;
-            \\emmake make 2>&1 | tee -a build.log || echo failed;
-            \\echo "finished building binaryen, see $(pwd)/build.log for details"
-        , .{binaryen_dep.path(".").getPath(b)}) catch unreachable,
-    });
-
-    b.getInstallStep().dependOn(&wasm_opt_emscripten_build.step);
+    exe.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -105,7 +80,7 @@ pub fn build(b: *std.Build) void {
     const cb = b.addExecutable(.{
         .name = "cacheBuster",
         .root_source_file = dvui_dep.path("src/cacheBuster.zig"),
-        .target = b.host,
+        .target = b.graph.host,
     });
     const cb_run = b.addRunArtifact(cb);
     cb_run.addFileArg(b.path("index.template.html"));
@@ -113,16 +88,7 @@ pub fn build(b: *std.Build) void {
     cb_run.addFileArg(exe.getEmittedBin());
     const output = cb_run.captureStdOut();
 
-    // FIXME: this would be much smaller than binaryen!
-    // const wat2wasm = addWat2Wasm(b, optimize);
-    // const install_wat2wasm = b.addInstallArtifact(wat2wasm, .{
-    //     .dest_dir = .{ .override = .{ .custom = "bin" } },
-    // });
-    // b.getInstallStep().dependOn(&install_wat2wasm.step);
-
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(output, .{ .custom = ".." }, "index.html").step);
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(binaryen_dep.path("bin/wasm-opt.wasm"), .bin, "wasm-opt.wasm").step);
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(binaryen_dep.path("bin/wasm-opt.js"), .bin, "wasm-opt.js").step);
     b.getInstallStep().dependOn(&install_exe.step);
 
     {
@@ -145,8 +111,7 @@ pub fn build(b: *std.Build) void {
         exe_unit_tests.entry = .disabled;
 
         exe_unit_tests.root_module.addImport("dvui", dvui_dep.module("dvui_raylib"));
-        exe_unit_tests.root_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
-        exe_unit_tests.root_module.addImport("bytebox", bytebox_dep.module("bytebox"));
+        exe_unit_tests.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
 
         // Similar to creating the run step earlier, this exposes a `test` step to
         // the `zig build --help` menu, providing a way for the user to request
@@ -174,8 +139,7 @@ pub fn build(b: *std.Build) void {
         native_exe.entry = .disabled;
 
         native_exe.root_module.addImport("dvui", dvui_dep.module("dvui_raylib"));
-        native_exe.root_module.addImport("grappl_core", grappl_core_dep.module("grappl_core"));
-        native_exe.root_module.addImport("bytebox", bytebox_dep.module("bytebox"));
+        native_exe.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
 
         const native_install = b.addInstallArtifact(native_exe, .{});
 
@@ -189,92 +153,3 @@ pub fn build(b: *std.Build) void {
         }
     }
 }
-
-fn addWat2Wasm(b: *std.Build, optimize: std.builtin.OptimizeMode) *std.Build.Step.Compile {
-    const wabt_dep = b.dependency("wabt", .{});
-
-    const wabt_config_h = b.addConfigHeader(.{
-        .style = .{ .cmake = wabt_dep.path("src/config.h.in") },
-        .include_path = "wabt/config.h",
-    }, .{
-        .WABT_VERSION_STRING = "1.0.34",
-        .HAVE_SNPRINTF = 1,
-        .HAVE_SSIZE_T = 1,
-        .HAVE_STRCASECMP = 1,
-        .COMPILER_IS_CLANG = 1,
-        .SIZEOF_SIZE_T = @sizeOf(usize),
-    });
-
-    // FIXME: rename to wasi
-    const web_target_query = std.Target.Query{
-        .cpu_arch = .wasm32,
-        .os_tag = .wasi,
-        //.abi = .musl,
-        // https://github.com/ziglang/zig/pull/16207
-        .cpu_features_add = std.Target.wasm.featureSet(&.{
-            .atomics,
-            .multivalue,
-            .bulk_memory,
-        }),
-    };
-
-    const wabt_lib = b.addStaticLibrary(.{
-        .name = "wabt",
-        .target = b.resolveTargetQuery(web_target_query),
-        .optimize = optimize,
-    });
-    wabt_lib.addConfigHeader(wabt_config_h);
-    wabt_lib.addIncludePath(wabt_dep.path("include"));
-    wabt_lib.addCSourceFiles(.{
-        .root = wabt_dep.path("."),
-        .files = &wabt_files,
-    });
-    wabt_lib.linkLibCpp();
-
-    const wat2wasm = b.addExecutable(.{
-        .name = "wat2wasm",
-        .target = b.resolveTargetQuery(web_target_query),
-        .optimize = optimize,
-    });
-    wat2wasm.addConfigHeader(wabt_config_h);
-    wat2wasm.addIncludePath(wabt_dep.path("include"));
-    wat2wasm.addCSourceFile(.{
-        .file = wabt_dep.path("src/tools/wat2wasm.cc"),
-    });
-    wat2wasm.linkLibCpp();
-    wat2wasm.linkLibrary(wabt_lib);
-    return wat2wasm;
-}
-
-const wabt_files = [_][]const u8{
-    "src/binary-reader-ir.cc",
-    "src/binary-reader-logging.cc",
-    "src/binary-reader.cc",
-    "src/binary-writer-spec.cc",
-    "src/binary-writer.cc",
-    "src/binary.cc",
-    "src/binding-hash.cc",
-    "src/color.cc",
-    "src/common.cc",
-    "src/error-formatter.cc",
-    "src/expr-visitor.cc",
-    "src/feature.cc",
-    "src/filenames.cc",
-    "src/ir.cc",
-    "src/leb128.cc",
-    "src/lexer-source-line-finder.cc",
-    "src/lexer-source.cc",
-    "src/literal.cc",
-    "src/opcode-code-table.c",
-    "src/opcode.cc",
-    "src/option-parser.cc",
-    "src/resolve-names.cc",
-    "src/shared-validator.cc",
-    "src/stream.cc",
-    "src/token.cc",
-    "src/type-checker.cc",
-    "src/utf8.cc",
-    "src/validator.cc",
-    "src/wast-lexer.cc",
-    "src/wast-parser.cc",
-};
