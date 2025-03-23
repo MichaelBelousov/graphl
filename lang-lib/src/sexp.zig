@@ -32,9 +32,14 @@ pub const ModuleContext = struct {
     // TODO: rename from arena, which means something else in zig
     arena: std.ArrayListUnmanaged(Sexp) = .{},
     source: ?[]const u8 = null,
+    _alloc: std.mem.Allocator,
 
-    pub inline fn add(self: *@This(), alloc: std.mem.Allocator, sexp: Sexp) !u32 {
-        try self.arena.append(alloc, sexp);
+    pub inline fn alloc(self: *@This()) std.mem.Allocator {
+        return self._alloc;
+    }
+
+    pub inline fn add(self: *@This(), sexp: Sexp) !u32 {
+        try self.arena.append(self.alloc(), sexp);
         return @intCast(self.arena.items.len - 1);
     }
 
@@ -42,28 +47,32 @@ pub const ModuleContext = struct {
         return &self.arena.items[index];
     }
 
-
     pub inline fn getRoot(self: *const @This()) *Sexp {
         return self.get(0);
     }
 
-    pub fn init(alloc: std.mem.Allocator) !@This() {
-        return initCapacity(alloc, 1);
+    pub fn init(a: std.mem.Allocator) !@This() {
+        return initCapacity(a, 1);
     }
 
-    pub fn initCapacity(alloc: std.mem.Allocator, capacity: usize) !@This() {
-        var arena = try std.ArrayListUnmanaged(Sexp).initCapacity(alloc, capacity);
-        arena.appendAssumeCapacity(try .emptyModuleCapacity(alloc, capacity - 1));
+    pub fn initCapacity(a: std.mem.Allocator, capacity: usize) !@This() {
+        var arena = try std.ArrayListUnmanaged(Sexp).initCapacity(a, capacity);
+        arena.appendAssumeCapacity(try .emptyModuleCapacity(a, capacity - 1));
 
         return @This(){
             .arena = arena,
+            ._alloc = a,
         };
     }
 
-
-    pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-        self.getRoot().deinit(self, alloc);
-        self.arena.deinit(alloc);
+    pub fn deinit(self: *@This()) void {
+        for (self.arena.items) |sexp| {
+            switch (sexp.value) {
+                .module, .list => |v| v.deinit(self.alloc()),
+                else => {},
+            }
+        }
+        self.arena.deinit(self.alloc());
     }
 
     pub fn format(self: *const @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -132,7 +141,6 @@ pub const Sexp = struct {
         }
     }
 
-
     pub fn deinit(self: *@This(), mod_ctx: *const ModuleContext, alloc: std.mem.Allocator) void {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
@@ -142,8 +150,9 @@ pub const Sexp = struct {
         return self._deinit(mod_ctx, alloc, &visited);
     }
 
+    // FIXME: deprecate
     pub fn emptyList() Sexp {
-        return Sexp{ .value = .{ .list = .empty } };
+        return empty_list;
     }
 
     pub const empty_list = Sexp{ .value = .{ .list = .empty } };
@@ -152,7 +161,7 @@ pub const Sexp = struct {
         return Sexp{ .value = .{ .list = try std.ArrayListUnmanaged(u32).initCapacity(alloc, capacity) } };
     }
 
-    pub fn symbol(sym: [:0]const u8) Sexp {
+    pub fn symbol(sym: []const u8) Sexp {
         return Sexp{ .value = .{ .symbol = pool.getSymbol(sym) } };
     }
 
@@ -160,10 +169,12 @@ pub const Sexp = struct {
         return Sexp{ .value = .{ .int = value } };
     }
 
-
+    // FIXME: deprecate
     pub fn emptyModule() Sexp {
-        return Sexp{ .value = .{ .module = .empty } };
+        return empty_module;
     }
+
+    pub const empty_module = Sexp{ .value = .{ .module = .empty } };
 
     pub fn emptyModuleCapacity(alloc: std.mem.Allocator, capacity: usize) !Sexp {
         return Sexp{ .value = .{ .module = try std.ArrayListUnmanaged(u32).initCapacity(alloc, capacity) } };
@@ -213,7 +224,12 @@ pub const Sexp = struct {
         depth += try writer.write("(");
 
         if (form.items.len >= 1) {
-            depth += (try mod_ctx.arena.items[form.items[0]]._write(mod_ctx, writer, .{ .depth = state.depth + depth, .emitted_labels = state.emitted_labels }, opts,)).depth;
+            depth += (try mod_ctx.arena.items[form.items[0]]._write(
+                mod_ctx,
+                writer,
+                .{ .depth = state.depth + depth, .emitted_labels = state.emitted_labels },
+                opts,
+            )).depth;
         }
 
         if (form.items.len >= 2) {
@@ -231,7 +247,10 @@ pub const Sexp = struct {
 
         _ = try writer.write(")");
 
-        return .{ .depth = depth, .emitted_labels = state.emitted_labels, };
+        return .{
+            .depth = depth,
+            .emitted_labels = state.emitted_labels,
+        };
     }
 
     // eventually we want to format special forms specially
@@ -436,7 +455,7 @@ pub const Sexp = struct {
                     const pattern_item = pctx.get(pattern_item_idx);
                     if (pattern_item.value == .symbol and pattern_item.value.symbol.ptr == pool.getSymbol("...SYMBOL").ptr) {
                         std.debug.assert(i == pattern_list.items.len - 1); // rest pattern must be last
-                        for (v.items[i+1..]) |rest_item_idx| {
+                        for (v.items[i + 1 ..]) |rest_item_idx| {
                             const rest_item = lctx.get(item_idx);
                             if (rest_item.value != .symbol) {
                                 return rest_item_idx;
@@ -478,7 +497,7 @@ pub const Sexp = struct {
         var pattern_module = Parser.parse(std.heap.page_allocator, pattern, &pat_diag) catch {
             std.debug.print("Pattern match error: {}\n", .{pat_diag});
             //pat_diag.contextualize(std.io.getStdErr().writer());
-            unreachable; 
+            unreachable;
         };
         defer pattern_module.deinit();
         var lvisited = std.AutoHashMap(u32, void).init(arena.allocator());
@@ -606,18 +625,18 @@ test "findPatternMismatch" {
         .{ .source = "(meta version 1)", .pattern = "(meta version 1)", .should_match = true },
         .{ .source = "(typeof (++ i32) i32)", .pattern = "(typeof (SYMBOL ...SYMBOL) ...ANY)", .should_match = true },
         .{
-            .source = 
-                \\(define (factorial n)
-                \\  (typeof acc i64)
-                \\  (define acc 1)
-                \\  (begin
-                \\    <!if
-                \\    (if (<= n 1)
-                \\        (begin (return acc))
-                \\        (begin
-                \\          (set! acc (* acc n))
-                \\          (set! n (- n 1))
-                \\          >!if))))
+            .source =
+            \\(define (factorial n)
+            \\  (typeof acc i64)
+            \\  (define acc 1)
+            \\  (begin
+            \\    <!if
+            \\    (if (<= n 1)
+            \\        (begin (return acc))
+            \\        (begin
+            \\          (set! acc (* acc n))
+            \\          (set! n (- n 1))
+            \\          >!if))))
             ,
             .pattern = "(define (SYMBOL ...SYMBOL) ...ANY)",
             .should_match = true,
@@ -635,13 +654,12 @@ test "findPatternMismatch" {
 
         errdefer {
             if (maybe_mismatch) |mismatch| {
-                std.debug.print("mismatch:\n{}\nin:\n{s}\n", .{Sexp.withContext(&parsed.module, mismatch), info.source});
+                std.debug.print("mismatch:\n{}\nin:\n{s}\n", .{ Sexp.withContext(&parsed.module, mismatch), info.source });
             }
         }
 
         try t.expectEqual(info.should_match, maybe_mismatch == null);
     }
-
 }
 
 // TODO: move into the environment as known syms

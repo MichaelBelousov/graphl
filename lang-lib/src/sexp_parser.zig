@@ -538,7 +538,7 @@ pub const Parser = struct {
             }
 
             fn pushSexp(self: *const @This(), in_sexp: Sexp) !void {
-                const new_idx = try self._module.add(self._out_alloc, in_sexp);
+                const new_idx = try self._module.add(in_sexp);
                 return self.pushExistingSexp(new_idx);
             }
         }{
@@ -567,7 +567,7 @@ pub const Parser = struct {
                     for (0..tok.sexp.span.?.len - 1) |_| loc.increment(src);
                 },
                 '(' => {
-                    const added = try module.add(out_alloc, .empty_list);
+                    const added = try module.add(.empty_list);
 
                     if (active_label) |label| {
                         module.get(added).label = label;
@@ -809,75 +809,75 @@ test "parse factorial iterative with graph reference" {
     var module = try ModuleContext.initCapacity(a, 44);
     defer module.deinit(a);
 
-    try module.getRoot().value.module.append(a, try module.add(a, try .emptyListCapacity(a, 5)));
+    try module.getRoot().value.module.append(a, try module.add(try .emptyListCapacity(a, 5)));
 
     const def = module.getRoot().value.module.items[0];
-    module.get(def).value.list.appendAssumeCapacity(try module.add(a, .symbol("define")));
-    module.get(def).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(a, 2)));
-    module.get(def).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(a, 3)));
-    module.get(def).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(a, 3)));
-    module.get(def).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(a, 3)));
+    module.get(def).value.list.appendAssumeCapacity(try module.add(.symbol("define")));
+    module.get(def).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(a, 2)));
+    module.get(def).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(a, 3)));
+    module.get(def).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(a, 3)));
+    module.get(def).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(a, 3)));
 
     const func_decl = module.get(def).value.list.items[1];
-    module.get(func_decl).value.list.appendAssumeCapacity(try module.add(a, .symbol("factorial")));
-    module.get(func_decl).value.list.appendAssumeCapacity(try module.add(a, .symbol("n")));
+    module.get(func_decl).value.list.appendAssumeCapacity(try module.add(.symbol("factorial")));
+    module.get(func_decl).value.list.appendAssumeCapacity(try module.add(.symbol("n")));
 
     const var_type = module.get(def).value.list.items[2];
-    module.get(var_type).value.list.appendAssumeCapacity(try module.add(a, .symbol("typeof")));
-    module.get(var_type).value.list.appendAssumeCapacity(try module.add(a, .symbol("acc")));
-    module.get(var_type).value.list.appendAssumeCapacity(try module.add(a, .symbol("i64")));
+    module.get(var_type).value.list.appendAssumeCapacity(try module.add(.symbol("typeof")));
+    module.get(var_type).value.list.appendAssumeCapacity(try module.add(.symbol("acc")));
+    module.get(var_type).value.list.appendAssumeCapacity(try module.add(.symbol("i64")));
 
     const var_decl = module.get(def).value.list.items[3];
-    module.get(var_decl).value.list.appendAssumeCapacity(try module.add(a, .symbol("define")));
-    module.get(var_decl).value.list.appendAssumeCapacity(try module.add(a, .symbol("acc")));
-    module.get(var_decl).value.list.appendAssumeCapacity(try module.add(a, .int(1)));
+    module.get(var_decl).value.list.appendAssumeCapacity(try module.add(.symbol("define")));
+    module.get(var_decl).value.list.appendAssumeCapacity(try module.add(.symbol("acc")));
+    module.get(var_decl).value.list.appendAssumeCapacity(try module.add(.int(1)));
 
     const body = module.get(def).value.list.items[4];
-    module.get(body).value.list.appendAssumeCapacity(try module.add(a, .symbol("begin")));
-    module.get(body).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 4)));
+    module.get(body).value.list.appendAssumeCapacity(try module.add(.symbol("begin")));
+    module.get(body).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 4)));
 
     const @"if" = module.get(body).value.list.items[1];
     module.get(@"if").label = pool.getSymbol("if");
-    module.get(@"if").value.list.appendAssumeCapacity(try module.add(a, .symbol("if")));
-    module.get(@"if").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 3)));
-    module.get(@"if").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 2)));
-    module.get(@"if").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 4)));
+    module.get(@"if").value.list.appendAssumeCapacity(try module.add(.symbol("if")));
+    module.get(@"if").value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 3)));
+    module.get(@"if").value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 2)));
+    module.get(@"if").value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 4)));
 
     const cond = module.get(@"if").value.list.items[1];
-    module.get(cond).value.list.appendAssumeCapacity(try module.add(a, .symbol("<=")));
-    module.get(cond).value.list.appendAssumeCapacity(try module.add(a, .symbol("n")));
-    module.get(cond).value.list.appendAssumeCapacity(try module.add(a, .int(1)));
+    module.get(cond).value.list.appendAssumeCapacity(try module.add(.symbol("<=")));
+    module.get(cond).value.list.appendAssumeCapacity(try module.add(.symbol("n")));
+    module.get(cond).value.list.appendAssumeCapacity(try module.add(.int(1)));
 
     const then = module.get(@"if").value.list.items[2];
-    module.get(then).value.list.appendAssumeCapacity(try module.add(a, .symbol("begin")));
-    module.get(then).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 2)));
+    module.get(then).value.list.appendAssumeCapacity(try module.add(.symbol("begin")));
+    module.get(then).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 2)));
     const then_return = module.get(then).value.list.items[1];
-    module.get(then_return).value.list.appendAssumeCapacity(try module.add(a, .symbol("return")));
-    module.get(then_return).value.list.appendAssumeCapacity(try module.add(a, .symbol("acc")));
+    module.get(then_return).value.list.appendAssumeCapacity(try module.add(.symbol("return")));
+    module.get(then_return).value.list.appendAssumeCapacity(try module.add(.symbol("acc")));
 
     const @"else" = module.get(@"if").value.list.items[3];
-    module.get(@"else").value.list.appendAssumeCapacity(try module.add(a, .symbol("begin")));
-    module.get(@"else").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 3)));
-    module.get(@"else").value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 3)));
+    module.get(@"else").value.list.appendAssumeCapacity(try module.add(.symbol("begin")));
+    module.get(@"else").value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 3)));
+    module.get(@"else").value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 3)));
     module.get(@"else").value.list.appendAssumeCapacity(@"if");
 
     const set_acc = module.get(@"else").value.list.items[1];
-    module.get(set_acc).value.list.appendAssumeCapacity(try module.add(a, .symbol("set!")));
-    module.get(set_acc).value.list.appendAssumeCapacity(try module.add(a, .symbol("acc")));
-    module.get(set_acc).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 3)));
+    module.get(set_acc).value.list.appendAssumeCapacity(try module.add(.symbol("set!")));
+    module.get(set_acc).value.list.appendAssumeCapacity(try module.add(.symbol("acc")));
+    module.get(set_acc).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 3)));
     const set_acc_expr = module.get(set_acc).value.list.items[2];
-    module.get(set_acc_expr).value.list.appendAssumeCapacity(try module.add(a, .symbol("*")));
-    module.get(set_acc_expr).value.list.appendAssumeCapacity(try module.add(a, .symbol("acc")));
-    module.get(set_acc_expr).value.list.appendAssumeCapacity(try module.add(a, .symbol("n")));
+    module.get(set_acc_expr).value.list.appendAssumeCapacity(try module.add(.symbol("*")));
+    module.get(set_acc_expr).value.list.appendAssumeCapacity(try module.add(.symbol("acc")));
+    module.get(set_acc_expr).value.list.appendAssumeCapacity(try module.add(.symbol("n")));
 
     const set_n = module.get(@"else").value.list.items[2];
-    module.get(set_n).value.list.appendAssumeCapacity(try module.add(a, .symbol("set!")));
-    module.get(set_n).value.list.appendAssumeCapacity(try module.add(a, .symbol("n")));
-    module.get(set_n).value.list.appendAssumeCapacity(try module.add(a, try .emptyListCapacity(t.allocator, 3)));
+    module.get(set_n).value.list.appendAssumeCapacity(try module.add(.symbol("set!")));
+    module.get(set_n).value.list.appendAssumeCapacity(try module.add(.symbol("n")));
+    module.get(set_n).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 3)));
     const set_n_expr = module.get(set_n).value.list.items[2];
-    module.get(set_n_expr).value.list.appendAssumeCapacity(try module.add(a, .symbol("-")));
-    module.get(set_n_expr).value.list.appendAssumeCapacity(try module.add(a, .symbol("n")));
-    module.get(set_n_expr).value.list.appendAssumeCapacity(try module.add(a, .int(1)));
+    module.get(set_n_expr).value.list.appendAssumeCapacity(try module.add(.symbol("-")));
+    module.get(set_n_expr).value.list.appendAssumeCapacity(try module.add(.symbol("n")));
+    module.get(set_n_expr).value.list.appendAssumeCapacity(try module.add(.int(1)));
 
     const source =
         \\(define (factorial n)

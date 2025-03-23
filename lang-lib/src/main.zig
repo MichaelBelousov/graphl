@@ -22,6 +22,7 @@ pub const BasicNodeDesc = @import("./nodes/builtin.zig").BasicNodeDesc;
 pub const helpers = @import("./nodes/builtin.zig");
 pub const Value = @import("./nodes/builtin.zig").Value;
 pub const Sexp = @import("./sexp.zig").Sexp;
+pub const ModuleContext = @import("./sexp.zig").ModuleContext;
 pub const syms = @import("./sexp.zig").syms;
 pub const SexpParser = @import("./sexp_parser.zig").Parser;
 pub const compiler = @import("./compiler-wasm.zig");

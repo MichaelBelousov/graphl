@@ -4,18 +4,19 @@ const io = std.io;
 const testing = std.testing;
 const assert = std.debug.assert;
 
-const grappl = @import("grappl_core");
+const graphl = @import("graphl_core");
 
-const Sexp = grappl.Sexp;
-const SexpParser = grappl.SexpParser;
-const syms = grappl.syms;
+const ModuleContext = graphl.ModuleContext;
+const Sexp = graphl.Sexp;
+const SexpParser = graphl.SexpParser;
+const syms = graphl.syms;
 
-const Env = grappl.helpers.Env;
-const Value = grappl.helpers.Value;
+const Env = graphl.helpers.Env;
+const Value = graphl.helpers.Value;
 
-const Node = grappl.Node;
-const Link = grappl.Link;
-const NodeId = grappl.NodeId;
+const Node = graphl.Node;
+const Link = graphl.Link;
+const NodeId = graphl.NodeId;
 const App = @import("./app.zig");
 const Graph = App.Graph;
 
@@ -59,8 +60,8 @@ fn funcSourceToGraph(
     const param_types = binding_types.value.list.items[1..];
 
     {
-        graph.grappl_graph.entry_node_basic_desc.outputs = try a.realloc(graph.grappl_graph.entry_node_basic_desc.outputs, param_names.len);
-        for (param_names, param_types, graph.grappl_graph.entry_node_basic_desc.outputs) |param_name, param_type_name, *output_desc| {
+        graph.graphl_graph.entry_node_basic_desc.outputs = try a.realloc(graph.graphl_graph.entry_node_basic_desc.outputs, param_names.len);
+        for (param_names, param_types, graph.graphl_graph.entry_node_basic_desc.outputs) |param_name, param_type_name, *output_desc| {
             output_desc.name = try a.dupe(u8, param_name.value.symbol);
             const param_type = env.getType(param_type_name.value.symbol) orelse unreachable;
             output_desc.kind = .{ .primitive = .{ .value = param_type } };
@@ -69,7 +70,7 @@ fn funcSourceToGraph(
 
     const result_type_name = type_sexp.value.list.items[2].value.symbol;
     const result_type = env.getType(result_type_name) orelse unreachable;
-    graph.grappl_graph.result_node_basic_desc.inputs[1].kind.primitive.value = result_type;
+    graph.graphl_graph.result_node_basic_desc.inputs[1].kind.primitive.value = result_type;
 
     const definition = &impl_sexp.value.list.items[2];
     assert(definition.value.list.items.len >= 2);
@@ -97,7 +98,7 @@ fn funcSourceToGraph(
 
     {
         assert(locals_forms.len % 2 == 0);
-        try graph.grappl_graph.locals.ensureTotalCapacityPrecise(a, locals_forms.len / 2);
+        try graph.graphl_graph.locals.ensureTotalCapacityPrecise(a, locals_forms.len / 2);
 
         var i: usize = 0;
         while (i < locals_forms.len) : (i += 2) {
@@ -109,7 +110,7 @@ fn funcSourceToGraph(
 
             const local_type = env.getType(local_type_name) orelse unreachable;
 
-            graph.grappl_graph.locals.addOneAssumeCapacity().* = .{
+            graph.graphl_graph.locals.addOneAssumeCapacity().* = .{
                 .name = try a.dupe(u8, local_name),
                 .type_ = local_type,
                 // FIXME: should add an "extra" to be compatible with the frontend?
@@ -134,7 +135,7 @@ fn funcSourceToGraph(
                         const input_args = v.items[1..];
                         assert(callee.value == .symbol);
                         const input_node_id = try _graph.addNode(_a, callee.value.symbol, false, null, null, .{});
-                        const input_node = _graph.grappl_graph.nodes.map.getPtr(input_node_id) orelse unreachable;
+                        const input_node = _graph.graphl_graph.nodes.map.getPtr(input_node_id) orelse unreachable;
                         try attachArgs(_a, input_node, input_args, _env, _graph);
                         input.link = .{
                             .target = input_node_id,
@@ -167,13 +168,13 @@ fn funcSourceToGraph(
         }
     };
 
-    var prev_node = graph.grappl_graph.entry() orelse unreachable;
+    var prev_node = graph.graphl_graph.entry() orelse unreachable;
     for (body_exprs) |body_expr| {
         const callee = body_expr.value.list.items[0].value.symbol;
         const args = body_expr.value.list.items[1..];
         // TODO: this should return the full node and not cause consumers to need to perform a lookup
         const new_node_id = try graph.addNode(a, callee, false, null, null, .{});
-        const new_node = graph.grappl_graph.nodes.map.getPtr(new_node_id) orelse unreachable;
+        const new_node = graph.graphl_graph.nodes.map.getPtr(new_node_id) orelse unreachable;
         assert(new_node.desc().getInputs()[0].isExec());
         assert(prev_node.desc().getOutputs()[0].isExec());
         prev_node.outputs[0] = .{};
@@ -191,20 +192,19 @@ fn funcSourceToGraph(
     return graph;
 }
 
-fn sexpToGraphs(a: std.mem.Allocator, app: *App, sexp: *const Sexp, env: *Env) !Graphs {
+fn sexpToGraphs(a: std.mem.Allocator, app: *App, mod_ctx: *const ModuleContext, env: *Env) !Graphs {
     var graphs = Graphs{};
     var index: u16 = 0;
 
-    assert(sexp.value == .module);
-
     // NOTE: assuming typeof is always right before, which has not been explicitly decided upon
     var maybe_prev_typeof: ?*const Sexp = null;
-    for (sexp.value.module.items) |*top_level| {
+    for (mod_ctx.getRoot().body().items) |top_level_idx| {
+        const top_level = mod_ctx.get(top_level_idx);
         assert(top_level.value == .list);
         assert(top_level.value.list.items.len == 3);
         if (maybe_prev_typeof) |prev_typeof| {
             maybe_prev_typeof = null;
-            const define_kw = &top_level.value.list.items[0];
+            const define_kw = mod_ctx.get(top_level.value.list.items[0]);
             assert(define_kw.value.symbol.ptr == syms.define.value.symbol.ptr);
 
             const graph_slot = try a.create(Graphs.Node);
@@ -214,7 +214,7 @@ fn sexpToGraphs(a: std.mem.Allocator, app: *App, sexp: *const Sexp, env: *Env) !
             graphs.prepend(graph_slot);
             index += 1;
         } else {
-            const typeof = &top_level.value.list.items[0];
+            const typeof = &top_level.value.list.tems[0];
             assert(typeof.value.symbol.ptr == syms.typeof.value.symbol.ptr);
             maybe_prev_typeof = top_level;
         }
@@ -225,8 +225,8 @@ fn sexpToGraphs(a: std.mem.Allocator, app: *App, sexp: *const Sexp, env: *Env) !
 
 pub fn sourceToGraph(a: std.mem.Allocator, app: *App, source: []const u8, env: *Env) !Graphs {
     var diag = SexpParser.Diagnostic{ .source = source };
-    if (SexpParser.parse(a, source, &diag)) |sexp| {
-        return sexpToGraphs(a, app, &sexp, env);
+    if (SexpParser.parse(a, source, &diag)) |parsed| {
+        return sexpToGraphs(a, app, &parsed.module, env);
     } else |err| {
         std.log.err("bad sexp:\n{}\n", .{err});
         return err;

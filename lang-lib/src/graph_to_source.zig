@@ -7,6 +7,7 @@ const json = std.json;
 
 const JsonIntArrayHashMap = @import("./json_int_map.zig").IntArrayHashMap;
 
+const ModuleContext = @import("./sexp.zig").ModuleContext;
 const Sexp = @import("./sexp.zig").Sexp;
 const syms = @import("./sexp.zig").syms;
 const primitive_type_syms = @import("./sexp.zig").primitive_type_syms;
@@ -36,6 +37,8 @@ const JsonNode = @import("./json_format.zig").JsonNode;
 const Import = @import("./json_format.zig").Import;
 const GraphDoc = @import("./json_format.zig").GraphDoc;
 const debug_print = @import("./debug_print.zig").debug_print;
+
+const pool = &@import("./InternPool.zig").pool;
 
 pub const ImportBinding = struct {
     binding: []const u8,
@@ -544,7 +547,7 @@ pub const GraphBuilder = struct {
 
     // FIXME: emit move name to the graph
     /// NOTE: the outer module is a sexp list
-    pub fn compile(self: *@This(), alloc: std.mem.Allocator, name: []const u8, diagnostic: ?*Diagnostics) !Sexp {
+    pub fn compile(self: *@This(), alloc: std.mem.Allocator, name: []const u8, mod_ctx: *ModuleContext, diagnostic: ?*Diagnostics) !void {
         try self.branch_joiner_map.ensureTotalCapacity(alloc, self.branch_count);
         try self.is_join_set.resize(alloc, self.nodes.map.count(), false);
 
@@ -553,32 +556,41 @@ pub const GraphBuilder = struct {
         try self.analyzeNodes(alloc);
         analysis_arena.deinit();
 
-        var body = try self.rootToSexp(alloc, diagnostic);
-        // FIXME: doesn't this invalidate the moved slice below? e.g. this only works cuz there are no owned strings?
-        defer body.deinit(alloc);
+        try mod_ctx.getRoot().value.module.ensureTotalCapacity(alloc, 1 + self.nodes.map.count());
+
+        var body = try self.rootToSexp(alloc, mod_ctx, diagnostic);
         std.debug.assert(body.value == .list);
 
-        var module = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(alloc) } };
-        try module.value.module.ensureTotalCapacityPrecise(2);
-        const type_def = module.value.module.addOneAssumeCapacity();
-        const func_def = module.value.module.addOneAssumeCapacity();
+        const insert_pt_idx = try mod_ctx.add(.empty_list);
+        const insert_pt = mod_ctx.get(insert_pt_idx);
+        try mod_ctx.getRoot().body().append(mod_ctx.alloc(), insert_pt_idx);
+        try insert_pt.value.module.ensureTotalCapacityPrecise(alloc, 2);
+        const type_def_idx = try mod_ctx.add(.empty_list);
+        insert_pt.value.module.appendAssumeCapacity(type_def_idx);
+        const func_def_idx = try mod_ctx.add(.empty_list);
+        insert_pt.value.module.appendAssumeCapacity(func_def_idx);
 
         const params = self.entry_node_basic_desc.outputs[1..];
 
         {
-            type_def.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) }, .comment = "comment!" };
-            try type_def.value.list.ensureTotalCapacityPrecise(3);
-            type_def.value.list.addOneAssumeCapacity().* = syms.typeof;
-            const param_bindings = type_def.value.list.addOneAssumeCapacity();
-            const result_type = type_def.value.list.addOneAssumeCapacity();
+            const type_def = mod_ctx.get(type_def_idx);
+            try type_def.value.list.ensureTotalCapacityPrecise(alloc, 3);
+            type_def.value.list.appendAssumeCapacity(try mod_ctx.add(syms.typeof));
 
-            param_bindings.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-            try param_bindings.value.list.ensureTotalCapacityPrecise(1 + params.len);
-            // FIXME: dupe this?
-            param_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
+            const param_bindings_idx = try mod_ctx.add(.empty_list);
+            const param_bindings = mod_ctx.get(param_bindings_idx);
+            const result_type_idx = try mod_ctx.add(undefined);
+            const result_type = mod_ctx.get(result_type_idx);
+            type_def.value.list.appendAssumeCapacity(param_bindings_idx);
+            type_def.value.list.appendAssumeCapacity(result_type_idx);
+
+            try param_bindings.value.list.ensureTotalCapacityPrecise(alloc, 1 + params.len);
+            const name_idx = try mod_ctx.add(.symbol(name));
+            param_bindings.value.list.appendAssumeCapacity(name_idx);
             for (params) |param| {
                 std.debug.assert(param.asPrimitivePin() == .value);
-                param_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param.asPrimitivePin().value.name } };
+                const param_binding_idx = try mod_ctx.add(.symbol(param.asPrimitivePin().value.name));
+                param_bindings.value.list.appendAssumeCapacity(param_binding_idx);
             }
 
             if (self.result_node_basic_desc.inputs.len < 1) return error.InvalidResultNode;
@@ -591,60 +603,62 @@ pub const GraphBuilder = struct {
                 if (self.result_node_basic_desc.inputs[1].kind.primitive != .value) return error.InvalidResultNode;
 
                 // FIXME: share symbols for primitives!
-                result_type.* = Sexp{ .value = .{ .symbol = self.result_node_basic_desc.inputs[1].kind.primitive.value.name } };
+                result_type.* = .symbol(self.result_node_basic_desc.inputs[1].kind.primitive.value.name);
             }
         }
 
         {
-            func_def.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-            try func_def.value.list.ensureTotalCapacityPrecise(3);
-            func_def.value.list.addOneAssumeCapacity().* = syms.define;
-            const func_bindings = func_def.value.list.addOneAssumeCapacity();
-            const body_begin = func_def.value.list.addOneAssumeCapacity();
+            const func_def = mod_ctx.get(func_def_idx);
+            func_def.* = .empty_list;
+            try func_def.value.list.ensureTotalCapacityPrecise(alloc, 3);
+            func_def.value.list.appendAssumeCapacity(try mod_ctx.add(syms.define));
+            const func_bindings_idx = try mod_ctx.add(try .emptyListCapacity(alloc, 1 + params.len));
+            const body_begin_idx = try mod_ctx.add(.empty_list);
+            const func_bindings = mod_ctx.get(func_bindings_idx);
+            const body_begin = mod_ctx.get(body_begin_idx);
+            func_def.value.list.appendAssumeCapacity(func_bindings_idx);
+            func_def.value.list.appendAssumeCapacity(body_begin_idx);
 
-            body_begin.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
             // 1 for "begin", then local defs, then 1 for body
-            try body_begin.value.list.ensureTotalCapacityPrecise(1 + 2 * self.locals.items.len + body.value.list.items.len + 1);
-            body_begin.value.list.addOneAssumeCapacity().* = syms.begin;
+            try body_begin.value.list.ensureTotalCapacityPrecise(alloc, 1 + 2 * self.locals.items.len + body.value.list.items.len + 1);
+            body_begin.value.list.appendAssumeCapacity(try mod_ctx.add(syms.begin));
             for (self.locals.items) |local| {
-                const local_type = body_begin.value.list.addOneAssumeCapacity();
-                local_type.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try local_type.value.list.ensureTotalCapacityPrecise(3);
-                local_type.value.list.addOneAssumeCapacity().* = syms.typeof;
-                local_type.value.list.addOneAssumeCapacity().* = Sexp{
-                    .value = .{ .symbol = local.name },
+                const local_type_idx = try mod_ctx.add(.empty_list);
+                body_begin.value.list.appendAssumeCapacity(local_type_idx);
+                const local_type = mod_ctx.get(local_type_idx);
+                try local_type.value.list.ensureTotalCapacityPrecise(alloc, 3);
+                local_type.value.list.appendAssumeCapacity(try mod_ctx.add(syms.typeof));
+                local_type.value.list.appendAssumeCapacity(try mod_ctx.add(Sexp{
+                    .value = .{ .symbol = pool.getSymbol(local.name) },
                     .comment = local.comment,
-                };
-                local_type.value.list.addOneAssumeCapacity().* = Sexp{
-                    .value = .{ .symbol = local.type_.name },
+                }));
+                local_type.value.list.appendAssumeCapacity(try mod_ctx.add(Sexp{
+                    .value = .{ .symbol = pool.getSymbol(local.type_.name) },
                     .comment = local.comment,
-                };
+                }));
 
-                const local_def = body_begin.value.list.addOneAssumeCapacity();
-                local_def.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try local_def.value.list.ensureTotalCapacityPrecise(if (local.default != null) 3 else 2);
-                local_def.value.list.addOneAssumeCapacity().* = syms.define;
-                local_def.value.list.addOneAssumeCapacity().* = Sexp{
-                    .value = .{ .symbol = local.name },
+                const local_def_idx = try mod_ctx.add(try .emptyListCapacity(alloc, if (local.default != null) 3 else 2));
+                const local_def = mod_ctx.get(local_def_idx);
+                body_begin.value.list.appendAssumeCapacity(local_def_idx);
+
+                local_def.value.list.appendAssumeCapacity(try mod_ctx.add(syms.define));
+                local_def.value.list.appendAssumeCapacity(try mod_ctx.add(Sexp{
+                    .value = .{ .symbol = pool.getSymbol(local.name) },
                     .comment = local.comment,
-                };
+                }));
                 if (local.default) |default|
-                    local_def.value.list.addOneAssumeCapacity().* = default;
+                    try local_def.value.list.append(mod_ctx.alloc(), try mod_ctx.add(default));
             }
             body_begin.value.list.appendSliceAssumeCapacity(body.value.list.items);
-            body.value.list.clearAndFree();
+            body.value.list.clearAndFree(alloc);
 
             // FIXME: also emit imports and definitions!
-            func_bindings.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-            try func_bindings.value.list.ensureTotalCapacityPrecise(1 + params.len);
             // FIXME: dupe this?
-            func_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
+            try func_bindings.value.list.append(mod_ctx.alloc(), try mod_ctx.add(.symbol(name)));
             for (params) |param| {
-                func_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param.name } };
+                try func_bindings.value.list.append(mod_ctx.alloc(), try mod_ctx.add(.symbol(param.name)));
             }
         }
-
-        return module;
     }
 
     const NodeAnalysisResult = struct {
@@ -798,13 +812,14 @@ pub const GraphBuilder = struct {
     const ToSexp = struct {
         graph: *const GraphBuilder,
         diagnostics: *Diagnostics,
+        mod_ctx: *ModuleContext,
 
         const NodeData = packed struct {
             visited: u1,
             depth: u32, // TODO: u31
         };
 
-        pub const Block = std.ArrayList(Sexp);
+        pub const Block = std.ArrayListUnmanaged(u32);
 
         const Context = struct {
             node_data: *std.MultiArrayList(NodeData),
@@ -861,11 +876,8 @@ pub const GraphBuilder = struct {
         };
 
         pub fn toSexp(self: @This(), alloc: std.mem.Allocator, node_id: NodeId) !Sexp {
-            var block = Block.init(alloc);
-            defer {
-                for (block.items) |member| member.deinit(alloc);
-                block.deinit();
-            }
+            var block: Block = .empty;
+            defer block.deinit(alloc);
 
             var node_data = std.MultiArrayList(NodeData){};
             defer node_data.deinit(alloc);
@@ -884,7 +896,7 @@ pub const GraphBuilder = struct {
             };
 
             try self.onNode(alloc, node_id, state, &ctx);
-            return Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try state.block.toOwnedSlice()) } };
+            return Sexp{ .value = .{ .list = std.ArrayListUnmanaged(u32).fromOwnedSlice(try state.block.toOwnedSlice(alloc)) } };
         }
 
         const Error = error{
@@ -926,43 +938,45 @@ pub const GraphBuilder = struct {
             // FIXME: nodes with these constraints should be specialized!
             // TODO: (nodes should also be SoA and EoA'd)
             if (node.outputs[0].getExecOutput()) |consequence| {
-                var block = Block.init(alloc);
+                var block: Block = .empty;
                 // FIXME: why not take state depth?
                 const consequence_state = State{
                     .block = &block,
                 };
                 // FIXME: only add `begin` if it's multiple expressions
-                (try consequence_state.block.addOne()).* = syms.begin;
+                try consequence_state.block.append(self.mod_ctx.alloc(), try self.mod_ctx.add(syms.begin));
                 try self.onNode(alloc, consequence.target, consequence_state, context);
                 consequence_sexp = Sexp{ .value = .{ .list = block } };
             }
 
             if (node.outputs[1].getExecOutput()) |alternative| {
-                var block = Block.init(alloc);
+                var block: Block = .empty;
                 const alternative_state = State{
                     .block = &block,
                 };
                 // FIXME: only add `begin` if it's multiple expressions
-                (try alternative_state.block.addOne()).* = syms.begin;
+                try alternative_state.block.append(self.mod_ctx.alloc(), try self.mod_ctx.add(syms.begin));
                 try self.onNode(alloc, alternative.target, alternative_state, context);
                 alternative_sexp = Sexp{ .value = .{ .list = block } };
             }
 
-            var branch_sexp = try state.block.addOne();
-            errdefer branch_sexp.deinit(alloc);
+            const branch_sexp_idx = try self.mod_ctx.add(.empty_list);
+            try state.block.append(self.mod_ctx.alloc(), branch_sexp_idx);
+            const branch_sexp = self.mod_ctx.get(branch_sexp_idx);
 
-            branch_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            // FIXME: still needed?
+            //errdefer branch_sexp.deinit(alloc);
 
             // (if
-            (try branch_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc().name() } };
+            try branch_sexp.value.list.append(self.mod_ctx.alloc(), try self.mod_ctx.add(.symbol(node.desc().name())));
 
             // condition
             const condition_sexp = try self.nodeInputTreeToSexp(alloc, node.inputs[1], state, context, false);
-            (try branch_sexp.value.list.addOne()).* = condition_sexp;
+            try branch_sexp.value.list.append(self.mod_ctx.alloc(), try self.mod_ctx.add(condition_sexp));
             // consequence
-            (try branch_sexp.value.list.addOne()).* = consequence_sexp;
+            try branch_sexp.value.list.append(self.mod_ctx.alloc(), try self.mod_ctx.add(consequence_sexp));
             // alternative
-            (try branch_sexp.value.list.addOne()).* = alternative_sexp;
+            try branch_sexp.value.list.append(self.mod_ctx.alloc(), try self.mod_ctx.add(alternative_sexp));
 
             // FIXME: remove this double hash map fetch
             if (self.graph.branch_joiner_map.get(node.id)) |join| {
@@ -1136,18 +1150,18 @@ pub const GraphBuilder = struct {
         }
     };
 
-    fn rootToSexp(self: *@This(), alloc: std.mem.Allocator, diagnostics: ?*Diagnostics) !Sexp {
+    fn rootToSexp(self: *@This(), alloc: std.mem.Allocator, mod_ctx: *ModuleContext, diagnostics: ?*Diagnostics) !Sexp {
         if (self.entry_id == null) {
             return error.NoEntryOrNotYetSet;
         }
 
         std.debug.assert(self.entry().?.desc().getOutputs()[0].isExec());
 
-        const first_link = self.entry().?.outputs[0].getExecOutput() orelse return Sexp.newList(alloc);
+        const first_link = self.entry().?.outputs[0].getExecOutput() orelse return Sexp.emptyList();
         const after_entry_id = first_link.target;
         var if_empty_diag = Diagnostics.init();
         const diag = if (diagnostics) |d| d else &if_empty_diag;
-        return (ToSexp{ .graph = self, .diagnostics = diag }).toSexp(alloc, after_entry_id);
+        return (ToSexp{ .mod_ctx = mod_ctx, .graph = self, .diagnostics = diag }).toSexp(alloc, after_entry_id);
     }
 };
 

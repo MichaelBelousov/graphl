@@ -46,7 +46,7 @@ pub const PinJson = struct {
 };
 
 pub const BasicMutNodeDescJson = struct {
-    name: []const u8,
+    name: [:0]const u8,
     hidden: bool = false,
     kind: helpers.NodeDescKind = .func,
     inputs: []PinJson = &.{},
@@ -342,10 +342,10 @@ fn _setInitOpts(in_json: []const u8) !void {
 }
 
 const gpa = App.gpa;
-const graphl = @import("grappl_core");
+const graphl = @import("graphl_core");
 // FIXME: move to util package
-const IntArrayHashMap = @import("grappl_core").IntArrayHashMap;
-const helpers = @import("grappl_core").helpers;
+const IntArrayHashMap = @import("graphl_core").IntArrayHashMap;
+const helpers = @import("graphl_core").helpers;
 const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 
 const App = @import("./app.zig");
