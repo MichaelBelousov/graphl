@@ -66,9 +66,9 @@ pub const ModuleContext = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        for (self.arena.items) |sexp| {
+        for (self.arena.items) |*sexp| {
             switch (sexp.value) {
-                .module, .list => |v| v.deinit(self.alloc()),
+                .module, .list => |*v| v.deinit(self.alloc()),
                 else => {},
             }
         }
@@ -351,7 +351,14 @@ pub const Sexp = struct {
 
     pub fn write(self: *const Self, mod_ctx: *const ModuleContext, writer: anytype, comptime options: WriteOptions) !usize {
         var counting_writer = std.io.countingWriter(writer);
-        _ = try self._write(mod_ctx, counting_writer.writer(), .{}, options);
+
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        var emitted_labels = std.AutoHashMap([*:0]const u8, void).init(arena.allocator());
+
+        _ = try self._write(mod_ctx, counting_writer.writer(), .{
+            .emitted_labels = &emitted_labels,
+        }, options);
         return @intCast(counting_writer.bytes_written);
     }
 

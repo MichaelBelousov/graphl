@@ -45,7 +45,7 @@ else
 pub const Graph = struct {
     index: u16,
 
-    name: []u8,
+    name: [:0]u8,
 
     call_basic_desc: graphl.helpers.BasicMutNodeDesc,
     call_desc: *graphl.NodeDesc,
@@ -471,7 +471,7 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
 }
 
 pub fn runCurrentGraphs(self: *const @This()) !void {
-    const mod = try combineGraphs(self);
+    var mod = try combineGraphs(self);
     defer mod.deinit();
 
     if (builtin.mode == .Debug) {
@@ -483,7 +483,7 @@ pub fn runCurrentGraphs(self: *const @This()) !void {
 
     var diagnostic = compiler.Diagnostic.init();
 
-    if (compiler.compile(gpa, &mod, &self.shared_env, &self.user_funcs, &diagnostic)) |module| {
+    if (compiler.compile(gpa, &mod, &self.user_funcs, &diagnostic)) |module| {
         std.log.info("compile_result:\n{s}", .{module});
         runCurrentWat(module.ptr, module.len);
         gpa.free(module);
@@ -493,7 +493,7 @@ pub fn runCurrentGraphs(self: *const @This()) !void {
 }
 
 pub fn exportCurrentCompiled(self: *const @This()) !void {
-    const mod = try combineGraphs(self);
+    var mod = try combineGraphs(self);
     defer mod.deinit();
 
     if (builtin.mode == .Debug) {
@@ -505,7 +505,7 @@ pub fn exportCurrentCompiled(self: *const @This()) !void {
 
     var diagnostic = compiler.Diagnostic.init();
 
-    if (compiler.compile(gpa, &mod, &self.shared_env, &self.user_funcs, &diagnostic)) |module| {
+    if (compiler.compile(gpa, &mod, &self.user_funcs, &diagnostic)) |module| {
         std.log.info("compile_result:\n{s}", .{module});
         onExportCompiled(module.ptr, module.len);
         gpa.free(module);
@@ -921,11 +921,12 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
                 };
 
                 // FIXME: dedup with below edge drawing
-                try dvui.pathAddPoint(source_pos);
-                try dvui.pathAddPoint(target_pos);
                 const stroke_color = dvui.Color{ .r = 0xaa, .g = 0xaa, .b = 0xaa, .a = 0xee };
                 // TODO: need to handle deletion...
-                try dvui.pathStroke(false, 3.0, .none, stroke_color);
+                try dvui.pathStroke(&.{
+                    source_pos,
+                    target_pos,
+                }, 3.0, stroke_color, .{ .endcap_style = .none });
             }
         }
     }
@@ -941,10 +942,11 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
             const drag_start = self.edge_drag_start.?.pt;
             const drag_end = mouse_pt;
             // FIXME: dedup with above edge drawing
-            try dvui.pathAddPoint(drag_start);
-            try dvui.pathAddPoint(drag_end);
             const stroke_color = dvui.Color{ .r = 0xaa, .g = 0xaa, .b = 0xaa, .a = 0x88 };
-            try dvui.pathStroke(false, 3.0, .none, stroke_color);
+            try dvui.pathStroke(&.{
+                drag_start,
+                drag_end,
+            }, 3.0, stroke_color, .{ .endcap_style = .none });
         }
 
         const drag_state_changed = (self.prev_drag_state == null) != (maybe_drag_offset == null);
@@ -953,7 +955,9 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
 
         if (stopped_dragging) {
             if (self.edge_drag_end) |end| {
-                const edge = if (end.kind == .input) .{
+                const EdgeInfo = struct { source: Socket, target: Socket };
+
+                const edge: EdgeInfo = if (end.kind == .input) .{
                     .source = self.edge_drag_start.?.socket,
                     .target = end,
                 } else .{
@@ -1398,13 +1402,13 @@ fn renderNode(
                                 if (input.* == .value) {
                                     switch (input.value) {
                                         .float => |v| {
-                                            value = if (@typeInfo(T) == .Int)
+                                            value = if (@typeInfo(T) == .int)
                                                 @intFromFloat(v)
                                             else
                                                 @floatCast(v);
                                         },
                                         .int => |v| {
-                                            value = if (@typeInfo(T) == .Int)
+                                            value = if (@typeInfo(T) == .int)
                                                 @intCast(v)
                                             else
                                                 @floatFromInt(v);
@@ -1417,10 +1421,10 @@ fn renderNode(
 
                                 if (entry.value == .Valid) {
                                     switch (@typeInfo(T)) {
-                                        .Int => {
+                                        .int => {
                                             input.* = .{ .value = .{ .int = @intCast(entry.value.Valid) } };
                                         },
-                                        .Float => {
+                                        .float => {
                                             input.* = .{ .value = .{ .float = @floatCast(entry.value.Valid) } };
                                         },
                                         inline else => std.debug.panic("unhandled input type='{s}'", .{@tagName(input.value)}),
@@ -1498,7 +1502,7 @@ fn renderNode(
                                 if (text_result.text_changed) {
                                     if (@field(input.value, @tagName(info.tag)).ptr != empty.ptr)
                                         gpa.free(@field(input.value, @tagName(info.tag)));
-                                    @field(input.value, @tagName(info.tag)) = try gpa.dupe(u8, text_result.getText());
+                                    @field(input.value, @tagName(info.tag)) = try gpa.dupeZ(u8, text_result.getText());
                                 }
 
                                 handled = true;
@@ -1948,17 +1952,17 @@ pub fn addParamOrResult(
     @field(node_basic_desc, pin_dir) = pin_descs;
     @field(self.current_graph.call_basic_desc, opposite_dir) = pin_descs;
 
-    const new_name = if (name) |n| try gpa.dupe(u8, n) else _: {
+    const new_name = if (name) |n| try gpa.dupeZ(u8, n) else _: {
         var name_suffix = pin_descs.len - 1;
 
         while (true) : (name_suffix += 1) {
             var buf: [MAX_FUNC_NAME]u8 = undefined;
 
-            const getter_name_attempt = try std.fmt.bufPrint(&buf, "get_a{}", .{name_suffix});
+            const getter_name_attempt = try std.fmt.bufPrintZ(&buf, "get_a{}", .{name_suffix});
             if (self.current_graph.env._nodes.contains(getter_name_attempt))
                 continue;
 
-            const setter_name_attempt = try std.fmt.bufPrint(&buf, "set_a{}", .{name_suffix});
+            const setter_name_attempt = try std.fmt.bufPrintZ(&buf, "set_a{}", .{name_suffix});
             if (self.current_graph.env._nodes.contains(setter_name_attempt))
                 continue;
 
@@ -1966,7 +1970,7 @@ pub fn addParamOrResult(
             break;
         }
 
-        break :_ try std.fmt.allocPrint(gpa, "a{}", .{name_suffix});
+        break :_ try std.fmt.allocPrintZ(gpa, "a{}", .{name_suffix});
     };
 
     pin_descs[pin_descs.len - 1] = .{
@@ -2241,7 +2245,8 @@ pub fn frame(self: *@This()) !void {
                 if (entry_state.text_changed) {
                     const old_name = cursor.data.name;
                     defer gpa.free(old_name);
-                    const new_name = try gpa.dupe(u8, entry_state.getText());
+                    // FIXME: ask dvui to allow specifying null termination
+                    const new_name = try gpa.dupeZ(u8, entry_state.getText());
                     cursor.data.name = new_name;
                     cursor.data.call_basic_desc.name = new_name;
                     std.debug.assert(self.shared_env._nodes.remove(old_name));
@@ -2301,7 +2306,7 @@ pub fn frame(self: *@This()) !void {
                     var name_buf: [MAX_FUNC_NAME]u8 = undefined;
 
                     // FIXME: obviously this could be faster by keeping track of state
-                    const name = try gpa.dupe(u8, for (0..10_000) |j| {
+                    const name = try gpa.dupeZ(u8, for (0..10_000) |j| {
                         const getter_name = try std.fmt.bufPrint(&name_buf, "get_new{}", .{j});
                         // FIXME: use contains
                         if (self.current_graph.env.getNode(getter_name) != null)
@@ -2350,7 +2355,7 @@ pub fn frame(self: *@This()) !void {
 
                     const node_descs = try gpa.alloc(graphl.helpers.BasicMutNodeDesc, 2);
                     node_descs[0] = graphl.helpers.BasicMutNodeDesc{
-                        .name = try std.fmt.allocPrint(gpa, "get_{s}", .{name}),
+                        .name = try std.fmt.allocPrintZ(gpa, "get_{s}", .{name}),
                         .kind = .get,
                         .inputs = try gpa.dupe(helpers.Pin, &getter_inputs),
                         .outputs = try gpa.dupe(helpers.Pin, &getter_outputs),
@@ -2360,7 +2365,7 @@ pub fn frame(self: *@This()) !void {
                     errdefer gpa.free(node_descs[0].outputs);
                     node_descs[1] = graphl.helpers.BasicMutNodeDesc{
                         // FIXME: leaks
-                        .name = try std.fmt.allocPrint(gpa, "set_{s}", .{name}),
+                        .name = try std.fmt.allocPrintZ(gpa, "set_{s}", .{name}),
                         .kind = .set,
                         .inputs = try gpa.dupe(helpers.Pin, &setter_inputs),
                         .outputs = try gpa.dupe(helpers.Pin, &setter_outputs),
@@ -2397,7 +2402,7 @@ pub fn frame(self: *@This()) !void {
 
                 const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = id_extra });
                 if (text_entry.text_changed) {
-                    const new_name = try gpa.dupe(u8, text_entry.getText());
+                    const new_name = try gpa.dupeZ(u8, text_entry.getText());
                     binding.name = new_name;
                     if (binding.extra) |extra| {
                         const nodes: *[2]graphl.helpers.BasicMutNodeDesc = @alignCast(@ptrCast(extra));
@@ -2406,9 +2411,9 @@ pub fn frame(self: *@This()) !void {
                         // TODO: REPORT ME... allocator doesn't seem to return right slice len
                         // when freeing right before resetting?
                         const old_get_node_name = get_node.name;
-                        get_node.name = try std.fmt.allocPrint(gpa, "get_{s}", .{new_name});
+                        get_node.name = try std.fmt.allocPrintZ(gpa, "get_{s}", .{new_name});
                         const old_set_node_name = set_node.name;
-                        set_node.name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name});
+                        set_node.name = try std.fmt.allocPrintZ(gpa, "set_{s}", .{new_name});
                         // FIXME: should be able to use removeByPtr here to avoid look up?
                         std.debug.assert(self.current_graph.env._nodes.remove(old_get_node_name));
                         std.debug.assert(self.current_graph.env._nodes.remove(old_set_node_name));
@@ -2506,16 +2511,16 @@ pub fn frame(self: *@This()) !void {
                     std.debug.assert(self.current_graph.env._nodes.remove(old_set_name));
 
                     gpa.free(pin_desc.name);
-                    pin_desc.name = try gpa.dupe(u8, text_entry.getText());
+                    pin_desc.name = try gpa.dupeZ(u8, text_entry.getText());
 
                     const param_get_slot = self.current_graph.param_getters.items[j - 1];
                     gpa.free(param_get_slot.name);
-                    param_get_slot.name = try std.fmt.allocPrint(gpa, "get_{s}", .{pin_desc.name});
+                    param_get_slot.name = try std.fmt.allocPrintZ(gpa, "get_{s}", .{pin_desc.name});
                     param_get_slot.outputs[0].name = pin_desc.name;
 
                     const param_set_slot = self.current_graph.param_setters.items[j - 1];
                     gpa.free(param_set_slot.name);
-                    param_set_slot.name = try std.fmt.allocPrint(gpa, "set_{s}", .{pin_desc.name});
+                    param_set_slot.name = try std.fmt.allocPrintZ(gpa, "set_{s}", .{pin_desc.name});
                     param_set_slot.inputs[1].name = pin_desc.name;
                     param_set_slot.outputs[1].name = pin_desc.name;
 

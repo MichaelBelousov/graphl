@@ -37,18 +37,19 @@ pub const PrimitivePin = union(enum) {
 
 pub const exec = Pin{ .name = "Exec", .kind = .{ .primitive = .exec } };
 
-// FIXME: replace with or convert to sexp?
+// this is basically a pared-down version of Sexp
 pub const Value = union(enum) {
     int: i64,
     float: f64,
     string: []const u8,
     bool: bool,
+    // FIXME: rename to "void" to match sexp
     null: void,
-    symbol: []const u8,
+    symbol: [:0]const u8,
 };
 
 pub const Pin = struct {
-    name: []const u8,
+    name: [:0]const u8,
     kind: union(enum) {
         primitive: PrimitivePin,
         variadic: PrimitivePin,
@@ -155,7 +156,7 @@ pub const Point = struct {
 };
 
 pub const Binding = struct {
-    name: []u8,
+    name: [:0]u8,
     type_: Type,
     comment: ?[]u8 = null,
     default: ?Sexp = null,

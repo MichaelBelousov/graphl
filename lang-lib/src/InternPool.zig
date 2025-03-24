@@ -23,6 +23,29 @@ pub const InternPool = struct {
         std.hash_map.default_max_load_percentage,
     ) = .{},
 
+    // MAYBE: return a "Symbol" instead of a [:0]const u8, would make the equality
+    // checks harder to screw up
+    pub const Sym = enum(u64) {
+        _,
+
+        /// pointer to string data prefaced by usize length
+        pub const Entry = opaque {
+            pub fn len(self: *const @This()) usize {
+                const len_ptr: *usize = @ptrCast(self);
+                return len_ptr.*;
+            }
+
+            pub fn ptr(self: *const @This()) [*]const u8 {
+                return @ptrCast(self + @sizeOf(usize));
+            }
+        };
+
+        fn string(self: @This()) [:0]const u8 {
+            const entry: Entry = @ptrFromInt(self);
+            return entry.ptr()[0..entry.len()];
+        }
+    };
+
     pub fn getSymbol(self: *@This(), symbol: []const u8) [:0]const u8 {
         const hash = (std.hash_map.StringContext{}).hash(symbol);
         const res = self._map.getOrPut(self._arena.allocator(), hash) catch |e| std.debug.panic("OOM: {}", .{e});

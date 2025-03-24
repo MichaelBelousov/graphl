@@ -4,15 +4,6 @@ const std = @import("std");
 // declaratively construct a build graph that will be executed by an external
 // runner.
 pub fn build(b: *std.Build) void {
-    const native_target = b.standardTargetOptions(.{});
-
-    // const web_target_query = CrossTarget.parse(.{
-    //     .arch_os_abi = "wasm32-wasi-musl",
-    //     // https://github.com/ziglang/zig/pull/16207
-    //     //.cpu_features = "mvp+atomics+bulk_memory",
-    //     .cpu_features = "mvp+atomics+bulk_memory",
-    // }) catch unreachable;
-    //
     const web_target_query = std.Target.Query{
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
@@ -27,14 +18,23 @@ pub fn build(b: *std.Build) void {
 
     const web_target = b.resolveTargetQuery(web_target_query);
 
+    const target = b.standardTargetOptions(.{
+        //.default_target = web_target_query,
+    });
+
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
     // TODO:
-    const dvui_dep = b.dependency("dvui", .{ .target = native_target, .optimize = optimize });
+    const dvui_dep = b.dependency("dvui", .{
+        .target = target,
+        .optimize = optimize,
+        .backend = .web,
+    });
     const graphl_core_dep = b.dependency("graphl", .{
+        .target = target,
         .optimize = optimize,
         .small_intrinsics = true,
     });
@@ -53,11 +53,14 @@ pub fn build(b: *std.Build) void {
     const ide_module = b.addModule("ide_dvui", .{
         // FIXME: select root_source_file based on target
         .root_source_file = b.path("src/native-app.zig"),
-        .target = native_target,
+        .target = target,
         .optimize = optimize,
     });
 
-    ide_module.addImport("dvui", dvui_dep.module("dvui_raylib"));
+    switch (target.result.os.tag) {
+        .wasi => ide_module.addImport("dvui", dvui_dep.module("dvui_web")),
+        else => ide_module.addImport("dvui", dvui_dep.module("dvui_raylib")),
+    }
     ide_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
 
     exe.linkLibC();
@@ -97,7 +100,7 @@ pub fn build(b: *std.Build) void {
 
         const exe_unit_tests = b.addTest(.{
             .root_source_file = b.path("src/native.zig"),
-            .target = native_target,
+            .target = target,
             .optimize = optimize,
             .strip = false,
             .link_libc = true,
@@ -120,11 +123,12 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&run_exe_unit_tests.step);
     }
 
-    {
+    if (target.result.os.tag != .wasi) {
+        ide_module.addImport("dvui", dvui_dep.module("dvui_raylib"));
         const native_exe = b.addExecutable(.{
             .name = "dvui-frontend-native",
             .root_source_file = b.path("./src/native.zig"),
-            .target = native_target,
+            .target = target,
             .optimize = optimize,
             .strip = switch (optimize) {
                 .ReleaseFast, .ReleaseSmall => true,
@@ -146,7 +150,7 @@ pub fn build(b: *std.Build) void {
         const build_native_step = b.step("native", "Build for native");
         build_native_step.dependOn(&native_install.step);
 
-        if (native_target.result.os.tag == .windows) {
+        if (target.result.os.tag == .windows) {
             // tinyfiledialogs needs this
             native_exe.linkSystemLibrary("comdlg32");
             native_exe.linkSystemLibrary("ole32");

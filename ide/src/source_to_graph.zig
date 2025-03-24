@@ -26,33 +26,37 @@ fn funcSourceToGraph(
     // NOTE: for now this must be gpa...
     a: std.mem.Allocator,
     app: *App,
-    type_sexp: *const Sexp,
-    impl_sexp: *const Sexp,
+    mod: *const ModuleContext,
+    type_sexp_idx: u32,
+    impl_sexp_idx: u32,
     index: u16,
     env: *Env,
 ) !Graph {
+    const type_sexp = mod.get(type_sexp_idx);
+    const impl_sexp = mod.get(impl_sexp_idx);
+
     assert(type_sexp.value == .list);
     assert(impl_sexp.value == .list);
 
-    const define_kw = &impl_sexp.value.list.items[0];
+    const define_kw = mod.get(impl_sexp.value.list.items[0]);
     assert(define_kw.value.symbol.ptr == syms.define.value.symbol.ptr);
 
-    const typeof_kw = &type_sexp.value.list.items[0];
+    const typeof_kw = mod.get(type_sexp.value.list.items[0]);
     assert(typeof_kw.value.symbol.ptr == syms.typeof.value.symbol.ptr);
 
-    const binding_types = &type_sexp.value.list.items[1];
+    const binding_types = mod.get(type_sexp.value.list.items[1]);
     assert(binding_types.value.list.items.len >= 1);
-    for (binding_types.value.list.items) |b| assert(b.value == .symbol);
+    for (binding_types.value.list.items) |b| assert(mod.get(b).value == .symbol);
 
-    const bindings = &impl_sexp.value.list.items[1];
+    const bindings = mod.get(impl_sexp.value.list.items[1]);
     assert(bindings.value.list.items.len == binding_types.value.list.items.len);
-    for (bindings.value.list.items) |b| assert(b.value == .symbol);
+    for (bindings.value.list.items) |b| assert(mod.get(b).value == .symbol);
 
-    const impl_func_name = &bindings.value.list.items[0];
-    const type_func_name = &binding_types.value.list.items[0];
-    assert(std.mem.eql(u8, impl_func_name.value.symbol, type_func_name.value.symbol));
+    const impl_func_name = mod.get(bindings.value.list.items[0]);
+    const type_func_name = mod.get(binding_types.value.list.items[0]);
+    assert(impl_func_name.value.symbol.ptr == type_func_name.value.symbol.ptr);
 
-    const func_name = try a.dupe(u8, impl_func_name.value.symbol);
+    const func_name = try a.dupeZ(u8, impl_func_name.value.symbol);
 
     var graph = try Graph.init(app, index, func_name, .{});
 
@@ -61,21 +65,23 @@ fn funcSourceToGraph(
 
     {
         graph.graphl_graph.entry_node_basic_desc.outputs = try a.realloc(graph.graphl_graph.entry_node_basic_desc.outputs, param_names.len);
-        for (param_names, param_types, graph.graphl_graph.entry_node_basic_desc.outputs) |param_name, param_type_name, *output_desc| {
-            output_desc.name = try a.dupe(u8, param_name.value.symbol);
+        for (param_names, param_types, graph.graphl_graph.entry_node_basic_desc.outputs) |param_name_idx, param_type_name_idx, *output_desc| {
+            const param_name = mod.get(param_name_idx);
+            const param_type_name = mod.get(param_type_name_idx);
+            output_desc.name = param_name.value.symbol;
             const param_type = env.getType(param_type_name.value.symbol) orelse unreachable;
             output_desc.kind = .{ .primitive = .{ .value = param_type } };
         }
     }
 
-    const result_type_name = type_sexp.value.list.items[2].value.symbol;
+    const result_type_name = mod.get(type_sexp.value.list.items[2]).value.symbol;
     const result_type = env.getType(result_type_name) orelse unreachable;
     graph.graphl_graph.result_node_basic_desc.inputs[1].kind.primitive.value = result_type;
 
-    const definition = &impl_sexp.value.list.items[2];
+    const definition = mod.get(impl_sexp.value.list.items[2]);
     assert(definition.value.list.items.len >= 2);
 
-    const def_begin = &definition.value.list.items[0];
+    const def_begin = mod.get(definition.value.list.items[0]);
     assert(def_begin.value.symbol.ptr == syms.begin.value.symbol.ptr);
 
     const full_body = definition.value.list.items[1..];
@@ -83,10 +89,13 @@ fn funcSourceToGraph(
 
     const first_non_def_index = _: {
         var i: usize = 0;
-        for (full_body) |form| {
+        for (full_body) |form_idx| {
+            const form = mod.get(form_idx);
             assert(form.value.list.items.len >= 1);
-            const callee = &form.value.list.items[0];
-            if (callee.value.symbol.ptr != syms.typeof.value.symbol.ptr and callee.value.symbol.ptr != syms.define.value.symbol.ptr)
+            const callee = mod.get(form.value.list.items[0]);
+            if (callee.value.symbol.ptr != syms.typeof.value.symbol.ptr
+                //
+            and callee.value.symbol.ptr != syms.define.value.symbol.ptr)
                 break :_ i;
             i += 1;
         }
@@ -102,20 +111,23 @@ fn funcSourceToGraph(
 
         var i: usize = 0;
         while (i < locals_forms.len) : (i += 2) {
-            const local_type_sexp = &locals_forms[i];
-            const local_def_sexp = &locals_forms[i + 1];
+            const local_type_sexp_idx = locals_forms[i];
+            const local_def_sexp_idx = locals_forms[i + 1];
 
-            const local_name = local_def_sexp.value.list.items[1].value.symbol;
-            const local_type_name = local_type_sexp.value.list.items[2].value.symbol;
+            const local_type_sexp = mod.get(local_type_sexp_idx);
+            const local_def_sexp = mod.get(local_def_sexp_idx);
+
+            const local_name = try a.dupeZ(u8, mod.get(local_def_sexp.value.list.items[1]).value.symbol);
+            const local_type_name = mod.get(local_type_sexp.value.list.items[2]).value.symbol;
 
             const local_type = env.getType(local_type_name) orelse unreachable;
 
-            graph.graphl_graph.locals.addOneAssumeCapacity().* = .{
-                .name = try a.dupe(u8, local_name),
+            graph.graphl_graph.locals.appendAssumeCapacity(.{
+                .name = local_name,
                 .type_ = local_type,
                 // FIXME: should add an "extra" to be compatible with the frontend?
                 .extra = null,
-            };
+            });
         }
     }
 
@@ -123,20 +135,22 @@ fn funcSourceToGraph(
         pub fn attachArgs(
             _a: std.mem.Allocator,
             node: *Node,
-            args: []Sexp,
+            args: []const u32,
             _env: *Env,
             _graph: *Graph,
+            _mod: *const ModuleContext,
         ) !void {
-            for (args, node.inputs) |arg, *input| {
+            for (args, node.inputs) |arg_idx, *input| {
+                const arg = _mod.get(arg_idx);
                 switch (arg.value) {
                     .list => |v| {
                         assert(v.items.len >= 1);
-                        const callee = v.items[0];
+                        const callee = _mod.get(v.items[0]);
                         const input_args = v.items[1..];
                         assert(callee.value == .symbol);
                         const input_node_id = try _graph.addNode(_a, callee.value.symbol, false, null, null, .{});
                         const input_node = _graph.graphl_graph.nodes.map.getPtr(input_node_id) orelse unreachable;
-                        try attachArgs(_a, input_node, input_args, _env, _graph);
+                        try attachArgs(_a, input_node, input_args, _env, _graph, _mod);
                         input.link = .{
                             .target = input_node_id,
                             .pin_index = 0, // FIXME: here I assume all nodes have 1 output
@@ -151,7 +165,6 @@ fn funcSourceToGraph(
                     .void => |v| {
                         input.value.null = v;
                     },
-                    // TODO: dupe
                     .symbol => |v| {
                         input.value.symbol = v;
                     },
@@ -169,8 +182,9 @@ fn funcSourceToGraph(
     };
 
     var prev_node = graph.graphl_graph.entry() orelse unreachable;
-    for (body_exprs) |body_expr| {
-        const callee = body_expr.value.list.items[0].value.symbol;
+    for (body_exprs) |body_expr_idx| {
+        const body_expr = mod.get(body_expr_idx);
+        const callee = mod.get(body_expr.value.list.items[0]).value.symbol;
         const args = body_expr.value.list.items[1..];
         // TODO: this should return the full node and not cause consumers to need to perform a lookup
         const new_node_id = try graph.addNode(a, callee, false, null, null, .{});
@@ -184,7 +198,7 @@ fn funcSourceToGraph(
         });
         new_node.inputs[0] = .{ .link = .{ .target = prev_node.id, .pin_index = 0 } };
         // FIXME: won't work for if duh
-        try Local.attachArgs(a, new_node, args, env, &graph);
+        try Local.attachArgs(a, new_node, args, env, &graph, mod);
     }
 
     try graph.visual_graph.formatGraphNaive(a);
@@ -197,7 +211,7 @@ fn sexpToGraphs(a: std.mem.Allocator, app: *App, mod_ctx: *const ModuleContext, 
     var index: u16 = 0;
 
     // NOTE: assuming typeof is always right before, which has not been explicitly decided upon
-    var maybe_prev_typeof: ?*const Sexp = null;
+    var maybe_prev_typeof: ?u32 = null;
     for (mod_ctx.getRoot().body().items) |top_level_idx| {
         const top_level = mod_ctx.get(top_level_idx);
         assert(top_level.value == .list);
@@ -209,14 +223,15 @@ fn sexpToGraphs(a: std.mem.Allocator, app: *App, mod_ctx: *const ModuleContext, 
 
             const graph_slot = try a.create(Graphs.Node);
             graph_slot.* = .{
-                .data = try funcSourceToGraph(a, app, prev_typeof, top_level, index, env),
+                .data = try funcSourceToGraph(a, app, mod_ctx, prev_typeof, top_level_idx, index, env),
             };
             graphs.prepend(graph_slot);
             index += 1;
         } else {
-            const typeof = &top_level.value.list.tems[0];
+            const typeof_idx = top_level.value.list.items[0];
+            const typeof = mod_ctx.get(typeof_idx);
             assert(typeof.value.symbol.ptr == syms.typeof.value.symbol.ptr);
-            maybe_prev_typeof = top_level;
+            maybe_prev_typeof = top_level_idx;
         }
     }
 

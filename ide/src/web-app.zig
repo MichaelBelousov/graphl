@@ -31,7 +31,7 @@ pub const GraphInitStateJson = struct {
 pub const GraphsInitStateJson = std.json.ArrayHashMap(GraphInitStateJson);
 
 pub const PinJson = struct {
-    name: []const u8,
+    name: [:0]const u8,
     type: []const u8,
 
     pub fn promote(self: @This()) !helpers.Pin {
@@ -231,9 +231,17 @@ fn _setInitOpts(in_json: []const u8) !void {
                         const key = input_json_entry.key_ptr.*;
                         switch (input_json_entry.value_ptr.*) {
                             inline .string, .symbol => |v, tag| {
-                                try inputs.put(gpa, key, @unionInit(App.InputInitState, @tagName(tag), try gpa.dupe(u8, v)));
+                                try inputs.put(
+                                    gpa,
+                                    key,
+                                    @unionInit(App.InputInitState, @tagName(tag), try gpa.dupeZ(u8, v)),
+                                );
                             },
-                            inline else => |v, tag| try inputs.put(gpa, key, @unionInit(App.InputInitState, @tagName(tag), v)),
+                            inline else => |v, tag| try inputs.put(
+                                gpa,
+                                key,
+                                @unionInit(App.InputInitState, @tagName(tag), v),
+                            ),
                         }
                     }
 
