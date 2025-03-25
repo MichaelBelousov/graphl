@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
     const dvui_dep = b.dependency("dvui", .{
         .target = target,
         .optimize = optimize,
-        .backend = .web,
+        .backend = .all,
     });
     const graphl_core_dep = b.dependency("graphl", .{
         .target = target,
