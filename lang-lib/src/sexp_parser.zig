@@ -392,6 +392,7 @@ pub const Parser = struct {
 
         for (src[1..]) |c| {
             switch (c) {
+                // TODO: remove these... I don't "true" and "false" only in graphlt
                 't' => {
                     if (src.len > 2) switch (src[2]) {
                         ' ', '\n', '\t', ')' => {},
@@ -430,9 +431,15 @@ pub const Parser = struct {
                         },
                     };
                 },
-                // '!' => {
-                //     return .{ .label = try parseLabelToken(src, loc, diag) };
-                // },
+                '!' => {
+                    const label = try parseLabelToken(src, loc, diag);
+                    return .{
+                        .sexp = .{
+                            .value = .{ .symbol = pool.getSymbol(label) },
+                            .span = src[0..label.len],
+                        },
+                    };
+                },
                 // '|' => {
                 //     return parseMultiLineComment(src, loc, diag);
                 // },
@@ -807,7 +814,7 @@ test "parse factorial iterative with graph reference" {
 
     // NOTE: without setting capacity, the get/add orders below will crash
     var module = try ModuleContext.initCapacity(a, 44);
-    defer module.deinit(a);
+    defer module.deinit();
 
     try module.getRoot().value.module.append(a, try module.add(try .emptyListCapacity(a, 5)));
 
@@ -891,6 +898,83 @@ test "parse factorial iterative with graph reference" {
         \\          (set! acc (* acc n))
         \\          (set! n (- n 1))
         \\          >!if))))
+        \\
+    ;
+
+    var diag = Parser.Diagnostic{ .source = source };
+    defer if (diag.result != .none) {
+        std.debug.print("diag={}", .{diag});
+    };
+    var parsed = try Parser.parse(t.allocator, source, &diag);
+    defer parsed.deinit();
+
+    const result = Sexp.recursive_eq(
+        module.getRoot(),
+        &module,
+        parsed.module.getRoot(),
+        &parsed.module,
+    );
+
+    if (!result) {
+        std.debug.print("====== ACTUAL ===========\n", .{});
+        std.debug.print("{}\n", .{parsed.module});
+        std.debug.print("====== EXPECTED =========\n", .{});
+        std.debug.print("{}\n", .{module});
+        std.debug.print("=========================\n", .{});
+    }
+
+    try t.expect(result);
+}
+
+test "parse label" {
+    const a = t.allocator;
+
+    // NOTE: without setting capacity, the get/add orders below will crash
+    var module = try ModuleContext.initCapacity(a, 44);
+    defer module.deinit();
+
+    try module.getRoot().value.module.append(a, try module.add(try .emptyListCapacity(a, 5)));
+
+    const def = module.getRoot().value.module.items[0];
+    module.get(def).value.list.appendAssumeCapacity(try module.add(.symbol("define")));
+    module.get(def).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(a, 3)));
+    module.get(def).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(a, 3)));
+
+    const func_decl = module.get(def).value.list.items[1];
+    module.get(func_decl).value.list.appendAssumeCapacity(try module.add(.symbol("foo")));
+    module.get(func_decl).value.list.appendAssumeCapacity(try module.add(.symbol("a")));
+    module.get(func_decl).value.list.appendAssumeCapacity(try module.add(.symbol("b")));
+
+    const body = module.get(def).value.list.items[2];
+    module.get(body).value.list.appendAssumeCapacity(try module.add(.symbol("begin")));
+    module.get(body).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 3)));
+    module.get(body).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 3)));
+
+    const x = module.get(body).value.list.items[1];
+    module.get(x).label = pool.getSymbol("x");
+    module.get(x).value.list.appendAssumeCapacity(try module.add(.symbol("*")));
+    module.get(x).value.list.appendAssumeCapacity(try module.add(.float(0.5)));
+    module.get(x).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 3)));
+
+    const add = module.get(x).value.list.items[2];
+    module.get(add).value.list.appendAssumeCapacity(try module.add(.symbol("+")));
+    module.get(add).value.list.appendAssumeCapacity(try module.add(.symbol("a")));
+    module.get(add).value.list.appendAssumeCapacity(try module.add(.symbol("b")));
+
+    const div_res = module.get(body).value.list.items[2];
+    module.get(div_res).value.list.appendAssumeCapacity(try module.add(.symbol("/")));
+    module.get(div_res).value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 2)));
+    module.get(div_res).value.list.appendAssumeCapacity(try module.add(.symbol("#!x")));
+
+    const sqr = module.get(div_res).value.list.items[1];
+    module.get(sqr).value.list.appendAssumeCapacity(try module.add(.symbol("sqr")));
+    module.get(sqr).value.list.appendAssumeCapacity(try module.add(.symbol("#!x")));
+
+    const source =
+        \\(define (foo a b)
+        \\  (begin
+        \\    (* 0.5 (+ a b)) <!x
+        \\    (/ (sqr #!x) #!x)))
         \\
     ;
 

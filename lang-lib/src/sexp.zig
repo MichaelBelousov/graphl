@@ -169,6 +169,10 @@ pub const Sexp = struct {
         return Sexp{ .value = .{ .int = value } };
     }
 
+    pub fn float(value: f64) Sexp {
+        return Sexp{ .value = .{ .float = value } };
+    }
+
     // FIXME: deprecate
     pub fn emptyModule() Sexp {
         return empty_module;
