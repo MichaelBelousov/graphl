@@ -112,7 +112,13 @@ pub const Sexp = struct {
         borrowedString: []const u8,
         /// always in the intern pool
         symbol: [:0]const u8,
+        // looks like: '>!target'
+        jump: struct {
+            name: [:0]const u8,
+            target: u32,
+        },
         // TODO: quote/quasiquote, etc
+
     },
 
     const Self = @This();
@@ -137,7 +143,7 @@ pub const Sexp = struct {
                 }
                 v.deinit(alloc);
             },
-            .void, .int, .float, .bool, .borrowedString, .symbol => {},
+            .void, .int, .float, .bool, .borrowedString, .symbol, .jump => {},
         }
     }
 
@@ -165,6 +171,13 @@ pub const Sexp = struct {
         return Sexp{ .value = .{ .symbol = pool.getSymbol(sym) } };
     }
 
+    pub fn jump(name: []const u8, target: u32) Sexp {
+        return Sexp{ .value = .{ .jump = .{
+            .name = pool.getSymbol(name),
+            .target = target,
+        } } };
+    }
+
     pub fn int(value: i64) Sexp {
         return Sexp{ .value = .{ .int = value } };
     }
@@ -187,21 +200,21 @@ pub const Sexp = struct {
     pub fn body(self: *Self) *std.ArrayListUnmanaged(u32) {
         return switch (self.value) {
             .list, .module => |*v| v,
-            .ownedString, .void, .int, .float, .bool, .borrowedString, .symbol => @panic("can only call 'body' on modules and lists"),
+            else => @panic("can only call 'body' on modules and lists"),
         };
     }
 
     pub fn getWithModule(self: *const Self, index: usize, mod_ctx: *const ModuleContext) *Sexp {
         return switch (self.value) {
             .list, .module => |*v| mod_ctx.get(v.items[index]),
-            .ownedString, .void, .int, .float, .bool, .borrowedString, .symbol => @panic("can only call 'getWithModule' on modules and lists"),
+            else => @panic("can only call 'getWithModule' on modules and lists"),
         };
     }
 
     pub fn toOwnedSlice(self: *Self) ![]Sexp {
         return switch (self.value) {
             .list, .module => |*v| v.toOwnedSlice(),
-            .ownedString, .void, .int, .float, .bool, .borrowedString, .symbol => @panic("can only call toOwnedSlice on modules and lists"),
+            else => @panic("can only call toOwnedSlice on modules and lists"),
         };
     }
 
@@ -337,6 +350,10 @@ pub const Sexp = struct {
                 try writer.print("{s}", .{v});
                 break :_ .{ .depth = v.len, .emitted_labels = state.emitted_labels };
             },
+            .jump => |v| _: {
+                try writer.print(">!{s}", .{v.name});
+                break :_ .{ .depth = v.name.len, .emitted_labels = state.emitted_labels };
+            },
         };
 
         return try write_state_or_err;
@@ -399,7 +416,8 @@ pub const Sexp = struct {
             .int => |v| return v == other.value.int,
             .ownedString => |v| return std.mem.eql(u8, v, other.value.ownedString),
             .borrowedString => |v| return std.mem.eql(u8, v, other.value.borrowedString),
-            .symbol => |v| return std.mem.eql(u8, v, other.value.symbol),
+            .symbol => |v| return std.meta.eql(v, other.value.symbol),
+            .jump => |v| return std.meta.eql(v, other.value.jump),
             inline .module, .list => |v, sexp_type| {
                 const other_list = @field(other.value, @tagName(sexp_type));
                 if (v.items.len != other_list.items.len) {
@@ -456,7 +474,8 @@ pub const Sexp = struct {
             .ownedString => |v| return if (std.mem.eql(u8, v, pattern.value.ownedString)) null else self_index,
             .borrowedString => |v| return if (std.mem.eql(u8, v, pattern.value.borrowedString)) null else self_index,
             // TODO: it's pooled, can do a cheaper comparison
-            .symbol => |v| return if (std.mem.eql(u8, v, pattern.value.symbol)) null else self_index,
+            .symbol => |v| return if (std.meta.eql(v, pattern.value.symbol)) null else self_index,
+            .jump => |v| return if (std.meta.eql(v, pattern.value.jump)) null else self_index,
             inline .module, .list => |v, sexp_type| {
                 const pattern_list = @field(pattern.value, @tagName(sexp_type));
                 var i: usize = 0;
@@ -564,6 +583,11 @@ pub const Sexp = struct {
                 var result = json.ObjectMap.init(alloc);
                 // TODO: ensureTotalCapacityPrecise
                 try result.put("symbol", json.Value{ .string = v });
+                break :_ json.Value{ .object = result };
+            },
+            .jump => |v| _: {
+                var result = json.ObjectMap.init(alloc);
+                try result.put("jump", json.Value{ .string = v });
                 break :_ json.Value{ .object = result };
             },
         };
@@ -683,7 +707,7 @@ pub const syms = struct {
     pub const as = Sexp{ .value = .{ .symbol = "as" } };
     pub const begin = Sexp{ .value = .{ .symbol = "begin" } };
     pub const @"return" = Sexp{ .value = .{ .symbol = "return" } };
-    // FIXME: is this really a symbol?
+    // FIXME: replace with true and false literals, not this weird #t thing
     pub const @"true" = Sexp{ .value = .{ .symbol = "#t" } };
     pub const @"false" = Sexp{ .value = .{ .symbol = "#f" } };
     pub const @"void" = Sexp{ .value = .{ .symbol = "#void" } };

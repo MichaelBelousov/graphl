@@ -3,6 +3,7 @@
 const std = @import("std");
 const Sexp = @import("../sexp.zig").Sexp;
 const intrinsics = @import("../intrinsics.zig");
+const Vec3 = @import("../intrinsics/vec3/Vec3.zig");
 const binaryen = @import("binaryen");
 
 const failing_allocator = std.testing.failing_allocator;
@@ -23,9 +24,8 @@ pub const TypeInfo = struct {
     field_types: []const Type = &.{},
     // FIXME: use a union
     func_type: ?FuncType = null,
-    // TODO: this should only exist on the compound-type variant of a union
-    /// if this is a compound type, its (cached?) size on the stack
-    size: ?u32 = null,
+    /// size in bytes of the type
+    size: u32,
 };
 
 pub const Type = *const TypeInfo;
@@ -303,45 +303,47 @@ pub const GraphTypes = struct {
     };
 };
 
-// place holder during analysis
-pub const empty_type: Type = &TypeInfo{ .name = "EMPTY_TYPE" };
+// place holder during analysis // FIXME: consolidate with void
+pub const empty_type: Type = &TypeInfo{ .name = "EMPTY_TYPE", .size = 0 };
 
 // FIXME: consider renaming to "builtin_types"
 pub const primitive_types = struct {
     // nums
-    pub const i32_: Type = &TypeInfo{ .name = "i32" };
-    pub const i64_: Type = &TypeInfo{ .name = "i64" };
-    pub const u32_: Type = &TypeInfo{ .name = "u32" };
-    pub const u64_: Type = &TypeInfo{ .name = "u64" };
-    pub const f32_: Type = &TypeInfo{ .name = "f32" };
-    pub const f64_ = &TypeInfo{ .name = "f64" };
+    pub const i32_: Type = &TypeInfo{ .name = "i32", .size = 4 };
+    pub const i64_: Type = &TypeInfo{ .name = "i64", .size = 8 };
+    pub const u32_: Type = &TypeInfo{ .name = "u32", .size = 4 };
+    pub const u64_: Type = &TypeInfo{ .name = "u64", .size = 8 };
+    pub const f32_: Type = &TypeInfo{ .name = "f32", .size = 4 };
+    pub const f64_ = &TypeInfo{ .name = "f64", .size = 8 };
 
-    // TODO: it's ok to store one byte in i32 I guess, but try to pack it
-    // when laying out types, definitely arrays
-    pub const byte: Type = &TypeInfo{ .name = "byte" };
-    // FIXME: should I change this to u8?
-    pub const bool_: Type = &TypeInfo{ .name = "bool" };
-    pub const char_: Type = &TypeInfo{ .name = "char" };
-    pub const symbol: Type = &TypeInfo{ .name = "symbol" };
-    pub const @"void": Type = &TypeInfo{ .name = "void" };
+    // FIXME: size of 4 for now, but is packed in arrays
+    pub const byte: Type = &TypeInfo{ .name = "byte", .size = 4 };
+    // FIXME: size of 4 for now, but is packed in arrays
+    pub const bool_: Type = &TypeInfo{ .name = "bool", .size = 4 };
+    // FIXME: size of 4 for now, but is packed in arrays
+    pub const char_: Type = &TypeInfo{ .name = "char", .size = 4 };
+    pub const symbol: Type = &TypeInfo{ .name = "symbol", .size = 4 };
+    // FIXME: consolidate with empty type
+    pub const @"void": Type = &TypeInfo{ .name = "void", .size = 0 };
 
     // FIXME: consider moving this to live in compound_types
     pub const string: Type = &TypeInfo{
         .name = "string",
-        //.size = @sizeOf(intrinsics.GrapplString),
+        .size = @sizeOf(intrinsics.GrapplString),
     };
 
     pub const vec3: Type = &TypeInfo{
         .name = "vec3",
         // FIXME: this is wrong
-        //.size = @sizeOf(intrinsics.GrapplVec3),
+        .size = @sizeOf(Vec3),
     };
 
-    pub const rgba: Type = &TypeInfo{ .name = "rgba" };
+    pub const rgba: Type = &TypeInfo{ .name = "rgba", .size = 4 };
 
     // FIXME: replace when we think out the macro system
     pub const code: Type = &TypeInfo{
         .name = "code",
+        .size = @sizeOf(intrinsics.GrapplString),
     };
 
     // pub const vec3: Type = &TypeInfo{

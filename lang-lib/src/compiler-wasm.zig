@@ -9,6 +9,19 @@
 //! - if the node is pure, it is calculated once at usage time
 //! - otherwise the code just jumps to these blocks
 //!
+//! TODO: move this to another place
+//! ABI:
+//! - There is a stack
+//! - For functions:
+//!   - Each graphl parameter function is converted to a wasm parameter
+//!     - primitives are passed by value
+//!     - compound types are passed by reference
+//!   - an i32 parameter is added storing the return address
+//!     - in the future we can return primitive types directly
+//!   - Every node that has value outputs is given a stack slot holding
+//!     its value
+//!   - executing a function involves pushing its frame on to the stack and
+//!     calling it with the caller's slot as the return address
 
 const builtin = @import("builtin");
 const build_opts = @import("build_opts");
@@ -34,8 +47,6 @@ const SpacePrint = @import("./sexp_parser.zig").SpacePrint;
 
 // FIXME: use intrinsics as the base and merge/link in our functions
 //const intrinsics = @import("./intrinsics.zig");
-// NEXT: the idea is to (at build/comptime if possible) convert the wasm to binaryen-IR, which we
-// can just use
 const intrinsics_vec3 = @embedFile("graphl_intrinsics_vec3");
 const intrinsics_code = ""; // FIXME
 
@@ -210,7 +221,9 @@ const BinaryenHelper = struct {
     var type_map: std.AutoHashMapUnmanaged(Type, byn.c.BinaryenType) = .{};
 
     pub fn getType(graphl_type: Type) byn.c.BinaryenType {
-        return type_map.get(graphl_type) orelse std.debug.panic("No binaryen type registered for graphl type '{s}'", .{graphl_type.name});
+        return type_map.get(graphl_type) orelse {
+            std.debug.panic("No binaryen type registered for graphl type '{s}'", .{graphl_type.name});
+        };
     }
 };
 
@@ -658,6 +671,7 @@ const Compilation = struct {
 
         const complete_func_type_desc = TypeInfo{
             .name = name,
+            .size = 0,
             .func_type = .{
                 .param_names = func_decl.param_names,
                 .param_types = func_type.param_types,
@@ -752,18 +766,25 @@ const Compilation = struct {
         // FIXME: not used?
         var result_type_wasm: ?byn.c.BinaryenType = null;
 
+        const parent_expr_ctx = ExprContext{
+            .locals = &post_analysis_locals,
+            .label_map = &label_map,
+            .param_names = func_decl.param_names,
+            .param_types = func_type.param_types,
+            .prologue = &prologue,
+            .frame = .{
+                .relooper = byn.c.RelooperCreate(self.module.c()) orelse @panic("relooper creation failed"),
+            },
+            .is_captured = undefined,
+        };
+
         for (func_decl.body_exprs, 0..) |body_expr_idx, i| {
             const body_expr = self.graphlt_module.get(body_expr_idx);
-            var expr_ctx = ExprContext{
-                .locals = &post_analysis_locals,
-                .label_map = &label_map,
-                .param_names = func_decl.param_names,
-                .param_types = func_type.param_types,
-                .prologue = &prologue,
-                .frame = .{},
-                .is_captured = i == func_decl.body_exprs.len - 1 or body_expr.label != null, // only capture the last expression or labeled
-            };
-            var expr_fragment = try self.compileExpr(body_expr_idx, &expr_ctx);
+
+            var expr_ctx = parent_expr_ctx;
+            expr_ctx.is_captured = i == func_decl.body_exprs.len - 1 or body_expr.label != null; // only capture the last expression or labeled
+
+            var expr_fragment = try self.getOrCompileExpr(body_expr_idx, &expr_ctx);
             errdefer expr_fragment.deinit(alloc);
             body_exprs.appendAssumeCapacity(expr_fragment.expr);
 
@@ -977,7 +998,62 @@ const Compilation = struct {
     }
 
     const StackFrame = struct {
-        byte_size: usize = 0,
+        _byte_size: u32 = 0,
+        // TODO: store in a region like the ModuleContext?
+        /// any sexp/nodes with a value output have a slot on the stack and a local for its value
+        _sexp_slot_map: std.AutoHashMapUnmanaged(u32, Slot) = .{},
+
+        // FIXME: this should be part of ExprContext probably instead
+        relooper: *byn.c.struct_Relooper,
+
+        pub const Slot = struct {
+            start_byte: u32,
+            local_index: byn.c.BinaryenIndex,
+            /// if empty_type, then not yet resolved
+            type: Type,
+            /// if type == empty_type, then not yet resolved and may be undefined
+            byn_block: byn.c.RelooperBlockRef,
+        };
+
+        pub const SlotEntryFinalizer = struct {
+            found_existing: bool,
+            value_ptr: *Slot,
+            owning_frame: *StackFrame,
+
+            pub fn finalize(self: *const @This(), type_: Type, code: byn.c.BinaryenExpressionRef) void {
+                self.value_ptr.type = type_;
+                self.value_ptr.byn_block = byn.c.RelooperAddBlock(self.owning_frame.relooper, code);
+                self.owning_frame._byte_size += type_.size;
+            }
+        };
+
+        // FIXME: consolidate this into the owning Context/frame
+        /// returns the index of the wasm local holding the value on the frame
+        /// caller must set the "type" field of the slot
+        pub fn getOrPutSlotUndefinedType(self: *@This(), a: std.mem.Allocator, sexp_idx: u32) !SlotEntryFinalizer {
+            const local_index = self._sexp_slot_map.count();
+            const res = try self._sexp_slot_map.getOrPut(a, sexp_idx);
+            if (res.found_existing) {
+                return SlotEntryFinalizer{
+                    .found_existing = true,
+                    .value_ptr = res.value_ptr,
+                    .owning_frame = self,
+                };
+            } else {
+                res.value_ptr.* = .{
+                    .start_byte = self._byte_size,
+                    // FIXME: rename this to "unresolved" type so we can error out later
+                    .type = graphl_builtin.empty_type,
+                    .local_index = local_index,
+                    .byn_block = undefined,
+                };
+                return SlotEntryFinalizer{
+                    .found_existing = false,
+                    .value_ptr = res.value_ptr,
+                    .owning_frame = self,
+                };
+            }
+        }
     };
 
     const ExprContext = struct {
@@ -987,6 +1063,8 @@ const Compilation = struct {
 
         /// whether the return value of the expression isn't discarded
         is_captured: bool,
+
+        // stores every node/sexp's local
         frame: StackFrame,
 
         locals: *std.StringArrayHashMapUnmanaged(LocalInfo),
@@ -1036,11 +1114,11 @@ const Compilation = struct {
         UndefinedSymbol,
         UnimplementedMultiResultHostFunc,
         UnhandledCall,
+        DuplicateLabel,
+        RecursiveDependency,
     };
 
-    // TODO: figure out how to ergonomically skip compiling labeled exprs until they are referenced...
-    // TODO: take a diagnostic
-    fn compileExpr(
+    fn getOrCompileExpr(
         self: *@This(),
         code_sexp_idx: u32,
         /// not const because we may be expanding the frame to include this value
@@ -1048,69 +1126,93 @@ const Compilation = struct {
     ) CompileExprError!Fragment {
         std.log.debug("compiling expr: '{}'\n", .{code_sexp_idx});
 
+        const slot_res = try context.frame.getOrPutSlotUndefinedType(self.arena.allocator(), code_sexp_idx);
+        const slot = slot_res.value_ptr;
+
         const code_sexp = self.graphlt_module.get(code_sexp_idx);
 
-        // FIXME: destroy this
-        // HACK: oh god this is bad...
-        if (code_sexp.label != null and code_sexp.value == .list
-            //
-        and code_sexp.value.list.items.len > 0
-            //
-        and code_sexp.getWithModule(0, self.graphlt_module).value == .symbol
-            //
-        and _: {
-            const sym = code_sexp.getWithModule(0, self.graphlt_module).value.symbol;
-            inline for (&.{ "SELECT", "WHERE", "FROM" }) |hack| {
-                if (std.mem.eql(u8, sym, hack))
-                    break :_ true;
-            }
-            break :_ false;
-        }) {
-            const fragment = Fragment{
-                .expr = @ptrCast(byn.c.BinaryenNop(self.module.c())),
+        // NOTE: how can I tell that a label reference is a value reference or a jump?
+        // NEXT: augment the parser to make it more obvious when something is a jump
+        const is_jump = code_sexp.value == .symbol and std.mem.startsWith(u8, code_sexp.value.symbol, ">!");
+
+        if (is_jump) {
+            // FIXME: grossly inefficient...
+            byn.c.RelooperAddBranch(slot.byn_block, jump_target.byn_block, byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)));
+        }
+
+        const has_value = switch (code_sexp.value) {
+            .list => |list| _: {
+                if (list.items.len == 0) break :_ true;
+                // NOTE: only in a quote/macro context can this be not a symbol
+                const callee = self.graphlt_module.get(list.items[0]).value.symbol;
+
+                // FIXME: ignore these better
+                if (callee.ptr == pool.getSymbol("begin").ptr) break :_ false;
+                if (callee.ptr == pool.getSymbol("return").ptr) break :_ false;
+
+                const def = self.env.getNode(callee) orelse {
+                    self.diag.err = .{ .UndefinedSymbol = list.items[0] };
+                    return error.UndefinedSymbol;
+                };
+                for (def.getOutputs()) |o| {
+                    if (!o.isExec()) break :_ true;
+                }
+                break :_ false;
+            },
+            else => true, // FIXME: confirm
+        };
+
+        if (slot_res.found_existing) {
+            if (has_value and slot_res.value_ptr.type == graphl_builtin.empty_type)
+                // TODO: diagnostic
+                return error.RecursiveDependency;
+
+            return Fragment{
+                .expr = @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), slot.local_index, BinaryenHelper.getType(slot.type))),
                 .resolved_type = primitive_types.code,
             };
-
-            const entry = try context.label_map.getOrPut(code_sexp.label.?[2..]);
-            std.debug.assert(!entry.found_existing);
-
-            entry.value_ptr.* = .{
-                .fragment = fragment,
-                .sexp = code_sexp,
-            };
-
-            return fragment;
         }
 
-        const fragment = try self._compileExpr(code_sexp_idx, context);
-
-        if (code_sexp.label) |label| {
-            // HACK: we know the label is "#!{s}"
-            const entry = try context.label_map.getOrPut(label[2..]);
-            std.debug.assert(!entry.found_existing);
-
-            // calls already have a local
-            const local_idx = try context.addLocal(self, fragment.resolved_type, null);
-
-            const ref_code_fragment = Fragment{
-                .expr = byn.Expression.localGet(self.module, local_idx, @enumFromInt(BinaryenHelper.getType(fragment.resolved_type))),
-                .resolved_type = fragment.resolved_type,
+        const fragment = frag: {
+            // FIXME: destroy this
+            // HACK: oh god this is bad...
+            const is_macro_hack = code_sexp.label != null and code_sexp.value == .list
+                //
+            and code_sexp.value.list.items.len > 0
+                //
+            and code_sexp.getWithModule(0, self.graphlt_module).value == .symbol
+                //
+            and _: {
+                const sym = code_sexp.getWithModule(0, self.graphlt_module).value.symbol;
+                inline for (&.{ "SELECT", "WHERE", "FROM" }) |hack| {
+                    if (sym.ptr == pool.getSymbol(hack).ptr)
+                        break :_ true;
+                }
+                break :_ false;
             };
 
-            entry.value_ptr.* = .{
-                .fragment = ref_code_fragment,
-                .sexp = code_sexp,
-            };
+            if (is_macro_hack) {
+                const fragment = Fragment{
+                    .expr = @ptrCast(byn.c.BinaryenNop(self.module.c())),
+                    .resolved_type = primitive_types.code,
+                };
 
-            // FIXME: prevoiusly in addition to getting the label, we replaced the incoming fragment with
-            // just getting this
-            // try fragment.values.ensureUnusedCapacity(1);
-            // const set = fragment.values.addOneAssumeCapacity();
-            // set.* = Sexp.newList(alloc);
-            // try set.value.list.ensureTotalCapacityPrecise(2);
-            // set.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
-            // set.value.list.appendAssumeCapacity(local_ptr_sym);
-        }
+                // FIXME: remove this?
+                const entry = try context.label_map.getOrPut(code_sexp.label.?[2..]);
+                std.debug.assert(!entry.found_existing);
+
+                entry.value_ptr.* = .{
+                    .fragment = fragment,
+                    .sexp = code_sexp,
+                };
+
+                break :frag fragment;
+            }
+
+            break :frag try self.compileExpr(code_sexp_idx, context);
+        };
+
+        slot_res.finalize(fragment.resolved_type, fragment.expr.c());
 
         return fragment;
     }
@@ -1203,7 +1305,7 @@ const Compilation = struct {
 
     // TODO: calls to a graph function pass a return address as a parameter if the return type
     // is not a primitive/singleton type (u32, f32, i64, etc)
-    fn _compileExpr(
+    fn compileExpr(
         self: *@This(),
         code_sexp_idx: u32,
         /// not const because we may be expanding the frame to include this value
@@ -1283,7 +1385,7 @@ const Compilation = struct {
                             .label_map = context.label_map,
                             .is_captured = i == v.items.len - 1 or expr.label != null, // only capture the last expression or labeled
                         };
-                        var compiled = try self.compileExpr(expr_idx, &subcontext);
+                        var compiled = try self.getOrCompileExpr(expr_idx, &subcontext);
                         result.resolved_type = try self.resolvePeerTypesWithPromotions(&result, &compiled);
                         body_exprs.appendAssumeCapacity(compiled.expr);
                     }
@@ -1357,7 +1459,7 @@ const Compilation = struct {
                         .label_map = context.label_map,
                         .is_captured = context.is_captured,
                     };
-                    arg_fragment.* = try self.compileExpr(arg_src_idx, &subcontext);
+                    arg_fragment.* = try self.getOrCompileExpr(arg_src_idx, &subcontext);
                 }
 
                 // FIXME: support set!
@@ -1602,19 +1704,17 @@ const Compilation = struct {
             },
 
             .symbol => |v| {
-                // FIXME: use string interning
+                // FIXME: have a list of symbols in the scope
                 if (v.ptr == syms.true.value.symbol.ptr) {
                     result.resolved_type = primitive_types.bool_;
                     result.expr = @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(1)));
+                    return result;
                 }
 
                 if (v.ptr == syms.false.value.symbol.ptr) {
                     result.resolved_type = primitive_types.bool_;
                     result.expr = @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)));
-                }
-
-                if (context.label_map.get(v)) |label_data| {
-                    return label_data.fragment;
+                    return result;
                 }
 
                 const Info = struct {
@@ -1803,8 +1903,6 @@ const Compilation = struct {
         //     memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
         // }
 
-        // NEXT: FIX THIS
-        // // thunks for user provided functions
         {
             // TODO: for each user provided function, build a thunk and append it
             var next = self.user_context.funcs.first;
@@ -1921,8 +2019,6 @@ const Compilation = struct {
         // }
 
         const vec3_module = byn.c.BinaryenModuleRead(@constCast(intrinsics_vec3.ptr), intrinsics_vec3.len);
-        // NEXT: create a script that can take wat output (e.g. from wasm-tools print on the intrinsic generated code)
-        // and generate the necessary zig code to rebuild that IR tree in our binaryen module context
 
         std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_x".ptr, "Vec3->X".ptr));
 
@@ -2197,7 +2293,7 @@ test "compile big" {
     ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &env, &user_funcs, &diagnostic)) |wat| {
+    if (compile(t.allocator, &parsed.module, &user_funcs, &diagnostic)) |wat| {
         defer t.allocator.free(wat);
         {
             errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
@@ -2556,7 +2652,7 @@ test "vec3 ref" {
         \\                         Origin
         \\                         Rotation)
         \\        (begin (ModelCenter) <!__label1
-        \\               (if (> (Vec3->X >!__label1)
+        \\               (if (> (Vec3->X #!__label1)
         \\                      2)
         \\                   (begin (return "my_export"))
         \\                   (begin (return "EXPORT2")))))

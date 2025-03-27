@@ -655,7 +655,13 @@ pub const Parser = struct {
                         // is label jump
                         const label_name = pool.getSymbol(tok.sexp.span.?[2..]);
                         if (label_map.getPtr(label_name.ptr)) |label_info| {
-                            try helper.pushExistingSexp(label_info.target);
+                            try helper.pushSexp(Sexp{
+                                .span = sym,
+                                .value = .{ .jump = .{
+                                    .name = pool.getSymbol(sym[2..]),
+                                    .target = label_info.target,
+                                } },
+                            });
                         } else {
                             // FIXME: should be able to reference "eventual" labels
                             out_diag.result = Diagnostic.Result{ .unknownLabel = .{
@@ -813,10 +819,10 @@ test "parse factorial iterative with graph reference" {
     const a = t.allocator;
 
     // NOTE: without setting capacity, the get/add orders below will crash
-    var module = try ModuleContext.initCapacity(a, 44);
+    var module = try ModuleContext.initCapacity(a, 45);
     defer module.deinit();
 
-    try module.getRoot().value.module.append(a, try module.add(try .emptyListCapacity(a, 5)));
+    try module.getRoot().value.module.append(a, try module.add(try .emptyListCapacity(a, 6)));
 
     const def = module.getRoot().value.module.items[0];
     module.get(def).value.list.appendAssumeCapacity(try module.add(.symbol("define")));
@@ -866,7 +872,10 @@ test "parse factorial iterative with graph reference" {
     module.get(@"else").value.list.appendAssumeCapacity(try module.add(.symbol("begin")));
     module.get(@"else").value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 3)));
     module.get(@"else").value.list.appendAssumeCapacity(try module.add(try .emptyListCapacity(t.allocator, 3)));
-    module.get(@"else").value.list.appendAssumeCapacity(@"if");
+    module.get(@"else").value.list.appendAssumeCapacity(try module.add(Sexp{ .value = .{ .jump = .{
+        .name = pool.getSymbol("if"),
+        .target = @"if",
+    } } }));
 
     const set_acc = module.get(@"else").value.list.items[1];
     module.get(set_acc).value.list.appendAssumeCapacity(try module.add(.symbol("set!")));
@@ -914,6 +923,20 @@ test "parse factorial iterative with graph reference" {
         parsed.module.getRoot(),
         &parsed.module,
     );
+
+    const jump_idx = parsed.module.get( // >!if
+        parsed.module.get( // else
+            parsed.module.get( // (if
+                parsed.module.get( // (begin
+                    parsed.module.getRoot().value.module.items[0] //(define
+                ).value.list.items[4] //
+            ).value.list.items[1] //
+        ).value.list.items[3] //
+    ).value.list.items[3];
+
+    const jump = parsed.module.get(jump_idx);
+
+    try std.testing.expectEqual(.jump, std.meta.activeTag(jump.value));
 
     if (!result) {
         std.debug.print("====== ACTUAL ===========\n", .{});
