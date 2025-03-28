@@ -11,8 +11,8 @@ const Parser = @import("./sexp_parser.zig").Parser;
 
 // FIXME: don't include in non-debug builds
 
-fn _print_sexp(sexp: *const Sexp) callconv(.C) void {
-    std.debug.print("{}\n", .{sexp});
+fn _print_sexp(mod_ctx: *const ModuleContext, sexp_idx: u32) callconv(.C) void {
+    std.debug.print("{}\n", .{Sexp.withContext(mod_ctx, sexp_idx)});
 }
 
 comptime {

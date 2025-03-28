@@ -66,6 +66,7 @@ pub const Diagnostic = struct {
         BadTopLevelForm: u32,
         UndefinedSymbol: u32,
         DuplicateVariable: u32,
+        DuplicateParam: u32,
         EmptyCall: u32,
         NonSymbolCallee: u32,
         UnimplementedMultiResultHostFunc: u32,
@@ -85,6 +86,7 @@ pub const Diagnostic = struct {
         BadTopLevelForm,
         UndefinedSymbol,
         DuplicateVariable,
+        DuplicateParam,
         EmptyCall,
         NonSymbolCallee,
         UnimplementedMultiResultHostFunc,
@@ -200,6 +202,7 @@ pub const Diagnostic = struct {
 };
 
 const DeferredFuncDeclInfo = struct {
+    param_name_idxs: []const u32,
     param_names: []const [:0]const u8,
     /// indices into the graphlt module context
     local_name_idxs: []const u32,
@@ -423,13 +426,11 @@ const Compilation = struct {
         maybe_user_funcs: ?*const std.SinglyLinkedList(UserFunc),
         in_diag: *Diagnostic,
     ) !@This() {
-        var arena = std.heap.ArenaAllocator.init(alloc);
-
         var result = @This(){
             .graphlt_module = graphlt_module,
             ._sexp_compiled = undefined,
             .diag = in_diag,
-            .arena = arena,
+            .arena = std.heap.ArenaAllocator.init(alloc),
             .env = env,
             .module = byn.Module.init(),
             .user_context = .{
@@ -438,7 +439,7 @@ const Compilation = struct {
             },
         };
 
-        result._sexp_compiled = try arena.allocator().alloc(Slot, graphlt_module.arena.items.len);
+        result._sexp_compiled = try result.arena.allocator().alloc(Slot, graphlt_module.arena.items.len);
 
         var func_map: std.StringHashMapUnmanaged(*UserFunc) = .{};
         errdefer func_map.deinit(result.arena.allocator());
@@ -498,6 +499,7 @@ const Compilation = struct {
         //self.deferred.func_types.deinit(alloc);
         //self.env.deinit(self.arena.allocator());
         self.module.deinit();
+        self.arena.allocator().free(self._sexp_compiled);
         self.arena.deinit();
     }
 
@@ -604,13 +606,18 @@ const Compilation = struct {
         const param_names = try alloc.alloc([:0]const u8, func_bindings_idxs.len);
         errdefer alloc.free(param_names);
 
-        for (func_bindings_idxs, param_names) |func_binding_idx, *param_name| {
+        const param_name_idxs = try alloc.alloc(u32, func_bindings_idxs.len);
+        errdefer alloc.free(param_name_idxs);
+
+        for (func_bindings_idxs, param_names, param_name_idxs) |func_binding_idx, *param_name, *param_idx| {
             const func_binding = self.graphlt_module.get(func_binding_idx);
             param_name.* = func_binding.value.symbol;
+            param_idx.* = func_binding_idx;
         }
 
         const func_desc = DeferredFuncDeclInfo{
             .param_names = param_names,
+            .param_name_idxs = param_name_idxs,
             // TODO: read all defines at beginning of sexp or something
             .local_names = try local_names.toOwnedSlice(),
             .local_name_idxs = try local_name_idxs.toOwnedSlice(),
@@ -833,6 +840,22 @@ const Compilation = struct {
         var locals_symbols: SymMapUnmanaged(ExprContext.LocalInfo) = .{};
         defer locals_symbols.deinit(self.arena.allocator());
 
+        for (func_decl.param_names, func_decl.param_name_idxs, func_type.param_types) |p_name, p_idx, p_type| {
+            const put_res = try locals_symbols.getOrPut(alloc, p_name);
+
+            if (put_res.found_existing) {
+                self.diag.err = .{ .DuplicateParam = p_idx };
+                return error.DuplicateVariable;
+            }
+
+            put_res.value_ptr.* = .{
+                .index = @intCast(locals_symbols.count()),
+                .type = p_type,
+            };
+
+            // FIXME: why not add this to the env as a getter?
+        }
+
         for (func_decl.local_names, func_decl.local_name_idxs, func_decl.local_types) |local_name, local_name_idx, local_type| {
             const put_res = try locals_symbols.getOrPut(alloc, local_name);
 
@@ -976,22 +999,22 @@ const Compilation = struct {
                     if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr
                         //
                     or func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
-
-                        // FIXME: we can drop this if we don't use the arena
-                        var body_exprs = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), v.items.len - 1);
-                        // FIXME: is this valid use of API?
-                        defer body_exprs.deinit(self.arena.allocator());
-
                         const body_res = try self.compileExprsAsBlock(v.items[1..], context);
+                        const body_exprs = if (body_res.exprs.len > 0) body_res.exprs else _: {
+                            const exprs = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, 1);
+                            exprs[0] = byn.c.BinaryenReturn(self.module.c(), byn.c.BinaryenNop(self.module.c()));
+                            break :_ exprs;
+                        };
 
                         slot.type = body_res.type;
 
                         if (func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
-                            slot.expr = @ptrCast(byn.Expression.block(self.module, null, @ptrCast(body_res.exprs), byn.Type.auto()) catch unreachable);
+                            std.debug.assert(body_exprs.len > 0);
+                            slot.expr = @ptrCast(byn.Expression.block(self.module, null, @ptrCast(body_exprs), byn.Type.auto()) catch unreachable);
                         } else if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
                             // FIXME: support multi value return as struct
-                            std.debug.assert(body_res.exprs.len == 1);
-                            slot.expr = @ptrCast(byn.c.BinaryenReturn(self.module.c(), body_res.exprs[0]));
+                            std.debug.assert(body_exprs.len == 1);
+                            slot.expr = byn.c.BinaryenReturn(self.module.c(), body_exprs[0]);
                         } else {
                             unreachable;
                         }
@@ -1026,7 +1049,10 @@ const Compilation = struct {
                     const input_descs = _: {
                         if (func.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
                             // FIXME: handle this better...
-                            std.debug.assert(v.items.len == 3);
+                            if (v.items.len != 4) {
+                                std.debug.print("bad if: {}\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
+                                std.debug.panic("bad if: {}\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
+                            }
                             break :_ &if_inputs;
                         } else if (func_node_desc.getInputs().len > 0 and func_node_desc.getInputs()[0].asPrimitivePin() == .exec) {
                             break :_ func_node_desc.getInputs()[1..];
@@ -1048,8 +1074,7 @@ const Compilation = struct {
 
                     if (func.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
                         slot.type = args_top_type;
-                        // "if" sexp doesn't need an expression cuz relooper, and
-                        // we already set the type
+                        slot.expr = byn.c.BinaryenNop(self.module.c());
                         break :done;
                     }
 
@@ -1338,7 +1363,8 @@ const Compilation = struct {
                 },
 
                 .jump => {
-                    // do nothing for a jump, it's handled in the link blocks phase
+                    slot.type = graphl_builtin.empty_type;
+                    slot.expr = byn.c.BinaryenNop(self.module.c());
                 },
 
                 inline else => {
@@ -1476,8 +1502,10 @@ const Compilation = struct {
         /// whether the return value of the expression isn't discarded
         is_captured: bool,
 
+        // FIXME: remove
         /// to append setup code to
         prologue: *std.ArrayList(Sexp),
+
         next_local_index: u32 = 0,
 
         _frame_byte_size: u32 = 0,
@@ -1513,29 +1541,6 @@ const Compilation = struct {
                 slot.frame_depth = self._frame_byte_size;
                 self._frame_byte_size += slot.type.size;
             }
-        }
-
-        fn nextAnonymousLocalName(self: *@This()) [:0]const u8 {
-            // TODO: use stackMaxesPrint
-            var buf: [128]u8 = undefined;
-            const sym = std.fmt.bufPrint(&buf, "_$$local{}", .{self.next_local_index}) catch unreachable;
-            self.next_local_index += 1;
-            return pool.getSymbol(sym);
-        }
-
-        /// sometimes, e.g. when creating a vstack slot, we need a local to
-        /// hold the pointer to it
-        /// @returns a Sexp{.value = .symbol}
-        pub fn addLocal(self: *@This(), ctx: *Compilation, type_: Type, symbol: ?[:0]const u8) !u32 {
-            try self.local_symbols.put(
-                ctx.arena.allocator(),
-                symbol orelse self.nextAnonymousLocalName(),
-                .{
-                    .index = @intCast(self.local_symbols.count()),
-                    .type = type_,
-                },
-            );
-            return @intCast(self.local_symbols.count() - 1);
         }
     };
 
@@ -1649,6 +1654,20 @@ const Compilation = struct {
         type: Type,
     };
 
+    fn isControlFlow(mod_ctx: *const ModuleContext, sexp: *const Sexp) bool {
+        switch (sexp.value) {
+            .list => |list| {
+                if (list.items.len == 0) return false;
+                const callee = mod_ctx.get(list.items[0]);
+                if (callee.value == .symbol and callee.value.symbol.ptr == syms.@"if".value.symbol.ptr)
+                    return true;
+            },
+            .jump => return true,
+            else => {},
+        }
+        return false;
+    }
+
     fn compileExprsAsBlock(
         self: *@This(),
         expr_idxs: []const u32,
@@ -1670,7 +1689,9 @@ const Compilation = struct {
             try self.compileExpr(expr_idx, &expr_ctx);
             try self.linkExpr(expr_idx, &expr_ctx);
             const expr_compiled = &self._sexp_compiled[expr_idx];
-            exprs.appendAssumeCapacity(expr_compiled.expr);
+            // FIXME: I think I can do this unconditionally if I make "if" and "jump" Nops
+            if (!isControlFlow(self.graphlt_module, body_expr))
+                exprs.appendAssumeCapacity(expr_compiled.expr);
 
             // FIXME: previously we just took the last one for the function body
             // this is what we did for return/begin expressions... is this right?
