@@ -13,17 +13,20 @@
 //!     calling it with the caller's slot as the return address
 //!
 //! HIGH LEVEL OVERVIEW
-//! - traverse the sexp tree, creating Binaryen Expression blocks for generic nodes
-//!   - control-flow sexp (if, jump) will not be defined
-//!   - create a BinaryenRelooper block for any non-control-flow nodes
-//!   - all nodes that return a value will:
-//!     1. calculate that value
-//!     2. set that value to its local
-//! - traverse the sexp tree with those expressions, creating Binaryen Relooper blocks
-//!   - on all non control-flow changing nodes (not if or jump)
-//! - traverse the sexp tree again, this time linking all those blocks from leaves up
-//!   - an
-//!
+//! - traverse the sexp tree, creating a Binaryen (relooper) block for each node
+//!   - create an expression for every node
+//!     - nodes read their dependencies (nodes) via locals
+//!     - value-returning nodes store their calculated values to their assigned local
+//!     - node execution order will be assigned during the block link phase
+//!     - control-flow sexp (if, jump, begin) will be NOPs that link to things
+//!   - create a BinaryenRelooper block for every node (try to optimize...)
+//! - traverse the sexp tree again, this time linking all those blocks
+//!   - all dependencies/arguments are executed first in order
+//!   - "if" will have conditional jumps and then both blocks jump to an "end"
+//!   - jumps just jump
+//!   - begins/blocks are a nop that executes each expression in order
+//!     points to the next (unless its an if)
+//!   - returns are like begins but the last expression then jumps to an inserted return
 //!
 
 const builtin = @import("builtin");
@@ -979,7 +982,7 @@ const Compilation = struct {
         const code_sexp = self.graphlt_module.get(code_sexp_idx);
         const slot = &self._sexp_compiled[code_sexp_idx];
 
-        _ = context.putLocalForSexp(self, code_sexp_idx);
+        const local_index = context.putLocalForSexp(self, code_sexp_idx);
 
         done: {
             switch (code_sexp.value) {
@@ -1010,7 +1013,9 @@ const Compilation = struct {
 
                         if (func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
                             std.debug.assert(body_exprs.len > 0);
-                            slot.expr = @ptrCast(byn.Expression.block(self.module, null, @ptrCast(body_exprs), byn.Type.auto()) catch unreachable);
+                            // block is a NOP, the block linking phase will jump to the first statement and next, etc
+                            //slot.expr = @ptrCast(byn.Expression.block(self.module, null, @ptrCast(body_exprs), byn.Type.auto()) catch unreachable);
+                            slot.expr = byn.c.BinaryenNop(self.module.c());
                         } else if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
                             // FIXME: support multi value return as struct
                             std.debug.assert(body_exprs.len == 1);
@@ -1149,7 +1154,12 @@ const Compilation = struct {
                                 }
                             }
 
-                            slot.expr = byn.c.BinaryenBinary(self.module.c(), op.c(), lhs.expr, rhs.expr);
+                            slot.expr = byn.c.BinaryenBinary(
+                                self.module.c(),
+                                op.c(),
+                                byn.c.BinaryenlocalGet(self.module.c(), lhs.local_index),
+                                byn.c.BinaryenlocalGet(self.module.c(), rhs.local_index),
+                            );
 
                             // REPORT ME: try to prefer an else on the above for loop, currently couldn't get it to compile right
                             if (!handled) {
@@ -1372,12 +1382,10 @@ const Compilation = struct {
                     std.debug.panic("unimplemented type: '{s}'", .{@tagName(code_sexp.value)});
                 },
             }
-
-            // FIXME: this won't work on "if"/jump sexp?
-            if (code_sexp.value != .jump) {
-                context.finalizeSlotTypeForSexp(self, code_sexp_idx);
-            }
         }
+
+        context.finalizeSlotTypeForSexp(self, code_sexp_idx);
+        slot.byn_block = byn.c.RelooperAddBlock(context.relooper, slot.expr);
     }
 
     // find the nearest super type (if any) of two types
@@ -1532,11 +1540,9 @@ const Compilation = struct {
             return local_index;
         }
 
-        /// returns the index of the wasm local holding the value on the frame
-        /// caller must set the "type" field of the slot
         pub fn finalizeSlotTypeForSexp(self: *@This(), comp_ctx: *const Compilation, sexp_idx: u32) void {
             const slot = &comp_ctx._sexp_compiled[sexp_idx];
-            std.debug.assert(slot.type != graphl_builtin.empty_type);
+            //std.debug.assert(slot.type != graphl_builtin.empty_type);
             if (!slot.type.isPrimitive()) {
                 slot.frame_depth = self._frame_byte_size;
                 self._frame_byte_size += slot.type.size;
@@ -1546,12 +1552,21 @@ const Compilation = struct {
 
     const CompileExprError = std.mem.Allocator.Error || Diagnostic.Code;
 
+    //
+    //(if c
+    //    (begin x)
+    //    (begin
+    //      (y)
+    //      (if d
+    //          a
+    //          b)))
+
     fn linkExpr(
         self: *@This(),
         code_sexp_idx: u32,
         context: *ExprContext,
     ) CompileExprError!void {
-        std.log.debug("compiling expr: '{}'\n", .{code_sexp_idx});
+        std.log.debug("linking expr: '{}'\n", .{code_sexp_idx});
         const slot = &self._sexp_compiled[code_sexp_idx];
         const code_sexp = self.graphlt_module.get(code_sexp_idx);
         slot.byn_block = byn.c.RelooperAddBlock(context.relooper, slot.expr);
@@ -1564,14 +1579,19 @@ const Compilation = struct {
             .list => |list| {
                 if (list.items.len == 0) return;
 
+                for (list.items[1..]) |arg_idx| {
+                    try self.linkExpr(arg_idx, context);
+                }
+
                 const callee_idx = list.items[0];
                 const callee = self.graphlt_module.get(callee_idx);
                 // FIXME: make sure we error on this earlier
                 std.debug.assert(callee.value == .symbol);
-                if (callee.value.symbol.ptr == syms.@"if".value.symbol.ptr) {}
-
-                for (list.items[1..]) |arg_idx| {
-                    try self.linkExpr(arg_idx, context);
+                if (callee.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
+                    std.debug.assert(code.value.list.items.len >= 3);
+                    const consequence_idx = code_sexp.value.list.items[2];
+                    const alternative_idx = code_sexp.value.list.items[3];
+                    byn.c.RelooperAddBranch(slot.byn_block, target_slot.byn_block, null, null);
                 }
             },
             else => {},
@@ -1948,6 +1968,7 @@ const Compilation = struct {
         //     try bytes.appendSlice("\n");
         // }
 
+        // FIXME: only add this intrinsic if it's referenced during analysis
         const vec3_module = byn.c.BinaryenModuleRead(@constCast(intrinsics_vec3.ptr), intrinsics_vec3.len);
 
         std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_x".ptr, "Vec3->X".ptr));
