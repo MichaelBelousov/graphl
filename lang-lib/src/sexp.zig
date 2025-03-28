@@ -99,6 +99,7 @@ pub const Sexp = struct {
     value: union(enum) {
         /// holds indices into the arena
         module: std.ArrayListUnmanaged(u32),
+        // NOTE: consider separating empty list and symbol-started list into variants
         /// holds indices into the arena
         list: std.ArrayListUnmanaged(u32),
         void,

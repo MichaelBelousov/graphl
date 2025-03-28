@@ -81,6 +81,7 @@ pub fn SymMapUnmanaged(comptime V: type) type {
     );
 }
 
+/// doesn't dupe the memory of the symbol, so its safe to compare against
 fn addSourceSymbol(self: *InternPool, symbol: [:0]const u8) void {
     const hash = (std.hash_map.StringContext{}).hash(symbol);
     const res = self._map.getOrPut(self._arena.allocator(), hash) catch |e| std.debug.panic("OOM: {}", .{e});

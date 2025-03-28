@@ -14,13 +14,16 @@
 //!
 //! HIGH LEVEL OVERVIEW
 //! - traverse the sexp tree, creating Binaryen Expression blocks for generic nodes
-//!   - "if" nodes will store the condition expression and jump nodes will not have an expression
+//!   - control-flow sexp (if, jump) will not be defined
+//!   - create a BinaryenRelooper block for any non-control-flow nodes
 //!   - all nodes that return a value will:
 //!     1. calculate that value
 //!     2. set that value to its local
 //! - traverse the sexp tree with those expressions, creating Binaryen Relooper blocks
-//!   - "if" nodes have a conditional "then" branch and an "else" branch
-//!   - jump nodes will jump straight to the target, which will be created if it doesn't exist yet
+//!   - on all non control-flow changing nodes (not if or jump)
+//! - traverse the sexp tree again, this time linking all those blocks from leaves up
+//!   - an
+//!
 //!
 
 const builtin = @import("builtin");
@@ -400,12 +403,14 @@ const Compilation = struct {
         local_index: byn.c.BinaryenIndex,
         /// if empty_type, then not yet resolved
         type: Type = graphl_builtin.empty_type,
-        /// if type == empty_type, then not yet resolved and may be undefined
+        /// will be resolved during the block linking phase
+        /// non-control flow nodes will already have this set after the compilation phase
         byn_block: byn.c.RelooperBlockRef,
         /// the expression from the analysis phase
+        /// Nota Bene: stores the condition if it is an "if" sexp, is undefined if it is a jump
         expr: byn.c.BinaryenExpressionRef,
 
-        // should return a state like "empty" vs "analyzed" vs "relooped"
+        // should return a state like "empty" vs "linked" vs "relooped"
         // pub fn resolved(self: *const @This()) enum {} {
         //     return self.type != graphl_builtin.empty_type;
         // }
@@ -942,8 +947,7 @@ const Compilation = struct {
         std.debug.assert(export_ref != null);
     }
 
-    // FIXME: maybe rename to compileExpr
-    fn analyzeExpr(
+    fn compileExpr(
         self: *@This(),
         code_sexp_idx: u32,
         /// not const because we may be expanding the frame to include this value
@@ -951,394 +955,407 @@ const Compilation = struct {
     ) CompileExprError!void {
         const code_sexp = self.graphlt_module.get(code_sexp_idx);
         const slot = &self._sexp_compiled[code_sexp_idx];
-        switch (code_sexp.value) {
-            .list => |v| {
-                if (v.items.len == 0) {
-                    self.diag.err = .{ .EmptyCall = code_sexp_idx };
-                    return error.EmptyCall;
-                }
 
-                const func = self.graphlt_module.get(v.items[0]);
+        _ = context.putLocalForSexp(self, code_sexp_idx);
 
-                if (func.value != .symbol) {
-                    self.diag.err = .{ .NonSymbolCallee = code_sexp_idx };
-                    return error.NonSymbolCallee;
-                }
-
-                if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr
-                    //
-                or func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
-
-                    // FIXME: we can drop this if we don't use the arena
-                    var body_exprs = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), v.items.len - 1);
-                    // FIXME: is this valid use of API?
-                    defer body_exprs.deinit(self.arena.allocator());
-
-                    const body_res = try self.compileExprsAsBlock(v.items[1..], context);
-
-                    slot.type = body_res.type;
-
-                    if (func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
-                        slot.expr = @ptrCast(byn.Expression.block(self.module, null, @ptrCast(body_res.exprs), byn.Type.auto()) catch unreachable);
-                    } else if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
-                        // FIXME: support multi value return as struct
-                        std.debug.assert(body_res.exprs.len == 1);
-                        slot.expr = @ptrCast(byn.c.BinaryenReturn(self.module.c(), body_res.exprs[0]));
-                    } else {
-                        unreachable;
-                    }
-                }
-
-                // call host functions
-                const func_node_desc = self.env.getNode(func.value.symbol) orelse {
-                    std.log.err("while in:\n{}\n", .{code_sexp});
-                    std.log.err("undefined symbol1: '{}'\n", .{func});
-                    self.diag.err = .{ .UndefinedSymbol = code_sexp_idx };
-                    return error.UndefinedSymbol;
-                };
-
-                const if_inputs = [_]Pin{
-                    Pin{
-                        .name = "condition",
-                        .kind = .{ .primitive = .{ .value = primitive_types.bool_ } },
-                    },
-                    Pin{
-                        .name = "then",
-                        .kind = .{ .primitive = .{ .value = graphl_builtin.empty_type } },
-                    },
-                    Pin{
-                        .name = "else",
-                        .kind = .{ .primitive = .{ .value = graphl_builtin.empty_type } },
-                    },
-                };
-
-                // FIXME: gross to ignore the first exec occasionally, need to better distinguish between non/pure nodes
-                const input_descs = _: {
-                    if (func.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
-                        // FIXME: handle this better...
-                        std.debug.assert(v.items.len == 3);
-                        break :_ &if_inputs;
-                    } else if (func_node_desc.getInputs().len > 0 and func_node_desc.getInputs()[0].asPrimitivePin() == .exec) {
-                        break :_ func_node_desc.getInputs()[1..];
-                    } else {
-                        break :_ func_node_desc.getInputs();
-                    }
-                };
-
-                for (v.items[1..], input_descs) |arg_src_idx, input_desc| {
-                    std.debug.assert(input_desc.asPrimitivePin() == .value);
-                    var subcontext: ExprContext = context.*;
-                    subcontext.type = input_desc.asPrimitivePin().value;
-                    try self.analyzeExpr(arg_src_idx, &subcontext);
-                }
-
-                if (func.value.symbol.ptr == syms.@"set!".value.symbol.ptr) {
-                    std.debug.assert(v.items.len == 3);
-
-                    if (self.graphlt_module.get(v.items[1]).value != .symbol) {
-                        self.diag.err = .{ .SetNonSymbol = v.items[1] };
-                        return error.SetNonSymbol;
+        done: {
+            switch (code_sexp.value) {
+                .list => |v| {
+                    if (v.items.len == 0) {
+                        self.diag.err = .{ .EmptyCall = code_sexp_idx };
+                        return error.EmptyCall;
                     }
 
-                    // FIXME: leak
-                    const set_sym = self.graphlt_module.get(v.items[1]).value.symbol;
+                    const func = self.graphlt_module.get(v.items[0]);
 
-                    const local_info = context.local_symbols.get(set_sym) orelse {
-                        self.diag.err = .{ .UndefinedSymbol = v.items[1] };
+                    if (func.value != .symbol) {
+                        self.diag.err = .{ .NonSymbolCallee = code_sexp_idx };
+                        return error.NonSymbolCallee;
+                    }
+
+                    if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr
+                        //
+                    or func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
+
+                        // FIXME: we can drop this if we don't use the arena
+                        var body_exprs = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), v.items.len - 1);
+                        // FIXME: is this valid use of API?
+                        defer body_exprs.deinit(self.arena.allocator());
+
+                        const body_res = try self.compileExprsAsBlock(v.items[1..], context);
+
+                        slot.type = body_res.type;
+
+                        if (func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
+                            slot.expr = @ptrCast(byn.Expression.block(self.module, null, @ptrCast(body_res.exprs), byn.Type.auto()) catch unreachable);
+                        } else if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
+                            // FIXME: support multi value return as struct
+                            std.debug.assert(body_res.exprs.len == 1);
+                            slot.expr = @ptrCast(byn.c.BinaryenReturn(self.module.c(), body_res.exprs[0]));
+                        } else {
+                            unreachable;
+                        }
+
+                        break :done;
+                    }
+
+                    // call host functions
+                    const func_node_desc = self.env.getNode(func.value.symbol) orelse {
+                        std.log.err("while in:\n{}\n", .{code_sexp});
+                        std.log.err("undefined symbol1: '{}'\n", .{func});
+                        self.diag.err = .{ .UndefinedSymbol = code_sexp_idx };
                         return error.UndefinedSymbol;
                     };
 
-                    // FIXME: why? shouldn't this be void anyway?
-                    slot.type = self._sexp_compiled[v.items[2]].type;
-                    slot.expr = byn.c.BinaryenLocalSet(
-                        self.module.c(),
-                        local_info.index,
-                        self._sexp_compiled[v.items[2]].expr,
-                    );
-                    return;
-                }
+                    const if_inputs = [_]Pin{
+                        Pin{
+                            .name = "condition",
+                            .kind = .{ .primitive = .{ .value = primitive_types.bool_ } },
+                        },
+                        Pin{
+                            .name = "then",
+                            .kind = .{ .primitive = .{ .value = graphl_builtin.empty_type } },
+                        },
+                        Pin{
+                            .name = "else",
+                            .kind = .{ .primitive = .{ .value = graphl_builtin.empty_type } },
+                        },
+                    };
 
-                // if it's an "if", it will be handled by the reloop pass
-                if (func.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
-                    return;
-                }
+                    // FIXME: gross to ignore the first exec occasionally, need to better distinguish between non/pure nodes
+                    const input_descs = _: {
+                        if (func.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
+                            // FIXME: handle this better...
+                            std.debug.assert(v.items.len == 3);
+                            break :_ &if_inputs;
+                        } else if (func_node_desc.getInputs().len > 0 and func_node_desc.getInputs()[0].asPrimitivePin() == .exec) {
+                            break :_ func_node_desc.getInputs()[1..];
+                        } else {
+                            break :_ func_node_desc.getInputs();
+                        }
+                    };
 
-                inline for (&binaryop_builtins) |builtin_op| {
-                    if (func.value.symbol.ptr == builtin_op.sym.value.symbol.ptr) {
-                        var op: byn.Expression.Op = undefined;
+                    var args_top_type = graphl_builtin.empty_type;
 
-                        var resolved_type = graphl_builtin.empty_type;
+                    for (v.items[1..], input_descs) |arg_idx, input_desc| {
+                        std.debug.assert(input_desc.asPrimitivePin() == .value);
+                        var subcontext: ExprContext = context.*;
+                        subcontext.type = input_desc.asPrimitivePin().value;
+                        try self.compileExpr(arg_idx, &subcontext);
+                        const arg_compiled = &self._sexp_compiled[arg_idx];
+                        args_top_type = resolvePeerType(args_top_type, arg_compiled.type);
+                    }
 
-                        if (v.items.len != 3) {
-                            self.diag.err = .{ .BuiltinWrongArity = .{
-                                .callee = v.items[0],
-                                .expected = 2,
-                                .received = @intCast(v.items.len - 1),
-                            } };
-                            return error.BuiltinWrongArity;
+                    if (func.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
+                        slot.type = args_top_type;
+                        // "if" sexp doesn't need an expression cuz relooper, and
+                        // we already set the type
+                        break :done;
+                    }
+
+                    if (func.value.symbol.ptr == syms.@"set!".value.symbol.ptr) {
+                        std.debug.assert(v.items.len == 3);
+
+                        if (self.graphlt_module.get(v.items[1]).value != .symbol) {
+                            self.diag.err = .{ .SetNonSymbol = v.items[1] };
+                            return error.SetNonSymbol;
                         }
 
-                        for (v.items[1..]) |arg_idx| {
-                            const arg_compiled = &self._sexp_compiled[arg_idx];
-                            resolved_type = try resolvePeerType(resolved_type, arg_compiled.type);
-                        }
+                        // FIXME: leak
+                        const set_sym = self.graphlt_module.get(v.items[1]).value.symbol;
 
-                        for (v.items[1..]) |arg_idx| {
-                            const arg_compiled = &self._sexp_compiled[arg_idx];
-                            try self.promoteToTypeInPlace(arg_compiled, resolved_type);
-                        }
+                        const local_info = context.local_symbols.get(set_sym) orelse {
+                            self.diag.err = .{ .UndefinedSymbol = v.items[1] };
+                            return error.UndefinedSymbol;
+                        };
 
-                        var handled = false;
+                        // FIXME: why? shouldn't this be void anyway?
+                        slot.type = self._sexp_compiled[v.items[2]].type;
+                        slot.expr = byn.c.BinaryenLocalSet(
+                            self.module.c(),
+                            local_info.index,
+                            self._sexp_compiled[v.items[2]].expr,
+                        );
+                        break :done;
+                    }
 
-                        const lhs = &self._sexp_compiled[v.items[1]];
-                        const rhs = &self._sexp_compiled[v.items[2]];
+                    inline for (&binaryop_builtins) |builtin_op| {
+                        if (func.value.symbol.ptr == builtin_op.sym.value.symbol.ptr) {
+                            var op: byn.Expression.Op = undefined;
 
-                        // FIXME: use a mapping to get the right type? e.g. a switch on type pointers would be nice
-                        // but iirc that is broken
-                        inline for (&.{
-                            .{ primitive_types.i32_, "SInt32", false },
-                            .{ primitive_types.i64_, "SInt64", false },
-                            .{ primitive_types.u32_, "UInt32", false },
-                            .{ primitive_types.u64_, "UInt64", false },
-                            .{ primitive_types.f32_, "Float32", true },
-                            .{ primitive_types.f64_, "Float64", true },
-                        }) |type_info| {
-                            const graphl_type, const type_byn_name, const is_float = type_info;
-                            const float_type_but_int_op = @hasField(@TypeOf(builtin_op), "int_only") and is_float;
-                            if (!handled and !float_type_but_int_op) {
-                                if (resolved_type == graphl_type) {
-                                    const signless = @hasField(@TypeOf(builtin_op), "signless");
-                                    const op_name = comptime if (signless and !is_float) builtin_op.wasm_name ++ type_byn_name[1..] else builtin_op.wasm_name ++ type_byn_name;
-                                    op = @field(byn.Expression.Op, op_name)();
-                                    handled = true;
+                            if (v.items.len != 3) {
+                                self.diag.err = .{ .BuiltinWrongArity = .{
+                                    .callee = v.items[0],
+                                    .expected = 2,
+                                    .received = @intCast(v.items.len - 1),
+                                } };
+                                return error.BuiltinWrongArity;
+                            }
+
+                            for (v.items[1..]) |arg_idx| {
+                                const arg_compiled = &self._sexp_compiled[arg_idx];
+                                self.promoteToTypeInPlace(arg_compiled, args_top_type);
+                            }
+
+                            var handled = false;
+
+                            const lhs = &self._sexp_compiled[v.items[1]];
+                            const rhs = &self._sexp_compiled[v.items[2]];
+
+                            // FIXME: use a mapping to get the right type? e.g. a switch on type pointers would be nice
+                            // but iirc that is broken
+                            inline for (&.{
+                                .{ primitive_types.i32_, "SInt32", false },
+                                .{ primitive_types.i64_, "SInt64", false },
+                                .{ primitive_types.u32_, "UInt32", false },
+                                .{ primitive_types.u64_, "UInt64", false },
+                                .{ primitive_types.f32_, "Float32", true },
+                                .{ primitive_types.f64_, "Float64", true },
+                            }) |type_info| {
+                                const graphl_type, const type_byn_name, const is_float = type_info;
+                                const float_type_but_int_op = @hasField(@TypeOf(builtin_op), "int_only") and is_float;
+                                if (!handled and !float_type_but_int_op) {
+                                    if (args_top_type == graphl_type) {
+                                        const signless = @hasField(@TypeOf(builtin_op), "signless");
+                                        const op_name = comptime if (signless and !is_float) builtin_op.wasm_name ++ type_byn_name[1..] else builtin_op.wasm_name ++ type_byn_name;
+                                        op = @field(byn.Expression.Op, op_name)();
+                                        handled = true;
+                                    }
                                 }
+                            }
+
+                            slot.expr = byn.c.BinaryenBinary(self.module.c(), op.c(), lhs.expr, rhs.expr);
+
+                            // REPORT ME: try to prefer an else on the above for loop, currently couldn't get it to compile right
+                            if (!handled) {
+                                std.log.err("unimplemented type resolution: '{s}' for code:\n{}\n", .{ slot.type.name, code_sexp });
+                                std.debug.panic("unimplemented type resolution: '{s}'", .{slot.type.name});
+                            }
+
+                            if (@hasField(@TypeOf(builtin_op), "result_type")) {
+                                slot.type = builtin_op.result_type;
+                            } else {
+                                slot.type = args_top_type;
+                            }
+
+                            break :done;
+                        }
+                    }
+
+                    // FIXME: make this work again
+                    // FIXME: this hacky interning-like code is horribly bug prone
+                    // FIXME: rename to standard library cuz it's also that
+                    // builtins with intrinsics
+                    // inline for (comptime std.meta.declarations(wat_syms.intrinsics)) |intrinsic_decl| {
+                    //     const intrinsic = @field(wat_syms.intrinsics, intrinsic_decl.name);
+                    //     const node_desc = intrinsic.node_desc;
+                    //     const outputs = node_desc.getOutputs();
+                    //     std.debug.assert(outputs.len == 1);
+                    //     std.debug.assert(outputs[0].kind == .primitive);
+                    //     std.debug.assert(outputs[0].kind.primitive == .value);
+                    //     result.type = outputs[0].kind.primitive.value;
+
+                    //     if (func.value.symbol.ptr == node_desc.name().ptr) {
+                    //         const instruct_count: usize = if (result.type == graphl_builtin.empty_type) 1 else 2;
+                    //         try result.values.ensureTotalCapacityPrecise(instruct_count);
+
+                    //         const wasm_call = result.values.addOneAssumeCapacity();
+                    //         wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+
+                    //         const total_args = _: {
+                    //             var total_args_res: usize = 2; // start with 2 for (call $FUNC_NAME ...)
+                    //             for (arg_fragments) |arg_frag| total_args_res += arg_frag.values.items.len;
+                    //             break :_ total_args_res;
+                    //         };
+
+                    //         try wasm_call.value.list.ensureTotalCapacityPrecise(total_args);
+                    //         // FIXME: use types to determine
+                    //         wasm_call.value.list.addOneAssumeCapacity().* = wat_syms.call;
+                    //         wasm_call.value.list.addOneAssumeCapacity().* = intrinsic.wasm_sym;
+
+                    //         for (arg_fragments, node_desc.getInputs()) |*arg_fragment, input| {
+                    //             try self.promoteToTypeInPlace(arg_fragment, input.kind.primitive.value);
+                    //             wasm_call.value.list.appendSliceAssumeCapacity(arg_fragment.values.items);
+                    //             for (arg_fragment.values.items) |*subarg| {
+                    //                 // FIXME: implement move much more clearly
+                    //                 subarg.* = Sexp{ .value = .void };
+                    //             }
+                    //         }
+
+                    //         // FIXME: do any intrinsics need to be recalled without labels?
+                    //         // if (result.type != graphl_builtin.empty_type) {
+                    //         //     const local_result_ptr_sym = try context.addLocal(alloc, result.type);
+
+                    //         //     const consume_result = result.values.addOneAssumeCapacity();
+                    //         //     consume_result.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+                    //         //     try consume_result.value.list.ensureTotalCapacityPrecise(2);
+                    //         //     consume_result.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
+                    //         //     consume_result.value.list.appendAssumeCapacity(local_result_ptr_sym);
+                    //         // }
+
+                    //         break :done;
+                    //     }
+                    // }
+
+                    // FIXME: handle quote
+
+                    // FIXME: make this work again
+                    // ok, it must be a function in scope then (user or builtin)
+                    {
+                        const outputs = func_node_desc.getOutputs();
+
+                        // FIXME: horrible
+                        const is_pure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .value;
+                        const is_simple_0_out_impure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec;
+                        const is_simple_1_out_impure = outputs.len == 2 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec and outputs[1].kind == .primitive and outputs[1].kind.primitive == .value;
+
+                        slot.type =
+                            if (is_pure) outputs[0].kind.primitive.value
+                                //
+                            else if (is_simple_0_out_impure)
+                                graphl_builtin.empty_type
+                                    //
+                            else if (is_simple_1_out_impure)
+                                outputs[1].kind.primitive.value
+                                    //
+                            else {
+                                std.debug.print("func={s}\n", .{func_node_desc.name()});
+                                return error.UnimplementedMultiResultHostFunc;
+                            };
+
+                        const requires_drop = slot.type != graphl_builtin.empty_type and !context.is_captured;
+
+                        const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1 + @as(usize, if (requires_drop) 1 else 0));
+
+                        defer self.arena.allocator().free(operands); // FIXME: what is binaryen ownership model?
+
+                        for (v.items[1..], operands[0 .. v.items.len - 1]) |arg_idx, *operand| {
+                            const arg_compiled = self._sexp_compiled[arg_idx];
+                            operand.* = arg_compiled.expr;
+                        }
+
+                        if (requires_drop) {
+                            operands[operands.len - 1] = @ptrCast(byn.c.BinaryenDrop(
+                                self.module.c(),
+                                // FIXME: why does Drop take an argument? is that a WAST thing?
+                                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                            ));
+                        }
+
+                        slot.expr = @ptrCast(byn.c.BinaryenCall(
+                            self.module.c(),
+                            func.value.symbol,
+                            @ptrCast(operands.ptr),
+                            @intCast(operands.len),
+                            // FIXME: derive the result type
+                            @intFromEnum(byn.Type.i32),
+                        ));
+                        break :done;
+                    }
+
+                    // otherwise we have a non builtin
+                    std.log.err("unhandled call: {}", .{code_sexp});
+                    return error.UnhandledCall;
+                },
+
+                .int => |v| {
+                    slot.type = primitive_types.i32_;
+                    slot.expr = byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v)));
+                },
+
+                .float => |v| {
+                    slot.type = primitive_types.f64_;
+                    slot.expr = @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat64(v)));
+                },
+
+                .symbol => |v| {
+                    // FIXME: have a list of symbols in the scope
+                    if (v.ptr == syms.true.value.symbol.ptr) {
+                        slot.type = primitive_types.bool_;
+                        slot.expr = byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(1));
+                        break :done;
+                    }
+
+                    if (v.ptr == syms.false.value.symbol.ptr) {
+                        slot.type = primitive_types.bool_;
+                        slot.expr = byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0));
+                        break :done;
+                    }
+
+                    const Info = struct {
+                        resolved_type: Type,
+                        ref: u32,
+                    };
+
+                    const info = _: {
+                        if (context.local_symbols.getPtr(v)) |local_entry| {
+                            break :_ Info{
+                                .resolved_type = local_entry.type,
+                                .ref = local_entry.index,
+                            };
+                        }
+
+                        // FIXME: use a map?
+                        for (context.param_names, context.param_types, 0..) |pn, pt, i| {
+                            // FIXME: this is ok because everything is a symbol, but should prob use a special type
+                            if (pn.ptr == v.ptr) {
+                                break :_ Info{
+                                    .resolved_type = pt,
+                                    .ref = @intCast(i),
+                                };
                             }
                         }
 
-                        slot.expr = byn.c.BinaryenBinary(self.module.c(), op.c(), lhs.expr, rhs.expr);
+                        std.log.err("undefined symbol2 '{s}'", .{v});
+                        // FIXME: add location to this error
+                        self.diag.err = .{ .UndefinedSymbol = code_sexp_idx };
+                        return error.UndefinedSymbol;
+                    };
 
-                        // REPORT ME: try to prefer an else on the above for loop, currently couldn't get it to compile right
-                        if (!handled) {
-                            std.log.err("unimplemented type resolution: '{s}' for code:\n{}\n", .{ slot.type.name, code_sexp });
-                            std.debug.panic("unimplemented type resolution: '{s}'", .{slot.type.name});
-                        }
+                    slot.type = info.resolved_type;
+                    slot.expr = byn.c.BinaryenLocalGet(self.module.c(), info.ref, BinaryenHelper.getType(info.resolved_type));
+                },
 
-                        if (@hasField(@TypeOf(builtin_op), "result_type")) {
-                            slot.type = builtin_op.result_type;
-                        } else {
-                            slot.type = resolved_type;
-                        }
+                .borrowedString, .ownedString => |v| {
+                    // FIXME: fill the array
+                    // FIXME: gross, use 0 terminated strings?
+                    // try self.arena.allocator().dupeZ(u8, v),
 
-                        return;
-                    }
-                }
-
-                // FIXME: make this work again
-                // FIXME: this hacky interning-like code is horribly bug prone
-                // FIXME: rename to standard library cuz it's also that
-                // builtins with intrinsics
-                // inline for (comptime std.meta.declarations(wat_syms.intrinsics)) |intrinsic_decl| {
-                //     const intrinsic = @field(wat_syms.intrinsics, intrinsic_decl.name);
-                //     const node_desc = intrinsic.node_desc;
-                //     const outputs = node_desc.getOutputs();
-                //     std.debug.assert(outputs.len == 1);
-                //     std.debug.assert(outputs[0].kind == .primitive);
-                //     std.debug.assert(outputs[0].kind.primitive == .value);
-                //     result.type = outputs[0].kind.primitive.value;
-
-                //     if (func.value.symbol.ptr == node_desc.name().ptr) {
-                //         const instruct_count: usize = if (result.type == graphl_builtin.empty_type) 1 else 2;
-                //         try result.values.ensureTotalCapacityPrecise(instruct_count);
-
-                //         const wasm_call = result.values.addOneAssumeCapacity();
-                //         wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-
-                //         const total_args = _: {
-                //             var total_args_res: usize = 2; // start with 2 for (call $FUNC_NAME ...)
-                //             for (arg_fragments) |arg_frag| total_args_res += arg_frag.values.items.len;
-                //             break :_ total_args_res;
-                //         };
-
-                //         try wasm_call.value.list.ensureTotalCapacityPrecise(total_args);
-                //         // FIXME: use types to determine
-                //         wasm_call.value.list.addOneAssumeCapacity().* = wat_syms.call;
-                //         wasm_call.value.list.addOneAssumeCapacity().* = intrinsic.wasm_sym;
-
-                //         for (arg_fragments, node_desc.getInputs()) |*arg_fragment, input| {
-                //             try self.promoteToTypeInPlace(arg_fragment, input.kind.primitive.value);
-                //             wasm_call.value.list.appendSliceAssumeCapacity(arg_fragment.values.items);
-                //             for (arg_fragment.values.items) |*subarg| {
-                //                 // FIXME: implement move much more clearly
-                //                 subarg.* = Sexp{ .value = .void };
-                //             }
-                //         }
-
-                //         // FIXME: do any intrinsics need to be recalled without labels?
-                //         // if (result.type != graphl_builtin.empty_type) {
-                //         //     const local_result_ptr_sym = try context.addLocal(alloc, result.type);
-
-                //         //     const consume_result = result.values.addOneAssumeCapacity();
-                //         //     consume_result.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                //         //     try consume_result.value.list.ensureTotalCapacityPrecise(2);
-                //         //     consume_result.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
-                //         //     consume_result.value.list.appendAssumeCapacity(local_result_ptr_sym);
-                //         // }
-
-                //         return result;
-                //     }
-                // }
-
-                // FIXME: handle quote
-
-                // FIXME: make this work again
-                // ok, it must be a function in scope then (user or builtin)
-                {
-                    const outputs = func_node_desc.getOutputs();
-
-                    // FIXME: horrible
-                    const is_pure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .value;
-                    const is_simple_0_out_impure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec;
-                    const is_simple_1_out_impure = outputs.len == 2 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec and outputs[1].kind == .primitive and outputs[1].kind.primitive == .value;
-
-                    slot.type =
-                        if (is_pure) outputs[0].kind.primitive.value
-                            //
-                        else if (is_simple_0_out_impure)
-                            graphl_builtin.empty_type
-                                //
-                        else if (is_simple_1_out_impure)
-                            outputs[1].kind.primitive.value
-                                //
-                        else {
-                            std.debug.print("func={s}\n", .{func_node_desc.name()});
-                            return error.UnimplementedMultiResultHostFunc;
-                        };
-
-                    const requires_drop = slot.type != graphl_builtin.empty_type and !context.is_captured;
-
-                    const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1 + @as(usize, if (requires_drop) 1 else 0));
-
-                    defer self.arena.allocator().free(operands); // FIXME: what is binaryen ownership model?
-
-                    for (v.items[1..], operands[0 .. v.items.len - 1]) |arg_idx, *operand| {
-                        const arg_compiled = self._sexp_compiled[arg_idx];
-                        operand.* = arg_compiled.expr;
-                    }
-
-                    if (requires_drop) {
-                        operands[operands.len - 1] = @ptrCast(byn.c.BinaryenDrop(
-                            self.module.c(),
-                            // FIXME: why does Drop take an argument? is that a WAST thing?
-                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
-                        ));
-                    }
-
-                    slot.expr = @ptrCast(byn.c.BinaryenCall(
+                    // FIXME: add fixed data and copy from it
+                    slot.expr = byn.c.BinaryenArrayNew(
                         self.module.c(),
-                        func.value.symbol,
-                        @ptrCast(operands.ptr),
-                        @intCast(operands.len),
-                        // FIXME: derive the result type
-                        @intFromEnum(byn.Type.i32),
-                    ));
-                    return;
-                }
+                        byn.c.BinaryenTypeGetHeapType(BinaryenHelper.getType(primitive_types.string)),
+                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v.len))),
+                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                    );
 
-                // otherwise we have a non builtin
-                std.log.err("unhandled call: {}", .{code_sexp});
-                return error.UnhandledCall;
-            },
+                    slot.type = primitive_types.string;
+                },
 
-            .int => |v| {
-                slot.type = primitive_types.i32_;
-                slot.expr = byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v)));
-                return;
-            },
-
-            .float => |v| {
-                slot.type = primitive_types.f64_;
-                slot.expr = @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat64(v)));
-                return;
-            },
-
-            .symbol => |v| {
-                // FIXME: have a list of symbols in the scope
-                if (v.ptr == syms.true.value.symbol.ptr) {
+                .bool => |v| {
                     slot.type = primitive_types.bool_;
-                    slot.expr = byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(1));
-                    return;
-                }
+                    slot.expr = byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(if (v) 1 else 0));
+                },
 
-                if (v.ptr == syms.false.value.symbol.ptr) {
-                    slot.type = primitive_types.bool_;
-                    slot.expr = byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0));
-                    return;
-                }
+                .jump => {
+                    // do nothing for a jump, it's handled in the link blocks phase
+                },
 
-                const Info = struct {
-                    resolved_type: Type,
-                    ref: u32,
-                };
+                inline else => {
+                    std.log.err("unimplemented expr for compilation:\n{}\n", .{code_sexp});
+                    std.debug.panic("unimplemented type: '{s}'", .{@tagName(code_sexp.value)});
+                },
+            }
 
-                const info = _: {
-                    if (context.local_symbols.getPtr(v)) |local_entry| {
-                        break :_ Info{
-                            .resolved_type = local_entry.type,
-                            .ref = local_entry.index,
-                        };
-                    }
-
-                    // FIXME: use a map?
-                    for (context.param_names, context.param_types, 0..) |pn, pt, i| {
-                        // FIXME: this is ok because everything is a symbol, but should prob use a special type
-                        if (pn.ptr == v.ptr) {
-                            break :_ Info{
-                                .resolved_type = pt,
-                                .ref = @intCast(i),
-                            };
-                        }
-                    }
-
-                    std.log.err("undefined symbol2 '{s}'", .{v});
-                    // FIXME: add location to this error
-                    self.diag.err = .{ .UndefinedSymbol = code_sexp_idx };
-                    return error.UndefinedSymbol;
-                };
-
-                slot.type = info.resolved_type;
-                slot.expr = byn.c.BinaryenLocalGet(self.module.c(), info.ref, BinaryenHelper.getType(info.resolved_type));
-            },
-
-            .borrowedString, .ownedString => |v| {
-                // FIXME: fill the array
-                // FIXME: gross, use 0 terminated strings?
-                // try self.arena.allocator().dupeZ(u8, v),
-
-                // FIXME: add fixed data and copy from it
-                slot.expr = byn.c.BinaryenArrayNew(
-                    self.module.c(),
-                    byn.c.BinaryenTypeGetHeapType(BinaryenHelper.getType(primitive_types.string)),
-                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v.len))),
-                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
-                );
-
-                slot.type = primitive_types.string;
-            },
-
-            .bool => |v| {
-                slot.type = primitive_types.bool_;
-                slot.expr = byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(if (v) 1 else 0));
-            },
-
-            inline else => {
-                std.log.err("unimplemented expr for compilation:\n{}\n", .{code_sexp});
-                std.debug.panic("unimplemented type: '{s}'", .{@tagName(code_sexp.value)});
-            },
+            // FIXME: this won't work on "if"/jump sexp?
+            if (code_sexp.value != .jump) {
+                context.finalizeSlotTypeForSexp(self, code_sexp_idx);
+            }
         }
     }
 
     // find the nearest super type (if any) of two types
-    fn resolvePeerType(a: Type, b: Type) !Type {
+    fn resolvePeerType(a: Type, b: Type) Type {
         if (a == graphl_builtin.empty_type)
             return b;
 
@@ -1389,8 +1406,7 @@ const Compilation = struct {
     }
 
     // TODO: use an actual type graph/tree and search in it
-    // promote the type of a fragment, adding necessary conversion code to the fragment
-    fn promoteToTypeInPlace(self: *@This(), slot: *Slot, target_type: Type) !void {
+    fn promoteToTypeInPlace(self: *@This(), slot: *Slot, target_type: Type) void {
         var i: usize = 0;
         const MAX_ITERS = 128;
         while (slot.type != target_type) : (i += 1) {
@@ -1442,16 +1458,17 @@ const Compilation = struct {
             return a.type;
 
         // REPORT: zig can't switch on constant pointers
-        const resolved_type = try resolvePeerType(a.type, b.type);
+        const resolved_type = resolvePeerType(a.type, b.type);
 
         inline for (&.{ a, b }) |fragment| {
-            try self.promoteToTypeInPlace(fragment, resolved_type);
+            self.promoteToTypeInPlace(fragment, resolved_type);
         }
 
         return resolved_type;
     }
 
     const ExprContext = struct {
+        // FIXME: maybe this should just be empty/unresolved type instead of null?
         type: ?Type = null,
         param_names: []const []const u8,
         param_types: []const Type,
@@ -1471,23 +1488,31 @@ const Compilation = struct {
         /// map of sexp indices to the local index holding them with its type,
         local_symbols: *SymMapUnmanaged(LocalInfo),
 
+        next_sexp_local_idx: u32 = 0,
+
         pub const LocalInfo = struct {
             index: byn.c.BinaryenIndex,
             type: Type,
         };
 
         /// returns the index of the wasm local holding the value on the frame
-        /// caller must set the "type" field of the slot
-        pub fn getOrPutLocalSexp(self: *@This(), a: std.mem.Allocator, comp_ctx: *const Compilation, sexp_idx: u32, @"type": Type) !byn.c.BinaryenIndex {
-            const local_index = self.local_symbols.count();
-            try self.local_symbols.putNoClobber(a, sexp_idx, local_index);
+        pub fn putLocalForSexp(self: *@This(), comp_ctx: *const Compilation, sexp_idx: u32) byn.c.BinaryenIndex {
+            const local_index = self.next_sexp_local_idx;
+            self.next_sexp_local_idx += 1;
             const slot = &comp_ctx._sexp_compiled[sexp_idx];
-            slot.type = @"type";
-            if (!@"type".isPrimitive()) {
-                slot.frame_depth = self._frame_byte_size;
-                self._frame_byte_size += @"type".size;
-            }
+            slot.local_index = local_index;
             return local_index;
+        }
+
+        /// returns the index of the wasm local holding the value on the frame
+        /// caller must set the "type" field of the slot
+        pub fn finalizeSlotTypeForSexp(self: *@This(), comp_ctx: *const Compilation, sexp_idx: u32) void {
+            const slot = &comp_ctx._sexp_compiled[sexp_idx];
+            std.debug.assert(slot.type != graphl_builtin.empty_type);
+            if (!slot.type.isPrimitive()) {
+                slot.frame_depth = self._frame_byte_size;
+                self._frame_byte_size += slot.type.size;
+            }
         }
 
         fn nextAnonymousLocalName(self: *@This()) [:0]const u8 {
@@ -1516,57 +1541,68 @@ const Compilation = struct {
 
     const CompileExprError = std.mem.Allocator.Error || Diagnostic.Code;
 
-    // FIXME: maybe rename to link blocks
-    fn getOrCompileExpr(
+    fn linkExpr(
         self: *@This(),
         code_sexp_idx: u32,
-        /// not const because we may be expanding the frame to include this value
         context: *ExprContext,
     ) CompileExprError!void {
         std.log.debug("compiling expr: '{}'\n", .{code_sexp_idx});
-
-        //can't I get the type of the expression immediately?
-        const slot_res = try context.getOrPutLocalSexp(self.arena.allocator(), code_sexp_idx);
-        const slot = slot_res.value_ptr;
-
+        const slot = &self._sexp_compiled[code_sexp_idx];
         const code_sexp = self.graphlt_module.get(code_sexp_idx);
+        slot.byn_block = byn.c.RelooperAddBlock(context.relooper, slot.expr);
 
-        if (code_sexp.value == .jump) {
-            const target_slot = context.frame._sexp_slot_map.getPtr(code_sexp.value.jump.target) orelse unreachable;
-            byn.c.RelooperAddBranch(slot.byn_block, target_slot.byn_block, null, null);
-        }
-
-        const has_value = switch (code_sexp.value) {
-            .list => |list| _: {
-                if (list.items.len == 0) break :_ true;
-                // NOTE: only in a quote/macro context can this be not a symbol
-                const callee = self.graphlt_module.get(list.items[0]).value.symbol;
-
-                // FIXME: ignore these better
-                if (callee.ptr == pool.getSymbol("begin").ptr) break :_ false;
-                if (callee.ptr == pool.getSymbol("return").ptr) break :_ false;
-
-                const def = self.env.getNode(callee) orelse {
-                    self.diag.err = .{ .UndefinedSymbol = list.items[0] };
-                    return error.UndefinedSymbol;
-                };
-                for (def.getOutputs()) |o| {
-                    if (!o.isExec()) break :_ true;
-                }
-                break :_ false;
+        switch (code_sexp.value) {
+            .jump => |j| {
+                const target_slot = &self._sexp_compiled[j.target];
+                byn.c.RelooperAddBranch(slot.byn_block, target_slot.byn_block, null, null);
             },
-            else => true, // FIXME: confirm
-        };
+            .list => |list| {
+                if (list.items.len == 0) return;
 
-        if (slot_res.found_existing) {
-            if (has_value and slot_res.value_ptr.type == graphl_builtin.empty_type)
-                // TODO: diagnostic
-                return error.RecursiveDependency;
+                const callee_idx = list.items[0];
+                const callee = self.graphlt_module.get(callee_idx);
+                // FIXME: make sure we error on this earlier
+                std.debug.assert(callee.value == .symbol);
+                if (callee.value.symbol.ptr == syms.@"if".value.symbol.ptr) {}
 
-            slot.expr = byn.c.BinaryenLocalGet(self.module.c(), slot.local_index, BinaryenHelper.getType(slot.type));
-            slot.type = primitive_types.code;
-            return;
+                for (list.items[1..]) |arg_idx| {
+                    try self.linkExpr(arg_idx, context);
+                }
+            },
+            else => {},
         }
+
+        // const has_value = switch (code_sexp.value) {
+        //     .list => |list| _: {
+        //         if (list.items.len == 0) break :_ true;
+        //         // NOTE: only in a quote/macro context can this be not a symbol
+        //         const callee = self.graphlt_module.get(list.items[0]).value.symbol;
+
+        //         // FIXME: ignore these better
+        //         if (callee.ptr == pool.getSymbol("begin").ptr) break :_ false;
+        //         if (callee.ptr == pool.getSymbol("return").ptr) break :_ false;
+
+        //         const def = self.env.getNode(callee) orelse {
+        //             self.diag.err = .{ .UndefinedSymbol = list.items[0] };
+        //             return error.UndefinedSymbol;
+        //         };
+        //         for (def.getOutputs()) |o| {
+        //             if (!o.isExec()) break :_ true;
+        //         }
+        //         break :_ false;
+        //     },
+        //     else => true, // FIXME: confirm
+        // };
+
+        // if (slot_res.found_existing) {
+        //     if (has_value and slot_res.value_ptr.type == graphl_builtin.empty_type)
+        //         // TODO: diagnostic
+        //         return error.RecursiveDependency;
+
+        //     slot.expr = byn.c.BinaryenLocalGet(self.module.c(), slot.local_index, BinaryenHelper.getType(slot.type));
+        //     slot.type = primitive_types.code;
+        //     return;
+        // }
 
         // const fragment = frag: {
         //     // FIXME: destroy this
@@ -1621,7 +1657,7 @@ const Compilation = struct {
     ) CompileExprError!ExprBlock {
         var result_type: Type = graphl_builtin.empty_type;
 
-        var exprs = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), expr_idxs.len);
+        var exprs = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), expr_idxs.len);
         defer exprs.deinit(self.arena.allocator());
 
         for (expr_idxs, 0..) |expr_idx, i| {
@@ -1631,18 +1667,18 @@ const Compilation = struct {
             // only capture the last expression or any labeled expressions
             expr_ctx.is_captured = i == expr_idxs.len - 1 or body_expr.label != null;
 
-            try self.analyzeExpr(expr_idx, &expr_ctx);
-            try self.getOrCompileExpr(expr_idx, &expr_ctx);
+            try self.compileExpr(expr_idx, &expr_ctx);
+            try self.linkExpr(expr_idx, &expr_ctx);
             const expr_compiled = &self._sexp_compiled[expr_idx];
             exprs.appendAssumeCapacity(expr_compiled.expr);
 
             // FIXME: previously we just took the last one for the function body
             // this is what we did for return/begin expressions... is this right?
-            result_type = try self.resolvePeerTypesWithPromotions(parent_expr_ctx.type, &expr_compiled.type);
+            result_type = resolvePeerType(parent_expr_ctx.type orelse graphl_builtin.empty_type, expr_compiled.type);
         }
 
         return .{
-            .exprs = exprs.toOwnedSlice(self.arena.allocator()),
+            .exprs = try exprs.toOwnedSlice(self.arena.allocator()),
             .type = result_type,
         };
     }
