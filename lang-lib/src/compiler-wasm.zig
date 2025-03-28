@@ -40,6 +40,7 @@ const Type = @import("./nodes/builtin.zig").Type;
 const builtin_nodes = @import("./nodes/builtin.zig").builtin_nodes;
 const Pin = @import("./nodes/builtin.zig").Pin;
 const pool = &@import("./InternPool.zig").pool;
+const SymMapUnmanaged = &@import("./InternPool.zig").SymMapUnmanaged;
 
 const t = std.testing;
 const SexpParser = @import("./sexp_parser.zig").Parser;
@@ -58,16 +59,37 @@ pub const Diagnostic = struct {
     graphlt_module: *const ModuleContext = undefined,
 
     const Error = union(enum(u16)) {
-        // TODO: lowercase
         None = 0,
-        BadTopLevelForm: u32 = 1,
-        UndefinedSymbol: u32 = 2,
+        BadTopLevelForm: u32,
+        UndefinedSymbol: u32,
+        DuplicateVariable: u32,
+        EmptyCall: u32,
+        NonSymbolCallee: u32,
+        UnimplementedMultiResultHostFunc: u32,
+        UnhandledCall: u32,
+        DuplicateLabel: u32,
+        // FIXME: add the dependency to the error message
+        RecursiveDependency: u32,
+        SetNonSymbol: u32,
+        BuiltinWrongArity: struct {
+            callee: u32,
+            expected: u16,
+            received: u16,
+        },
     };
 
     const Code = error{
-        // TODO: capitalize
-        badTopLevelForm,
-        undefinedSymbol,
+        BadTopLevelForm,
+        UndefinedSymbol,
+        DuplicateVariable,
+        EmptyCall,
+        NonSymbolCallee,
+        UnimplementedMultiResultHostFunc,
+        UnhandledCall,
+        DuplicateLabel,
+        RecursiveDependency,
+        SetNonSymbol,
+        BuiltinWrongArity,
     };
 
     pub fn init() @This() {
@@ -93,32 +115,82 @@ pub const Diagnostic = struct {
                 // FIXME: HACK
                 const sexp = self.graphlt_module.get(sym_id);
 
-                if (sexp.span != null and self.graphlt_module.source != null) {
-                    const span = sexp.span.?;
-                    const byte_offset: usize = span.ptr - self.graphlt_module.source.?.ptr;
+                std.debug.assert(sexp.span != null and self.graphlt_module.source != null);
 
-                    var loc: Loc = .{};
-                    while (loc.index != byte_offset) {
-                        loc.increment(self.graphlt_module.source.?);
-                    }
+                const span = sexp.span.?;
+                const byte_offset: usize = span.ptr - self.graphlt_module.source.?.ptr;
 
-                    try writer.print(
-                        \\Undefined symbol '{s}' in {}:
-                        \\  | {s}
-                        \\    {}^
-                        \\
-                    , .{
-                        sexp.value.symbol,
-                        loc,
-                        try loc.containing_line(self.graphlt_module.source.?),
-                        SpacePrint.init(loc.col - 1),
-                    });
-                } else {
-                    try writer.print(
-                        \\undefined symbol '{s}'
-                        \\
-                    , .{sexp.value.symbol});
+                var loc: Loc = .{};
+                while (loc.index != byte_offset) {
+                    loc.increment(self.graphlt_module.source.?);
                 }
+
+                try writer.print(
+                    \\Undefined symbol '{s}' in {}:
+                    \\  | {s}
+                    \\    {}^
+                    \\
+                , .{
+                    sexp.value.symbol,
+                    loc,
+                    try loc.containing_line(self.graphlt_module.source.?),
+                    SpacePrint.init(loc.col - 1),
+                });
+            },
+            .BuiltinWrongArity => |err_info| {
+                // FIXME: HACK
+                const sexp = self.graphlt_module.get(err_info.callee);
+
+                std.debug.assert(sexp.span != null and self.graphlt_module.source != null);
+
+                const span = sexp.span.?;
+                const byte_offset: usize = span.ptr - self.graphlt_module.source.?.ptr;
+
+                var loc: Loc = .{};
+                while (loc.index != byte_offset) {
+                    loc.increment(self.graphlt_module.source.?);
+                }
+
+                try writer.print(
+                    \\Incorrect argument count for '{s}' in {}:
+                    \\  | {s}
+                    \\    {}^
+                    \\Expected {} arguments but received {}.
+                    \\
+                , .{
+                    sexp.value.symbol,
+                    loc,
+                    try loc.containing_line(self.graphlt_module.source.?),
+                    SpacePrint.init(loc.col - 1),
+                    err_info.expected,
+                    err_info.received,
+                });
+            },
+            inline else => |idx, tag| {
+                // FIXME: HACK
+                const sexp = self.graphlt_module.get(idx);
+
+                std.debug.assert(sexp.span != null and self.graphlt_module.source != null);
+                const span = sexp.span.?;
+                const byte_offset: usize = span.ptr - self.graphlt_module.source.?.ptr;
+
+                var loc: Loc = .{};
+                while (loc.index != byte_offset) {
+                    loc.increment(self.graphlt_module.source.?);
+                }
+
+                try writer.print(
+                    \\{s}: '{s}' in {}:
+                    \\  | {s}
+                    \\    {}^
+                    \\
+                , .{
+                    @tagName(tag),
+                    sexp.value.symbol,
+                    loc,
+                    try loc.containing_line(self.graphlt_module.source.?),
+                    SpacePrint.init(loc.col - 1),
+                });
             },
         }
     }
@@ -752,16 +824,22 @@ const Compilation = struct {
 
         // FIXME: rename
         // TODO: use @FieldType
-        var locals: std.AutoHashMapUnmanaged(u32, byn.c.BinaryenIndex) = .{};
-        defer locals.deinit(self.arena.allocator());
 
-        for (func_decl.local_name_idxs, func_decl.local_types) |local_name_idx, local_type| {
-            const put_res = try locals.getOrPutValue(alloc, local_name_idx, @intCast(locals.count()));
+        var locals_symbols: SymMapUnmanaged(ExprContext.LocalInfo) = .{};
+        defer locals_symbols.deinit(self.arena.allocator());
+
+        for (func_decl.local_names, func_decl.local_name_idxs, func_decl.local_types) |local_name, local_name_idx, local_type| {
+            const put_res = try locals_symbols.getOrPut(alloc, local_name);
 
             if (put_res.found_existing) {
-                // FIXME: return diagnostic error
+                self.diag.err = .{ .DuplicateVariable = local_name_idx };
                 return error.DuplicateVariable;
             }
+
+            put_res.value_ptr.* = .{
+                .index = @intCast(locals_symbols.count()),
+                .type = local_type,
+            };
 
             // FIXME: why not add this to the env as a getter?
             // const node_desc = try self.arena.allocator().create(graphl_builtin.BasicMutNodeDesc);
@@ -793,18 +871,16 @@ const Compilation = struct {
         // FIXME:
         // analyze the code to know ahead of time the return type and local count
 
-        const parent_expr_ctx = ExprContext{
-            .locals = &locals,
+        var parent_expr_ctx = ExprContext{
+            .local_symbols = &locals_symbols,
             .param_names = func_decl.param_names,
             .param_types = func_type.param_types,
             .prologue = &prologue,
-            .frame = .{
-                .relooper = byn.c.RelooperCreate(self.module.c()) orelse @panic("relooper creation failed"),
-            },
+            .relooper = byn.c.RelooperCreate(self.module.c()) orelse @panic("relooper creation failed"),
             .is_captured = undefined,
         };
 
-        const body_res = try self.compileExprsAsBlock(func_decl.body_exprs, parent_expr_ctx);
+        const body_res = try self.compileExprsAsBlock(func_decl.body_exprs, &parent_expr_ctx);
         const body_exprs = &body_res.exprs;
 
         // FIXME: use a compound result type to avoid this check
@@ -836,7 +912,7 @@ const Compilation = struct {
 
         //const body = try byn.Expression.block(self.module, "impl", body_exprs.items, .i32);
         // FIXME: pass name?
-        const body = try byn.Expression.block(self.module, null, @ptrCast(body_exprs), byn.Type.auto());
+        const body = try byn.Expression.block(self.module, null, @ptrCast(body_exprs.*), byn.Type.auto());
 
         const param_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.func_type.?.param_types.len);
         defer self.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
@@ -878,8 +954,8 @@ const Compilation = struct {
         switch (code_sexp.value) {
             .list => |v| {
                 if (v.items.len == 0) {
-                    self.diag.err = .{ .EmptyList = code_sexp_idx };
-                    return error.EmptyList;
+                    self.diag.err = .{ .EmptyCall = code_sexp_idx };
+                    return error.EmptyCall;
                 }
 
                 const func = self.graphlt_module.get(v.items[0]);
@@ -903,11 +979,11 @@ const Compilation = struct {
                     slot.type = body_res.type;
 
                     if (func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
-                        slot.expr = @ptrCast(byn.Expression.block(self.module, null, body_res.exprs, byn.Type.auto()) catch unreachable);
+                        slot.expr = @ptrCast(byn.Expression.block(self.module, null, @ptrCast(body_res.exprs), byn.Type.auto()) catch unreachable);
                     } else if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
                         // FIXME: support multi value return as struct
                         std.debug.assert(body_res.exprs.len == 1);
-                        slot.expr = @ptrCast(byn.c.BinaryenReturn(self.module.c(), body_res.exprs[0].c()));
+                        slot.expr = @ptrCast(byn.c.BinaryenReturn(self.module.c(), body_res.exprs[0]));
                     } else {
                         unreachable;
                     }
@@ -950,18 +1026,10 @@ const Compilation = struct {
                 };
 
                 for (v.items[1..], input_descs) |arg_src_idx, input_desc| {
-                    const arg_slot = &self._sexp_compiled[arg_src_idx];
                     std.debug.assert(input_desc.asPrimitivePin() == .value);
-                    var subcontext = ExprContext{
-                        .type = input_desc.asPrimitivePin().value,
-                        .param_names = context.param_names,
-                        .param_types = context.param_types,
-                        .prologue = context.prologue,
-                        .locals = context.locals,
-                        .frame = context.frame,
-                        .is_captured = context.is_captured,
-                    };
-                    arg_slot.* = try self.analyzeExpr(arg_src_idx, &subcontext);
+                    var subcontext: ExprContext = context.*;
+                    subcontext.type = input_desc.asPrimitivePin().value;
+                    try self.analyzeExpr(arg_src_idx, &subcontext);
                 }
 
                 if (func.value.symbol.ptr == syms.@"set!".value.symbol.ptr) {
@@ -975,13 +1043,16 @@ const Compilation = struct {
                     // FIXME: leak
                     const set_sym = self.graphlt_module.get(v.items[1]).value.symbol;
 
-                    const local_idx = context.locals_slots.get(set_sym);
+                    const local_info = context.local_symbols.get(set_sym) orelse {
+                        self.diag.err = .{ .UndefinedSymbol = v.items[1] };
+                        return error.UndefinedSymbol;
+                    };
 
                     // FIXME: why? shouldn't this be void anyway?
                     slot.type = self._sexp_compiled[v.items[2]].type;
                     slot.expr = byn.c.BinaryenLocalSet(
                         self.module.c(),
-                        local_idx,
+                        local_info.index,
                         self._sexp_compiled[v.items[2]].expr,
                     );
                     return;
@@ -999,12 +1070,12 @@ const Compilation = struct {
                         var resolved_type = graphl_builtin.empty_type;
 
                         if (v.items.len != 3) {
-                            self.diag.err = .{.BuiltinArityError{
-                                .callee = func.value.symbol,
+                            self.diag.err = .{ .BuiltinWrongArity = .{
+                                .callee = v.items[0],
                                 .expected = 2,
-                                .received = v.items.len - 1,
-                            }};
-                            return error.BuiltinArityError;
+                                .received = @intCast(v.items.len - 1),
+                            } };
+                            return error.BuiltinWrongArity;
                         }
 
                         for (v.items[1..]) |arg_idx| {
@@ -1145,7 +1216,7 @@ const Compilation = struct {
 
                     const requires_drop = slot.type != graphl_builtin.empty_type and !context.is_captured;
 
-                    const operands = try self.arena.allocator().alloc(*byn.Expression, v.items.len - 1 + @as(usize, if (requires_drop) 1 else 0));
+                    const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1 + @as(usize, if (requires_drop) 1 else 0));
 
                     defer self.arena.allocator().free(operands); // FIXME: what is binaryen ownership model?
 
@@ -1210,7 +1281,7 @@ const Compilation = struct {
                 };
 
                 const info = _: {
-                    if (context.locals.getPtr(v)) |local_entry| {
+                    if (context.local_symbols.getPtr(v)) |local_entry| {
                         break :_ Info{
                             .resolved_type = local_entry.type,
                             .ref = local_entry.index,
@@ -1247,17 +1318,10 @@ const Compilation = struct {
                 slot.expr = byn.c.BinaryenArrayNew(
                     self.module.c(),
                     byn.c.BinaryenTypeGetHeapType(BinaryenHelper.getType(primitive_types.string)),
-                    byn.c.BinaryenLiteralInt32(v.len),
-                    byn.c.BinaryenLiteralInt32(0),
-                ) catch unreachable;
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v.len))),
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                );
 
-                slot.expr = byn.c.BinaryenArrayNew(
-                    self.module.c(),
-                    byn.c.BinaryenTypeGetHeapType(BinaryenHelper.getType(primitive_types.string)),
-                    byn.c.BinaryenLiteralInt32(v.len),
-                    byn.c.BinaryenLiteralInt32(0),
-                ) catch unreachable;
-                //result.frame_offset += @sizeOf(intrinsics.GrapplString);
                 slot.type = primitive_types.string;
             },
 
@@ -1362,7 +1426,7 @@ const Compilation = struct {
                 std.debug.panic("unimplemented type promotion: {s} -> {s}", .{ slot.type.name, target_type.name });
             }
 
-            slot.expr = byn.Expression.unaryOp(self.module, op, slot.expr);
+            slot.expr = byn.c.BinaryenUnary(self.module.c(), op.c(), slot.expr);
         }
     }
 
@@ -1401,20 +1465,22 @@ const Compilation = struct {
 
         _frame_byte_size: u32 = 0,
 
-        // FIXME: this should be part of ExprContext probably instead
         relooper: *byn.c.struct_Relooper,
 
-        /// map of sexp indices to the local index holding them
-        locals: std.AutoHashMapUnmanaged(u32, byn.c.BinaryenIndex) = .{},
-        // NEXT/FIXME: gross
-        /// parameters that do not have a slot need a type specified somehow
-        locals_types: std.AutoHashMapUnmanaged(u32, Type) = .{},
+        // FIXME: need locals to be findable by symbol...
+        /// map of sexp indices to the local index holding them with its type,
+        local_symbols: *SymMapUnmanaged(LocalInfo),
+
+        pub const LocalInfo = struct {
+            index: byn.c.BinaryenIndex,
+            type: Type,
+        };
 
         /// returns the index of the wasm local holding the value on the frame
         /// caller must set the "type" field of the slot
         pub fn getOrPutLocalSexp(self: *@This(), a: std.mem.Allocator, comp_ctx: *const Compilation, sexp_idx: u32, @"type": Type) !byn.c.BinaryenIndex {
-            const local_index = self.locals.count();
-            try self.locals.putNoClobber(a, sexp_idx, local_index);
+            const local_index = self.local_symbols.count();
+            try self.local_symbols.putNoClobber(a, sexp_idx, local_index);
             const slot = &comp_ctx._sexp_compiled[sexp_idx];
             slot.type = @"type";
             if (!@"type".isPrimitive()) {
@@ -1423,11 +1489,6 @@ const Compilation = struct {
             }
             return local_index;
         }
-
-        const LocalInfo = struct {
-            index: u32,
-            type: Type,
-        };
 
         fn nextAnonymousLocalName(self: *@This()) [:0]const u8 {
             // TODO: use stackMaxesPrint
@@ -1441,25 +1502,19 @@ const Compilation = struct {
         /// hold the pointer to it
         /// @returns a Sexp{.value = .symbol}
         pub fn addLocal(self: *@This(), ctx: *Compilation, type_: Type, symbol: ?[:0]const u8) !u32 {
-            try self.locals.put(
+            try self.local_symbols.put(
                 ctx.arena.allocator(),
                 symbol orelse self.nextAnonymousLocalName(),
                 .{
-                    .index = @intCast(self.locals.count()),
+                    .index = @intCast(self.local_symbols.count()),
                     .type = type_,
                 },
             );
-            return @intCast(self.locals.count() - 1);
+            return @intCast(self.local_symbols.count() - 1);
         }
     };
 
-    const CompileExprError = std.mem.Allocator.Error || error{
-        UndefinedSymbol,
-        UnimplementedMultiResultHostFunc,
-        UnhandledCall,
-        DuplicateLabel,
-        RecursiveDependency,
-    };
+    const CompileExprError = std.mem.Allocator.Error || Diagnostic.Code;
 
     // FIXME: maybe rename to link blocks
     fn getOrCompileExpr(
@@ -1566,14 +1621,13 @@ const Compilation = struct {
     ) CompileExprError!ExprBlock {
         var result_type: Type = graphl_builtin.empty_type;
 
-        var exprs = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), expr_idxs.items.len);
+        var exprs = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), expr_idxs.len);
         defer exprs.deinit(self.arena.allocator());
 
         for (expr_idxs, 0..) |expr_idx, i| {
             const body_expr = self.graphlt_module.get(expr_idx);
 
-            var expr_ctx = parent_expr_ctx;
-
+            var expr_ctx = parent_expr_ctx.*;
             // only capture the last expression or any labeled expressions
             expr_ctx.is_captured = i == expr_idxs.len - 1 or body_expr.label != null;
 

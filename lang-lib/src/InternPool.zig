@@ -61,6 +61,26 @@ pub const InternPool = struct {
     }
 };
 
+pub fn SymMapUnmanaged(comptime V: type) type {
+    const SymMapContext = struct {
+        pub fn hash(self: @This(), s: [:0]const u8) u64 {
+            _ = self;
+            return @intFromPtr(s.ptr);
+        }
+        pub fn eql(self: @This(), a: [:0]const u8, b: [:0]const u8) bool {
+            _ = self;
+            return a.ptr == b.ptr;
+        }
+    };
+
+    return std.HashMapUnmanaged(
+        [:0]const u8,
+        V,
+        SymMapContext,
+        std.hash_map.default_max_load_percentage,
+    );
+}
+
 fn addSourceSymbol(self: *InternPool, symbol: [:0]const u8) void {
     const hash = (std.hash_map.StringContext{}).hash(symbol);
     const res = self._map.getOrPut(self._arena.allocator(), hash) catch |e| std.debug.panic("OOM: {}", .{e});
