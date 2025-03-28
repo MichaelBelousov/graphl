@@ -587,7 +587,7 @@ pub const Sexp = struct {
             },
             .jump => |v| _: {
                 var result = json.ObjectMap.init(alloc);
-                try result.put("jump", json.Value{ .string = v });
+                try result.put("jump", json.Value{ .string = v.name });
                 break :_ json.Value{ .object = result };
             },
         };

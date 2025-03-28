@@ -17,6 +17,7 @@ pub const FuncType = struct {
     result_types: []const Type = &.{},
 };
 
+// could use a u32 index into a type store (might be faster on 64-bit platforms)
 pub const TypeInfo = struct {
     name: [:0]const u8,
     field_names: []const [:0]const u8 = &.{},
@@ -26,6 +27,24 @@ pub const TypeInfo = struct {
     func_type: ?FuncType = null,
     /// size in bytes of the type
     size: u32,
+
+    // FIXME: instead, any atom or singleton tuple type should be considered primitive
+    // NOTE: for now this only matters to wasm
+    /// whether this type is a primitive (and can be put in a local in wasm)
+    pub fn isPrimitive(self: *const @This()) bool {
+        return self == primitive_types.i32_ //
+        or self == primitive_types.i64_ //
+        or self == primitive_types.u32_ //
+        or self == primitive_types.u64_ //
+        or self == primitive_types.f32_ //
+        or self == primitive_types.f64_ //
+        or self == primitive_types.byte //
+        or self == primitive_types.bool_ //
+        or self == primitive_types.char_ //
+        or self == primitive_types.symbol //
+        or self == primitive_types.rgba //
+        ;
+    }
 };
 
 pub const Type = *const TypeInfo;
@@ -303,7 +322,7 @@ pub const GraphTypes = struct {
     };
 };
 
-// place holder during analysis // FIXME: consolidate with void
+// place holder during analysis // FIXME: rename to unresolved_type
 pub const empty_type: Type = &TypeInfo{ .name = "EMPTY_TYPE", .size = 0 };
 
 // FIXME: consider renaming to "builtin_types"
