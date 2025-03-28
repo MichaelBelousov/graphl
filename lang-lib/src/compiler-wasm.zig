@@ -422,6 +422,8 @@ const Compilation = struct {
         // }
     };
 
+    pub const main_mem_name = "0";
+
     pub fn init(
         alloc: std.mem.Allocator,
         graphlt_module: *const ModuleContext,
@@ -489,7 +491,7 @@ const Compilation = struct {
             0, // numSegments
             false, // shared
             false, // memory64
-            "0", // name
+            main_mem_name, // name
         );
 
         return result;
@@ -1003,23 +1005,18 @@ const Compilation = struct {
                         //
                     or func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
                         const body_res = try self.compileExprsAsBlock(v.items[1..], context);
-                        const body_exprs = if (body_res.exprs.len > 0) body_res.exprs else _: {
-                            const exprs = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, 1);
-                            exprs[0] = byn.c.BinaryenReturn(self.module.c(), byn.c.BinaryenNop(self.module.c()));
-                            break :_ exprs;
-                        };
-
                         slot.type = body_res.type;
 
                         if (func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
-                            std.debug.assert(body_exprs.len > 0);
                             // block is a NOP, the block linking phase will jump to the first statement and next, etc
-                            //slot.expr = @ptrCast(byn.Expression.block(self.module, null, @ptrCast(body_exprs), byn.Type.auto()) catch unreachable);
                             slot.expr = byn.c.BinaryenNop(self.module.c());
                         } else if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
                             // FIXME: support multi value return as struct
-                            std.debug.assert(body_exprs.len == 1);
-                            slot.expr = byn.c.BinaryenReturn(self.module.c(), body_exprs[0]);
+                            std.debug.assert(v.items.len == 2);
+
+                            // FIXME: construct return tuple type from all arguments
+                            const first_arg = self._sexp_compiled[v.items[1]];
+                            slot.expr = byn.c.BinaryenReturn(self.module.c(), byn.c.BinaryenLocalGet(self.module.c(), first_arg.index));
                         } else {
                             unreachable;
                         }
@@ -1154,11 +1151,15 @@ const Compilation = struct {
                                 }
                             }
 
-                            slot.expr = byn.c.BinaryenBinary(
+                            slot.expr = byn.c.BinaryenLocalSet(
                                 self.module.c(),
-                                op.c(),
-                                byn.c.BinaryenlocalGet(self.module.c(), lhs.local_index),
-                                byn.c.BinaryenlocalGet(self.module.c(), rhs.local_index),
+                                local_index,
+                                byn.c.BinaryenBinary(
+                                    self.module.c(),
+                                    op.c(),
+                                    byn.c.BinaryenlocalGet(self.module.c(), lhs.local_index),
+                                    byn.c.BinaryenlocalGet(self.module.c(), rhs.local_index),
+                                ),
                             );
 
                             // REPORT ME: try to prefer an else on the above for loop, currently couldn't get it to compile right
@@ -1258,33 +1259,39 @@ const Compilation = struct {
                                 return error.UnimplementedMultiResultHostFunc;
                             };
 
-                        const requires_drop = slot.type != graphl_builtin.empty_type and !context.is_captured;
+                        // FIXME: remove requires_drop code
+                        //const requires_drop = slot.type != graphl_builtin.empty_type and !context.is_captured;
 
-                        const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1 + @as(usize, if (requires_drop) 1 else 0));
-
-                        defer self.arena.allocator().free(operands); // FIXME: what is binaryen ownership model?
+                        //const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1 + @as(usize, if (requires_drop) 1 else 0));
+                        const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1);
+                        defer self.arena.allocator().free(operands);
 
                         for (v.items[1..], operands[0 .. v.items.len - 1]) |arg_idx, *operand| {
                             const arg_compiled = self._sexp_compiled[arg_idx];
-                            operand.* = arg_compiled.expr;
+                            operand.* = byn.c.BinaryenLocalGet(self.module.c(), arg_compiled.local_index, BinaryenHelper.getType(arg_compiled.type));
                         }
 
-                        if (requires_drop) {
-                            operands[operands.len - 1] = @ptrCast(byn.c.BinaryenDrop(
-                                self.module.c(),
-                                // FIXME: why does Drop take an argument? is that a WAST thing?
-                                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
-                            ));
-                        }
+                        // if (requires_drop) {
+                        //     operands[operands.len - 1] = @ptrCast(byn.c.BinaryenDrop(
+                        //         self.module.c(),
+                        //         // FIXME: why does Drop take an argument? is that a WAST thing?
+                        //         byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                        //     ));
+                        // }
 
-                        slot.expr = @ptrCast(byn.c.BinaryenCall(
+                        slot.expr = byn.c.BinaryenLocalSet(
                             self.module.c(),
-                            func.value.symbol,
-                            @ptrCast(operands.ptr),
-                            @intCast(operands.len),
-                            // FIXME: derive the result type
-                            @intFromEnum(byn.Type.i32),
-                        ));
+                            local_index,
+                            byn.c.BinaryenCall(
+                                self.module.c(),
+                                func.value.symbol,
+                                operands.ptr,
+                                @intCast(operands.len),
+                                // FIXME: the result type should be the tuple derived from the function in the env's type
+                                @intFromEnum(byn.Type.i32),
+                            ),
+                        );
+
                         break :done;
                     }
 
@@ -1295,12 +1302,20 @@ const Compilation = struct {
 
                 .int => |v| {
                     slot.type = primitive_types.i32_;
-                    slot.expr = byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v)));
+                    slot.expr = byn.c.BinaryenLocalSet(
+                        self.module.c(),
+                        local_index,
+                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v)))
+                    );
                 },
 
                 .float => |v| {
                     slot.type = primitive_types.f64_;
-                    slot.expr = @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat64(v)));
+                    slot.expr = byn.c.BinaryenLocalSet(
+                        self.module.c(),
+                        local_index,
+                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat64(v))
+                    );
                 },
 
                 .symbol => |v| {
@@ -1318,58 +1333,73 @@ const Compilation = struct {
                     }
 
                     const Info = struct {
-                        resolved_type: Type,
+                        type: Type,
                         ref: u32,
                     };
 
                     const info = _: {
+                        // TODO: use the env
                         if (context.local_symbols.getPtr(v)) |local_entry| {
                             break :_ Info{
-                                .resolved_type = local_entry.type,
+                                .type = local_entry.type,
                                 .ref = local_entry.index,
                             };
                         }
-
-                        // FIXME: use a map?
-                        for (context.param_names, context.param_types, 0..) |pn, pt, i| {
-                            // FIXME: this is ok because everything is a symbol, but should prob use a special type
-                            if (pn.ptr == v.ptr) {
-                                break :_ Info{
-                                    .resolved_type = pt,
-                                    .ref = @intCast(i),
-                                };
-                            }
-                        }
-
-                        std.log.err("undefined symbol2 '{s}'", .{v});
-                        // FIXME: add location to this error
                         self.diag.err = .{ .UndefinedSymbol = code_sexp_idx };
                         return error.UndefinedSymbol;
                     };
 
-                    slot.type = info.resolved_type;
-                    slot.expr = byn.c.BinaryenLocalGet(self.module.c(), info.ref, BinaryenHelper.getType(info.resolved_type));
+                    slot.type = info.type;
+                    slot.expr = byn.c.BinaryenLocalSet(
+                        self.module.c(),
+                        local_index,
+                        byn.c.BinaryenLocalGet(self.module.c(), info.ref, BinaryenHelper.getType(info.type))
+                    );
                 },
 
                 .borrowedString, .ownedString => |v| {
                     // FIXME: fill the array
                     // FIXME: gross, use 0 terminated strings?
                     // try self.arena.allocator().dupeZ(u8, v),
+                    
+
+                    // FIXME: do string deduplication/interning
+                    byn.c.BinaryenAddDataSegment(
+                        self.module.c(),
+                        // FIXME:
+                        "string1",
+                        main_mem_name,
+                        true,
+                        self.ro_data_offset,
+                        v.ptr,
+                        @intCast(v.len),
+                    );
 
                     // FIXME: add fixed data and copy from it
-                    slot.expr = byn.c.BinaryenArrayNew(
+                    slot.expr = byn.c.BinaryenLocalSet(
                         self.module.c(),
-                        byn.c.BinaryenTypeGetHeapType(BinaryenHelper.getType(primitive_types.string)),
-                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v.len))),
-                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                        local_index,
+                        byn.c.BinaryenArrayNewData(
+                            self.module.c(),
+                            byn.c.BinaryenTypeGetHeapType(BinaryenHelper.getType(primitive_types.string)),
+                            main_mem_name,
+                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(self.ro_data_offset)),
+                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v.len))),
+                        ),
                     );
+
+                    self.ro_data_offset += v.len;
 
                     slot.type = primitive_types.string;
                 },
 
                 .bool => |v| {
                     slot.type = primitive_types.bool_;
-                    slot.expr = byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(if (v) 1 else 0));
+                    slot.expr = byn.c.BinaryenLocalSet(
+                        self.module.c(),
+                        local_index,
+                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(if (v) 1 else 0)),
+                    );
                 },
 
                 .jump => {
@@ -1670,7 +1700,8 @@ const Compilation = struct {
     }
 
     const ExprBlock = struct {
-        exprs: []byn.c.BinaryenExpressionRef,
+        //FIXME: remove
+        //exprs: []byn.c.BinaryenExpressionRef,
         type: Type,
     };
 
@@ -1719,7 +1750,8 @@ const Compilation = struct {
         }
 
         return .{
-            .exprs = try exprs.toOwnedSlice(self.arena.allocator()),
+            // FIXME: remove
+            //.exprs = try exprs.toOwnedSlice(self.arena.allocator()),
             .type = result_type,
         };
     }
