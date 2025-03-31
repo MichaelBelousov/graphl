@@ -57,6 +57,11 @@ const SpacePrint = @import("./sexp_parser.zig").SpacePrint;
 const intrinsics_vec3 = @embedFile("graphl_intrinsics_vec3");
 const intrinsics_code = ""; // FIXME
 
+pub fn RelooperAddBranch(from: byn.c.RelooperBlockRef, to: byn.c.RelooperBlockRef, condition: byn.c.BinaryenExpressionRef, code: byn.c.BinaryenExpressionRef) void {
+    std.debug.print("from{*}->to{*}", .{ from, to });
+    byn.c.RelooperAddBranch(from, to, condition, code);
+}
+
 pub const Diagnostic = struct {
     err: Error = .None,
 
@@ -214,7 +219,9 @@ const DeferredFuncDeclInfo = struct {
     /// indices into the graphlt module context, if there was a default
     local_defaults: []const ?u32,
     result_names: []const [:0]const u8,
+    // FIXME: just take the entire expression and handle define/typeof appropriately
     body_exprs: []const u32,
+    define_body_idx: u32,
 };
 
 const DeferredFuncTypeInfo = struct {
@@ -391,6 +398,8 @@ const Compilation = struct {
     // NOTE: this coul
     _sexp_compiled: []Slot,
 
+    ro_data_offset: u32 = 0,
+
     module: *byn.Module,
     arena: std.heap.ArenaAllocator,
     user_context: struct {
@@ -409,8 +418,9 @@ const Compilation = struct {
         local_index: byn.c.BinaryenIndex,
         /// if empty_type, then not yet resolved
         type: Type = graphl_builtin.empty_type,
-        /// will be resolved during the block linking phase
-        /// non-control flow nodes will already have this set after the compilation phase
+        /// the block of code that is the execution of this particular sexp, storing its local
+        /// this is NOT, however, necessarily the first code ran when executing this sexp, since
+        /// dependencies need to be ran first
         byn_block: byn.c.RelooperBlockRef,
         /// the expression from the analysis phase
         /// Nota Bene: stores the condition if it is an "if" sexp, is undefined if it is a jump
@@ -519,31 +529,6 @@ const Compilation = struct {
             return false;
         }
 
-        // TODO: make sure the last one starts with begin?
-
-        // if (sexp.value != .list) return false;
-        // if (sexp.value.list.items.len == 0) return false;
-        // if (sexp.getWithModule(0, self.graphlt_module) != .symbol) return error.NonSymbolHead;
-
-        // FIXME: parser should be aware of the define form!
-        //if (sexp.value.list.items[0].value.symbol.ptr != syms.define.value.symbol.ptr) return false;
-        //if (!std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.define.value.symbol)) return false;
-
-        // if (sexp.value.list.items.len <= 2) return false;
-        // if (sexp.value.list.items[1].value != .list) return false;
-        // if (sexp.value.list.items[1].value.list.items.len < 1) return error.FuncBindingsListEmpty;
-        // for (sexp.value.list.items[1].value.list.items) |*def_item| {
-        //     if (def_item.value != .symbol) return error.FuncParamBindingNotSymbol;
-        // }
-
-        // if (sexp.value.list.items.len < 3) return error.FuncWithoutBody;
-        // const body = sexp.value.list.items[2];
-        // // NOTE: if there are no locals this should be ok!
-        // if (body.value != .list) return error.FuncBodyNotList;
-        // if (body.value.list.items.len < 1) return error.FuncBodyWithoutBegin;
-        // if (body.value.list.items[0].value != .symbol) return error.FuncBodyWithoutBegin;
-        // if (body.value.list.items[0].value.symbol.ptr != syms.begin.value.symbol.ptr) return error.FuncBodyWithoutBegin;
-
         const body_expr_idxs = sexp.value.list.items[2..];
 
         // FIXME: use unmanaged array list? there are a lot of these...
@@ -630,6 +615,7 @@ const Compilation = struct {
             .local_defaults = try local_defaults.toOwnedSlice(),
             .result_names = &.{}, // FIXME
             .body_exprs = return_exprs,
+            .define_body_idx = sexp_index,
         };
 
         if (self.deferred.func_types.get(func_name)) |func_type| {
@@ -836,9 +822,6 @@ const Compilation = struct {
 
         std.debug.assert(func_decl.body_exprs.len >= 1);
 
-        var prologue = std.ArrayList(Sexp).init(alloc);
-        defer prologue.deinit();
-
         // FIXME: rename
         // TODO: use @FieldType
 
@@ -890,7 +873,7 @@ const Compilation = struct {
         }
 
         // NOTE: gross, simplify me
-        const local_types = try alloc.alloc(byn.Type, complete_func_type_desc.func_type.?.local_types.len + prologue.items.len);
+        const local_types = try alloc.alloc(byn.Type, complete_func_type_desc.func_type.?.local_types.len);
         for (local_types[0..complete_func_type_desc.func_type.?.local_types.len], complete_func_type_desc.func_type.?.local_types) |*out_local_type, local_type|
             out_local_type.* = @enumFromInt(BinaryenHelper.getType(local_type));
         for (local_types[complete_func_type_desc.func_type.?.local_types.len..]) |*out_local_type|
@@ -904,17 +887,15 @@ const Compilation = struct {
         // FIXME:
         // analyze the code to know ahead of time the return type and local count
 
-        var parent_expr_ctx = ExprContext{
+        var fn_body_expr_ctx = ExprContext{
             .local_symbols = &locals_symbols,
             .param_names = func_decl.param_names,
             .param_types = func_type.param_types,
-            .prologue = &prologue,
             .relooper = byn.c.RelooperCreate(self.module.c()) orelse @panic("relooper creation failed"),
-            .is_captured = undefined,
         };
 
-        const body_res = try self.compileExprsAsBlock(func_decl.body_exprs, &parent_expr_ctx);
-        const body_exprs = &body_res.exprs;
+        const body_res = try self.compileExprsAsBlock(func_decl.body_exprs, &fn_body_expr_ctx);
+        _ = try self.linkExpr(func_decl.define_body_idx, &fn_body_expr_ctx, byn.c.RelooperAddBlock(fn_body_expr_ctx.relooper, null));
 
         // FIXME: use a compound result type to avoid this check
         std.debug.assert(func_type.result_types.len == 1);
@@ -940,13 +921,6 @@ const Compilation = struct {
         //     }
         // };
 
-        // FIXME: empty body is fine...
-        if (body_exprs.len == 0) return error.EmptyBody;
-
-        //const body = try byn.Expression.block(self.module, "impl", body_exprs.items, .i32);
-        // FIXME: pass name?
-        const body = try byn.Expression.block(self.module, null, @ptrCast(body_exprs.*), byn.Type.auto());
-
         const param_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.func_type.?.param_types.len);
         defer self.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
         for (param_types, complete_func_type_desc.func_type.?.param_types) |*wasm_t, graphl_t| {
@@ -961,12 +935,24 @@ const Compilation = struct {
         }
         const result_type_byn: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(result_types.ptr, @intCast(result_types.len));
 
+        std.debug.print("BODY SOURCE:\n{}\n", .{Sexp.withContext(self.graphlt_module, func_decl.body_exprs[0])});
+
+        const body = byn.c.RelooperRenderAndDispose(
+            fn_body_expr_ctx.relooper,
+            if (func_decl.body_exprs.len > 0) try self.getFirstEvaledBlock(func_decl.body_exprs[0]) else byn.c.RelooperAddBlock(fn_body_expr_ctx.relooper, null),
+            0,
+        );
+
+        std.debug.print("BODY({}):\n", .{func_decl.body_exprs.len});
+        byn.c.BinaryenExpressionPrint(body);
+        std.debug.print("\n", .{});
+
         const func = self.module.addFunction(
             name,
             @enumFromInt(param_type_byn),
             @enumFromInt(result_type_byn),
             local_types,
-            body,
+            @ptrCast(body),
         );
 
         std.debug.assert(func != null);
@@ -1016,7 +1002,10 @@ const Compilation = struct {
 
                             // FIXME: construct return tuple type from all arguments
                             const first_arg = self._sexp_compiled[v.items[1]];
-                            slot.expr = byn.c.BinaryenReturn(self.module.c(), byn.c.BinaryenLocalGet(self.module.c(), first_arg.index));
+                            slot.expr = byn.c.BinaryenReturn(
+                                self.module.c(),
+                                byn.c.BinaryenLocalGet(self.module.c(), first_arg.local_index, BinaryenHelper.getType(first_arg.type)),
+                            );
                         } else {
                             unreachable;
                         }
@@ -1157,8 +1146,8 @@ const Compilation = struct {
                                 byn.c.BinaryenBinary(
                                     self.module.c(),
                                     op.c(),
-                                    byn.c.BinaryenlocalGet(self.module.c(), lhs.local_index),
-                                    byn.c.BinaryenlocalGet(self.module.c(), rhs.local_index),
+                                    byn.c.BinaryenLocalGet(self.module.c(), lhs.local_index, BinaryenHelper.getType(lhs.type)),
+                                    byn.c.BinaryenLocalGet(self.module.c(), rhs.local_index, BinaryenHelper.getType(rhs.type)),
                                 ),
                             );
 
@@ -1259,9 +1248,6 @@ const Compilation = struct {
                                 return error.UnimplementedMultiResultHostFunc;
                             };
 
-                        // FIXME: remove requires_drop code
-                        //const requires_drop = slot.type != graphl_builtin.empty_type and !context.is_captured;
-
                         //const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1 + @as(usize, if (requires_drop) 1 else 0));
                         const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1);
                         defer self.arena.allocator().free(operands);
@@ -1302,20 +1288,12 @@ const Compilation = struct {
 
                 .int => |v| {
                     slot.type = primitive_types.i32_;
-                    slot.expr = byn.c.BinaryenLocalSet(
-                        self.module.c(),
-                        local_index,
-                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v)))
-                    );
+                    slot.expr = byn.c.BinaryenLocalSet(self.module.c(), local_index, byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v))));
                 },
 
                 .float => |v| {
                     slot.type = primitive_types.f64_;
-                    slot.expr = byn.c.BinaryenLocalSet(
-                        self.module.c(),
-                        local_index,
-                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat64(v))
-                    );
+                    slot.expr = byn.c.BinaryenLocalSet(self.module.c(), local_index, byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat64(v)));
                 },
 
                 .symbol => |v| {
@@ -1350,18 +1328,13 @@ const Compilation = struct {
                     };
 
                     slot.type = info.type;
-                    slot.expr = byn.c.BinaryenLocalSet(
-                        self.module.c(),
-                        local_index,
-                        byn.c.BinaryenLocalGet(self.module.c(), info.ref, BinaryenHelper.getType(info.type))
-                    );
+                    slot.expr = byn.c.BinaryenLocalSet(self.module.c(), local_index, byn.c.BinaryenLocalGet(self.module.c(), info.ref, BinaryenHelper.getType(info.type)));
                 },
 
                 .borrowedString, .ownedString => |v| {
                     // FIXME: fill the array
                     // FIXME: gross, use 0 terminated strings?
                     // try self.arena.allocator().dupeZ(u8, v),
-                    
 
                     // FIXME: do string deduplication/interning
                     byn.c.BinaryenAddDataSegment(
@@ -1370,7 +1343,7 @@ const Compilation = struct {
                         "string1",
                         main_mem_name,
                         true,
-                        self.ro_data_offset,
+                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(self.ro_data_offset))),
                         v.ptr,
                         @intCast(v.len),
                     );
@@ -1383,12 +1356,13 @@ const Compilation = struct {
                             self.module.c(),
                             byn.c.BinaryenTypeGetHeapType(BinaryenHelper.getType(primitive_types.string)),
                             main_mem_name,
-                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(self.ro_data_offset)),
+                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(self.ro_data_offset))),
                             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v.len))),
                         ),
                     );
 
-                    self.ro_data_offset += v.len;
+                    // TODO: handle overflow
+                    self.ro_data_offset = std.math.add(u32, self.ro_data_offset, @intCast(v.len)) catch @panic("ro_data_offset overflow");
 
                     slot.type = primitive_types.string;
                 },
@@ -1415,6 +1389,10 @@ const Compilation = struct {
         }
 
         context.finalizeSlotTypeForSexp(self, code_sexp_idx);
+
+        std.debug.print("COMPILED:\n{}\nto:\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
+        byn.c.BinaryenExpressionPrint(slot.expr);
+        std.debug.print("\n", .{});
         slot.byn_block = byn.c.RelooperAddBlock(context.relooper, slot.expr);
     }
 
@@ -1537,23 +1515,13 @@ const Compilation = struct {
         param_names: []const []const u8,
         param_types: []const Type,
 
-        /// whether the return value of the expression isn't discarded
-        is_captured: bool,
-
-        // FIXME: remove
-        /// to append setup code to
-        prologue: *std.ArrayList(Sexp),
-
+        // FIXME: separate this function-level stuff from the expr-level stuff
         next_local_index: u32 = 0,
-
         _frame_byte_size: u32 = 0,
-
         relooper: *byn.c.struct_Relooper,
-
         // FIXME: need locals to be findable by symbol...
         /// map of sexp indices to the local index holding them with its type,
         local_symbols: *SymMapUnmanaged(LocalInfo),
-
         next_sexp_local_idx: u32 = 0,
 
         pub const LocalInfo = struct {
@@ -1582,21 +1550,55 @@ const Compilation = struct {
 
     const CompileExprError = std.mem.Allocator.Error || Diagnostic.Code;
 
-    //
-    //(if c
-    //    (begin x)
-    //    (begin
-    //      (y)
-    //      (if d
-    //          a
-    //          b)))
+    /// since the expression of a compiled sexp is that which sets its local,
+    /// not the first to execute, we need to retrieve that when linking blocks
+    fn getFirstEvaledBlock(
+        self: *@This(),
+        code_sexp_idx: u32,
+    ) CompileExprError!byn.c.RelooperBlockRef {
+        const slot = &self._sexp_compiled[code_sexp_idx];
+        const code_sexp = self.graphlt_module.get(code_sexp_idx);
+        switch (code_sexp.value) {
+            .list => |list| {
+                const callee_idx = list.items[0];
+                const callee = self.graphlt_module.get(callee_idx);
+                std.debug.assert(callee.value == .symbol);
 
+                const is_if = callee.value.symbol.ptr == syms.@"if".value.symbol.ptr;
+
+                if (is_if) {
+                    std.debug.assert(list.items.len >= 3);
+                    const condition_idx = code_sexp.value.list.items[1];
+                    return self._sexp_compiled[condition_idx].byn_block;
+                } else { // otherwise regular function call
+                    // if we have an argument, we start there...
+                    if (list.items.len > 1) {
+                        return self._sexp_compiled[list.items[1]].byn_block;
+                    } else {
+                        return self._sexp_compiled[list.items[0]].byn_block;
+                    }
+                }
+            },
+            else => return slot.byn_block,
+        }
+    }
+
+    // link (recursively) a sexp's control flow and then jump to the "done_block"
+    // - "if" will have conditional jumps and then both blocks jump to the "done_block"
+    // - jumps just jump
+    // - all dependencies (typically arguments) are executed first in order
+    /// returns whether the expression generated any code
     fn linkExpr(
         self: *@This(),
         code_sexp_idx: u32,
         context: *ExprContext,
-    ) CompileExprError!void {
+        /// the block to jump to when done (if returning control to caller)
+        done_block: byn.c.RelooperBlockRef,
+    ) CompileExprError!bool {
         std.log.debug("linking expr: '{}'\n", .{code_sexp_idx});
+
+        std.debug.print("LINKING: {}\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
+
         const slot = &self._sexp_compiled[code_sexp_idx];
         const code_sexp = self.graphlt_module.get(code_sexp_idx);
         slot.byn_block = byn.c.RelooperAddBlock(context.relooper, slot.expr);
@@ -1604,28 +1606,75 @@ const Compilation = struct {
         switch (code_sexp.value) {
             .jump => |j| {
                 const target_slot = &self._sexp_compiled[j.target];
-                byn.c.RelooperAddBranch(slot.byn_block, target_slot.byn_block, null, null);
+                RelooperAddBranch(slot.byn_block, target_slot.byn_block, null, null);
             },
             .list => |list| {
-                if (list.items.len == 0) return;
-
-                for (list.items[1..]) |arg_idx| {
-                    try self.linkExpr(arg_idx, context);
+                if (list.items.len == 0) {
+                    self.diag.err = .{ .EmptyCall = code_sexp_idx };
+                    return error.EmptyCall;
                 }
 
                 const callee_idx = list.items[0];
                 const callee = self.graphlt_module.get(callee_idx);
-                // FIXME: make sure we error on this earlier
                 std.debug.assert(callee.value == .symbol);
-                if (callee.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
-                    std.debug.assert(code.value.list.items.len >= 3);
+
+                if (callee.value.symbol.ptr == syms.typeof.value.symbol.ptr) {
+                    return false;
+                } else if (callee.value.symbol.ptr == syms.define.value.symbol.ptr and list.items.len >= 2 and self.graphlt_module.get(list.items[1]).value == .symbol) {
+                    // HACK: ignore variable definitions
+                    // TODO: instead generate code to set the variable default
+                    return false;
+                } else if (callee.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
+                    std.debug.assert(list.items.len >= 3);
+                    const condition_idx = code_sexp.value.list.items[1];
+                    const condition_slot = self._sexp_compiled[condition_idx];
                     const consequence_idx = code_sexp.value.list.items[2];
-                    const alternative_idx = code_sexp.value.list.items[3];
-                    byn.c.RelooperAddBranch(slot.byn_block, target_slot.byn_block, null, null);
+                    const consequence_slot = self._sexp_compiled[consequence_idx];
+                    RelooperAddBranch(
+                        condition_slot.byn_block,
+                        consequence_slot.byn_block,
+                        byn.c.BinaryenLocalGet(self.module.c(), condition_slot.local_index, BinaryenHelper.getType(condition_slot.type)),
+                        null,
+                    );
+                    RelooperAddBranch(consequence_slot.byn_block, done_block, null, null);
+                    if (list.items.len > 3) {
+                        const alternative_idx = code_sexp.value.list.items[3];
+                        const alternative_slot = self._sexp_compiled[alternative_idx];
+                        RelooperAddBranch(condition_slot.byn_block, alternative_slot.byn_block, null, null);
+                        RelooperAddBranch(alternative_slot.byn_block, done_block, null, null);
+                    } else {}
+                } else { // otherwise begin, return, define, or function call // TODO: macros
+                    const items = if (callee.value.symbol.ptr == syms.define.value.symbol.ptr) list.items[2..] else list.items[1..];
+
+                    var i: u32 = 0;
+                    var maybe_prev: ?u32 = null;
+                    while (i < items.len) : (i += 1) {
+                        var next: ?u32 = null;
+                        while (i < items.len) : (i += 1) {
+                            if (try self.linkExpr(items[i], context, self._sexp_compiled[items[i]].byn_block))
+                                break;
+                            next = items[i];
+                        }
+                        // next will not be undefined because if we never got a code-containing expr, then i >= items.len
+                        if (i < items.len and maybe_prev != null) {
+                            const prev = maybe_prev.?;
+                            std.debug.print("BODY LINKING: {}\n", .{Sexp.withContext(self.graphlt_module, prev)});
+                            std.debug.print("BODY TO: {}\n", .{Sexp.withContext(self.graphlt_module, next.?)});
+                            RelooperAddBranch(try self.getFirstEvaledBlock(prev), self._sexp_compiled[next.?].byn_block, null, null);
+                        }
+                        maybe_prev = next;
+                    }
+
+                    if (maybe_prev) |prev|
+                        RelooperAddBranch(try self.getFirstEvaledBlock(prev), slot.byn_block, null, null);
+                    RelooperAddBranch(slot.byn_block, done_block, null, null);
                 }
             },
+            .module => unreachable,
             else => {},
         }
+
+        return true;
 
         // const has_value = switch (code_sexp.value) {
         //     .list => |list| _: {
@@ -1727,22 +1776,12 @@ const Compilation = struct {
     ) CompileExprError!ExprBlock {
         var result_type: Type = graphl_builtin.empty_type;
 
-        var exprs = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), expr_idxs.len);
-        defer exprs.deinit(self.arena.allocator());
-
-        for (expr_idxs, 0..) |expr_idx, i| {
-            const body_expr = self.graphlt_module.get(expr_idx);
-
+        for (expr_idxs) |expr_idx| {
             var expr_ctx = parent_expr_ctx.*;
-            // only capture the last expression or any labeled expressions
-            expr_ctx.is_captured = i == expr_idxs.len - 1 or body_expr.label != null;
-
             try self.compileExpr(expr_idx, &expr_ctx);
-            try self.linkExpr(expr_idx, &expr_ctx);
             const expr_compiled = &self._sexp_compiled[expr_idx];
-            // FIXME: I think I can do this unconditionally if I make "if" and "jump" Nops
-            if (!isControlFlow(self.graphlt_module, body_expr))
-                exprs.appendAssumeCapacity(expr_compiled.expr);
+            // if (!isControlFlow(self.graphlt_module, body_expr))
+            //     exprs.appendAssumeCapacity(expr_compiled.expr);
 
             // FIXME: previously we just took the last one for the function body
             // this is what we did for return/begin expressions... is this right?
@@ -1750,8 +1789,6 @@ const Compilation = struct {
         }
 
         return .{
-            // FIXME: remove
-            //.exprs = try exprs.toOwnedSlice(self.arena.allocator()),
             .type = result_type,
         };
     }
@@ -2562,26 +2599,33 @@ test "factorial iterative" {
 
     const expected =
         \\(module
-        \\  (type (;0;) (func (param i32) (result i32)))
+        \\  (type (;0;) (func (param i64) (result i64)))
+        \\  (type (;1;) (func (param i32) (result f64)))
+        \\  (memory (;0;) 1 256)
+        \\  (export "memory" (memory 0))
         \\  (export "factorial" (func 0))
-        \\  (func (;0;) (type 0) (param i32) (result i32)
+        \\  (func (;0;) (type 0) (param i64) (result i64)
         \\    local.get 0
-        \\    i32.const 1
-        \\    i32.le_s
-        \\    if (result i32) ;; label = @1
-        \\      block (result i32) ;; label = @2
-        \\        i32.const 1
+        \\    i64.const 1
+        \\    i64.le_s
+        \\    if (result i64) ;; label = @1
+        \\      block (result i64) ;; label = @2
+        \\        i64.const 1
         \\      end
         \\    else
-        \\      block (result i32) ;; label = @2
+        \\      block (result i64) ;; label = @2
         \\        local.get 0
         \\        local.get 0
-        \\        i32.const 1
-        \\        i32.sub
+        \\        i64.const 1
+        \\        i64.sub
         \\        call 0
-        \\        i32.mul
+        \\        i64.mul
         \\      end
         \\    end
+        \\  )
+        \\  (func (;1;) (type 1) (param i32) (result f64)
+        \\    local.get 0
+        \\    f64.load
         \\  )
         \\  (@custom "sourceMappingURL" (after code) "\07/script")
         \\)
