@@ -168,6 +168,7 @@ const sharedOpts: Partial<Graphl.Ide.Options> = {
   preferences: {
     graph: {
       scrollBarsVisible: false,
+      // FIXME: need scale
       //scale: 0.7,
       //origin: { x: 0, y: 0 },
     },
@@ -294,7 +295,7 @@ const Homepage = () => {
 
   const sample1 = (
     // TODO: e2e test these, for now it's being tested with manual duplication
-    // in the ide-prototype dir
+    // in the ide dir
     <Sample
       graphInitState={{
         notRemovable: true,
@@ -525,6 +526,10 @@ const Homepage = () => {
         </div>
         {sample3}
       </div>
+
+      <p style={{ textAlign: "center" }}>
+        And yes, it's <a href="https://github.com/MichaelBelousov/graphlt">open source</a>
+      </p>
 
       <p style={{ textAlign: "center" }}>
         Questions?
