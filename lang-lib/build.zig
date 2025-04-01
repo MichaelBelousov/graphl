@@ -108,6 +108,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     graphltc_exe.step.dependOn(&intrinsics_to_wat_step.step);
+    graphltc_exe.root_module.addOptions("build_opts", lib_opts);
     graphltc_exe.root_module.addAnonymousImport("grappl_intrinsics", .{
         .root_source_file = intrinsics_wat_file,
         .optimize = optimize,
