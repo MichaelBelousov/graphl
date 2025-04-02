@@ -887,7 +887,11 @@ const Compilation = struct {
         };
 
         try self.compileExpr(func_decl.define_body_idx, &fn_body_expr_ctx);
-        try self.linkExpr(func_decl.define_body_idx, &fn_body_expr_ctx, byn.c.RelooperAddBlock(fn_body_expr_ctx.relooper, null));
+        try self.linkExpr(
+            func_decl.define_body_idx,
+            &fn_body_expr_ctx,
+            byn.c.RelooperAddBlock(fn_body_expr_ctx.relooper, byn.c.BinaryenNop(self.module.c())),
+        );
 
         const body_slot = self._sexp_compiled[func_decl.define_body_idx];
 
@@ -964,6 +968,7 @@ const Compilation = struct {
     ) CompileExprError!void {
         const code_sexp = self.graphlt_module.get(code_sexp_idx);
         const slot = &self._sexp_compiled[code_sexp_idx];
+        slot.expr = undefined;
 
         const local_index = context.putLocalForSexp(self, code_sexp_idx);
 
@@ -980,6 +985,14 @@ const Compilation = struct {
                     if (func.value != .symbol) {
                         self.diag.err = .{ .NonSymbolCallee = code_sexp_idx };
                         return error.NonSymbolCallee;
+                    }
+
+                    if (func.value.symbol.ptr == syms.typeof.value.symbol.ptr) {
+                        // this should never be really referenced
+                        // except jumped through as a nop
+                        slot.type = graphl_builtin.empty_type;
+                        slot.expr = byn.c.BinaryenNop(self.module.c());
+                        break :done;
                     }
 
                     if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {

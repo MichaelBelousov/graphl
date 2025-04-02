@@ -32,7 +32,8 @@ pub const TypeInfo = struct {
     // NOTE: for now this only matters to wasm
     /// whether this type is a primitive (and can be put in a local in wasm)
     pub fn isPrimitive(self: *const @This()) bool {
-        return self == primitive_types.i32_ //
+        return self == empty_type //
+        or self == primitive_types.i32_ //
         or self == primitive_types.i64_ //
         or self == primitive_types.u32_ //
         or self == primitive_types.u64_ //
