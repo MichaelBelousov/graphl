@@ -1611,7 +1611,7 @@ const Compilation = struct {
         const to_slot = self._sexp_compiled[to_idx];
         const to_block = if (to_side == .pre) to_slot.pre_block else to_slot.post_block;
         std.debug.print("from:0x{x}->to:0x{x}\n", .{ @intFromPtr(from_block), @intFromPtr(to_block) });
-        std.debug.print("from:{}\nto:{}\n", .{ Sexp.withContext(self.graphlt_module, from_idx), Sexp.withContext(self.graphlt_module, to_idx) });
+        std.debug.print("from:{}\nto:{}\n", .{ Sexp.printOneLine(self.graphlt_module, from_idx), Sexp.printOneLine(self.graphlt_module, to_idx) });
         byn.c.RelooperAddBranch(from_block, to_block, condition, code);
     }
 
@@ -1624,7 +1624,7 @@ const Compilation = struct {
         const from_slot = self._sexp_compiled[from_idx];
         const from_block = if (from_side == .pre) from_slot.pre_block else from_slot.post_block;
         std.debug.print("from:0x{x}->DONE\n", .{@intFromPtr(from_block)});
-        std.debug.print("from:{}\nDONE\n", .{Sexp.withContext(self.graphlt_module, from_idx)});
+        std.debug.print("from:{}\nto:DONE\n", .{Sexp.printOneLine(self.graphlt_module, from_idx)});
         byn.c.RelooperAddBranch(from_block, done_block, null, null);
     }
 

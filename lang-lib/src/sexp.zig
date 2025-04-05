@@ -220,16 +220,17 @@ pub const Sexp = struct {
     }
 
     const WriteState = struct {
-        /// number of spaces we are in
+        /// number of indents we are in
         depth: usize = 0,
         emitted_labels: *std.AutoHashMap([*:0]const u8, void),
     };
 
     fn writeModule(mod_ctx: *const ModuleContext, form: *const std.ArrayListUnmanaged(u32), writer: anytype, state: WriteState, comptime opts: WriteOptions) @TypeOf(writer).Error!WriteState {
         for (form.items, 0..) |item_idx, i| {
-            if (i != 0) _ = try writer.write("\n");
+            if (i != 0 and opts.do_indent) _ = try writer.write("\n");
             const item = &mod_ctx.arena.items[item_idx];
-            try writer.writeByteNTimes(' ', state.depth);
+            if (opts.do_indent)
+                try writer.writeByteNTimes(' ', state.depth);
             _ = try item._write(mod_ctx, writer, .{ .depth = state.depth, .emitted_labels = state.emitted_labels }, opts);
         }
 
@@ -257,8 +258,10 @@ pub const Sexp = struct {
 
             for (form.items[2..]) |item_idx| {
                 const item = &mod_ctx.arena.items[item_idx];
-                _ = try writer.write("\n");
-                try writer.writeByteNTimes(' ', state.depth + depth);
+                if (opts.do_indent) {
+                    _ = try writer.write("\n");
+                    try writer.writeByteNTimes(' ', state.depth + depth);
+                }
                 _ = try item._write(mod_ctx, writer, .{ .depth = state.depth + depth, .emitted_labels = state.emitted_labels }, opts);
             }
         }
@@ -295,13 +298,18 @@ pub const Sexp = struct {
                 };
             } else {
                 // FIXME: handle OOM better
+                // FIXME: this is not correct when do_indent is false!
                 state.emitted_labels.put(label.ptr, {}) catch unreachable;
-                _ = try writer.write("\n");
-                _ = try writer.writeByteNTimes(' ', state.depth);
+                if (opts.do_indent) {
+                    _ = try writer.write("\n");
+                    _ = try writer.writeByteNTimes(' ', state.depth);
+                }
                 _ = try writer.write("<!");
                 _ = try writer.write(label);
-                _ = try writer.write("\n");
-                _ = try writer.writeByteNTimes(' ', state.depth);
+                if (opts.do_indent) {
+                    _ = try writer.write("\n");
+                    _ = try writer.writeByteNTimes(' ', state.depth);
+                }
             }
         }
 
@@ -361,6 +369,7 @@ pub const Sexp = struct {
     }
 
     const WriteOptions = struct {
+        do_indent: bool = true,
         string_literal_dialect: enum {
             json,
             wat,
@@ -616,6 +625,31 @@ pub const Sexp = struct {
     // TODO: rename
     pub fn withContext(module: *const ModuleContext, index: u32) WithModCtx {
         return WithModCtx{ .module = module, .index = index };
+    }
+
+    pub const PrintOneLine = struct {
+        module: *const ModuleContext,
+        index: u32,
+
+        pub fn format(self: *const @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = fmt;
+            _ = options;
+
+            var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+            defer arena.deinit();
+            var emitted_labels = std.AutoHashMap([*:0]const u8, void).init(arena.allocator());
+
+            _ = try self.module.get(self.index)._write(
+                self.module,
+                writer,
+                .{ .emitted_labels = &emitted_labels },
+                .{ .do_indent = false },
+            );
+        }
+    };
+
+    pub fn printOneLine(module: *const ModuleContext, index: u32) PrintOneLine {
+        return PrintOneLine{ .module = module, .index = index };
     }
 };
 
