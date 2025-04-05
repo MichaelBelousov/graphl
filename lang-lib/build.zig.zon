@@ -3,14 +3,11 @@
     .version = "0.0.0",
     .fingerprint = 0x196a1904462e8301,
     .dependencies = .{
+        // TODO: consider using orca wasm runtime?
         // .bytebox = .{
         //     .url = "https://github.com/rdunnington/bytebox/archive/5931f4fa85b4a65d4edbb8810f8e767da1143e14.zip",
         //     .hash = "1220d8e9eef6dae932311d5f0bb0e21b3ebe0dc488c93a9ad440d6b79fefb0e9f9c4",
         // },
-        .wabt = .{
-            .url = "https://github.com/WebAssembly/wabt/archive/39f85a791cbbad91a253a851841a29777efdc2cd.tar.gz",
-            .hash = "1220097b5cfb369f95493a753b0b12525f065e2cf607d62e314d54c54aa1071a1eed",
-        },
         .@"binaryen-zig" = .{
             .url = "https://github.com/MichaelBelousov/binaryen-zig/archive/dff62f385b739e42b9419a42a00d275aa60df5fb.zip",
             .hash = "binaryen-0.1.0-kln6EOPlAAD1WPeAzRYthukJuHaeYH7UGH-WtYaEYtzA",
