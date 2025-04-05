@@ -943,8 +943,8 @@ const Compilation = struct {
         );
 
         std.debug.print("BODY({}):\n", .{func_decl.body_exprs.len});
-        byn.c.BinaryenExpressionPrint(body);
-        std.debug.print("\n", .{});
+        byn._BinaryenExpressionPrintStderr(body);
+        std.debug.print("\nEND BODY\n", .{});
 
         const func = self.module.addFunction(
             name,
@@ -1436,7 +1436,7 @@ const Compilation = struct {
 
         // FIXME: remove
         std.debug.print("COMPILED:\n{}\nto:\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
-        byn.c.BinaryenExpressionPrint(slot.expr);
+        byn._BinaryenExpressionPrintStderr(slot.expr);
         std.debug.print("\n", .{});
 
         slot.pre_block = byn.c.RelooperAddBlock(context.relooper, byn.c.BinaryenNop(self.module.c()));
@@ -2081,7 +2081,7 @@ const Compilation = struct {
         if (builtin.mode == .Debug) {
             //byn.c.BinaryenModulePrintStackIR(vec3_module);
             //byn.c.BinaryenModulePrintStackIR(self.module.c());
-            byn.c.BinaryenModulePrint(self.module.c());
+            byn._BinaryenModulePrintStderr(self.module.c());
             //FIXME: right now the validation doesn't seem to match `wasm-tools validate`
             //std.debug.assert(
             _ = byn.c.BinaryenModuleValidate(self.module.c());
