@@ -17,3 +17,7 @@
 ## long term
 - custom types
 - generate user function types
+
+## private package hosting service
+- sharded sqlite + litestream metadata
+- blob storage of compressed packages
