@@ -16,7 +16,7 @@ to = None
 for line in sys.stdin:
   dir, _, rest = line.partition(':')
   blk_side, _, rest = rest.partition(':')
-  id, _, rest = rest.partition(' ')
+  id, _, rest = rest.partition(':')
 
   if dir not in ("from", "to") or blk_side not in ("pre", "post"):
     continue
@@ -41,10 +41,10 @@ for (blk_side, id), label in node_to_label.items():
     if id not in ranked:
       ranked.add(id)
       other = ('pre' if blk_side == 'post' else 'post', label)
-      print(f'  subgraph cluster_{id} {{ _{blk_side}_{id}; _{other[1]}_{id} }}')
+      print(f'  subgraph cluster_{id} {{ _{blk_side}_{id}; _{other[0]}_{id} }}')
   except KeyError:
     pass
-  print(f'  _{blk_side}_{id} [label="{dir} {label}"]')
+  print(f'  _{blk_side}_{id} [label="{label}"]')
 for (lblk, left), (rblk, right) in edges:
-  print(f"  _{left} -> _{right};")
+  print(f"  _{lblk}_{left} -> _{rblk}_{right};")
 print("}")
