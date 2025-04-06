@@ -227,7 +227,7 @@ pub const Sexp = struct {
 
     fn writeModule(mod_ctx: *const ModuleContext, form: *const std.ArrayListUnmanaged(u32), writer: anytype, state: WriteState, comptime opts: WriteOptions) @TypeOf(writer).Error!WriteState {
         for (form.items, 0..) |item_idx, i| {
-            if (i != 0 and opts.do_indent) _ = try writer.write("\n");
+            if (i != 0) _ = try writer.write(if (opts.do_indent) "\n" else " ");
             const item = &mod_ctx.arena.items[item_idx];
             if (opts.do_indent)
                 try writer.writeByteNTimes(' ', state.depth);
@@ -261,6 +261,8 @@ pub const Sexp = struct {
                 if (opts.do_indent) {
                     _ = try writer.write("\n");
                     try writer.writeByteNTimes(' ', state.depth + depth);
+                } else {
+                    _ = try writer.write(" ");
                 }
                 _ = try item._write(mod_ctx, writer, .{ .depth = state.depth + depth, .emitted_labels = state.emitted_labels }, opts);
             }
@@ -309,6 +311,8 @@ pub const Sexp = struct {
                 if (opts.do_indent) {
                     _ = try writer.write("\n");
                     _ = try writer.writeByteNTimes(' ', state.depth);
+                } else {
+                    _ = try writer.write(" ");
                 }
             }
         }

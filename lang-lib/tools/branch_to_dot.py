@@ -1,40 +1,50 @@
 #!/usr/bin/env python
 
-import sys, os
+import sys
 
 
 edges = []
-label_to_node = {}
 node_to_label = {}
 
-def getOrAddNode(label: str) -> int:
-  id = label_to_node.get(label)
-  if id is not None:
-    return id
-
-  id = len(node_to_label)
-  node_to_label[id] = label
-  label_to_node[label] = id
-  return id
+def getOrAddNode(key, label: str):
+  blk_side, id = key
+  node_to_label[key] = f"{blk_side}/{id}: {label}"
 
 from_ = None
 to = None
 
 for line in sys.stdin:
-  # if "->" in line and line.startswith("from:"):
-  if "->" not in line and line.startswith("from:"):
-    from_ = getOrAddNode(line[len("from:"):-1])
-  elif "->" not in line and line.startswith("to:"):
-    to = getOrAddNode(line[len("to:"):-1])
+  dir, _, rest = line.partition(':')
+  blk_side, _, rest = rest.partition(':')
+  id, _, rest = rest.partition(' ')
 
-  if from_ and to:
+  if dir not in ("from", "to") or blk_side not in ("pre", "post"):
+    continue
+
+  if dir == "from":
+    from_ = (blk_side, id)
+    getOrAddNode(from_, rest.strip())
+
+  elif dir == "to":
+    to = (blk_side, id)
+    getOrAddNode(to, rest.strip())
+
+  if from_ is not None and to is not None:
     edges.append((from_, to))
     from_ = None
     to = None
 
+ranked = set()
 print("digraph G {")
-for node, label in node_to_label.items():
-  print(f'  _{node} [label="{label}"]')
-for left, right in edges:
+for (blk_side, id), label in node_to_label.items():
+  try:
+    if id not in ranked:
+      ranked.add(id)
+      other = ('pre' if blk_side == 'post' else 'post', label)
+      print(f'  subgraph cluster_{id} {{ _{blk_side}_{id}; _{other[1]}_{id} }}')
+  except KeyError:
+    pass
+  print(f'  _{blk_side}_{id} [label="{dir} {label}"]')
+for (lblk, left), (rblk, right) in edges:
   print(f"  _{left} -> _{right};")
 print("}")

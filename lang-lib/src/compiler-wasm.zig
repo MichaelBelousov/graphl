@@ -893,7 +893,7 @@ const Compilation = struct {
             byn.c.RelooperAddBlock(fn_body_expr_ctx.relooper, byn.c.BinaryenNop(self.module.c())),
         );
 
-        const body_slot = self._sexp_compiled[func_decl.define_body_idx];
+        const body_slot = &self._sexp_compiled[func_decl.define_body_idx];
 
         // FIXME: use a compound result type to avoid this check
         std.debug.assert(func_type.result_types.len == 1);
@@ -1422,7 +1422,9 @@ const Compilation = struct {
 
                 .jump => {
                     slot.type = graphl_builtin.empty_type;
-                    slot.expr = byn.c.BinaryenNop(self.module.c());
+                    // FIXME: probably post block of jump should be unreachable?
+                    //slot.expr = byn.c.BinaryenNop(self.module.c());
+                    slot.expr = byn.c.BinaryenUnreachable(self.module.c());
                 },
 
                 inline else => {
@@ -1433,11 +1435,6 @@ const Compilation = struct {
         }
 
         context.finalizeSlotTypeForSexp(self, code_sexp_idx);
-
-        // FIXME: remove
-        std.debug.print("COMPILED:\n{}\nto:\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
-        byn._BinaryenExpressionPrintStderr(slot.expr);
-        std.debug.print("\n", .{});
 
         slot.pre_block = byn.c.RelooperAddBlock(context.relooper, byn.c.BinaryenNop(self.module.c()));
         slot.post_block = byn.c.RelooperAddBlock(context.relooper, slot.expr);
@@ -1606,26 +1603,22 @@ const Compilation = struct {
         condition: byn.c.BinaryenExpressionRef,
         code: byn.c.BinaryenExpressionRef,
     ) void {
-        const from_slot = self._sexp_compiled[from_idx];
+        const from_slot = &self._sexp_compiled[from_idx];
         const from_block = if (from_side == .pre) from_slot.pre_block else from_slot.post_block;
-        const to_slot = self._sexp_compiled[to_idx];
+        const to_slot = &self._sexp_compiled[to_idx];
         const to_block = if (to_side == .pre) to_slot.pre_block else to_slot.post_block;
-        std.debug.print("from:0x{x}->to:0x{x}\n", .{ @intFromPtr(from_block), @intFromPtr(to_block) });
-        std.debug.print("from:{}\nto:{}\n", .{ Sexp.printOneLine(self.graphlt_module, from_idx), Sexp.printOneLine(self.graphlt_module, to_idx) });
+        if (builtin.mode == .Debug) {
+            std.debug.print("from:0x{x}->to:0x{x}\n", .{ @intFromPtr(from_block), @intFromPtr(to_block) });
+            std.debug.print("from:{s}:{}: {}\nto:{s}:{}: {}\n", .{
+                @tagName(from_side),
+                from_idx,
+                Sexp.printOneLine(self.graphlt_module, from_idx),
+                @tagName(to_side),
+                to_idx,
+                Sexp.printOneLine(self.graphlt_module, to_idx),
+            });
+        }
         byn.c.RelooperAddBranch(from_block, to_block, condition, code);
-    }
-
-    fn RelooperAddBranchDone(
-        self: *const @This(),
-        from_idx: u32,
-        comptime from_side: enum { pre, post },
-        done_block: byn.c.RelooperBlockRef,
-    ) void {
-        const from_slot = self._sexp_compiled[from_idx];
-        const from_block = if (from_side == .pre) from_slot.pre_block else from_slot.post_block;
-        std.debug.print("from:0x{x}->DONE\n", .{@intFromPtr(from_block)});
-        std.debug.print("from:{}\nto:DONE\n", .{Sexp.printOneLine(self.graphlt_module, from_idx)});
-        byn.c.RelooperAddBranch(from_block, done_block, null, null);
     }
 
     // link (recursively) a sexp's control flow and then jump to the "done_block"
@@ -1636,14 +1629,16 @@ const Compilation = struct {
         self: *@This(),
         code_sexp_idx: u32,
         context: *ExprContext,
-        // FIXME: rename to return_block lol
-        /// the block to jump to when done (if returning control to caller)
+        // FIXME: not used, maybe add a force return block to the context and use that?
         done_block: byn.c.RelooperBlockRef,
     ) CompileExprError!void {
+        _ = done_block;
+
         std.log.debug("linking expr: '{}'\n", .{code_sexp_idx});
         std.debug.print("LINKING: {}\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
 
         const code_sexp = self.graphlt_module.get(code_sexp_idx);
+        const slot = &self._sexp_compiled[code_sexp_idx];
 
         switch (code_sexp.value) {
             .jump => |j| {
@@ -1666,13 +1661,14 @@ const Compilation = struct {
                 } else if (callee.value.symbol.ptr == syms.define.value.symbol.ptr and list.items.len >= 2 and self.graphlt_module.get(list.items[1]).value == .symbol) {
                     // HACK: ignore variable definitions
                     // TODO: instead generate code to set the variable default
+                    try self.linkExpr(list.items[2], context, slot.post_block);
                     return;
                 } else if (callee.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
                     std.debug.assert(list.items.len >= 3);
                     const condition_idx = code_sexp.value.list.items[1];
-                    const condition_slot = self._sexp_compiled[condition_idx];
+                    const condition_slot = &self._sexp_compiled[condition_idx];
                     const consequence_idx = code_sexp.value.list.items[2];
-                    //const consequence_slot = self._sexp_compiled[consequence_idx];
+                    try self.linkExpr(consequence_idx, context, slot.post_block);
                     self.RelooperAddBranch(
                         condition_idx,
                         .post,
@@ -1681,31 +1677,38 @@ const Compilation = struct {
                         byn.c.BinaryenLocalGet(self.module.c(), condition_slot.local_index, BinaryenHelper.getType(condition_slot.type)),
                         null,
                     );
-                    self.RelooperAddBranchDone(consequence_idx, .post, done_block);
+                    self.RelooperAddBranch(consequence_idx, .post, code_sexp_idx, .post, null, null);
                     if (list.items.len > 3) {
                         const alternative_idx = code_sexp.value.list.items[3];
-                        self.RelooperAddBranch(condition_idx, .post, alternative_idx, .pre, null, null);
-                        self.RelooperAddBranchDone(alternative_idx, .post, done_block);
-                    } else {}
+                        try self.linkExpr(condition_idx, context, self._sexp_compiled[alternative_idx].pre_block);
+                        try self.linkExpr(alternative_idx, context, slot.post_block);
+                    } else {
+                        try self.linkExpr(condition_idx, context, slot.post_block);
+                    }
                 } else { // otherwise begin, return, define, or function call // TODO: macros
                     const items = if (callee.value.symbol.ptr == syms.define.value.symbol.ptr) list.items[2..] else list.items[1..];
 
+                    for (items) |item| {
+                        try self.linkExpr(item, context, slot.post_block);
+                    }
+
                     for (items[0 .. items.len - 1], items[1..]) |prev, next| {
-                        try self.linkExpr(prev, context, self._sexp_compiled[next].pre_block);
                         self.RelooperAddBranch(prev, .post, next, .pre, null, null);
                     }
 
                     if (items.len > 0) {
+                        const first_item = items[0];
+                        self.RelooperAddBranch(code_sexp_idx, .pre, first_item, .pre, null, null);
                         const last_item = items[items.len - 1];
-                        try self.linkExpr(last_item, context, done_block);
-                        self.RelooperAddBranchDone(last_item, .post, done_block);
+                        self.RelooperAddBranch(last_item, .post, code_sexp_idx, .post, null, null);
+                    } else {
+                        self.RelooperAddBranch(code_sexp_idx, .pre, code_sexp_idx, .post, null, null);
                     }
                 }
             },
             .module => unreachable,
             else => {
                 self.RelooperAddBranch(code_sexp_idx, .pre, code_sexp_idx, .post, null, null);
-                self.RelooperAddBranchDone(code_sexp_idx, .post, done_block);
             },
         }
 
