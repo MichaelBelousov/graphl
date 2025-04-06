@@ -817,7 +817,7 @@ const Compilation = struct {
         // FIXME: rename
         // TODO: use @FieldType
 
-        var locals_symbols: SymMapUnmanaged(ExprContext.LocalInfo) = .{};
+        var locals_symbols: SymMapUnmanaged(FnContext.LocalInfo) = .{};
         defer locals_symbols.deinit(self.arena.allocator());
 
         for (func_decl.param_names, func_decl.param_name_idxs, func_type.param_types) |p_name, p_idx, p_type| {
@@ -867,17 +867,17 @@ const Compilation = struct {
         var local_types: std.ArrayListUnmanaged(Type) = .{};
         defer local_types.deinit(self.arena.allocator());
 
-        var fn_body_expr_ctx = ExprContext{
+        var fn_ctx = FnContext{
             .local_symbols = &locals_symbols,
             .local_types = &local_types,
             .relooper = byn.c.RelooperCreate(self.module.c()) orelse @panic("relooper creation failed"),
         };
 
-        try self.compileExpr(func_decl.define_body_idx, &fn_body_expr_ctx);
+        try self.compileExpr(func_decl.define_body_idx, &fn_ctx, ExprContext{ .type = result_type_byn });
         try self.linkExpr(
             func_decl.define_body_idx,
-            &fn_body_expr_ctx,
-            byn.c.RelooperAddBlock(fn_body_expr_ctx.relooper, byn.c.BinaryenNop(self.module.c())),
+            &fn_ctx,
+            byn.c.RelooperAddBlock(fn_ctx.relooper, byn.c.BinaryenNop(self.module.c())),
         );
 
         const body_slot = &self._sexp_compiled[func_decl.define_body_idx];
@@ -920,9 +920,9 @@ const Compilation = struct {
         }
         const result_type_byn: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(result_types.ptr, @intCast(result_types.len));
 
-        const entry = if (func_decl.body_exprs.len > 0) self._sexp_compiled[func_decl.body_exprs[0]].pre_block else byn.c.RelooperAddBlock(fn_body_expr_ctx.relooper, null);
+        const entry = if (func_decl.body_exprs.len > 0) self._sexp_compiled[func_decl.body_exprs[0]].pre_block else byn.c.RelooperAddBlock(fn_ctx.relooper, null);
         const body = byn.c.RelooperRenderAndDispose(
-            fn_body_expr_ctx.relooper,
+            fn_ctx.relooper,
             entry,
             0, // FIXME: figure out label
         );
@@ -956,13 +956,14 @@ const Compilation = struct {
         self: *@This(),
         code_sexp_idx: u32,
         /// not const because we may be expanding the frame to include this value
-        context: *ExprContext,
+        fn_ctx: *FnContext,
+        expr_ctx: ExprContext,
     ) CompileExprError!void {
         const code_sexp = self.graphlt_module.get(code_sexp_idx);
         const slot = &self._sexp_compiled[code_sexp_idx];
         slot.expr = undefined;
 
-        const local_index = context.putLocalForSexp(self, code_sexp_idx);
+        const local_index = fn_ctx.putLocalForSexp(self, code_sexp_idx);
         std.debug.print("put local {} for sexp: {}\n", .{ local_index, Sexp.printOneLine(self.graphlt_module, code_sexp_idx) });
 
         done: {
@@ -990,7 +991,7 @@ const Compilation = struct {
 
                     if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
                         for (v.items[1..]) |arg| {
-                            try self.compileExpr(arg, context);
+                            try self.compileExpr(arg, fn_ctx, expr_ctx);
                         }
 
                         slot.type = graphl_builtin.empty_type;
@@ -1014,7 +1015,7 @@ const Compilation = struct {
 
                     if (func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
                         for (v.items[1..]) |arg| {
-                            try self.compileExpr(arg, context);
+                            try self.compileExpr(arg, fn_ctx, expr_ctx);
                         }
 
                         slot.type = graphl_builtin.empty_type;
@@ -1032,7 +1033,7 @@ const Compilation = struct {
 
                     if (func.value.symbol.ptr == syms.define.value.symbol.ptr) {
                         for (v.items[1..]) |arg| {
-                            try self.compileExpr(arg, context);
+                            try self.compileExpr(arg, fn_ctx, expr_ctx);
                         }
 
                         slot.type = graphl_builtin.empty_type;
@@ -1093,10 +1094,10 @@ const Compilation = struct {
                         std.debug.assert(input_desc.asPrimitivePin() == .value);
 
                         // FIXME: use a subcontext with a specific type to promote to
-                        //var subcontext: ExprContext = context.*;
-                        //subcontext.type = input_desc.asPrimitivePin().value;
+                        var subcontext: ExprContext = expr_ctx.*;
+                        subcontext.type = input_desc.asPrimitivePin().value;
 
-                        try self.compileExpr(arg_idx, context);
+                        try self.compileExpr(arg_idx, fn_ctx, expr_ctx);
                         const arg_compiled = &self._sexp_compiled[arg_idx];
                         args_top_type = resolvePeerType(args_top_type, arg_compiled.type);
                     }
@@ -1118,7 +1119,7 @@ const Compilation = struct {
                         // FIXME: leak
                         const set_sym = self.graphlt_module.get(v.items[1]).value.symbol;
 
-                        const local_info = context.local_symbols.get(set_sym) orelse {
+                        const local_info = fn_ctx.local_symbols.get(set_sym) orelse {
                             self.diag.err = .{ .UndefinedSymbol = v.items[1] };
                             return error.UndefinedSymbol;
                         };
@@ -1357,7 +1358,7 @@ const Compilation = struct {
 
                     const info = _: {
                         // TODO: use the env
-                        if (context.local_symbols.getPtr(v)) |local_entry| {
+                        if (fn_ctx.local_symbols.getPtr(v)) |local_entry| {
                             break :_ Info{
                                 .type = local_entry.type,
                                 .ref = local_entry.index,
@@ -1430,10 +1431,10 @@ const Compilation = struct {
             }
         }
 
-        try context.finalizeSlotTypeForSexp(self, code_sexp_idx);
+        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
 
-        slot.pre_block = byn.c.RelooperAddBlock(context.relooper, byn.c.BinaryenNop(self.module.c()));
-        slot.post_block = byn.c.RelooperAddBlock(context.relooper, slot.expr);
+        slot.pre_block = byn.c.RelooperAddBlock(fn_ctx.relooper, byn.c.BinaryenNop(self.module.c()));
+        slot.post_block = byn.c.RelooperAddBlock(fn_ctx.relooper, slot.expr);
     }
 
     // find the nearest super type (if any) of two types
@@ -1550,8 +1551,11 @@ const Compilation = struct {
     }
 
     const ExprContext = struct {
-        // FIXME: maybe this should just be empty/unresolved type instead of null?
-        //type: ?Type = null,
+        // TODO: rename to unresolved_type
+        type: Type = graphl_builtin.empty_type,
+    };
+
+    const FnContext = struct {
 
         // FIXME: separate this function-level stuff from the expr-level stuff
         _frame_byte_size: u32 = 0,
@@ -1628,7 +1632,7 @@ const Compilation = struct {
     fn linkExpr(
         self: *@This(),
         code_sexp_idx: u32,
-        context: *ExprContext,
+        context: *FnContext,
         // FIXME: not used, maybe add a force return block to the context and use that?
         done_block: byn.c.RelooperBlockRef,
     ) CompileExprError!void {
@@ -2621,22 +2625,91 @@ test "factorial iterative" {
         \\  (export "memory" (memory 0))
         \\  (export "factorial" (func 0))
         \\  (func (;0;) (type 0) (param i64) (result i64)
-        \\    local.get 0
-        \\    i64.const 1
-        \\    i64.le_s
-        \\    if (result i64) ;; label = @1
-        \\      block (result i64) ;; label = @2
-        \\        i64.const 1
+        \\    (local i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i32 i32 i32 i32 i32 i32 i32 i32)
+        \\    block ;; label = @1
+        \\      block ;; label = @2
         \\      end
-        \\    else
-        \\      block (result i64) ;; label = @2
-        \\        local.get 0
-        \\        local.get 0
-        \\        i64.const 1
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      loop ;; label = @2
+        \\        block ;; label = @3
+        \\          local.get 1
+        \\          local.set 23
+        \\          br 0 (;@3;)
+        \\        end
+        \\        block ;; label = @3
+        \\          block ;; label = @4
+        \\            i32.const 1
+        \\            local.set 7
+        \\            local.get 23
+        \\            local.get 7
+        \\            i64.le_s
+        \\            local.set 6
+        \\          end
+        \\          local.get 6
+        \\          if ;; label = @4
+        \\            br 3 (;@1;)
+        \\          else
+        \\            br 1 (;@3;)
+        \\          end
+        \\          unreachable
+        \\        end
+        \\        block ;; label = @3
+        \\          local.get 2
+        \\          local.set 11
+        \\          br 0 (;@3;)
+        \\        end
+        \\        block ;; label = @3
+        \\          local.get 2
+        \\          local.set 13
+        \\          br 0 (;@3;)
+        \\        end
+        \\        block ;; label = @3
+        \\          block ;; label = @4
+        \\            block ;; label = @5
+        \\              local.get 1
+        \\              local.set 14
+        \\              local.get 13
+        \\              local.get 14
+        \\              i64.mul
+        \\              local.set 12
+        \\            end
+        \\            local.get 12
+        \\            local.set 2
+        \\          end
+        \\          br 0 (;@3;)
+        \\        end
+        \\        block ;; label = @3
+        \\          local.get 1
+        \\          local.set 16
+        \\          br 0 (;@3;)
+        \\        end
+        \\        block ;; label = @3
+        \\          local.get 1
+        \\          local.set 18
+        \\          br 0 (;@3;)
+        \\        end
+        \\        i32.const 1
+        \\        local.set 19
+        \\        local.get 18
+        \\        local.get 19
         \\        i64.sub
-        \\        call 0
-        \\        i64.mul
+        \\        local.set 17
+        \\        local.get 17
+        \\        local.set 1
+        \\        br 0 (;@2;)
         \\      end
+        \\      unreachable
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        local.get 2
+        \\        local.set 9
+        \\        local.get 9
+        \\        return
+        \\      end
+        \\      unreachable
         \\    end
         \\  )
         \\  (func (;1;) (type 1) (param i32) (result f64)
@@ -2645,7 +2718,6 @@ test "factorial iterative" {
         \\  )
         \\  (@custom "sourceMappingURL" (after code) "\07/script")
         \\)
-        \\
     ;
 
     var diagnostic = Diagnostic.init();
