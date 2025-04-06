@@ -41,7 +41,7 @@ for (blk_side, id), label in node_to_label.items():
     if id not in ranked:
       ranked.add(id)
       other = ('pre' if blk_side == 'post' else 'post', label)
-      print(f'  subgraph cluster_{id} {{ _{blk_side}_{id}; _{other[0]}_{id} }}')
+      print(f'  subgraph cluster_{id} {{ _pre_{id}; _post_{id} }}')
   except KeyError:
     pass
   print(f'  _{blk_side}_{id} [label="{label}"]')

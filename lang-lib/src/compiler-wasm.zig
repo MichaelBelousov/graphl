@@ -46,7 +46,7 @@ const Type = @import("./nodes/builtin.zig").Type;
 const builtin_nodes = @import("./nodes/builtin.zig").builtin_nodes;
 const Pin = @import("./nodes/builtin.zig").Pin;
 const pool = &@import("./InternPool.zig").pool;
-const SymMapUnmanaged = &@import("./InternPool.zig").SymMapUnmanaged;
+const SymMapUnmanaged = @import("./InternPool.zig").SymMapUnmanaged;
 
 const t = std.testing;
 const SexpParser = @import("./sexp_parser.zig").Parser;
@@ -864,23 +864,12 @@ const Compilation = struct {
             // _ = try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(node_desc));
         }
 
-        // NOTE: gross, simplify me
-        const local_types = try alloc.alloc(byn.Type, complete_func_type_desc.func_type.?.local_types.len);
-        for (local_types[0..complete_func_type_desc.func_type.?.local_types.len], complete_func_type_desc.func_type.?.local_types) |*out_local_type, local_type|
-            out_local_type.* = @enumFromInt(BinaryenHelper.getType(local_type));
-        for (local_types[complete_func_type_desc.func_type.?.local_types.len..]) |*out_local_type|
-            out_local_type.* = .i32;
-
-        // FIXME: consider adding to a fresh environment as we compile instead of
-        // reusing an environment populated by the caller
-
-        //export_val_sexp.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = try std.fmt.allocPrint(alloc, "${s}", .{complete_func_type_desc.name}) } };
-
-        // FIXME:
-        // analyze the code to know ahead of time the return type and local count
+        var local_types: std.ArrayListUnmanaged(Type) = .{};
+        defer local_types.deinit(self.arena.allocator());
 
         var fn_body_expr_ctx = ExprContext{
             .local_symbols = &locals_symbols,
+            .local_types = &local_types,
             .param_names = func_decl.param_names,
             .param_types = func_type.param_types,
             .relooper = byn.c.RelooperCreate(self.module.c()) orelse @panic("relooper creation failed"),
@@ -933,8 +922,6 @@ const Compilation = struct {
         }
         const result_type_byn: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(result_types.ptr, @intCast(result_types.len));
 
-        std.debug.print("BODY SOURCE:\n{}\n", .{Sexp.withContext(self.graphlt_module, func_decl.body_exprs[0])});
-
         const entry = if (func_decl.body_exprs.len > 0) self._sexp_compiled[func_decl.body_exprs[0]].pre_block else byn.c.RelooperAddBlock(fn_body_expr_ctx.relooper, null);
         const body = byn.c.RelooperRenderAndDispose(
             fn_body_expr_ctx.relooper,
@@ -942,15 +929,17 @@ const Compilation = struct {
             0, // FIXME: figure out label
         );
 
-        std.debug.print("BODY({}):\n", .{func_decl.body_exprs.len});
-        byn._BinaryenExpressionPrintStderr(body);
-        std.debug.print("\nEND BODY\n", .{});
+        const byn_local_types = try self.arena.allocator().alloc(byn.Type, local_types.items.len);
+        defer self.arena.allocator().free(byn_local_types);
+        for (byn_local_types, local_types.items) |*byn_local_type, local_type| {
+            byn_local_type.* = @enumFromInt(BinaryenHelper.getType(local_type));
+        }
 
         const func = self.module.addFunction(
             name,
             @enumFromInt(param_type_byn),
             @enumFromInt(result_type_byn),
-            local_types,
+            byn_local_types,
             @ptrCast(body),
         );
 
@@ -1434,7 +1423,7 @@ const Compilation = struct {
             }
         }
 
-        context.finalizeSlotTypeForSexp(self, code_sexp_idx);
+        try context.finalizeSlotTypeForSexp(self, code_sexp_idx);
 
         slot.pre_block = byn.c.RelooperAddBlock(context.relooper, byn.c.BinaryenNop(self.module.c()));
         slot.post_block = byn.c.RelooperAddBlock(context.relooper, slot.expr);
@@ -1560,13 +1549,13 @@ const Compilation = struct {
         param_types: []const Type,
 
         // FIXME: separate this function-level stuff from the expr-level stuff
-        next_local_index: u32 = 0,
         _frame_byte_size: u32 = 0,
         relooper: *byn.c.struct_Relooper,
-        // FIXME: need locals to be findable by symbol...
-        /// map of sexp indices to the local index holding them with its type,
-        local_symbols: *SymMapUnmanaged(LocalInfo),
         next_sexp_local_idx: u32 = 0,
+        local_types: *std.ArrayListUnmanaged(Type),
+
+        /// map of symbols to the local index holding them with its type,
+        local_symbols: *SymMapUnmanaged(LocalInfo),
 
         pub const LocalInfo = struct {
             index: byn.c.BinaryenIndex,
@@ -1582,12 +1571,16 @@ const Compilation = struct {
             return local_index;
         }
 
-        pub fn finalizeSlotTypeForSexp(self: *@This(), comp_ctx: *const Compilation, sexp_idx: u32) void {
+        pub fn finalizeSlotTypeForSexp(self: *@This(), comp_ctx: *Compilation, sexp_idx: u32) !void {
             const slot = &comp_ctx._sexp_compiled[sexp_idx];
             //std.debug.assert(slot.type != graphl_builtin.empty_type);
             if (!slot.type.isPrimitive()) {
                 slot.frame_depth = self._frame_byte_size;
                 self._frame_byte_size += slot.type.size;
+
+                try self.local_types.ensureTotalCapacity(comp_ctx.arena.allocator(), slot.local_index);
+                self.local_types.expandToCapacity();
+                self.local_types.items[slot.local_index] = slot.type;
             }
         }
     };
@@ -1657,18 +1650,20 @@ const Compilation = struct {
 
                 // is typeof
                 if (callee.value.symbol.ptr == syms.typeof.value.symbol.ptr) {
+                    self.RelooperAddBranch(code_sexp_idx, .pre, code_sexp_idx, .post, null, null);
                     return;
                 } else if (callee.value.symbol.ptr == syms.define.value.symbol.ptr and list.items.len >= 2 and self.graphlt_module.get(list.items[1]).value == .symbol) {
                     // HACK: ignore variable definitions
                     // TODO: instead generate code to set the variable default
                     try self.linkExpr(list.items[2], context, slot.post_block);
+                    self.RelooperAddBranch(code_sexp_idx, .pre, code_sexp_idx, .post, null, null);
                     return;
                 } else if (callee.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
                     std.debug.assert(list.items.len >= 3);
                     const condition_idx = code_sexp.value.list.items[1];
                     const condition_slot = &self._sexp_compiled[condition_idx];
                     const consequence_idx = code_sexp.value.list.items[2];
-                    try self.linkExpr(consequence_idx, context, slot.post_block);
+                    self.RelooperAddBranch(code_sexp_idx, .pre, condition_idx, .pre, null, null);
                     self.RelooperAddBranch(
                         condition_idx,
                         .post,
@@ -1678,12 +1673,15 @@ const Compilation = struct {
                         null,
                     );
                     self.RelooperAddBranch(consequence_idx, .post, code_sexp_idx, .post, null, null);
+                    try self.linkExpr(consequence_idx, context, slot.post_block);
                     if (list.items.len > 3) {
                         const alternative_idx = code_sexp.value.list.items[3];
                         try self.linkExpr(condition_idx, context, self._sexp_compiled[alternative_idx].pre_block);
                         try self.linkExpr(alternative_idx, context, slot.post_block);
+                        self.RelooperAddBranch(condition_idx, .post, alternative_idx, .pre, null, null);
                     } else {
                         try self.linkExpr(condition_idx, context, slot.post_block);
+                        self.RelooperAddBranch(condition_idx, .post, code_sexp_idx, .pre, null, null);
                     }
                 } else { // otherwise begin, return, define, or function call // TODO: macros
                     const items = if (callee.value.symbol.ptr == syms.define.value.symbol.ptr) list.items[2..] else list.items[1..];
