@@ -932,7 +932,12 @@ const Compilation = struct {
         const byn_local_types = try self.arena.allocator().alloc(byn.Type, local_types.items.len);
         defer self.arena.allocator().free(byn_local_types);
         for (byn_local_types, local_types.items) |*byn_local_type, local_type| {
-            byn_local_type.* = @enumFromInt(BinaryenHelper.getType(local_type));
+            byn_local_type.* =
+                // FIXME: don't store locals to empties
+                if (local_type == graphl_builtin.empty_type)
+                    byn.Type.i32
+                else
+                    @enumFromInt(BinaryenHelper.getType(local_type));
         }
 
         const func = self.module.addFunction(
@@ -1562,6 +1567,7 @@ const Compilation = struct {
             type: Type,
         };
 
+        // FIXME: put into local_symbols as well? (or use env?)
         /// returns the index of the wasm local holding the value on the frame
         pub fn putLocalForSexp(self: *@This(), comp_ctx: *const Compilation, sexp_idx: u32) byn.c.BinaryenIndex {
             const local_index = self.next_sexp_local_idx;
@@ -1577,11 +1583,12 @@ const Compilation = struct {
             if (!slot.type.isPrimitive()) {
                 slot.frame_depth = self._frame_byte_size;
                 self._frame_byte_size += slot.type.size;
-
-                try self.local_types.ensureTotalCapacity(comp_ctx.arena.allocator(), slot.local_index);
-                self.local_types.expandToCapacity();
-                self.local_types.items[slot.local_index] = slot.type;
             }
+
+            std.debug.print("local {} has type {s} for sexp: {}\n", .{ slot.local_index, slot.type.name, Sexp.printOneLine(comp_ctx.graphlt_module, sexp_idx) });
+            try self.local_types.ensureTotalCapacity(comp_ctx.arena.allocator(), slot.local_index);
+            self.local_types.expandToCapacity();
+            self.local_types.items[slot.local_index] = slot.type;
         }
     };
 
