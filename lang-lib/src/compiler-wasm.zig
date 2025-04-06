@@ -1,6 +1,6 @@
 //! TODO: move this to another place
 //! ABI:
-//! - There is a stack
+//! - stack
 //! - For functions:
 //!   - Each graphl parameter function is converted to a wasm parameter
 //!     - primitives are passed by value
@@ -870,8 +870,6 @@ const Compilation = struct {
         var fn_body_expr_ctx = ExprContext{
             .local_symbols = &locals_symbols,
             .local_types = &local_types,
-            .param_names = func_decl.param_names,
-            .param_types = func_type.param_types,
             .relooper = byn.c.RelooperCreate(self.module.c()) orelse @panic("relooper creation failed"),
         };
 
@@ -965,6 +963,7 @@ const Compilation = struct {
         slot.expr = undefined;
 
         const local_index = context.putLocalForSexp(self, code_sexp_idx);
+        std.debug.print("put local {} for sexp: {}\n", .{ local_index, Sexp.printOneLine(self.graphlt_module, code_sexp_idx) });
 
         done: {
             switch (code_sexp.value) {
@@ -1092,9 +1091,12 @@ const Compilation = struct {
 
                     for (v.items[1..], input_descs) |arg_idx, input_desc| {
                         std.debug.assert(input_desc.asPrimitivePin() == .value);
-                        var subcontext: ExprContext = context.*;
-                        subcontext.type = input_desc.asPrimitivePin().value;
-                        try self.compileExpr(arg_idx, &subcontext);
+
+                        // FIXME: use a subcontext with a specific type to promote to
+                        //var subcontext: ExprContext = context.*;
+                        //subcontext.type = input_desc.asPrimitivePin().value;
+
+                        try self.compileExpr(arg_idx, context);
                         const arg_compiled = &self._sexp_compiled[arg_idx];
                         args_top_type = resolvePeerType(args_top_type, arg_compiled.type);
                     }
@@ -1549,16 +1551,13 @@ const Compilation = struct {
 
     const ExprContext = struct {
         // FIXME: maybe this should just be empty/unresolved type instead of null?
-        type: ?Type = null,
-        param_names: []const []const u8,
-        param_types: []const Type,
+        //type: ?Type = null,
 
         // FIXME: separate this function-level stuff from the expr-level stuff
         _frame_byte_size: u32 = 0,
         relooper: *byn.c.struct_Relooper,
         next_sexp_local_idx: u32 = 0,
         local_types: *std.ArrayListUnmanaged(Type),
-
         /// map of symbols to the local index holding them with its type,
         local_symbols: *SymMapUnmanaged(LocalInfo),
 
@@ -1585,8 +1584,9 @@ const Compilation = struct {
                 self._frame_byte_size += slot.type.size;
             }
 
+            // FIXME: why are these overwriting each other?
             std.debug.print("local {} has type {s} for sexp: {}\n", .{ slot.local_index, slot.type.name, Sexp.printOneLine(comp_ctx.graphlt_module, sexp_idx) });
-            try self.local_types.ensureTotalCapacity(comp_ctx.arena.allocator(), slot.local_index);
+            try self.local_types.ensureTotalCapacityPrecise(comp_ctx.arena.allocator(), slot.local_index + 1);
             self.local_types.expandToCapacity();
             self.local_types.items[slot.local_index] = slot.type;
         }
@@ -1807,31 +1807,6 @@ const Compilation = struct {
             else => {},
         }
         return false;
-    }
-
-    fn compileExprsAsBlock(
-        self: *@This(),
-        expr_idxs: []const u32,
-        /// not const because we may be expanding the frame to include this value
-        parent_expr_ctx: *ExprContext,
-    ) CompileExprError!ExprBlock {
-        var result_type: Type = graphl_builtin.empty_type;
-
-        for (expr_idxs) |expr_idx| {
-            var expr_ctx = parent_expr_ctx.*;
-            try self.compileExpr(expr_idx, &expr_ctx);
-            const expr_compiled = &self._sexp_compiled[expr_idx];
-            // if (!isControlFlow(self.graphlt_module, body_expr))
-            //     exprs.appendAssumeCapacity(expr_compiled.expr);
-
-            // FIXME: previously we just took the last one for the function body
-            // this is what we did for return/begin expressions... is this right?
-            result_type = resolvePeerType(parent_expr_ctx.type orelse graphl_builtin.empty_type, expr_compiled.type);
-        }
-
-        return .{
-            .type = result_type,
-        };
     }
 
     fn compileTypeOfVar(self: *@This(), sexp: *const Sexp) !bool {
