@@ -864,7 +864,7 @@ const Compilation = struct {
 
             if (put_res.found_existing) {
                 self.diag.err = .{ .DuplicateParam = p_idx };
-                return error.DuplicateVariable;
+                return error.DuplicateParam;
             }
 
             put_res.value_ptr.* = .{
@@ -875,40 +875,14 @@ const Compilation = struct {
             // FIXME: why not add this to the env as a getter?
         }
 
-        for (func_decl.local_names, func_decl.local_name_idxs, func_decl.local_types) |local_name, local_name_idx, local_type| {
-            const put_res = try locals_symbols.getOrPut(alloc, local_name);
-
-            if (put_res.found_existing) {
-                self.diag.err = .{ .DuplicateVariable = local_name_idx };
-                return error.DuplicateVariable;
-            }
-
-            put_res.value_ptr.* = .{
-                .index = @intCast(locals_symbols.count()),
-                .type = local_type,
-            };
-
-            // FIXME: why not add this to the env as a getter?
-            // const node_desc = try self.arena.allocator().create(graphl_builtin.BasicMutNodeDesc);
-            // node_desc.* = .{
-            //     .name = local_name,
-            //     .kind = .get,
-            //     .inputs = &.{},
-            //     .outputs = try self.arena.allocator().alloc(Pin, func_type.result_types.len + 1),
-            // };
-            // node_desc.outputs[0] = Pin{ .name = local_name, .kind = .{ .primitive = .{ .value = local_type } } };
-
-            // // FIXME: why must this be mutable?
-            // // we must use the same allocator that env is deinited with!
-            // _ = try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(node_desc));
-        }
-
         var local_types: std.ArrayListUnmanaged(Type) = .{};
         defer local_types.deinit(self.arena.allocator());
 
         var fn_ctx = FnContext{
             .local_symbols = &locals_symbols,
             .local_types = &local_types,
+            // locals should be placed after params
+            .next_sexp_local_idx = @intCast(local_types.items.len),
             .relooper = byn.c.RelooperCreate(self.module.c()) orelse @panic("relooper creation failed"),
             .return_type = result_type.graphl,
         };
@@ -990,7 +964,6 @@ const Compilation = struct {
         slot.expr = undefined;
 
         const local_index = fn_ctx.putLocalForSexp(self, code_sexp_idx);
-        std.debug.print("put local {} for sexp: {}\n", .{ local_index, Sexp.printOneLine(self.graphlt_module, code_sexp_idx) });
 
         done: {
             switch (code_sexp.value) {
@@ -1065,21 +1038,62 @@ const Compilation = struct {
                     }
 
                     if (func.value.symbol.ptr == syms.define.value.symbol.ptr) {
-                        for (v.items[1..]) |arg| {
+                        const binding = self.graphlt_module.get(v.items[1]);
+
+                        // no need to compile bindings, they aren't valid expressions
+                        // FIXME: add bindings to env
+                        for (v.items[2..]) |arg| {
                             try self.compileExpr(arg, fn_ctx, expr_ctx);
                         }
 
-                        slot.type = graphl_builtin.empty_type;
+                        switch (binding.value) {
+                            // function def
+                            .list => {
 
-                        if (v.items.len >= 2) {
-                            const last_arg_idx = v.items[v.items.len - 1];
-                            // FIXME: check the ExprContext and maybe promote the type...
-                            slot.type = self._sexp_compiled[last_arg_idx].type;
+                                // FIXME: should use the function return type lol
+                                slot.type = graphl_builtin.empty_type;
+                                slot.expr = byn.c.BinaryenNop(self.module.c());
+
+                                break :done;
+                            },
+                            // variable def
+                            .symbol => |sym| {
+                                // FIXME: check the typeof (via env?) and promote the type...
+                                slot.type = graphl_builtin.empty_type;
+                                slot.expr = byn.c.BinaryenNop(self.module.c());
+
+                                const last_arg_idx = v.items[v.items.len - 1];
+                                const last_arg_slot = &self._sexp_compiled[last_arg_idx];
+
+                                const putres = try fn_ctx.local_symbols.getOrPut(self.arena.allocator(), sym);
+                                if (putres.found_existing) {
+                                    // FIXME: remove print
+                                    std.debug.print("duplicate var: {}\n", .{Sexp.printOneLine(self.graphlt_module, code_sexp_idx)});
+                                    self.diag.err = .{ .DuplicateVariable = code_sexp_idx };
+                                    return error.DuplicateVariable;
+                                } else {
+                                    // FIXME: use typeof type
+                                    putres.value_ptr.* = .{
+                                        .type = last_arg_slot.type,
+                                        .index = local_index,
+                                    };
+                                }
+
+                                if (v.items.len == 3) {
+                                    slot.type = self._sexp_compiled[last_arg_idx].type;
+                                    slot.expr = byn.c.BinaryenLocalSet(
+                                        self.module.c(),
+                                        local_index,
+                                        byn.c.BinaryenLocalGet(self.module.c(), last_arg_slot.local_index, BinaryenHelper.getType(last_arg_slot.type)),
+                                    );
+                                } else {
+                                    return error.BuiltinWrongArity; // FIXME: add diag
+                                }
+
+                                break :done;
+                            },
+                            else => return error.BuiltinWrongArity, // FIXME: better error
                         }
-
-                        slot.expr = byn.c.BinaryenNop(self.module.c());
-
-                        break :done;
                     }
 
                     // call host functions
@@ -1150,15 +1164,14 @@ const Compilation = struct {
                         // FIXME: leak
                         const set_sym = self.graphlt_module.get(v.items[1]).value.symbol;
 
-                        const local_info = fn_ctx.local_symbols.get(set_sym) orelse {
+                        const local_info = fn_ctx.local_symbols.getPtr(set_sym) orelse {
                             self.diag.err = .{ .UndefinedSymbol = v.items[1] };
                             return error.UndefinedSymbol;
                         };
 
                         const value_to_set = self._sexp_compiled[v.items[2]];
 
-                        // FIXME: why? shouldn't this be void anyway?
-                        slot.type = self._sexp_compiled[v.items[2]].type;
+                        slot.type = graphl_builtin.empty_type;
                         slot.expr = byn.c.BinaryenLocalSet(
                             self.module.c(),
                             local_info.index,
@@ -1622,8 +1635,6 @@ const Compilation = struct {
                 self._frame_byte_size += slot.type.size;
             }
 
-            // FIXME: why are these overwriting each other?
-            std.debug.print("local {} has type {s} for sexp: {}\n", .{ slot.local_index, slot.type.name, Sexp.printOneLine(comp_ctx.graphlt_module, sexp_idx) });
             try self.local_types.ensureTotalCapacityPrecise(comp_ctx.arena.allocator(), slot.local_index + 1);
             self.local_types.expandToCapacity();
             self.local_types.items[slot.local_index] = slot.type;
@@ -1672,9 +1683,6 @@ const Compilation = struct {
     ) CompileExprError!void {
         _ = done_block;
 
-        std.log.debug("linking expr: '{}'\n", .{code_sexp_idx});
-        std.debug.print("LINKING: {}\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
-
         const code_sexp = self.graphlt_module.get(code_sexp_idx);
         const slot = &self._sexp_compiled[code_sexp_idx];
 
@@ -1698,10 +1706,9 @@ const Compilation = struct {
                     self.RelooperAddBranch(code_sexp_idx, .pre, code_sexp_idx, .post, null, null);
                     return;
                 } else if (callee.value.symbol.ptr == syms.define.value.symbol.ptr and list.items.len >= 2 and self.graphlt_module.get(list.items[1]).value == .symbol) {
-                    // HACK: ignore variable definitions
-                    // TODO: instead generate code to set the variable default
                     try self.linkExpr(list.items[2], context, slot.post_block);
-                    self.RelooperAddBranch(code_sexp_idx, .pre, code_sexp_idx, .post, null, null);
+                    self.RelooperAddBranch(code_sexp_idx, .pre, list.items[2], .pre, null, null);
+                    self.RelooperAddBranch(list.items[2], .post, code_sexp_idx, .post, null, null);
                     return;
                 } else if (callee.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
                     std.debug.assert(list.items.len >= 3);
