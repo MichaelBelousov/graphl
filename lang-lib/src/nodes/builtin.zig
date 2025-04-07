@@ -17,14 +17,26 @@ pub const FuncType = struct {
     result_types: []const Type = &.{},
 };
 
-// could use a u32 index into a type store (might be faster on 64-bit platforms)
-pub const TypeInfo = struct {
-    name: [:0]const u8,
+pub const StructType = struct {
     field_names: []const [:0]const u8 = &.{},
     // should structs allow constrained generic fields?
     field_types: []const Type = &.{},
-    // FIXME: use a union
-    func_type: ?FuncType = null,
+};
+
+pub const ArrayType = struct {
+    type: Type,
+};
+
+// could use a u32 index into a type store (might be faster on 64-bit platforms)
+pub const TypeInfo = struct {
+    name: [:0]const u8,
+    // FIXME: use a union?
+    subtype: union(enum) {
+        primitive: void,
+        func: FuncType,
+        @"struct": StructType,
+        array: ArrayType,
+    } = .primitive,
     /// size in bytes of the type
     size: u32,
 
