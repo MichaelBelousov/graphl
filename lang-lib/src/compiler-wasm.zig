@@ -216,8 +216,6 @@ const DeferredFuncDeclInfo = struct {
     /// indices into the graphlt module context, if there was a default
     local_defaults: []const ?u32,
     result_names: []const [:0]const u8,
-    // FIXME: just take the entire expression and handle define/typeof appropriately
-    body_exprs: []const u32,
     define_body_idx: u32,
 };
 
@@ -538,10 +536,8 @@ const Compilation = struct {
         var local_defaults = std.ArrayList(?u32).init(alloc);
         defer local_defaults.deinit();
 
-        var first_non_def: usize = 0;
-        for (body_expr_idxs, 0..) |maybe_local_def_idx, i| {
+        for (body_expr_idxs) |maybe_local_def_idx| {
             const maybe_local_def = self.graphlt_module.get(maybe_local_def_idx);
-            first_non_def = i;
             // if (maybe_local_def.value != .list) break;
             // if (maybe_local_def.value.list.items.len < 3) break;
             // if (maybe_local_def.value.list.items[0].value.symbol.ptr != syms.define.value.symbol.ptr and maybe_local_def.value.list.items[0].value.symbol.ptr != syms.typeof.value.symbol.ptr)
@@ -576,10 +572,6 @@ const Compilation = struct {
             }
         }
 
-        std.debug.assert(first_non_def < body_expr_idxs.len);
-
-        const return_exprs = body_expr_idxs[first_non_def..];
-
         const func_name = sexp.getWithModule(1, self.graphlt_module).getWithModule(0, self.graphlt_module).value.symbol;
         //const params = sexp.value.list.items[1].value.list.items[1..];
         const func_name_mangled = func_name;
@@ -608,7 +600,6 @@ const Compilation = struct {
             .local_types = try local_types.toOwnedSlice(),
             .local_defaults = try local_defaults.toOwnedSlice(),
             .result_names = &.{}, // FIXME
-            .body_exprs = return_exprs,
             .define_body_idx = sexp_index,
         };
 
@@ -853,8 +844,6 @@ const Compilation = struct {
             _ = try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(node_desc));
         }
 
-        std.debug.assert(func_decl.body_exprs.len >= 1);
-
         // FIXME: rename
         // TODO: use @FieldType
 
@@ -922,7 +911,7 @@ const Compilation = struct {
         //     }
         // };
 
-        const entry = if (func_decl.body_exprs.len > 0) self._sexp_compiled[func_decl.body_exprs[0]].pre_block else byn.c.RelooperAddBlock(fn_ctx.relooper, null);
+        const entry = self._sexp_compiled[func_decl.define_body_idx].pre_block;
         const body = byn.c.RelooperRenderAndDispose(
             fn_ctx.relooper,
             entry,
@@ -2108,15 +2097,17 @@ const Compilation = struct {
         // TODO: consider doing this
         //byn.c.BinaryenModuleAutoDrop(self.module.c());
 
-        if (builtin.mode == .Debug) {
+        if (std.log.logEnabled(.debug, .graphlt_compiler)) {
             //byn.c.BinaryenModulePrintStackIR(vec3_module);
             //byn.c.BinaryenModulePrintStackIR(self.module.c());
             byn._BinaryenModulePrintStderr(self.module.c());
             //FIXME: right now the validation doesn't seem to match `wasm-tools validate`
             //std.debug.assert(
-            _ = byn.c.BinaryenModuleValidate(self.module.c());
             //);
         }
+        // TODO: don't generate output?
+        _ = byn.c.BinaryenModuleValidate(self.module.c());
+
         // TODO:
         //byn.c.BinaryenModuleOptimize(self.module.c());
 
@@ -2793,8 +2784,25 @@ test "new small" {
         \\  (export "memory" (memory 0))
         \\  (export "foo" (func 0))
         \\  (func (;0;) (type 0) (param i64) (result i64)
-        \\    (local i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i32 i32 i32 i32 i32 i32 i32 i32)
-        \\    i32.const 0
+        \\    (local i32 i32 i32 i32 i32 i64)
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        i64.const 1
+        \\        local.set 3
+        \\        local.get 3
+        \\        local.set 2
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    local.get 2
+        \\    local.set 6
+        \\    local.get 6
+        \\    return
         \\  )
         \\  (func (;1;) (type 1) (param i32) (result f64)
         \\    local.get 0
@@ -2802,6 +2810,7 @@ test "new small" {
         \\  )
         \\  (@custom "sourceMappingURL" (after code) "\07/script")
         \\)
+        \\
     ;
 
     var diagnostic = Diagnostic.init();
