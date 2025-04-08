@@ -8,7 +8,11 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run library tests");
 
-    const binaryen_dep = b.dependency("binaryen-zig", .{ .optimize = optimize, .target = target });
+    const binaryen_dep = b.dependency("binaryen-zig", .{
+        .optimize = optimize,
+        .target = target,
+        //.relooper_debug = optimize == .Debug,
+    });
     //const bytebox_dep = b.dependency("bytebox", .{});
 
     const web_target_query = std.Target.Query{
