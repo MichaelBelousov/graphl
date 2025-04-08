@@ -52,6 +52,8 @@ const t = std.testing;
 const SexpParser = @import("./sexp_parser.zig").Parser;
 const SpacePrint = @import("./sexp_parser.zig").SpacePrint;
 
+const log = std.log.scoped(.graphlt_compiler);
+
 // FIXME: use intrinsics as the base and merge/link in our functions
 //const intrinsics = @import("./intrinsics.zig");
 const intrinsics_vec3 = @embedFile("graphl_intrinsics_vec3");
@@ -900,7 +902,7 @@ const Compilation = struct {
         std.debug.assert(func_type.result_types.len == 1);
         if (body_slot.type != func_type.result_types[0]) {
             //std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = expr_fragment.values } }});
-            std.log.warn("type: '{s}' doesn't match '{s}'", .{ body_slot.type.name, func_type.result_types[0].name });
+            log.warn("type: '{s}' doesn't match '{s}'", .{ body_slot.type.name, func_type.result_types[0].name });
             // FIXME/HACK: re-enable but disabling now to awkwardly allow for type promotion
             //return error.ReturnTypeMismatch;
         }
@@ -1098,8 +1100,8 @@ const Compilation = struct {
 
                     // call host functions
                     const func_node_desc = self.env.getNode(func.value.symbol) orelse {
-                        std.log.err("while in:\n{}\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
-                        std.log.err("undefined symbol1: '{s}'\n", .{func.value.symbol});
+                        log.err("while in:\n{}\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
+                        log.err("undefined symbol1: '{s}'\n", .{func.value.symbol});
                         self.diag.err = .{ .UndefinedSymbol = code_sexp_idx };
                         return error.UndefinedSymbol;
                     };
@@ -1238,7 +1240,7 @@ const Compilation = struct {
 
                             // REPORT ME: try to prefer an else on the above for loop, currently couldn't get it to compile right
                             if (!handled) {
-                                std.log.err("unimplemented type resolution: '{s}' for code:\n{}\n", .{ slot.type.name, code_sexp });
+                                log.err("unimplemented type resolution: '{s}' for code:\n{}\n", .{ slot.type.name, code_sexp });
                                 std.debug.panic("unimplemented type resolution: '{s}'", .{slot.type.name});
                             }
 
@@ -1367,7 +1369,7 @@ const Compilation = struct {
                     }
 
                     // otherwise we have a non builtin
-                    std.log.err("unhandled call: {}", .{code_sexp});
+                    log.err("unhandled call: {}", .{code_sexp});
                     return error.UnhandledCall;
                 },
 
@@ -1469,7 +1471,7 @@ const Compilation = struct {
                 },
 
                 inline else => {
-                    std.log.err("unimplemented expr for compilation:\n{}\n", .{code_sexp});
+                    log.err("unimplemented expr for compilation:\n{}\n", .{code_sexp});
                     std.debug.panic("unimplemented type: '{s}'", .{@tagName(code_sexp.value)});
                 },
             }
@@ -1525,7 +1527,7 @@ const Compilation = struct {
                 if (b == primitive_types.f32_) break :_ primitive_types.f64_;
                 if (b == primitive_types.f64_) break :_ primitive_types.f64_;
             }
-            std.log.err("unimplemented peer type resolution: {s} & {s}", .{ a.name, b.name });
+            log.err("unimplemented peer type resolution: {s} & {s}", .{ a.name, b.name });
             std.debug.panic("unimplemented peer type resolution: {s} & {s}", .{ a.name, b.name });
         };
 
@@ -1538,7 +1540,7 @@ const Compilation = struct {
         const MAX_ITERS = 128;
         while (slot.type != target_type) : (i += 1) {
             if (i > MAX_ITERS) {
-                std.log.err("max iters resolving types: {s} -> {s}", .{ slot.type.name, target_type.name });
+                log.err("max iters resolving types: {s} -> {s}", .{ slot.type.name, target_type.name });
                 std.debug.panic("max iters resolving types: {s} -> {s}", .{ slot.type.name, target_type.name });
             }
 
@@ -1565,7 +1567,7 @@ const Compilation = struct {
                 op = byn.Expression.Op.promoteFloat32();
                 slot.type = primitive_types.f64_;
             } else {
-                std.log.err("unimplemented type promotion: {s} -> {s}", .{ slot.type.name, target_type.name });
+                log.err("unimplemented type promotion: {s} -> {s}", .{ slot.type.name, target_type.name });
                 std.debug.panic("unimplemented type promotion: {s} -> {s}", .{ slot.type.name, target_type.name });
             }
 
@@ -2065,14 +2067,14 @@ const Compilation = struct {
                         try self.compileImport(decl));
                     if (!did_compile) {
                         self.diag.err = Diagnostic.Error{ .BadTopLevelForm = idx };
-                        std.log.err("{}", .{self.diag});
+                        log.err("{}", .{self.diag});
                         return error.badTopLevelForm;
                     }
                 },
                 else => {
                     self.diag.err = Diagnostic.Error{ .BadTopLevelForm = idx };
-                    std.log.err("{}", .{self.diag});
-                    std.log.err("{}", .{self.diag});
+                    log.err("{}", .{self.diag});
+                    log.err("{}", .{self.diag});
                     return error.badTopLevelForm;
                 },
             }
