@@ -1249,11 +1249,6 @@ const Compilation = struct {
                                 return error.BuiltinWrongArity;
                             }
 
-                            for (v.items[1..]) |arg_idx| {
-                                const arg_compiled = &self._sexp_compiled[arg_idx];
-                                self.promoteToTypeInPlace(arg_compiled, args_top_type);
-                            }
-
                             var handled = false;
 
                             const lhs = &self._sexp_compiled[v.items[1]];
@@ -1287,8 +1282,16 @@ const Compilation = struct {
                                 byn.c.BinaryenBinary(
                                     self.module.c(),
                                     op.c(),
-                                    byn.c.BinaryenLocalGet(self.module.c(), lhs.local_index, BinaryenHelper.getType(lhs.type)),
-                                    byn.c.BinaryenLocalGet(self.module.c(), rhs.local_index, BinaryenHelper.getType(rhs.type)),
+                                    self.promoteToType(
+                                        lhs.type,
+                                        byn.c.BinaryenLocalGet(self.module.c(), lhs.local_index, BinaryenHelper.getType(lhs.type)),
+                                        args_top_type,
+                                    ),
+                                    self.promoteToType(
+                                        rhs.type,
+                                        byn.c.BinaryenLocalGet(self.module.c(), rhs.local_index, BinaryenHelper.getType(rhs.type)),
+                                        args_top_type,
+                                    ),
                                 ),
                             );
 
@@ -2855,7 +2858,7 @@ test "new small" {
         \\(define (foo n)
         \\  (typeof acc i64)
         \\  (define acc 1)
-        \\  (return (+ acc 2)))
+        \\  (return (+ acc n)))
         \\
     , null);
     //std.debug.print("{any}\n", .{parsed});
