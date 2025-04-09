@@ -867,14 +867,15 @@ const Compilation = struct {
             // FIXME: why not add this to the env as a getter?
         }
 
-        var local_types: std.ArrayListUnmanaged(Type) = .{};
-        defer local_types.deinit(self.arena.allocator());
+        var byn_locals_types: std.ArrayListUnmanaged(Type) = .{};
+        defer byn_locals_types.deinit(self.arena.allocator());
 
         var fn_ctx = FnContext{
             .local_symbols = &locals_symbols,
-            .local_types = &local_types,
+            .local_types = &byn_locals_types,
             // locals should be placed after params
-            .next_sexp_local_idx = @intCast(local_types.items.len),
+            .param_count = @intCast(func_type.param_types.len),
+            .next_sexp_local_idx = @intCast(func_type.param_types.len),
             .relooper = byn.c.RelooperCreate(self.module.c()) orelse @panic("relooper creation failed"),
             .return_type = result_type.graphl,
         };
@@ -919,9 +920,9 @@ const Compilation = struct {
             0, // FIXME: figure out label
         );
 
-        const byn_local_types = try self.arena.allocator().alloc(byn.Type, local_types.items.len);
+        const byn_local_types = try self.arena.allocator().alloc(byn.Type, byn_locals_types.items.len);
         defer self.arena.allocator().free(byn_local_types);
-        for (byn_local_types, local_types.items) |*byn_local_type, local_type| {
+        for (byn_local_types, byn_locals_types.items) |*byn_local_type, local_type| {
             byn_local_type.* =
                 // FIXME: don't store locals to empties
                 if (local_type == graphl_builtin.empty_type)
@@ -1107,15 +1108,27 @@ const Compilation = struct {
                                 }
 
                                 local_symbol.index = local_index;
+                                slot.type = local_symbol.type;
 
                                 if (v.items.len == 3) {
                                     // has default to set
-                                    slot.type = self._sexp_compiled[last_arg_idx].type;
+                                    slot.type = local_symbol.type;
                                     slot.expr = byn.c.BinaryenLocalSet(
                                         self.module.c(),
                                         local_index,
-                                        byn.c.BinaryenLocalGet(self.module.c(), last_arg_slot.local_index, BinaryenHelper.getType(last_arg_slot.type)),
+                                        self.promoteToType(
+                                            last_arg_slot.type,
+                                            byn.c.BinaryenLocalGet(
+                                                self.module.c(),
+                                                last_arg_slot.local_index,
+                                                BinaryenHelper.getType(last_arg_slot.type),
+                                            ),
+                                            slot.type,
+                                        ),
                                     );
+                                } else if (v.items.len == 2) {
+                                    // has no default, leave unset (probably zeroed by wasm maybe)
+                                    slot.expr = byn.c.BinaryenNop(self.module.c());
                                 } else {
                                     self.diag.err = .{ .BuiltinWrongArity = .{
                                         .callee = v.items[0],
@@ -1661,7 +1674,9 @@ const Compilation = struct {
     const FnContext = struct {
         _frame_byte_size: u32 = 0,
         relooper: *byn.c.struct_Relooper,
-        next_sexp_local_idx: u32 = 0,
+        /// NOTE: should be the same as param_count initially
+        next_sexp_local_idx: u32,
+        param_count: u16,
 
         /// the type for each wasm local index, e.g. for each node
         local_types: *std.ArrayListUnmanaged(Type),
@@ -1682,6 +1697,7 @@ const Compilation = struct {
             self.next_sexp_local_idx += 1;
             const slot = &comp_ctx._sexp_compiled[sexp_idx];
             slot.local_index = local_index;
+            std.debug.print("put local {} for sexp {}\n", .{ local_index, sexp_idx });
             return local_index;
         }
 
@@ -1693,9 +1709,11 @@ const Compilation = struct {
                 self._frame_byte_size += slot.type.size;
             }
 
-            try self.local_types.ensureTotalCapacityPrecise(comp_ctx.arena.allocator(), slot.local_index + 1);
+            std.debug.print("type {s} at index {}\n", .{ slot.type.name, slot.local_index });
+            const idx_in_local_types = slot.local_index - self.param_count;
+            try self.local_types.ensureTotalCapacityPrecise(comp_ctx.arena.allocator(), idx_in_local_types + 1);
             self.local_types.expandToCapacity();
-            self.local_types.items[slot.local_index] = slot.type;
+            self.local_types.items[idx_in_local_types] = slot.type;
         }
     };
 
@@ -2837,7 +2855,7 @@ test "new small" {
         \\(define (foo n)
         \\  (typeof acc i64)
         \\  (define acc 1)
-        \\  (return acc))
+        \\  (return (+ acc 2)))
         \\
     , null);
     //std.debug.print("{any}\n", .{parsed});
