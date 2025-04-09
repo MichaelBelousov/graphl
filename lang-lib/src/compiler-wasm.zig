@@ -852,6 +852,7 @@ const Compilation = struct {
         defer locals_symbols.deinit(self.arena.allocator());
 
         for (func_decl.param_names, func_decl.param_name_idxs, func_type.param_types) |p_name, p_idx, p_type| {
+            const index: u32 = @intCast(locals_symbols.count());
             const put_res = try locals_symbols.getOrPut(alloc, p_name);
 
             if (put_res.found_existing) {
@@ -860,7 +861,7 @@ const Compilation = struct {
             }
 
             put_res.value_ptr.* = .{
-                .index = @intCast(locals_symbols.count()),
+                .index = index,
                 .type = p_type,
             };
 
@@ -2872,7 +2873,7 @@ test "new small" {
         \\  (export "memory" (memory 0))
         \\  (export "foo" (func 0))
         \\  (func (;0;) (type 0) (param i64) (result i64)
-        \\    (local i32 i32 i32 i32 i32 i64)
+        \\    (local i32 i32 i32 i64 i64 i64 i64 i64)
         \\    block ;; label = @1
         \\      block ;; label = @2
         \\      end
@@ -2880,14 +2881,24 @@ test "new small" {
         \\    end
         \\    block ;; label = @1
         \\      block ;; label = @2
-        \\        i64.const 1
+        \\        i32.const 1
         \\        local.set 3
         \\        local.get 3
-        \\        local.set 2
+        \\        i64.extend_i32_s
+        \\        local.set 4
         \\      end
         \\      br 0 (;@1;)
         \\    end
-        \\    local.get 2
+        \\    block ;; label = @1
+        \\      local.get 4
+        \\      local.set 7
+        \\      br 0 (;@1;)
+        \\    end
+        \\    local.get 0
+        \\    local.set 8
+        \\    local.get 7
+        \\    local.get 8
+        \\    i64.add
         \\    local.set 6
         \\    local.get 6
         \\    return
