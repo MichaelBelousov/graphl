@@ -85,6 +85,7 @@ pub const Diagnostic = struct {
             expected: u16,
             received: u16,
         },
+        DefineWithoutTypeOf: u32,
     };
 
     const Code = error{
@@ -100,6 +101,7 @@ pub const Diagnostic = struct {
         RecursiveDependency,
         SetNonSymbol,
         BuiltinWrongArity,
+        DefineWithoutTypeOf,
     };
 
     pub fn init() @This() {
@@ -551,13 +553,12 @@ const Compilation = struct {
 
             const local_name = maybe_local_def.getWithModule(1, self.graphlt_module).value.symbol;
 
-            // FIXME: typeofs must come before or after because the name isn't inserted in order!
             if (is_typeof) {
                 const local_type = maybe_local_def.getWithModule(2, self.graphlt_module);
                 if (local_type.value != .symbol)
                     return error.LocalBindingTypeNotSymbol;
                 // TODO: diagnostic
-                (try local_types.addOne()).* = self.env.getType(local_type.value.symbol) orelse return error.TypeNotFound;
+                try local_types.append(self.env.getType(local_type.value.symbol) orelse return error.TypeNotFound);
             } else {
                 const local_default = _: {
                     if (maybe_local_def.value.list.items.len >= 3) {
@@ -972,10 +973,49 @@ const Compilation = struct {
                     }
 
                     if (func.value.symbol.ptr == syms.typeof.value.symbol.ptr) {
-                        // this should never be really referenced
-                        // except jumped through as a nop
                         slot.type = graphl_builtin.empty_type;
                         slot.expr = byn.c.BinaryenNop(self.module.c());
+
+                        if (v.items.len != 3) {
+                            self.diag.err = .{ .BuiltinWrongArity = .{
+                                .callee = v.items[0],
+                                .expected = 2,
+                                .received = @intCast(v.items.len - 1),
+                            } };
+                            return error.BuiltinWrongArity; // FIXME: add diag
+                        }
+
+                        const binding = self.graphlt_module.get(v.items[1]);
+                        if (binding.value != .symbol) {
+                            // FIXME: wrong code
+                            self.diag.err = .{ .NonSymbolCallee = v.items[1] };
+                            return error.NonSymbolCallee;
+                        }
+                        const sym = binding.value.symbol;
+
+                        const value_sexp = self.graphlt_module.get(v.items[2]);
+                        if (binding.value != .symbol) {
+                            // FIXME: wrong code
+                            self.diag.err = .{ .NonSymbolCallee = v.items[1] };
+                            return error.NonSymbolCallee;
+                        }
+                        const value = value_sexp.value.symbol;
+
+                        const putres = try fn_ctx.local_symbols.getOrPut(self.arena.allocator(), sym);
+                        if (putres.found_existing) {
+                            self.diag.err = .{ .DuplicateVariable = code_sexp_idx };
+                            return error.DuplicateVariable;
+                        } else {
+                            const found_type = self.env.getType(value) orelse {
+                                self.diag.err = .{ .UndefinedSymbol = v.items[2] };
+                                return error.UndefinedSymbol;
+                            };
+                            putres.value_ptr.* = .{
+                                .type = found_type,
+                                .index = null,
+                            };
+                        }
+
                         break :done;
                     }
 
@@ -1056,21 +1096,20 @@ const Compilation = struct {
                                 const last_arg_idx = v.items[v.items.len - 1];
                                 const last_arg_slot = &self._sexp_compiled[last_arg_idx];
 
-                                const putres = try fn_ctx.local_symbols.getOrPut(self.arena.allocator(), sym);
-                                if (putres.found_existing) {
-                                    // FIXME: remove print
-                                    std.debug.print("duplicate var: {}\n", .{Sexp.printOneLine(self.graphlt_module, code_sexp_idx)});
+                                const local_symbol = fn_ctx.local_symbols.getPtr(sym) orelse {
+                                    self.diag.err = .{ .DefineWithoutTypeOf = code_sexp_idx };
+                                    return error.DefineWithoutTypeOf;
+                                };
+
+                                if (local_symbol.index != null) {
                                     self.diag.err = .{ .DuplicateVariable = code_sexp_idx };
                                     return error.DuplicateVariable;
-                                } else {
-                                    // FIXME: use typeof type
-                                    putres.value_ptr.* = .{
-                                        .type = last_arg_slot.type,
-                                        .index = local_index,
-                                    };
                                 }
 
+                                local_symbol.index = local_index;
+
                                 if (v.items.len == 3) {
+                                    // has default to set
                                     slot.type = self._sexp_compiled[last_arg_idx].type;
                                     slot.expr = byn.c.BinaryenLocalSet(
                                         self.module.c(),
@@ -1078,12 +1117,24 @@ const Compilation = struct {
                                         byn.c.BinaryenLocalGet(self.module.c(), last_arg_slot.local_index, BinaryenHelper.getType(last_arg_slot.type)),
                                     );
                                 } else {
+                                    self.diag.err = .{ .BuiltinWrongArity = .{
+                                        .callee = v.items[0],
+                                        .expected = 2,
+                                        .received = @intCast(v.items.len - 1),
+                                    } };
                                     return error.BuiltinWrongArity; // FIXME: add diag
                                 }
 
                                 break :done;
                             },
-                            else => return error.BuiltinWrongArity, // FIXME: better error
+                            else => {
+                                self.diag.err = .{ .BuiltinWrongArity = .{
+                                    .callee = v.items[0],
+                                    .expected = 2,
+                                    .received = @intCast(v.items.len - 1),
+                                } };
+                                return error.BuiltinWrongArity; // FIXME: better error
+                            },
                         }
                     }
 
@@ -1165,7 +1216,8 @@ const Compilation = struct {
                         slot.type = graphl_builtin.empty_type;
                         slot.expr = byn.c.BinaryenLocalSet(
                             self.module.c(),
-                            local_info.index,
+                            local_info.index orelse unreachable,
+                            // FIXME: promote value?
                             byn.c.BinaryenLocalGet(self.module.c(), value_to_set.local_index, BinaryenHelper.getType(value_to_set.type)),
                         );
                         break :done;
@@ -1364,7 +1416,7 @@ const Compilation = struct {
 
                 .int => |v| {
                     slot.type = primitive_types.i32_;
-                    slot.expr = byn.c.BinaryenLocalSet(self.module.c(), local_index, byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt64(@intCast(v))));
+                    slot.expr = byn.c.BinaryenLocalSet(self.module.c(), local_index, byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v))));
                 },
 
                 .float => |v| {
@@ -1396,7 +1448,7 @@ const Compilation = struct {
                         if (fn_ctx.local_symbols.getPtr(v)) |local_entry| {
                             break :_ Info{
                                 .type = local_entry.type,
-                                .ref = local_entry.index,
+                                .ref = local_entry.index orelse unreachable,
                             };
                         }
                         self.diag.err = .{ .UndefinedSymbol = code_sexp_idx };
@@ -1523,45 +1575,59 @@ const Compilation = struct {
         return resolved_type;
     }
 
-    // TODO: use an actual type graph/tree and search in it
     fn promoteToTypeInPlace(self: *@This(), slot: *Slot, target_type: Type) void {
+        slot.expr = self.promoteToType(slot.type, slot.expr, target_type);
+        slot.type = target_type;
+    }
+
+    // TODO: use an actual type graph/tree and search in it
+    fn promoteToType(
+        self: *@This(),
+        start_type: Type,
+        expr: byn.c.BinaryenExpressionRef,
+        target_type: Type,
+    ) byn.c.BinaryenExpressionRef {
+        var curr_type = start_type;
+        var curr_expr = expr;
         var i: usize = 0;
         const MAX_ITERS = 128;
-        while (slot.type != target_type) : (i += 1) {
+        while (curr_type != target_type) : (i += 1) {
             if (i > MAX_ITERS) {
-                log.err("max iters resolving types: {s} -> {s}", .{ slot.type.name, target_type.name });
-                std.debug.panic("max iters resolving types: {s} -> {s}", .{ slot.type.name, target_type.name });
+                log.err("max iters resolving types: {s} -> {s}", .{ curr_type.name, target_type.name });
+                std.debug.panic("max iters resolving types: {s} -> {s}", .{ curr_type.name, target_type.name });
             }
 
-            if (slot.type == primitive_types.bool_) {
-                slot.type = primitive_types.i32_;
+            if (curr_type == primitive_types.bool_) {
+                curr_type = primitive_types.i32_;
                 continue;
             }
 
             var op: byn.Expression.Op = undefined;
 
-            if (slot.type == primitive_types.i32_) {
+            if (curr_type == primitive_types.i32_) {
                 op = byn.Expression.Op.extendSInt32();
-                slot.type = primitive_types.i64_;
-            } else if (slot.type == primitive_types.i64_) {
+                curr_type = primitive_types.i64_;
+            } else if (curr_type == primitive_types.i64_) {
                 op = byn.Expression.Op.convertSInt64ToFloat32();
-                slot.type = primitive_types.f32_;
-            } else if (slot.type == primitive_types.u32_) {
+                curr_type = primitive_types.f32_;
+            } else if (curr_type == primitive_types.u32_) {
                 op = byn.Expression.Op.extendUInt32();
-                slot.type = primitive_types.i64_;
-            } else if (slot.type == primitive_types.u64_) {
+                curr_type = primitive_types.i64_;
+            } else if (curr_type == primitive_types.u64_) {
                 op = byn.Expression.Op.convertUInt64ToFloat32();
-                slot.type = primitive_types.f32_;
-            } else if (slot.type == primitive_types.f32_) {
+                curr_type = primitive_types.f32_;
+            } else if (curr_type == primitive_types.f32_) {
                 op = byn.Expression.Op.promoteFloat32();
-                slot.type = primitive_types.f64_;
+                curr_type = primitive_types.f64_;
             } else {
-                log.err("unimplemented type promotion: {s} -> {s}", .{ slot.type.name, target_type.name });
-                std.debug.panic("unimplemented type promotion: {s} -> {s}", .{ slot.type.name, target_type.name });
+                log.err("unimplemented type promotion: {s} -> {s}", .{ curr_type.name, target_type.name });
+                std.debug.panic("unimplemented type promotion: {s} -> {s}", .{ curr_type.name, target_type.name });
             }
 
-            slot.expr = byn.c.BinaryenUnary(self.module.c(), op.c(), slot.expr);
+            curr_expr = byn.c.BinaryenUnary(self.module.c(), op.c(), curr_expr);
         }
+
+        return curr_expr;
     }
 
     // resolve the peer type of the fragments, then augment the fragment to be casted to that resolved peer
@@ -1593,18 +1659,19 @@ const Compilation = struct {
     };
 
     const FnContext = struct {
-
-        // FIXME: separate this function-level stuff from the expr-level stuff
         _frame_byte_size: u32 = 0,
         relooper: *byn.c.struct_Relooper,
         next_sexp_local_idx: u32 = 0,
+
+        /// the type for each wasm local index, e.g. for each node
         local_types: *std.ArrayListUnmanaged(Type),
-        /// map of symbols to the local index holding them with its type,
+        /// map of graphl symbols to the type and wasm local holding it
         local_symbols: *SymMapUnmanaged(LocalInfo),
+
         return_type: Type,
 
         pub const LocalInfo = struct {
-            index: byn.c.BinaryenIndex,
+            index: ?byn.c.BinaryenIndex = null,
             type: Type,
         };
 
