@@ -2895,31 +2895,42 @@ test "factorial iterative" {
         \\  (type (;1;) (func (param i32) (result f64)))
         \\  (memory (;0;) 1 256)
         \\  (export "memory" (memory 0))
-        \\  (export "factorial" (func 0))
-        \\  (func (;0;) (type 0) (param i64) (result i64)
-        \\    (local i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i32 i32 i32 i32 i32 i32 i32 i32)
+        \\  (export "factorial" (func $factorial))
+        \\  (func $factorial (;0;) (type 0) (param i64) (result i64)
+        \\    (local i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i32 i32 i32 i32 i32 i32 i32 i32 i32)
         \\    block ;; label = @1
         \\      block ;; label = @2
         \\      end
         \\      br 0 (;@1;)
         \\    end
         \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        i32.const 1
+        \\        local.set 17
+        \\        local.get 17
+        \\        i64.extend_i32_s
+        \\        local.set 2
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
         \\      loop ;; label = @2
         \\        block ;; label = @3
-        \\          local.get 1
-        \\          local.set 23
+        \\          local.get 0
+        \\          local.set 5
         \\          br 0 (;@3;)
         \\        end
         \\        block ;; label = @3
         \\          block ;; label = @4
         \\            i32.const 1
-        \\            local.set 7
-        \\            local.get 23
-        \\            local.get 7
+        \\            local.set 19
+        \\            local.get 5
+        \\            local.get 19
+        \\            i64.extend_i32_s
         \\            i64.le_s
-        \\            local.set 6
+        \\            local.set 18
         \\          end
-        \\          local.get 6
+        \\          local.get 18
         \\          if ;; label = @4
         \\            br 3 (;@1;)
         \\          else
@@ -2929,47 +2940,48 @@ test "factorial iterative" {
         \\        end
         \\        block ;; label = @3
         \\          local.get 2
-        \\          local.set 11
+        \\          local.set 9
         \\          br 0 (;@3;)
         \\        end
         \\        block ;; label = @3
         \\          local.get 2
-        \\          local.set 13
+        \\          local.set 11
         \\          br 0 (;@3;)
         \\        end
         \\        block ;; label = @3
         \\          block ;; label = @4
         \\            block ;; label = @5
-        \\              local.get 1
-        \\              local.set 14
-        \\              local.get 13
-        \\              local.get 14
-        \\              i64.mul
+        \\              local.get 0
         \\              local.set 12
+        \\              local.get 11
+        \\              local.get 12
+        \\              i64.mul
+        \\              local.set 10
         \\            end
-        \\            local.get 12
+        \\            local.get 10
         \\            local.set 2
         \\          end
         \\          br 0 (;@3;)
         \\        end
         \\        block ;; label = @3
-        \\          local.get 1
-        \\          local.set 16
+        \\          local.get 0
+        \\          local.set 13
         \\          br 0 (;@3;)
         \\        end
         \\        block ;; label = @3
-        \\          local.get 1
-        \\          local.set 18
+        \\          local.get 0
+        \\          local.set 15
         \\          br 0 (;@3;)
         \\        end
         \\        i32.const 1
-        \\        local.set 19
-        \\        local.get 18
-        \\        local.get 19
+        \\        local.set 23
+        \\        local.get 15
+        \\        local.get 23
+        \\        i64.extend_i32_s
         \\        i64.sub
-        \\        local.set 17
-        \\        local.get 17
-        \\        local.set 1
+        \\        local.set 14
+        \\        local.get 14
+        \\        local.set 0
         \\        br 0 (;@2;)
         \\      end
         \\      unreachable
@@ -2977,14 +2989,15 @@ test "factorial iterative" {
         \\    block ;; label = @1
         \\      block ;; label = @2
         \\        local.get 2
-        \\        local.set 9
-        \\        local.get 9
+        \\        local.set 8
+        \\        local.get 8
         \\        return
         \\      end
         \\      unreachable
         \\    end
+        \\    unreachable
         \\  )
-        \\  (func (;1;) (type 1) (param i32) (result f64)
+        \\  (func $Vec3->X (;1;) (type 1) (param i32) (result f64)
         \\    local.get 0
         \\    f64.load
         \\  )
