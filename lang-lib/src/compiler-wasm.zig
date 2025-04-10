@@ -86,6 +86,7 @@ pub const Diagnostic = struct {
             received: u16,
         },
         DefineWithoutTypeOf: u32,
+        InvalidIR,
     };
 
     const Code = error{
@@ -102,6 +103,7 @@ pub const Diagnostic = struct {
         SetNonSymbol,
         BuiltinWrongArity,
         DefineWithoutTypeOf,
+        InvalidIR,
     };
 
     pub fn init() @This() {
@@ -177,6 +179,12 @@ pub const Diagnostic = struct {
                     err_info.expected,
                     err_info.received,
                 });
+            },
+            .InvalidIR => {
+                try writer.writeAll(
+                    \\Compiler failed to generate valid binaryen IR, see stderr for details.
+                    \\
+                );
             },
             inline else => |idx, tag| {
                 // FIXME: HACK
@@ -447,6 +455,8 @@ const Compilation = struct {
                 .func_map = undefined,
             },
         };
+
+        byn.c.BinaryenSetDebugInfo(true);
 
         result._sexp_compiled = try result.arena.allocator().alloc(Slot, graphlt_module.arena.items.len);
 
@@ -932,6 +942,7 @@ const Compilation = struct {
                     @enumFromInt(BinaryenHelper.getType(local_type));
         }
 
+        std.debug.print("result type: {s}\n", .{result_type.graphl.name});
         const func = self.module.addFunction(
             name,
             @enumFromInt(param_type_byn),
@@ -1082,10 +1093,13 @@ const Compilation = struct {
                         switch (binding.value) {
                             // function def
                             .list => {
-
-                                // FIXME: should use the function return type lol
-                                slot.type = graphl_builtin.empty_type;
-                                slot.expr = byn.c.BinaryenNop(self.module.c());
+                                slot.type = fn_ctx.return_type;
+                                slot.expr = if (fn_ctx.return_type == graphl_builtin.primitive_types.void)
+                                    byn.c.BinaryenNop(self.module.c())
+                                else
+                                    // add an unreachable to the end of the function def if it must return, since
+                                    // it is not possible to reach the end without a return statement
+                                    byn.c.BinaryenUnreachable(self.module.c());
 
                                 break :done;
                             },
@@ -1523,6 +1537,7 @@ const Compilation = struct {
 
                 .jump => {
                     slot.type = graphl_builtin.empty_type;
+                    //  FIXME: turn on!
                     // FIXME: probably post block of jump should be unreachable?
                     //slot.expr = byn.c.BinaryenNop(self.module.c());
                     slot.expr = byn.c.BinaryenUnreachable(self.module.c());
@@ -1954,7 +1969,13 @@ const Compilation = struct {
         return true;
     }
 
-    pub fn compileModule(self: *@This(), graphlt_module: *const ModuleContext) ![]const u8 {
+    const Optimize = enum { size, speed, none };
+
+    const Opts = struct {
+        optimize: Optimize = .none,
+    };
+
+    pub fn compileModule(self: *@This(), graphlt_module: *const ModuleContext, opts: Opts) ![]const u8 {
         const UserFuncDef = struct {
             params: []Type,
             results: []Type,
@@ -2187,18 +2208,23 @@ const Compilation = struct {
         //byn.c.BinaryenModuleAutoDrop(self.module.c());
 
         if (std.log.logEnabled(.debug, .graphlt_compiler)) {
-            //byn.c.BinaryenModulePrintStackIR(vec3_module);
-            //byn.c.BinaryenModulePrintStackIR(self.module.c());
             byn._BinaryenModulePrintStderr(self.module.c());
-            //FIXME: right now the validation doesn't seem to match `wasm-tools validate`
-            //std.debug.assert(
-            //);
         }
-        // TODO: don't generate output?
-        _ = byn.c.BinaryenModuleValidate(self.module.c());
 
-        // TODO:
-        //byn.c.BinaryenModuleOptimize(self.module.c());
+        if (opts.optimize != .none) {
+            // FIXME: turn on!
+            //byn.c.BinaryenModuleOptimize(self.module.c());
+        }
+
+        // TODO: don't print output to stdout?
+        if (!byn._BinaryenModuleValidateWithOpts(
+            self.module.c(),
+            @enumFromInt( //@intFromEnum(byn.Flags.quiet) |
+            @intFromEnum(byn.Flags.globally)),
+        )) {
+            self.diag.err = .InvalidIR;
+            return error.InvalidIR;
+        }
 
         // FIXME: make the arena in this function instead of in the caller
         // NOTE: use arena parent so that when the arena deinit's, this remains,
@@ -2229,7 +2255,10 @@ pub fn compile(
     var unit = try Compilation.init(a, graphlt_module, &env, user_funcs, diag);
     defer unit.deinit();
 
-    return unit.compileModule(graphlt_module);
+    // FIXME: make optimize an option
+    return unit.compileModule(graphlt_module, .{
+        .optimize = .size,
+    });
 }
 
 pub const compiled_prelude = (
@@ -2667,7 +2696,7 @@ pub fn expectWasmEqualsWat(wat: []const u8, wasm: []const u8) !void {
     );
 }
 
-test "recurse" {
+test "factorial recursive" {
     // FIXME: support expression functions
     //     \\(define (++ x) (+ x 1))
 
@@ -2681,30 +2710,80 @@ test "recurse" {
         \\
     , null);
     //std.debug.print("{any}\n", .{parsed});
-    defer parsed.deinit(t.allocator);
+    defer parsed.deinit();
 
     const expected =
         \\(module
         \\  (type (;0;) (func (param i32) (result i32)))
+        \\  (type (;1;) (func (param i32) (result f64)))
+        \\  (memory (;0;) 1 256)
+        \\  (export "memory" (memory 0))
         \\  (export "factorial" (func 0))
         \\  (func (;0;) (type 0) (param i32) (result i32)
-        \\    local.get 0
-        \\    i32.const 1
-        \\    i32.le_s
-        \\    if (result i32) ;; label = @1
-        \\      block (result i32) ;; label = @2
-        \\        i32.const 1
+        \\    (local i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32)
+        \\    block ;; label = @1
+        \\      block ;; label = @2
         \\      end
-        \\    else
-        \\      block (result i32) ;; label = @2
-        \\        local.get 0
-        \\        local.get 0
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      local.get 0
+        \\      local.set 5
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
         \\        i32.const 1
-        \\        i32.sub
-        \\        call 0
-        \\        i32.mul
+        \\        local.set 6
+        \\        local.get 5
+        \\        local.get 6
+        \\        i32.le_s
+        \\        local.set 4
+        \\      end
+        \\      local.get 4
+        \\      if ;; label = @2
+        \\        block ;; label = @3
+        \\          block ;; label = @4
+        \\            i32.const 1
+        \\            local.set 9
+        \\            local.get 9
+        \\            return
+        \\          end
+        \\          unreachable
+        \\        end
+        \\      else
+        \\        br 1 (;@1;)
         \\      end
         \\    end
+        \\    block ;; label = @1
+        \\      local.get 0
+        \\      local.set 13
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      local.get 0
+        \\      local.set 16
+        \\      br 0 (;@1;)
+        \\    end
+        \\    i32.const 1
+        \\    local.set 17
+        \\    local.get 16
+        \\    local.get 17
+        \\    i32.sub
+        \\    local.set 15
+        \\    local.get 15
+        \\    call 0
+        \\    local.set 14
+        \\    local.get 13
+        \\    local.get 14
+        \\    i32.mul
+        \\    local.set 12
+        \\    local.get 12
+        \\    return
+        \\  )
+        \\  (func (;1;) (type 1) (param i32) (result f64)
+        \\    local.get 0
+        \\    f64.load
         \\  )
         \\  (@custom "sourceMappingURL" (after code) "\07/script")
         \\)
@@ -2712,7 +2791,77 @@ test "recurse" {
     ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, null, &diagnostic)) |wasm| {
+    if (compile(t.allocator, &parsed.module, null, &diagnostic)) |wasm| {
+        defer t.allocator.free(wasm);
+        try expectWasmEqualsWat(expected, wasm);
+    } else |err| {
+        std.debug.print("err {}:\n{}", .{ err, diagnostic });
+        try t.expect(false);
+    }
+}
+
+// FIXME: delete once factorial works
+test "new small" {
+    // FIXME: support expression functions
+    //     \\(define (++ x) (+ x 1))
+
+    var parsed = try SexpParser.parse(t.allocator,
+        \\(typeof (foo i32) i32)
+        \\(define (foo n)
+        \\  (begin
+        \\    (return (+ 3 n))))
+        \\
+    , null);
+    //std.debug.print("{any}\n", .{parsed});
+    defer parsed.deinit();
+
+    const expected =
+        \\(module
+        \\  (type (;0;) (func (param i32) (result i32)))
+        \\  (type (;1;) (func (param i32) (result f64)))
+        \\  (memory (;0;) 1 256)
+        \\  (export "memory" (memory 0))
+        \\  (export "foo" (func $foo))
+        \\  (func $foo (;0;) (type 0) (param i32) (result i32)
+        \\    (local i32 i32 i32 i32 i32 i32)
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      i32.const 3
+        \\      local.set 5
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        block ;; label = @3
+        \\          local.get 0
+        \\          local.set 6
+        \\          local.get 5
+        \\          local.get 6
+        \\          i32.add
+        \\          local.set 4
+        \\        end
+        \\        local.get 4
+        \\        return
+        \\      end
+        \\      unreachable
+        \\    end
+        \\    unreachable
+        \\  )
+        \\  (func $Vec3->X (;1;) (type 1) (param i32) (result f64)
+        \\    local.get 0
+        \\    f64.load
+        \\  )
+        \\  (@custom "sourceMappingURL" (after code) "\07/script")
+        \\)
+        \\
+    ;
+
+    var diagnostic = Diagnostic.init();
+    if (compile(t.allocator, &parsed.module, null, &diagnostic)) |wasm| {
         defer t.allocator.free(wasm);
         try expectWasmEqualsWat(expected, wasm);
     } else |err| {
@@ -2834,74 +2983,6 @@ test "factorial iterative" {
         \\      end
         \\      unreachable
         \\    end
-        \\  )
-        \\  (func (;1;) (type 1) (param i32) (result f64)
-        \\    local.get 0
-        \\    f64.load
-        \\  )
-        \\  (@custom "sourceMappingURL" (after code) "\07/script")
-        \\)
-    ;
-
-    var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed.module, null, &diagnostic)) |wasm| {
-        defer t.allocator.free(wasm);
-        try expectWasmEqualsWat(expected, wasm);
-    } else |err| {
-        std.debug.print("err {}:\n{}", .{ err, diagnostic });
-        try t.expect(false);
-    }
-}
-
-test "new small" {
-    var parsed = try SexpParser.parse(t.allocator,
-        \\(typeof (foo i64) i64)
-        \\(define (foo n)
-        \\  (typeof acc i64)
-        \\  (define acc 1)
-        \\  (return (+ acc n)))
-        \\
-    , null);
-    //std.debug.print("{any}\n", .{parsed});
-    defer parsed.deinit();
-
-    const expected =
-        \\(module
-        \\  (type (;0;) (func (param i64) (result i64)))
-        \\  (type (;1;) (func (param i32) (result f64)))
-        \\  (memory (;0;) 1 256)
-        \\  (export "memory" (memory 0))
-        \\  (export "foo" (func 0))
-        \\  (func (;0;) (type 0) (param i64) (result i64)
-        \\    (local i32 i32 i32 i64 i64 i64 i64 i64)
-        \\    block ;; label = @1
-        \\      block ;; label = @2
-        \\      end
-        \\      br 0 (;@1;)
-        \\    end
-        \\    block ;; label = @1
-        \\      block ;; label = @2
-        \\        i32.const 1
-        \\        local.set 3
-        \\        local.get 3
-        \\        i64.extend_i32_s
-        \\        local.set 4
-        \\      end
-        \\      br 0 (;@1;)
-        \\    end
-        \\    block ;; label = @1
-        \\      local.get 4
-        \\      local.set 7
-        \\      br 0 (;@1;)
-        \\    end
-        \\    local.get 0
-        \\    local.set 8
-        \\    local.get 7
-        \\    local.get 8
-        \\    i64.add
-        \\    local.set 6
-        \\    local.get 6
-        \\    return
         \\  )
         \\  (func (;1;) (type 1) (param i32) (result f64)
         \\    local.get 0
