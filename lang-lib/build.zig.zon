@@ -9,8 +9,8 @@
         //     .hash = "1220d8e9eef6dae932311d5f0bb0e21b3ebe0dc488c93a9ad440d6b79fefb0e9f9c4",
         // },
         .@"binaryen-zig" = .{
-            .url = "https://github.com/MichaelBelousov/binaryen-zig/archive/3ee617e25bc6d12a93f43810d862c5ad8e68d51e.zip",
-            .hash = "binaryen-0.1.0-kln6EMrrAAAcB3fHp35eABlYWFHftuhIZLY1P6iZEzpT",
+            .url = "https://github.com/MichaelBelousov/binaryen-zig/archive/22ba2d9d60ee2d421f5a199cc14da5c859bdca47.zip",
+            .hash = "binaryen-0.1.0-kln6EMruAACKG0Q88Qz6_J7JC5mw-rZEZ4mj1qOaXguh",
         },
     },
     .paths = .{
