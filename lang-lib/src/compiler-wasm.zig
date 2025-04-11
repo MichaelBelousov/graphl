@@ -12,21 +12,8 @@
 //!   - executing a function involves pushing its frame on to the stack and
 //!     calling it with the caller's slot as the return address
 //!
+//! // FIXME: rewrite this
 //! HIGH LEVEL OVERVIEW
-//! - traverse the sexp tree, creating a Binaryen (relooper) block for each node
-//!   - create an expression for every node
-//!     - nodes read their dependencies (nodes) via locals
-//!     - value-returning nodes store their calculated values to their assigned local
-//!     - node execution order will be assigned during the block link phase
-//!     - control-flow sexp (if, jump, begin) will be NOPs that link to things
-//!   - create a BinaryenRelooper block for every node (try to optimize...)
-//! - traverse the sexp tree again, this time linking all those blocks
-//!   - all dependencies/arguments are executed first in order
-//!   - "if" will have conditional jumps and then both blocks jump to an "end"
-//!   - jumps just jump
-//!   - begins/blocks are a nop that executes each expression in order
-//!     points to the next (unless its an if)
-//!   - returns are like begins but the last expression then jumps to an inserted return
 //!
 
 const builtin = @import("builtin");
@@ -54,10 +41,7 @@ const SpacePrint = @import("./sexp_parser.zig").SpacePrint;
 
 const log = std.log.scoped(.graphlt_compiler);
 
-// FIXME: use intrinsics as the base and merge/link in our functions
-//const intrinsics = @import("./intrinsics.zig");
 const intrinsics_vec3 = @embedFile("graphl_intrinsics_vec3");
-const intrinsics_code = ""; // FIXME
 
 pub const Diagnostic = struct {
     err: Error = .None,
@@ -2183,19 +2167,6 @@ const Compilation = struct {
             }
         }
 
-        // for (stack_code) |code| {
-        //     _ = try code.write(buffer_writer, .{ .string_literal_dialect = .wat });
-        //     try bytes.appendSlice("\n");
-        // }
-
-        // // FIXME: HACK: merge these properly...
-        // try bytes.appendSlice(intrinsics_code);
-
-        // for (module_defs) |def| {
-        //     _ = try def.write(buffer_writer, .{ .string_literal_dialect = .wat });
-        //     try bytes.appendSlice("\n");
-        // }
-
         // FIXME: only add this intrinsic if it's referenced during analysis
         const vec3_module = byn.c.BinaryenModuleRead(@constCast(intrinsics_vec3.ptr), intrinsics_vec3.len);
 
@@ -2258,14 +2229,6 @@ pub fn compile(
         .optimize = .none,
     });
 }
-
-pub const compiled_prelude = (
-    \\;;; BEGIN INTRINSICS
-    \\
-++ intrinsics_code ++
-    \\
-    \\;;; END INTRINSICS
-);
 
 test "compile big" {
     var user_funcs = std.SinglyLinkedList(UserFunc){};

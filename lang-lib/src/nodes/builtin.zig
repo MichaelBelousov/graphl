@@ -2,7 +2,6 @@
 
 const std = @import("std");
 const Sexp = @import("../sexp.zig").Sexp;
-const intrinsics = @import("../intrinsics.zig");
 const Vec3 = @import("../intrinsics/vec3/Vec3.zig");
 const binaryen = @import("binaryen");
 
@@ -361,12 +360,13 @@ pub const primitive_types = struct {
     // FIXME: consider moving this to live in compound_types
     pub const string: Type = &TypeInfo{
         .name = "string",
-        .size = @sizeOf(intrinsics.GrapplString),
+        // FIXME: figure out what the size is of heap types
+        // in wasm-gc
+        .size = @sizeOf(usize),
     };
 
     pub const vec3: Type = &TypeInfo{
         .name = "vec3",
-        // FIXME: this is wrong
         .size = @sizeOf(Vec3),
     };
 
@@ -375,7 +375,9 @@ pub const primitive_types = struct {
     // FIXME: replace when we think out the macro system
     pub const code: Type = &TypeInfo{
         .name = "code",
-        .size = @sizeOf(intrinsics.GrapplString),
+        // FIXME: figure out what the size is of heap types
+        // in wasm-gc
+        .size = @sizeOf(usize),
     };
 
     // pub const vec3: Type = &TypeInfo{
