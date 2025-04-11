@@ -935,7 +935,7 @@ const Compilation = struct {
         defer self.arena.allocator().free(byn_local_types);
         for (byn_local_types, byn_locals_types.items) |*byn_local_type, local_type| {
             byn_local_type.* =
-                // FIXME: don't store locals to empties
+                // FIXME: don't store locals for empties
                 if (local_type == graphl_builtin.empty_type)
                     byn.Type.i32
                 else
@@ -2147,8 +2147,7 @@ const Compilation = struct {
                         thunk_name,
                         @ptrCast(byn_args.items.ptr),
                         @intCast(byn_args.items.len),
-                        // FIXME: derive the result type
-                        @intFromEnum(byn.Type.i32),
+                        byn_result,
                     )),
                 );
 
@@ -2363,54 +2362,163 @@ test "compile big" {
         \\  (import "env" "callUserFunc_i32_R" (func (;1;) (type 6)))
         \\  (memory (;0;) 1 256)
         \\  (export "memory" (memory 0))
-        \\  (export "++" (func 4))
-        \\  (export "deep" (func 5))
-        \\  (export "ifs" (func 6))
-        \\  (func (;2;) (type 2) (param (ref null 0))
+        \\  (export "++" (func $++))
+        \\  (export "deep" (func $deep))
+        \\  (export "ifs" (func $ifs))
+        \\  (func $sql (;2;) (type 2) (param (ref null 0))
         \\    i32.const 1
         \\    local.get 0
         \\    call 0
         \\  )
-        \\  (func (;3;) (type 3) (param i32)
+        \\  (func $Confetti (;3;) (type 3) (param i32)
         \\    i32.const 0
         \\    local.get 0
         \\    call 1
         \\  )
-        \\  (func (;4;) (type 1) (param i32) (result i32)
-        \\    i32.const 100
-        \\    call 3
-        \\    local.get 0
-        \\    i32.const 1
-        \\    i32.add
-        \\    return
-        \\  )
-        \\  (func (;5;) (type 4) (param f32 f32) (result f32)
-        \\    local.get 0
-        \\    i32.const 10
-        \\    i64.extend_i32_s
-        \\    f32.convert_i64_s
-        \\    f32.div
-        \\    local.get 0
-        \\    local.get 1
-        \\    f32.mul
-        \\    f32.add
-        \\    return
-        \\  )
-        \\  (func (;6;) (type 1) (param i32) (result i32)
-        \\    local.get 0
-        \\    if (result i32) ;; label = @1
-        \\      i32.const 100
-        \\      call 3
-        \\      i32.const 2
-        \\      i32.const 3
-        \\      i32.add
-        \\    else
-        \\      i32.const 200
-        \\      call 3
-        \\      i32.const 10
+        \\  (func $++ (;4;) (type 1) (param i32) (result i32)
+        \\    (local i32 i32 i32 i32 i32 i32 i32)
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\      end
+        \\      br 0 (;@1;)
         \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        i32.const 100
+        \\        local.set 3
+        \\        local.get 3
+        \\        call $Confetti
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      local.get 0
+        \\      local.set 6
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        block ;; label = @3
+        \\          i32.const 1
+        \\          local.set 7
+        \\          local.get 6
+        \\          local.get 7
+        \\          i32.add
+        \\          local.set 5
+        \\        end
+        \\        local.get 5
+        \\        return
+        \\      end
+        \\      unreachable
+        \\    end
+        \\    unreachable
         \\  )
-        \\  (func (;7;) (type 7) (param i32) (result f64)
+        \\  (func $deep (;5;) (type 4) (param f32 f32) (result f32)
+        \\    (local f32 f32 f32 f32 f32 f32 f32 f32 f32 i32)
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      local.get 0
+        \\      local.set 7
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        i32.const 10
+        \\        local.set 11
+        \\        local.get 7
+        \\        local.get 11
+        \\        i64.extend_i32_s
+        \\        f32.convert_i64_s
+        \\        f32.div
+        \\        local.set 6
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      local.get 0
+        \\      local.set 9
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        block ;; label = @3
+        \\          local.get 1
+        \\          local.set 10
+        \\          local.get 9
+        \\          local.get 10
+        \\          f32.mul
+        \\          local.set 8
+        \\        end
+        \\        local.get 6
+        \\        local.get 8
+        \\        f32.add
+        \\        local.set 5
+        \\        local.get 5
+        \\        return
+        \\      end
+        \\      unreachable
+        \\    end
+        \\    unreachable
+        \\  )
+        \\  (func $ifs (;6;) (type 1) (param i32) (result i32)
+        \\    (local i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32)
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      local.get 0
+        \\      local.set 4
+        \\      local.get 4
+        \\      if ;; label = @2
+        \\        br 1 (;@1;)
+        \\      else
+        \\        block ;; label = @3
+        \\          block ;; label = @4
+        \\            i32.const 200
+        \\            local.set 11
+        \\            local.get 11
+        \\            call $Confetti
+        \\          end
+        \\          br 0 (;@3;)
+        \\        end
+        \\        i32.const 10
+        \\        local.set 12
+        \\      end
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        i32.const 100
+        \\        local.set 6
+        \\        local.get 6
+        \\        call $Confetti
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      i32.const 2
+        \\      local.set 8
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        i32.const 3
+        \\        local.set 9
+        \\        local.get 8
+        \\        local.get 9
+        \\        i32.add
+        \\        local.set 7
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    unreachable
+        \\  )
+        \\  (func $Vec3->X (;7;) (type 7) (param i32) (result f64)
         \\    local.get 0
         \\    f64.load
         \\  )
