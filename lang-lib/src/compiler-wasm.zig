@@ -1397,7 +1397,7 @@ const Compilation = struct {
                             if (is_pure) outputs[0].kind.primitive.value
                                 //
                             else if (is_simple_0_out_impure)
-                                graphl_builtin.empty_type
+                                primitive_types.void
                                     //
                             else if (is_simple_1_out_impure)
                                 outputs[1].kind.primitive.value
@@ -1424,18 +1424,20 @@ const Compilation = struct {
                         //     ));
                         // }
 
-                        slot.expr = byn.c.BinaryenLocalSet(
+                        const call_expr = byn.c.BinaryenCall(
                             self.module.c(),
-                            local_index,
-                            byn.c.BinaryenCall(
-                                self.module.c(),
-                                func.value.symbol,
-                                operands.ptr,
-                                @intCast(operands.len),
-                                // FIXME: the result type should be the tuple derived from the function in the env's type
-                                @intFromEnum(byn.Type.i32),
-                            ),
+                            func.value.symbol,
+                            operands.ptr,
+                            @intCast(operands.len),
+                            BinaryenHelper.getType(slot.type),
                         );
+
+                        std.debug.print("calling in env '{s}' resolved type '{s}'\n", .{ func_node_desc.name(), slot.type.name });
+
+                        slot.expr = if (slot.type == primitive_types.void)
+                            call_expr
+                        else
+                            byn.c.BinaryenLocalSet(self.module.c(), local_index, call_expr);
 
                         break :done;
                     }
@@ -2212,11 +2214,9 @@ const Compilation = struct {
         }
 
         if (opts.optimize != .none) {
-            // FIXME: turn on!
-            //byn.c.BinaryenModuleOptimize(self.module.c());
+            byn.c.BinaryenModuleOptimize(self.module.c());
         }
 
-        // TODO: don't print output to stdout?
         if (!byn._BinaryenModuleValidateWithOpts(
             self.module.c(),
             @enumFromInt( //@intFromEnum(byn.Flags.quiet) |
@@ -2257,7 +2257,7 @@ pub fn compile(
 
     // FIXME: make optimize an option
     return unit.compileModule(graphlt_module, .{
-        .optimize = .size,
+        .optimize = .none,
     });
 }
 
@@ -2270,238 +2270,6 @@ pub const compiled_prelude = (
 );
 
 test "compile big" {
-    // FIXME: support expression functions
-    //     \\(define (++ x) (+ x 1))
-
-    var user_funcs = std.SinglyLinkedList(UserFunc){};
-
-    const user_func_1 = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
-    user_func_1.* = std.SinglyLinkedList(UserFunc).Node{
-        .data = .{ .id = 0, .node = .{
-            .name = "Confetti",
-            .inputs = try t.allocator.dupe(Pin, &.{
-                Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
-                Pin{
-                    .name = "particleCount",
-                    .kind = .{ .primitive = .{ .value = primitive_types.i32_ } },
-                },
-            }),
-            .outputs = try t.allocator.dupe(Pin, &.{
-                Pin{ .name = "", .kind = .{ .primitive = .exec } },
-            }),
-        } },
-    };
-    defer t.allocator.destroy(user_func_1);
-    defer t.allocator.free(user_func_1.data.node.inputs);
-    defer t.allocator.free(user_func_1.data.node.outputs);
-    user_funcs.prepend(user_func_1);
-
-    const user_func_2 = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
-    user_func_2.* = std.SinglyLinkedList(UserFunc).Node{
-        .data = .{
-            .id = 1,
-            .node = .{
-                .name = "sql",
-                .inputs = try t.allocator.dupe(Pin, &.{
-                    Pin{ .name = "exec", .kind = .{ .primitive = .exec } },
-                    Pin{
-                        .name = "code",
-                        .kind = .{ .primitive = .{ .value = primitive_types.code } },
-                    },
-                }),
-                .outputs = try t.allocator.dupe(Pin, &.{
-                    Pin{ .name = "", .kind = .{ .primitive = .exec } },
-                }),
-            },
-        },
-    };
-    defer t.allocator.destroy(user_func_2);
-    defer t.allocator.free(user_func_2.data.node.inputs);
-    defer t.allocator.free(user_func_2.data.node.outputs);
-    user_funcs.prepend(user_func_2);
-
-    var env = try Env.initDefault(t.allocator);
-    defer env.deinit(t.allocator);
-
-    {
-        var maybe_cursor = user_funcs.first;
-        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-            _ = try env.addNode(t.allocator, graphl_builtin.basicMutableNode(&cursor.data.node));
-        }
-    }
-
-    var parsed = try SexpParser.parse(t.allocator,
-        \\;;; comment
-        \\(typeof g i64)
-        \\(define g 10)
-        \\
-        \\;;; comment
-        \\(typeof (++ i32) i32)
-        \\(define (++ x)
-        \\  (typeof a i32)
-        \\  (define a 2) ;; FIXME: make i64 to test type promotion
-        \\  (sql (- f (* 2 3)))
-        \\  (sql 4)
-        \\  (set! a 1)
-        \\  (Confetti 100)
-        \\  (return (max x a)))
-        \\
-        \\;;; comment
-        \\(typeof (deep f32 f32) f32)
-        \\(define (deep a b)
-        \\  (begin
-        \\    (return (+ (/ a 10) (* a b)))))
-        \\
-        \\;;; comment ;; TODO: reintroduce use of a parameter
-        \\(typeof (ifs bool) i32)
-        \\(define (ifs a)
-        \\  (begin
-        \\    (if a
-        \\        (begin (Confetti 100)
-        \\               (+ 2 3))
-        \\        (begin (Confetti 200)
-        \\               5))))
-    , null);
-    //std.debug.print("{any}\n", .{parsed});
-    defer parsed.deinit(t.allocator);
-
-    // imports could be in arbitrary order so just slice it off cuz length will
-    // be the same
-    const expected_prelude =
-        \\(module
-        \\(import "env"
-        \\        "callUserFunc_code_R"
-        \\        (func $callUserFunc_code_R
-        \\              (param i32)
-        \\              (param i32)))
-        \\(import "env"
-        \\        "callUserFunc_i32_R"
-        \\        (func $callUserFunc_i32_R
-        \\              (param i32)
-        \\              (param i32)))
-        \\(global $__grappl_vstkp
-        \\        (mut i32)
-        \\        (i32.const 4096))
-        \\
-    ++ compiled_prelude ++
-        \\
-        \\
-    ;
-
-    const expected =
-        \\(func $sql
-        \\      (param $param_0
-        \\             i32)
-        \\      (call $callUserFunc_code_R
-        \\            (i32.const 1)
-        \\            (local.get $param_0)))
-        \\(func $Confetti
-        \\      (param $param_0
-        \\             i32)
-        \\      (call $callUserFunc_i32_R
-        \\            (i32.const 0)
-        \\            (local.get $param_0)))
-        \\(export "++"
-        \\        (func $++))
-        \\(type $typeof_++
-        \\      (func (param i32)
-        \\            (result i32)))
-        \\(func $++
-        \\      (param $param_x
-        \\             i32)
-        \\      (result i32)
-        \\      (local $local_a
-        \\             i32)
-        \\      (local $__frame_start
-        \\             i32)
-        \\      (local.set $__frame_start
-        \\                 (global.get $__grappl_vstkp))
-        \\      (call $sql
-        \\            (i32.const 74)
-        \\            (i32.const 8))
-        \\      (call $sql
-        \\            (i32.const 23)
-        \\            (i32.const 124))
-        \\      (local.set $local_a
-        \\                 (i32.const 1))
-        \\      (call $Confetti
-        \\            (i32.const 100))
-        \\      (call $__grappl_max
-        \\            (local.get $param_x)
-        \\            (local.get $local_a))
-        \\      (global.set $__grappl_vstkp
-        \\                  (local.get $__frame_start)))
-        \\(data (i32.const 0)
-        \\      "J\00\00\00{\22entry\22:[{\22symbol\22:\22-\22},{\22symbol\22:\22f\22},[{\22symbol\22:\22*\22},2,3]],\22labels\22:{}}")
-        \\(data (i32.const 116)
-        \\      "\17\00\00\00{\22entry\22:4,\22labels\22:{}}")
-        \\(export "deep"
-        \\        (func $deep))
-        \\(type $typeof_deep
-        \\      (func (param f32)
-        \\            (param f32)
-        \\            (result f32)))
-        \\(func $deep
-        \\      (param $param_a
-        \\             f32)
-        \\      (param $param_b
-        \\             f32)
-        \\      (result f32)
-        \\      (local $__frame_start
-        \\             i32)
-        \\      (local.set $__frame_start
-        \\                 (global.get $__grappl_vstkp))
-        \\      (f32.add (f32.div (local.get $param_a)
-        \\                        (f32.convert_i64_s (i64.extend_i32_s (i32.const 10))))
-        \\               (f32.mul (local.get $param_a)
-        \\                        (local.get $param_b)))
-        \\      (global.set $__grappl_vstkp
-        \\                  (local.get $__frame_start)))
-        \\(export "ifs"
-        \\        (func $ifs))
-        \\(type $typeof_ifs
-        \\      (func (param i32)
-        \\            (result i32)))
-        \\(func $ifs
-        \\      (param $param_a
-        \\             i32)
-        \\      (result i32)
-        \\      (local $__frame_start
-        \\             i32)
-        \\      (local.set $__frame_start
-        \\                 (global.get $__grappl_vstkp))
-        \\      (if (result i32)
-        \\          (local.get $param_a)
-        \\          (then (call $Confetti
-        \\                      (i32.const 100))
-        \\                (i32.add (i32.const 2)
-        \\                         (i32.const 3)))
-        \\          (else (call $Confetti
-        \\                      (i32.const 200))
-        \\                (i32.const 5)))
-        \\      (global.set $__grappl_vstkp
-        \\                  (local.get $__frame_start)))
-        \\)
-    ;
-
-    var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed.module, &user_funcs, &diagnostic)) |wat| {
-        defer t.allocator.free(wat);
-        {
-            errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
-        }
-        try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
-    } else |err| {
-        std.debug.print("err {}:\n{}", .{ err, diagnostic });
-        try t.expect(false);
-    }
-}
-
-test "new compiler" {
-    // var env = try Env.initDefault(t.allocator);
-    // defer env.deinit(t.allocator);
-
     var user_funcs = std.SinglyLinkedList(UserFunc){};
 
     const user_func_1 = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
@@ -2561,7 +2329,7 @@ test "new compiler" {
         \\    (Confetti 100)
         \\    (return (+ x 1))))
         \\
-        \\;;; comment
+        \\; comment
         \\(typeof (deep f32 f32) f32)
         \\(define (deep a b)
         \\  (begin
@@ -2800,78 +2568,9 @@ test "factorial recursive" {
     }
 }
 
-// FIXME: delete once factorial works
-test "new small" {
-    // FIXME: support expression functions
-    //     \\(define (++ x) (+ x 1))
-
-    var parsed = try SexpParser.parse(t.allocator,
-        \\(typeof (foo i32) i32)
-        \\(define (foo n)
-        \\  (begin
-        \\    (return (+ 3 n))))
-        \\
-    , null);
-    //std.debug.print("{any}\n", .{parsed});
-    defer parsed.deinit();
-
-    const expected =
-        \\(module
-        \\  (type (;0;) (func (param i32) (result i32)))
-        \\  (type (;1;) (func (param i32) (result f64)))
-        \\  (memory (;0;) 1 256)
-        \\  (export "memory" (memory 0))
-        \\  (export "foo" (func $foo))
-        \\  (func $foo (;0;) (type 0) (param i32) (result i32)
-        \\    (local i32 i32 i32 i32 i32 i32)
-        \\    block ;; label = @1
-        \\      block ;; label = @2
-        \\      end
-        \\      br 0 (;@1;)
-        \\    end
-        \\    block ;; label = @1
-        \\      i32.const 3
-        \\      local.set 5
-        \\      br 0 (;@1;)
-        \\    end
-        \\    block ;; label = @1
-        \\      block ;; label = @2
-        \\        block ;; label = @3
-        \\          local.get 0
-        \\          local.set 6
-        \\          local.get 5
-        \\          local.get 6
-        \\          i32.add
-        \\          local.set 4
-        \\        end
-        \\        local.get 4
-        \\        return
-        \\      end
-        \\      unreachable
-        \\    end
-        \\    unreachable
-        \\  )
-        \\  (func $Vec3->X (;1;) (type 1) (param i32) (result f64)
-        \\    local.get 0
-        \\    f64.load
-        \\  )
-        \\  (@custom "sourceMappingURL" (after code) "\07/script")
-        \\)
-        \\
-    ;
-
-    var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed.module, null, &diagnostic)) |wasm| {
-        defer t.allocator.free(wasm);
-        try expectWasmEqualsWat(expected, wasm);
-    } else |err| {
-        std.debug.print("err {}:\n{}", .{ err, diagnostic });
-        try t.expect(false);
-    }
-}
-
 test "factorial iterative" {
     var parsed = try SexpParser.parse(t.allocator,
+        \\(meta version 1)
         \\(typeof (factorial i64) i64)
         \\(define (factorial n)
         \\  (typeof acc i64)
