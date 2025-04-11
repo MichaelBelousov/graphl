@@ -1432,8 +1432,6 @@ const Compilation = struct {
                             BinaryenHelper.getType(slot.type),
                         );
 
-                        std.debug.print("calling in env '{s}' resolved type '{s}'\n", .{ func_node_desc.name(), slot.type.name });
-
                         slot.expr = if (slot.type == primitive_types.void)
                             call_expr
                         else
@@ -1718,7 +1716,6 @@ const Compilation = struct {
             self.next_sexp_local_idx += 1;
             const slot = &comp_ctx._sexp_compiled[sexp_idx];
             slot.local_index = local_index;
-            std.debug.print("put local {} for sexp {}\n", .{ local_index, sexp_idx });
             return local_index;
         }
 
@@ -1730,7 +1727,6 @@ const Compilation = struct {
                 self._frame_byte_size += slot.type.size;
             }
 
-            std.debug.print("type {s} at index {}\n", .{ slot.type.name, slot.local_index });
             const idx_in_local_types = slot.local_index - self.param_count;
             try self.local_types.ensureTotalCapacityPrecise(comp_ctx.arena.allocator(), idx_in_local_types + 1);
             self.local_types.expandToCapacity();
