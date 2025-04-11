@@ -1186,11 +1186,15 @@ test "node types" {
 pub const Env = struct {
     parentEnv: ?*const Env = null,
 
+    // TODO: use symbols/interning maybe for type names?
+    // FIXME: store struct types separately
+    _struct_types: std.StringHashMapUnmanaged(StructType) = .{},
     _types: std.StringHashMapUnmanaged(Type) = .{},
+    // FIXME: actually separate each of those possibilities!
     // could be macro, function, operator
     _nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
     // TODO: use this!
-    _nodes_by_tag: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(*const NodeDesc)) = .{},
+    _nodes_by_tag: std.StringHashMapUnmanaged(std.ArrayListUnmanaged(*const NodeDesc)) = .{},
 
     created_types: std.SinglyLinkedList(TypeInfo) = .{},
     created_nodes: std.SinglyLinkedList(NodeDesc) = .{},

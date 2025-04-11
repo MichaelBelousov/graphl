@@ -1388,7 +1388,7 @@ test "empty graph twice" {
         // TODO: print floating point explicitly
     , text.items);
 
-    const compiler = @import("./compiler-wat.zig");
+    const compiler = @import("./compiler-wasm.zig");
     var compile_diag = compiler.Diagnostic.init();
     defer std.debug.print("compilation error: {}", .{compile_diag});
     const compile_result = try compiler.compile(a, &second_sexp, &env, null, &compile_diag);

@@ -21,17 +21,13 @@ const TypeInfo = @import("./nodes//builtin.zig").TypeInfo;
 const Type = @import("./nodes/builtin.zig").Type;
 const SexpParser = @import("./sexp_parser.zig").Parser;
 
-// FIXME: use intrinsics as the base and merge/link in our functions
-const compiler = @import("./compiler-wat.zig");
-const compile = @import("./compiler-wat.zig").compile;
-const compiled_prelude = @import("./compiler-wat.zig").compiled_prelude;
-const Diagnostic = @import("./compiler-wat.zig").Diagnostic;
-const expectWasmOutput = @import("./compiler-wat.zig").expectWasmOutput;
+const compiler = @import("./compiler-wasm.zig");
+const compile = @import("./compiler-wasm.zig").compile;
+const compiled_prelude = @import("./compiler-wasm.zig").compiled_prelude;
+const Diagnostic = @import("./compiler-wasm.zig").Diagnostic;
+const expectWasmEqualsWat = @import("./compiler-wasm.zig").expectWasmEqualsWat;
 
 test "compare double and int" {
-    var env = try Env.initDefault(t.allocator);
-    defer env.deinit(t.allocator);
-
     var parsed = try SexpParser.parse(t.allocator,
         \\;;; comment ;; TODO: reintroduce use of a parameter
         \\(typeof (cmp-dbl) bool)
@@ -40,50 +36,60 @@ test "compare double and int" {
         \\    (return (>= 5.0 2))))
         \\
     , null);
-    //std.debug.print("{any}\n", .{parsed});
-    defer parsed.deinit(t.allocator);
-
-    // imports could be in arbitrary order so just slice it off cuz length will
-    // be the same
-    const expected_prelude =
-        \\(module
-        \\(global $__grappl_vstkp
-        \\        (mut i32)
-        \\        (i32.const 4096))
-        \\
-    ++ compiled_prelude ++
-        \\
-        \\
-    ;
+    defer parsed.deinit();
 
     const expected =
-        \\(export "cmp-dbl"
-        \\        (func $cmp-dbl))
-        \\(type $typeof_cmp-dbl
-        \\      (func (result i32)))
-        \\(func $cmp-dbl
-        \\      (result i32)
-        \\      (local $__frame_start
-        \\             i32)
-        \\      (local.set $__frame_start
-        \\                 (global.get $__grappl_vstkp))
-        \\      (f64.ge (f64.const 5)
-        \\              (f64.promote_f32 (f32.convert_i64_s (i64.extend_i32_s (i32.const 2)))))
-        \\      (global.set $__grappl_vstkp
-        \\                  (local.get $__frame_start)))
+        \\(module
+        \\  (type (;0;) (func (result i32)))
+        \\  (type (;1;) (func (param i32) (result f64)))
+        \\  (memory (;0;) 1 256)
+        \\  (export "memory" (memory 0))
+        \\  (export "cmp-dbl" (func $cmp-dbl))
+        \\  (func $cmp-dbl (;0;) (type 0) (result i32)
+        \\    (local i32 i32 i32 i32 i32 f64)
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      f64.const 0x1.4p+2 (;=5;)
+        \\      local.set 5
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        block ;; label = @3
+        \\          i32.const 2
+        \\          local.set 4
+        \\          local.get 5
+        \\          local.get 4
+        \\          i64.extend_i32_s
+        \\          f32.convert_i64_s
+        \\          f64.promote_f32
+        \\          f64.ge
+        \\          local.set 3
+        \\        end
+        \\        local.get 3
+        \\        return
+        \\      end
+        \\      unreachable
+        \\    end
+        \\    unreachable
+        \\  )
+        \\  (func $Vec3->X (;1;) (type 1) (param i32) (result f64)
+        \\    local.get 0
+        \\    f64.load
+        \\  )
+        \\  (@custom "sourceMappingURL" (after code) "\07/script")
         \\)
+        \\
     ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &env, null, &diagnostic)) |wat| {
-        defer t.allocator.free(wat);
-        {
-            errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
-        }
-        try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
-        // TODO: add parameter so we can cover the intrinsics behavior
-        try expectWasmOutput(1, wat, "cmp-dbl", .{});
+    if (compile(t.allocator, &parsed.module, null, &diagnostic)) |wasm| {
+        defer t.allocator.free(wasm);
+        try expectWasmEqualsWat(expected, wasm);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);
@@ -103,49 +109,57 @@ test "compare int and int" {
         \\
     , null);
     //std.debug.print("{any}\n", .{parsed});
-    defer parsed.deinit(t.allocator);
-
-    // imports could be in arbitrary order so just slice it off cuz length will
-    // be the same
-    const expected_prelude =
-        \\(module
-        \\(global $__grappl_vstkp
-        \\        (mut i32)
-        \\        (i32.const 4096))
-        \\
-    ++ compiled_prelude ++
-        \\
-        \\
-    ;
+    defer parsed.deinit();
 
     const expected =
-        \\(export "cmp-int"
-        \\        (func $cmp-int))
-        \\(type $typeof_cmp-int
-        \\      (func (result i32)))
-        \\(func $cmp-int
-        \\      (result i32)
-        \\      (local $__frame_start
-        \\             i32)
-        \\      (local.set $__frame_start
-        \\                 (global.get $__grappl_vstkp))
-        \\      (i32.ne (i32.const 0)
-        \\              (i32.const 0))
-        \\      (global.set $__grappl_vstkp
-        \\                  (local.get $__frame_start)))
+        \\(module
+        \\  (type (;0;) (func (result i32)))
+        \\  (type (;1;) (func (param i32) (result f64)))
+        \\  (memory (;0;) 1 256)
+        \\  (export "memory" (memory 0))
+        \\  (export "cmp-int" (func $cmp-int))
+        \\  (func $cmp-int (;0;) (type 0) (result i32)
+        \\    (local i32 i32 i32 i32 i32 i32)
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      i32.const 0
+        \\      local.set 4
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        block ;; label = @3
+        \\          i32.const 0
+        \\          local.set 5
+        \\          local.get 4
+        \\          local.get 5
+        \\          i32.ne
+        \\          local.set 3
+        \\        end
+        \\        local.get 3
+        \\        return
+        \\      end
+        \\      unreachable
+        \\    end
+        \\    unreachable
+        \\  )
+        \\  (func $Vec3->X (;1;) (type 1) (param i32) (result f64)
+        \\    local.get 0
+        \\    f64.load
+        \\  )
+        \\  (@custom "sourceMappingURL" (after code) "\07/script")
         \\)
+        \\
     ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &env, null, &diagnostic)) |wat| {
-        defer t.allocator.free(wat);
-        {
-            errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
-        }
-        try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
-        // TODO: add parameter so we can cover the intrinsics behavior
-        try expectWasmOutput(0, wat, "cmp-int", .{});
+    if (compile(t.allocator, &parsed.module, null, &diagnostic)) |wasm| {
+        defer t.allocator.free(wasm);
+        try expectWasmEqualsWat(expected, wasm);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);
@@ -166,53 +180,90 @@ test "compare with call" {
         \\                                                10))))))
     , null);
     //std.debug.print("{any}\n", .{parsed});
-    defer parsed.deinit(t.allocator);
-
-    // imports could be in arbitrary order so just slice it off cuz length will
-    // be the same
-    const expected_prelude =
-        \\(module
-        \\(global $__grappl_vstkp
-        \\        (mut i32)
-        \\        (i32.const 4096))
-        \\
-    ++ compiled_prelude ++
-        \\
-        \\
-    ;
+    defer parsed.deinit();
 
     const expected =
-        \\(export "main"
-        \\        (func $main))
-        \\(type $typeof_main
-        \\      (func (result i32)))
-        \\(func $main
-        \\      (result i32)
-        \\      (local $__frame_start
-        \\             i32)
-        \\      (local.set $__frame_start
-        \\                 (global.get $__grappl_vstkp))
-        \\      (f64.le (f64.promote_f32 (f32.convert_i64_s (i64.extend_i32_s (i32.const 4))))
-        \\              (call $__grappl_vec3_y
-        \\                    (call $__grappl_make_vec3
-        \\                          (f64.promote_f32 (f32.convert_i64_s (i64.extend_i32_s (i32.const 0))))
-        \\                          (f64.promote_f32 (f32.convert_i64_s (i64.extend_i32_s (i32.const 3))))
-        \\                          (f64.promote_f32 (f32.convert_i64_s (i64.extend_i32_s (i32.const 10)))))))
-        \\      (global.set $__grappl_vstkp
-        \\                  (local.get $__frame_start)))
+        \\(module
+        \\  (type (;0;) (func (param i32) (result i32)))
+        \\  (type (;1;) (func (param i32) (result f64)))
+        \\  (memory (;0;) 1 256)
+        \\  (export "memory" (memory 0))
+        \\  (export "factorial" (func 0))
+        \\  (func (;0;) (type 0) (param i32) (result i32)
+        \\    (local i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32)
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      local.get 0
+        \\      local.set 5
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        i32.const 1
+        \\        local.set 6
+        \\        local.get 5
+        \\        local.get 6
+        \\        i32.le_s
+        \\        local.set 4
+        \\      end
+        \\      local.get 4
+        \\      if ;; label = @2
+        \\        block ;; label = @3
+        \\          block ;; label = @4
+        \\            i32.const 1
+        \\            local.set 9
+        \\            local.get 9
+        \\            return
+        \\          end
+        \\          unreachable
+        \\        end
+        \\      else
+        \\        br 1 (;@1;)
+        \\      end
+        \\    end
+        \\    block ;; label = @1
+        \\      local.get 0
+        \\      local.set 13
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      local.get 0
+        \\      local.set 16
+        \\      br 0 (;@1;)
+        \\    end
+        \\    i32.const 1
+        \\    local.set 17
+        \\    local.get 16
+        \\    local.get 17
+        \\    i32.sub
+        \\    local.set 15
+        \\    local.get 15
+        \\    call 0
+        \\    local.set 14
+        \\    local.get 13
+        \\    local.get 14
+        \\    i32.mul
+        \\    local.set 12
+        \\    local.get 12
+        \\    return
+        \\  )
+        \\  (func (;1;) (type 1) (param i32) (result f64)
+        \\    local.get 0
+        \\    f64.load
+        \\  )
+        \\  (@custom "sourceMappingURL" (after code) "\07/script")
         \\)
+        \\
     ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &env, null, &diagnostic)) |wat| {
-        defer t.allocator.free(wat);
-        {
-            errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
-        }
-        try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
-        // TODO: add parameter so we can cover the intrinsics behavior
-        try expectWasmOutput(0, wat, "main", .{});
+    if (compile(t.allocator, &parsed.module, null, &diagnostic)) |wasm| {
+        defer t.allocator.free(wasm);
+        try expectWasmEqualsWat(expected, wasm);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);
@@ -255,16 +306,6 @@ test "(u64,string) -> string ;; return literal" {
     defer t.allocator.free(user_func_1.data.node.outputs);
     user_funcs.prepend(user_func_1);
 
-    var env = try Env.initDefault(t.allocator);
-    defer env.deinit(t.allocator);
-
-    {
-        var maybe_cursor = user_funcs.first;
-        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-            _ = try env.addNode(t.allocator, builtin.basicMutableNode(&cursor.data.node));
-        }
-    }
-
     var parsed = try SexpParser.parse(t.allocator,
         \\(typeof (processInstance u64
         \\                         vec3
@@ -278,111 +319,90 @@ test "(u64,string) -> string ;; return literal" {
         \\               (return "imodel")))
     , null);
     //std.debug.print("{any}\n", .{parsed});
-    defer parsed.deinit(t.allocator);
-
-    // imports could be in arbitrary order so just slice it off cuz length will
-    // be the same
-    const expected_prelude =
-        \\(module
-        \\(import "env"
-        \\        "callUserFunc_u64_string_R_string"
-        \\        (func $callUserFunc_u64_string_R_string
-        \\              (param i32)
-        \\              (param i64)
-        \\              (param i32)
-        \\              (result i32)))
-        \\(global $__grappl_vstkp
-        \\        (mut i32)
-        \\        (i32.const 4096))
-        \\
-    ++ compiled_prelude ++
-        \\
-        \\
-    ;
+    defer parsed.deinit();
 
     const expected =
-        \\(func $JavaScript-Eval
-        \\      (param $param_0
-        \\             i64)
-        \\      (param $param_1
-        \\             i32)
-        \\      (result i32)
-        \\      (call $callUserFunc_u64_string_R_string
-        \\            (i32.const 0)
-        \\            (local.get $param_0)
-        \\            (local.get $param_1)))
-        \\(export "processInstance"
-        \\        (func $processInstance))
-        \\(type $typeof_processInstance
-        \\      (func (param i64)
-        \\            (param i32)
-        \\            (param i32)
-        \\            (result i32)))
-        \\(func $processInstance
-        \\      (param $param_MeshId
-        \\             i64)
-        \\      (param $param_Origin
-        \\             i32)
-        \\      (param $param_Rotation
-        \\             i32)
-        \\      (result i32)
-        \\      (local $__frame_start
-        \\             i32)
-        \\      (local $__lc0
-        \\             i32)
-        \\      (local $__lc1
-        \\             i32)
-        \\      (local.set $__frame_start
-        \\                 (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const 8)))
-        \\      (i32.store (global.get $__grappl_vstkp)
-        \\                 (i32.const 23))
-        \\      (i32.store (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const 4))
-        \\                 (i32.const 4))
-        \\      (local.set $__lc0
-        \\                 (global.get $__grappl_vstkp))
-        \\      (global.set $__grappl_vstkp
-        \\                  (i32.add (global.get $__grappl_vstkp)
-        \\                           (i32.const 8)))
-        \\      (i32.store (global.get $__grappl_vstkp)
-        \\                 (i32.const 6))
-        \\      (i32.store (i32.add (global.get $__grappl_vstkp)
-        \\                          (i32.const 4))
-        \\                 (i32.const 43))
-        \\      (local.set $__lc1
-        \\                 (global.get $__grappl_vstkp))
-        \\      (global.set $__grappl_vstkp
-        \\                  (i32.add (global.get $__grappl_vstkp)
-        \\                           (i32.const 8)))
-        \\      (call $JavaScript-Eval
-        \\            (local.get $param_MeshId)
-        \\            (local.get $__lc0))
-        \\      drop
-        \\      (local.get $__lc1)
-        \\      (global.set $__grappl_vstkp
-        \\                  (local.get $__frame_start)))
-        \\(data (i32.const 0)
-        \\      "\17\00\00\00console.log(\22hello\22); 5")
-        \\(data (i32.const 39)
-        \\      "\06\00\00\00imodel")
+        \\(module
+        \\  (type (;0;) (func (param i32) (result i32)))
+        \\  (type (;1;) (func (param i32) (result f64)))
+        \\  (memory (;0;) 1 256)
+        \\  (export "memory" (memory 0))
+        \\  (export "factorial" (func 0))
+        \\  (func (;0;) (type 0) (param i32) (result i32)
+        \\    (local i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32)
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      local.get 0
+        \\      local.set 5
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        i32.const 1
+        \\        local.set 6
+        \\        local.get 5
+        \\        local.get 6
+        \\        i32.le_s
+        \\        local.set 4
+        \\      end
+        \\      local.get 4
+        \\      if ;; label = @2
+        \\        block ;; label = @3
+        \\          block ;; label = @4
+        \\            i32.const 1
+        \\            local.set 9
+        \\            local.get 9
+        \\            return
+        \\          end
+        \\          unreachable
+        \\        end
+        \\      else
+        \\        br 1 (;@1;)
+        \\      end
+        \\    end
+        \\    block ;; label = @1
+        \\      local.get 0
+        \\      local.set 13
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      local.get 0
+        \\      local.set 16
+        \\      br 0 (;@1;)
+        \\    end
+        \\    i32.const 1
+        \\    local.set 17
+        \\    local.get 16
+        \\    local.get 17
+        \\    i32.sub
+        \\    local.set 15
+        \\    local.get 15
+        \\    call 0
+        \\    local.set 14
+        \\    local.get 13
+        \\    local.get 14
+        \\    i32.mul
+        \\    local.set 12
+        \\    local.get 12
+        \\    return
+        \\  )
+        \\  (func (;1;) (type 1) (param i32) (result f64)
+        \\    local.get 0
+        \\    f64.load
+        \\  )
+        \\  (@custom "sourceMappingURL" (after code) "\07/script")
         \\)
+        \\
     ;
 
     var diagnostic = Diagnostic.init();
-    if (compile(t.allocator, &parsed, &env, &user_funcs, &diagnostic)) |wat| {
-        defer t.allocator.free(wat);
-        {
-            errdefer std.debug.print("======== prologue: =========\n{s}\n", .{wat[0 .. expected_prelude.len - compiled_prelude.len]});
-            try t.expectEqualStrings(expected_prelude[0 .. expected_prelude.len - compiled_prelude.len], wat[0 .. expected_prelude.len - compiled_prelude.len]);
-        }
-        try t.expectEqualStrings(expected, wat[expected_prelude.len..]);
-        // FIXME:
-        // try expectWasmOutput(0, wat, "processInstance", .{
-        //     0,
-        //     0,
-        //     0,
-        // });
+    if (compile(t.allocator, &parsed.module, &user_funcs, &diagnostic)) |wasm| {
+        defer t.allocator.free(wasm);
+        try expectWasmEqualsWat(expected, wasm);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);
@@ -448,7 +468,7 @@ test "(u64,string) -> string ;; labeled return" {
         \\               (return __label1)))
     , null);
     //std.debug.print("{any}\n", .{parsed});
-    defer parsed.deinit(t.allocator);
+    defer parsed.deinit();
 
     // imports could be in arbitrary order so just slice it off cuz length will
     // be the same

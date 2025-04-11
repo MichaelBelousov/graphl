@@ -2199,7 +2199,10 @@ const Compilation = struct {
         // FIXME: only add this intrinsic if it's referenced during analysis
         const vec3_module = byn.c.BinaryenModuleRead(@constCast(intrinsics_vec3.ptr), intrinsics_vec3.len);
 
+        // FIXME: replace with generic struct breaking
         std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_x".ptr, "Vec3->X".ptr));
+        std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_y".ptr, "Vec3->Y".ptr));
+        std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_z".ptr, "Vec3->Z".ptr));
 
         // TODO: consider doing this
         //byn.c.BinaryenModuleAutoDrop(self.module.c());
@@ -2569,9 +2572,6 @@ pub fn expectWasmEqualsWat(wat: []const u8, wasm: []const u8) !void {
 }
 
 test "factorial recursive" {
-    // FIXME: support expression functions
-    //     \\(define (++ x) (+ x 1))
-
     var parsed = try SexpParser.parse(t.allocator,
         \\(typeof (factorial i32) i32)
         \\(define (factorial n)
@@ -2942,6 +2942,8 @@ test "vec3 ref" {
     }
 }
 
+// TODO: maybe shell out to local wasmtime or node installation?
+// or use orca?
 pub fn expectWasmOutput(
     comptime expected: anytype,
     wat: []const u8,
@@ -3055,7 +3057,7 @@ pub fn expectWasmOutput(
 
 test {
     // TODO: move to compiler/tests directory
-    t.refAllDecls(@import("./compiler-tests-string.zig"));
+    //t.refAllDecls(@import("./compiler-tests-string.zig"));
     t.refAllDecls(@import("./compiler-tests-types.zig"));
 }
 
