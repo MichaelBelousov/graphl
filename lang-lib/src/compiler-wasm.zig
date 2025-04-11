@@ -387,7 +387,11 @@ const Compilation = struct {
     // NOTE: this coul
     _sexp_compiled: []Slot,
 
-    ro_data_offset: u32 = 0,
+    // FIXME: figure out how this works cuz rn I'm not sure I'm even using this at all in the memory, using
+    // segments instead, but I need to read more
+    // according to binaryen docs, there are optimizations if you
+    // do not use the first 1Kb
+    ro_data_offset: u32 = 1024,
 
     module: *byn.Module,
     arena: std.heap.ArenaAllocator,
@@ -464,6 +468,7 @@ const Compilation = struct {
                 byn.Features.ReferenceTypes(),
                 byn.Features.Multivalue(),
                 byn.Features.Strings(),
+                byn.Features.BulkMemory(),
             }),
         );
 
@@ -478,6 +483,8 @@ const Compilation = struct {
 
         byn.c.BinaryenSetMemory(
             result.module.c(),
+            // FIXME: this actually depends upon the amount of strings,
+            // so set memory at the end of compilation
             1,
             256,
             "memory", // exportName (causes export unless null)
@@ -1475,20 +1482,20 @@ const Compilation = struct {
                 },
 
                 .borrowedString, .ownedString => |v| {
-                    // FIXME: fill the array
-                    // FIXME: gross, use 0 terminated strings?
                     // try self.arena.allocator().dupeZ(u8, v),
 
                     // python: 10 == len(str(2**32 - 1)), could use comptime print to assert
                     var buf: ["s_".len + 10 + "\x00".len]u8 = undefined;
+                    const seg_name = std.fmt.bufPrintZ(&buf, "s_{}", .{self.ro_data_offset}) catch unreachable;
 
                     // FIXME: do string deduplication/interning
                     byn.c.BinaryenAddDataSegment(
                         self.module.c(),
-                        std.fmt.bufPrintZ(&buf, "s_{}", .{self.ro_data_offset}) catch unreachable,
+                        seg_name,
                         main_mem_name,
                         true,
-                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(self.ro_data_offset))),
+                        null,
+                        // FIXME: gross, use 0 terminated strings?
                         v.ptr,
                         @intCast(v.len),
                     );
@@ -1500,8 +1507,9 @@ const Compilation = struct {
                         byn.c.BinaryenArrayNewData(
                             self.module.c(),
                             byn.c.BinaryenTypeGetHeapType(BinaryenHelper.getType(primitive_types.string)),
-                            main_mem_name,
-                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(self.ro_data_offset))),
+                            seg_name,
+                            // TODO: consider using an offset?
+                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
                             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v.len))),
                         ),
                     );
