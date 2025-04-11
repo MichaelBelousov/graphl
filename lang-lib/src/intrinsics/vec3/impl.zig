@@ -6,10 +6,10 @@ const GraphlVec3 = @import("./Vec3.zig").GraphlVec3;
 pub fn __graphl_vec3_x(v: *const GraphlVec3) callconv(.C) f64 {
     return v.x;
 }
-pub fn __grappl_vec3_y(v: *const GraphlVec3) callconv(.C) f64 {
+pub fn __graphl_vec3_y(v: *const GraphlVec3) callconv(.C) f64 {
     return v.y;
 }
-pub fn __grappl_vec3_z(v: *const GraphlVec3) callconv(.C) f64 {
+pub fn __graphl_vec3_z(v: *const GraphlVec3) callconv(.C) f64 {
     return v.z;
 }
 

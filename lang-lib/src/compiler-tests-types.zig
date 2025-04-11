@@ -307,6 +307,7 @@ test "(u64,string) -> string ;; return literal" {
     user_funcs.prepend(user_func_1);
 
     var parsed = try SexpParser.parse(t.allocator,
+        \\(import JavaScript-Eval "host/JavaScript-Eval")
         \\(typeof (processInstance u64
         \\                         vec3
         \\                         vec3)

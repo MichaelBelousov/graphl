@@ -1479,11 +1479,13 @@ const Compilation = struct {
                     // FIXME: gross, use 0 terminated strings?
                     // try self.arena.allocator().dupeZ(u8, v),
 
+                    // python: 10 == len(str(2**32 - 1)), could use comptime print to assert
+                    var buf: ["s_".len + 10 + "\x00".len]u8 = undefined;
+
                     // FIXME: do string deduplication/interning
                     byn.c.BinaryenAddDataSegment(
                         self.module.c(),
-                        // FIXME:
-                        "string1",
+                        std.fmt.bufPrintZ(&buf, "s_{}", .{self.ro_data_offset}) catch unreachable,
                         main_mem_name,
                         true,
                         byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(self.ro_data_offset))),
@@ -1584,8 +1586,11 @@ const Compilation = struct {
                 if (b == primitive_types.f32_) break :_ primitive_types.f64_;
                 if (b == primitive_types.f64_) break :_ primitive_types.f64_;
             }
-            log.err("unimplemented peer type resolution: {s} & {s}", .{ a.name, b.name });
-            std.debug.panic("unimplemented peer type resolution: {s} & {s}", .{ a.name, b.name });
+
+            log.warn("unimplemented peer type resolution: {s} & {s}", .{ a.name, b.name });
+            // FIXME: have a special any type?
+            // e.g. see the type theoretical concepts of top types
+            break :_ graphl_builtin.empty_type;
         };
 
         return resolved_type;
