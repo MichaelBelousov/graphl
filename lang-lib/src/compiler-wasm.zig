@@ -2224,8 +2224,8 @@ const Compilation = struct {
         if (self.used_features.string) {
             const str_byn_type = BinaryenHelper.getType(primitive_types.string, &self.used_features);
 
-            // FIXME: gross, maybe there's a better way?
-            const graphl_host_copy_func = self.module.addFunction(
+            // FIXME: gross, maybe go back to reading/linking my own compiled wat?
+            std.debug.assert(self.module.addFunction(
                 "__graphl_host_copy",
                 @enumFromInt(str_byn_type),
                 byn.Type.none,
@@ -2315,9 +2315,9 @@ const Compilation = struct {
                     }),
                     .none,
                 ),
-            );
+            ) != null);
 
-            std.debug.assert(graphl_host_copy_func != null);
+            std.debug.assert(byn.c.BinaryenAddFunctionExport(self.module.c(), "__graphl_host_copy", "__graphl_host_copy") != null);
         }
 
         if (std.log.logEnabled(.debug, .graphlt_compiler)) {
