@@ -27,7 +27,7 @@ const syms = @import("./sexp.zig").syms;
 const primitive_type_syms = @import("./sexp.zig").primitive_type_syms;
 const graphl_builtin = @import("./nodes/builtin.zig");
 const primitive_types = @import("./nodes/builtin.zig").primitive_types;
-const Env = @import("./nodes//builtin.zig").Env;
+const Env = @import("./nodes/builtin.zig").Env;
 const TypeInfo = @import("./nodes/builtin.zig").TypeInfo;
 const Type = @import("./nodes/builtin.zig").Type;
 const builtin_nodes = @import("./nodes/builtin.zig").builtin_nodes;
@@ -517,18 +517,6 @@ const Compilation = struct {
             false, // shared
             false, // memory64
             main_mem_name, // name
-        );
-
-        // FIXME: only do this if !!features.string
-        byn.c.BinaryenAddDataSegment(
-            result.module.c(),
-            "str_transfer",
-            main_mem_name,
-            true,
-            null,
-            // FIXME: can I create a zeroed segment without generating a stupid literal?
-            &std.mem.zeroes([str_transfer_seg_size]u8),
-            @intCast(str_transfer_seg_size),
         );
 
         return result;
@@ -2226,24 +2214,52 @@ const Compilation = struct {
             // FIXME: gross, maybe go back to reading/linking my own compiled wat?
             std.debug.assert(self.module.addFunction(
                 "__graphl_host_copy",
-                @enumFromInt(str_byn_type),
-                byn.Type.none,
+                @enumFromInt(byn.c.BinaryenTypeCreate(@constCast(&[_]byn.c.BinaryenType{
+                    str_byn_type, // array/string ref (;0;)
+                    @intFromEnum(byn.Type.i32), // starting offset (;1;)
+                }), 2)),
+                byn.Type.i32, // returns bytes written, not done until 0 are written
                 &.{
-                    .i32, // $arr_len
-                    .i32, // $index
+                    .i32, // $arr_len (;2;)
+                    .i32, // $index (;3;)
                 },
                 try byn.Expression.block(
                     self.module,
                     null,
                     @constCast(&[_]*byn.Expression{
+                        // (local.set $index $second_param)
+                        @as(*byn.Expression, @ptrCast(byn.c.BinaryenLocalSet(
+                            self.module.c(),
+                            3,
+                            byn.c.BinaryenLocalGet(self.module.c(), 1, @intFromEnum(byn.Type.i32)),
+                        ))),
                         // (local.set $arr_len (array.len (local.get $arr)))
                         @as(*byn.Expression, @ptrCast(byn.c.BinaryenLocalSet(
                             self.module.c(),
-                            1,
+                            2,
                             byn.c.BinaryenArrayLen(
                                 self.module.c(),
                                 byn.c.BinaryenLocalGet(self.module.c(), 0, str_byn_type),
                             ),
+                        ))),
+                        // (if
+                        //   (i32.ge_u
+                        //     (local.get $index)
+                        //     (local.get $arr_len)))
+                        //   (return (i32.const 0))))
+                        @as(*byn.Expression, @ptrCast(byn.c.BinaryenIf(
+                            self.module.c(),
+                            @ptrCast(byn.Expression.binaryOp(
+                                self.module,
+                                byn.Expression.Op.geUInt32(),
+                                @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 3, @intFromEnum(byn.Type.i32))),
+                                @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 2, @intFromEnum(byn.Type.i32))),
+                            )),
+                            @ptrCast(byn.c.BinaryenReturn(
+                                self.module.c(),
+                                @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0))),
+                            )),
+                            null,
                         ))),
                         // (loop $loop ...
                         @as(*byn.Expression, @ptrCast(byn.c.BinaryenLoop(
@@ -2266,12 +2282,17 @@ const Compilation = struct {
                                             self.module,
                                             byn.Expression.Op.addInt32(),
                                             @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(mem_start))),
-                                            @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 2, @intFromEnum(byn.Type.i32))),
+                                            @ptrCast(byn.Expression.binaryOp(
+                                                self.module,
+                                                byn.Expression.Op.subInt32(),
+                                                @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 3, @intFromEnum(byn.Type.i32))),
+                                                @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 1, @intFromEnum(byn.Type.i32))),
+                                            )),
                                         )),
                                         byn.c.BinaryenArrayGet(
                                             self.module.c(),
                                             byn.c.BinaryenLocalGet(self.module.c(), 0, str_byn_type),
-                                            byn.c.BinaryenLocalGet(self.module.c(), 2, @intFromEnum(byn.Type.i32)),
+                                            byn.c.BinaryenLocalGet(self.module.c(), 3, @intFromEnum(byn.Type.i32)),
                                             @intFromEnum(byn.Type.i32),
                                             false,
                                         ),
@@ -2284,11 +2305,11 @@ const Compilation = struct {
                                     //     (i32.const 1)))
                                     @as(*byn.Expression, @ptrCast(byn.c.BinaryenLocalSet(
                                         self.module.c(),
-                                        2,
+                                        3,
                                         @ptrCast(byn.Expression.binaryOp(
                                             self.module,
                                             byn.Expression.Op.addInt32(),
-                                            @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 2, @intFromEnum(byn.Type.i32))),
+                                            @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 3, @intFromEnum(byn.Type.i32))),
                                             @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(1))),
                                         )),
                                     ))),
@@ -2302,13 +2323,57 @@ const Compilation = struct {
                                         @ptrCast(byn.Expression.binaryOp(
                                             self.module,
                                             byn.Expression.Op.ltUInt32(),
+                                            @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 3, @intFromEnum(byn.Type.i32))),
                                             @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 2, @intFromEnum(byn.Type.i32))),
-                                            @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 1, @intFromEnum(byn.Type.i32))),
+                                        )),
+                                        null,
+                                    ))),
+                                    // (if
+                                    //   (i32.ge_u
+                                    //     (local.get $index)
+                                    //     (i32.const 4096))
+                                    //   (then (return 4096)))
+                                    @as(*byn.Expression, @ptrCast(byn.c.BinaryenIf(
+                                        self.module.c(),
+                                        @ptrCast(byn.Expression.binaryOp(
+                                            self.module,
+                                            byn.Expression.Op.geUInt32(),
+                                            @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 3, @intFromEnum(byn.Type.i32))),
+                                            @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(str_transfer_seg_size))),
+                                        )),
+                                        @ptrCast(byn.c.BinaryenReturn(
+                                            self.module.c(),
+                                            @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(str_transfer_seg_size))),
                                         )),
                                         null,
                                     ))),
                                 }),
                                 @enumFromInt(byn.c.BinaryenTypeAuto()),
+                            )),
+                        ))),
+                        @as(*byn.Expression, @ptrCast(byn.c.BinaryenStore(
+                            self.module.c(),
+                            4,
+                            0,
+                            0,
+                            @ptrCast(byn.Expression.binaryOp(
+                                self.module,
+                                byn.Expression.Op.addInt32(),
+                                @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(mem_start))),
+                                @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 3, @intFromEnum(byn.Type.i32))),
+                            )),
+                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                            @intFromEnum(byn.Type.i32),
+                            main_mem_name,
+                        ))),
+                        // FIXME: can't break to this without a named block break!
+                        @as(*byn.Expression, @ptrCast(byn.c.BinaryenReturn(
+                            self.module.c(),
+                            @ptrCast(byn.Expression.binaryOp(
+                                self.module,
+                                byn.Expression.Op.subInt32(),
+                                @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 3, @intFromEnum(byn.Type.i32))),
+                                @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 1, @intFromEnum(byn.Type.i32))),
                             )),
                         ))),
                     }),
