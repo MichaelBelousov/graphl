@@ -519,6 +519,8 @@ const Compilation = struct {
             main_mem_name, // name
         );
 
+        // FIXME: create a zeroed memory segment, this is reading into readonly memory which is
+        // really really bad
         // FIXME: only do this if !!features.string
         byn.c.BinaryenAddDataSegment(
             result.module.c(),
@@ -2220,9 +2222,102 @@ const Compilation = struct {
         }
 
         if (self.used_features.string) {
-            const string_module = byn.c.BinaryenModuleRead(@constCast(intrinsics_string.ptr), intrinsics_string.len);
+            const str_byn_type = BinaryenHelper.getType(primitive_types.string, &self.used_features);
 
-            std.debug.assert(byn._binaryenCloneFunction(string_module, self.module.c(), "__graphl_host_copy".ptr, "__graphl_host_copy".ptr));
+            // FIXME: gross, maybe there's a better way?
+            const graphl_host_copy_func = self.module.addFunction(
+                "__graphl_host_copy",
+                @enumFromInt(str_byn_type),
+                byn.Type.none,
+                &.{
+                    .i32, // $arr_len
+                    .i32, // $index
+                },
+                try byn.Expression.block(
+                    self.module,
+                    null,
+                    @constCast(&[_]*byn.Expression{
+                        // (local.set $arr_len (array.len (local.get $arr)))
+                        @as(*byn.Expression, @ptrCast(byn.c.BinaryenLocalSet(
+                            self.module.c(),
+                            1,
+                            byn.c.BinaryenArrayLen(
+                                self.module.c(),
+                                byn.c.BinaryenLocalGet(self.module.c(), 0, str_byn_type),
+                            ),
+                        ))),
+                        // (loop $loop ...
+                        @as(*byn.Expression, @ptrCast(byn.c.BinaryenLoop(
+                            self.module.c(),
+                            "loop",
+                            @ptrCast(try byn.Expression.block(
+                                self.module,
+                                null,
+                                @constCast(&[_]*byn.Expression{
+                                    // (i32.store
+                                    //     (array.get_u 0
+                                    //         (local.get $arr)
+                                    //         (local.get $index)))
+                                    @as(*byn.Expression, @ptrCast(byn.c.BinaryenStore(
+                                        self.module.c(),
+                                        4,
+                                        0,
+                                        0,
+                                        @ptrCast(byn.Expression.binaryOp(
+                                            self.module,
+                                            byn.Expression.Op.addInt32(),
+                                            @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(mem_start))),
+                                            @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 2, @intFromEnum(byn.Type.i32))),
+                                        )),
+                                        byn.c.BinaryenArrayGet(
+                                            self.module.c(),
+                                            byn.c.BinaryenLocalGet(self.module.c(), 0, str_byn_type),
+                                            byn.c.BinaryenLocalGet(self.module.c(), 2, @intFromEnum(byn.Type.i32)),
+                                            @intFromEnum(byn.Type.i32),
+                                            false,
+                                        ),
+                                        @intFromEnum(byn.Type.i32),
+                                        main_mem_name,
+                                    ))),
+                                    // (local.set $index
+                                    //   (i32.add
+                                    //     (local.get $index)
+                                    //     (i32.const 1)))
+                                    @as(*byn.Expression, @ptrCast(byn.c.BinaryenLocalSet(
+                                        self.module.c(),
+                                        2,
+                                        @ptrCast(byn.Expression.binaryOp(
+                                            self.module,
+                                            byn.Expression.Op.addInt32(),
+                                            @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 2, @intFromEnum(byn.Type.i32))),
+                                            @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(1))),
+                                        )),
+                                    ))),
+                                    // (br_if $loop
+                                    //   (i32.lt_u
+                                    //     (local.get $index)
+                                    //     (local.get $arr_len)))
+                                    @as(*byn.Expression, @ptrCast(byn.c.BinaryenBreak(
+                                        self.module.c(),
+                                        "loop",
+                                        @ptrCast(byn.Expression.binaryOp(
+                                            self.module,
+                                            byn.Expression.Op.ltUInt32(),
+                                            @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 2, @intFromEnum(byn.Type.i32))),
+                                            @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 1, @intFromEnum(byn.Type.i32))),
+                                        )),
+                                        null,
+                                    ))),
+                                }),
+                                @enumFromInt(byn.c.BinaryenTypeAuto()),
+                            )),
+                        ))),
+                    }),
+                    .none,
+                ),
+            );
+
+            std.debug.assert(graphl_host_copy_func != null);
         }
 
         if (std.log.logEnabled(.debug, .graphlt_compiler)) {
