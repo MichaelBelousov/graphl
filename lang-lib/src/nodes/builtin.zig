@@ -20,10 +20,27 @@ pub const StructType = struct {
     field_names: []const [:0]const u8 = &.{},
     // should structs allow constrained generic fields?
     field_types: []const Type = &.{},
+    // I feel like 32-bits is too many
+    field_offsets: []const u32 = &.{},
+
+    // TODO: implement and add comptime version
+    fn initAutoOffsets(alloc: std.mem.Allocator, arg: struct {
+        field_names: []const [:0]const u8 = &.{},
+        field_types: []const Type = &.{},
+    }) @This() {
+        _ = alloc;
+        const field_offsets = &.{};
+        return @This(){
+            .field_names = arg.field_names,
+            .field_types = arg.field_types,
+            .field_offsets = field_offsets,
+        };
+    }
 };
 
 pub const ArrayType = struct {
     type: Type,
+    // TODO: add optional static size?
 };
 
 // could use a u32 index into a type store (might be faster on 64-bit platforms)

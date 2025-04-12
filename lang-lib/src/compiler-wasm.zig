@@ -72,6 +72,14 @@ pub const Diagnostic = struct {
         },
         DefineWithoutTypeOf: u32,
         InvalidIR,
+        AccessNonCompound: struct {
+            type: Type,
+            field_name: []const u8,
+        },
+        AccessNonExistentField: struct {
+            type: Type,
+            field_name: []const u8,
+        },
     };
 
     const Code = error{
@@ -89,6 +97,7 @@ pub const Diagnostic = struct {
         BuiltinWrongArity,
         DefineWithoutTypeOf,
         InvalidIR,
+        AccessNonCompound,
     };
 
     pub fn init() @This() {
@@ -111,6 +120,7 @@ pub const Diagnostic = struct {
             },
             // TODO: add a contextualize function?
             .UndefinedSymbol => |sym_id| {
+                // TODO: move this repeated thing to a function
                 // FIXME: HACK
                 const sexp = self.graphlt_module.get(sym_id);
 
@@ -163,6 +173,62 @@ pub const Diagnostic = struct {
                     SpacePrint.init(loc.col - 1),
                     err_info.expected,
                     err_info.received,
+                });
+            },
+            .AccessNonCompound => |err_info| {
+                // FIXME: HACK
+                const sexp = self.graphlt_module.get(err_info.callee);
+
+                std.debug.assert(sexp.span != null and self.graphlt_module.source != null);
+
+                const span = sexp.span.?;
+                const byte_offset: usize = span.ptr - self.graphlt_module.source.?.ptr;
+
+                var loc: Loc = .{};
+                while (loc.index != byte_offset) {
+                    loc.increment(self.graphlt_module.source.?);
+                }
+
+                try writer.print(
+                    \\Attempted to access field '{s}' of type '{s}' which doesn't support field access
+                    \\{}:
+                    \\  | {s}
+                    \\    {}^
+                    \\
+                , .{
+                    err_info.field_name,
+                    err_info.type.name,
+                    loc,
+                    try loc.containing_line(self.graphlt_module.source.?),
+                    SpacePrint.init(loc.col - 1),
+                });
+            },
+            .AccessNonExistentField => |err_info| {
+                // FIXME: HACK
+                const sexp = self.graphlt_module.get(err_info.callee);
+
+                std.debug.assert(sexp.span != null and self.graphlt_module.source != null);
+
+                const span = sexp.span.?;
+                const byte_offset: usize = span.ptr - self.graphlt_module.source.?.ptr;
+
+                var loc: Loc = .{};
+                while (loc.index != byte_offset) {
+                    loc.increment(self.graphlt_module.source.?);
+                }
+
+                try writer.print(
+                    \\Attempted to access field '{s}', but type '{s}' has no such field
+                    \\{}:
+                    \\  | {s}
+                    \\    {}^
+                    \\
+                , .{
+                    err_info.field_name,
+                    err_info.type.name,
+                    loc,
+                    try loc.containing_line(self.graphlt_module.source.?),
+                    SpacePrint.init(loc.col - 1),
                 });
             },
             .InvalidIR => {
@@ -1177,6 +1243,67 @@ const Compilation = struct {
                         }
                     }
 
+                    // TODO: parse these as a separate node type?
+                    const is_field_access = std.mem.startsWith(u8, func.value.symbol, ".") and func.value.symbol.len > 1;
+                    if (is_field_access) {
+                        const field_name = pool.getSymbol(func.value.symbol[1..]);
+
+                        if (v.items.len != 2) {
+                            self.diag.err = .{ .BuiltinWrongArity = .{
+                                .callee = v.items[0],
+                                .expected = 1,
+                                .received = @intCast(v.items.len - 1),
+                            } };
+                            return error.BuiltinWrongArity;
+                        }
+
+                        try self.compileExpr(v.items[1], fn_ctx, expr_ctx);
+                        const arg = &self._sexp_compiled[v.items[1]];
+
+                        if (arg.type.subtype != .@"struct") {
+                            self.diag.err = .{ .AccessNonCompound = .{
+                                .type = arg.type,
+                                .field_name = field_name,
+                            } };
+                            return error.AccessNonCompound;
+                        }
+
+                        const struct_info = arg.type.subtype.@"struct";
+
+                        const field_index = _: {
+                            for (struct_info.field_names, 0..) |s_field_name, i| {
+                                if (field_name.ptr == s_field_name.ptr) {
+                                    break :_ i;
+                                }
+                            }
+
+                            self.diag.err = .{ .AccessNonExistentField = .{
+                                .type = arg.type,
+                                .field_name = field_name,
+                            } };
+                            return error.AccessNonExistentField;
+                        };
+
+                        const field_type = struct_info.field_types[field_index];
+                        const field_offset = struct_info.field_offsets[field_index];
+
+                        slot.type = field_type;
+                        slot.expr = byn.c.BinaryenLocalSet(
+                            self.module.c(),
+                            local_index,
+                            byn.c.BinaryenBinary(
+                                self.module.c(),
+                                byn.c.BinaryenAddInt32(),
+                                byn.c.BinaryenLocalGet(
+                                    self.module.c(),
+                                    arg.local_index,
+                                    byn.c.BinaryenTypeInt32(),
+                                ),
+                                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(field_offset)),
+                            ),
+                        );
+                    }
+
                     // call host functions
                     const func_node_desc = self.env.getNode(func.value.symbol) orelse {
                         log.err("while in:\n{}\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
@@ -1418,7 +1545,6 @@ const Compilation = struct {
                                 return error.UnimplementedMultiResultHostFunc;
                             };
 
-                        //const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1 + @as(usize, if (requires_drop) 1 else 0));
                         const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1);
                         defer self.arena.allocator().free(operands);
 
@@ -1426,14 +1552,6 @@ const Compilation = struct {
                             const arg_compiled = self._sexp_compiled[arg_idx];
                             operand.* = byn.c.BinaryenLocalGet(self.module.c(), arg_compiled.local_index, BinaryenHelper.getType(arg_compiled.type, &self.used_features));
                         }
-
-                        // if (requires_drop) {
-                        //     operands[operands.len - 1] = @ptrCast(byn.c.BinaryenDrop(
-                        //         self.module.c(),
-                        //         // FIXME: why does Drop take an argument? is that a WAST thing?
-                        //         byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
-                        //     ));
-                        // }
 
                         const call_expr = byn.c.BinaryenCall(
                             self.module.c(),
@@ -1467,7 +1585,7 @@ const Compilation = struct {
                 },
 
                 .symbol => |v| {
-                    // FIXME: have a list of symbols in the scope
+                    // FIXME: have a list of symbols in the scope (aka the env lol)
                     if (v.ptr == syms.true.value.symbol.ptr) {
                         slot.type = primitive_types.bool_;
                         slot.expr = byn.c.BinaryenLocalSet(self.module.c(), local_index, byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(1)));
@@ -1565,6 +1683,7 @@ const Compilation = struct {
                     slot.expr = byn.c.BinaryenNop(self.module.c());
                 },
 
+                // module is only the top level, and compilation is per-function
                 .module => unreachable,
 
                 .valref => |v| {
@@ -2540,11 +2659,10 @@ test "compile big" {
         \\  (type (;2;) (func (param (ref null 0))))
         \\  (type (;3;) (func (param i32)))
         \\  (type (;4;) (func (param f32 f32) (result f32)))
-        \\  (type (;5;) (func (param i32 (ref null 0))))
-        \\  (type (;6;) (func (param i32 i32)))
-        \\  (type (;7;) (func (param i32) (result f64)))
-        \\  (import "env" "callUserFunc_code_R" (func (;0;) (type 5)))
-        \\  (import "env" "callUserFunc_i32_R" (func (;1;) (type 6)))
+        \\  (type (;5;) (func (param i32 i32)))
+        \\  (type (;6;) (func (param i32 (ref null 0))))
+        \\  (import "env" "callUserFunc_i32_R" (func (;0;) (type 5)))
+        \\  (import "env" "callUserFunc_code_R" (func (;1;) (type 6)))
         \\  (memory (;0;) 1 256)
         \\  (export "memory" (memory 0))
         \\  (export "++" (func $++))
@@ -2553,12 +2671,12 @@ test "compile big" {
         \\  (func $sql (;2;) (type 2) (param (ref null 0))
         \\    i32.const 1
         \\    local.get 0
-        \\    call 0
+        \\    call 1
         \\  )
         \\  (func $Confetti (;3;) (type 3) (param i32)
         \\    i32.const 0
         \\    local.get 0
-        \\    call 1
+        \\    call 0
         \\  )
         \\  (func $++ (;4;) (type 1) (param i32) (result i32)
         \\    (local i32 i32 i32 i32 i32 i32 i32)
@@ -2703,10 +2821,6 @@ test "compile big" {
         \\    end
         \\    unreachable
         \\  )
-        \\  (func $Vec3->X (;7;) (type 7) (param i32) (result f64)
-        \\    local.get 0
-        \\    f64.load
-        \\  )
         \\  (@custom "sourceMappingURL" (after code) "\07/script")
         \\)
         \\
@@ -2773,11 +2887,10 @@ test "factorial recursive" {
     const expected =
         \\(module
         \\  (type (;0;) (func (param i32) (result i32)))
-        \\  (type (;1;) (func (param i32) (result f64)))
         \\  (memory (;0;) 1 256)
         \\  (export "memory" (memory 0))
-        \\  (export "factorial" (func 0))
-        \\  (func (;0;) (type 0) (param i32) (result i32)
+        \\  (export "factorial" (func $factorial))
+        \\  (func $factorial (;0;) (type 0) (param i32) (result i32)
         \\    (local i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32)
         \\    block ;; label = @1
         \\      block ;; label = @2
@@ -2809,9 +2922,11 @@ test "factorial recursive" {
         \\          end
         \\          unreachable
         \\        end
+        \\        unreachable
         \\      else
         \\        br 1 (;@1;)
         \\      end
+        \\      unreachable
         \\    end
         \\    block ;; label = @1
         \\      local.get 0
@@ -2830,7 +2945,7 @@ test "factorial recursive" {
         \\    i32.sub
         \\    local.set 15
         \\    local.get 15
-        \\    call 0
+        \\    call $factorial
         \\    local.set 14
         \\    local.get 13
         \\    local.get 14
@@ -2838,10 +2953,6 @@ test "factorial recursive" {
         \\    local.set 12
         \\    local.get 12
         \\    return
-        \\  )
-        \\  (func (;1;) (type 1) (param i32) (result f64)
-        \\    local.get 0
-        \\    f64.load
         \\  )
         \\  (@custom "sourceMappingURL" (after code) "\07/script")
         \\)
@@ -2880,7 +2991,6 @@ test "factorial iterative" {
     const expected =
         \\(module
         \\  (type (;0;) (func (param i64) (result i64)))
-        \\  (type (;1;) (func (param i32) (result f64)))
         \\  (memory (;0;) 1 256)
         \\  (export "memory" (memory 0))
         \\  (export "factorial" (func $factorial))
@@ -2985,10 +3095,6 @@ test "factorial iterative" {
         \\    end
         \\    unreachable
         \\  )
-        \\  (func $Vec3->X (;1;) (type 1) (param i32) (result f64)
-        \\    local.get 0
-        \\    f64.load
-        \\  )
         \\  (@custom "sourceMappingURL" (after code) "\07/script")
         \\)
         \\
@@ -3041,10 +3147,10 @@ test "vec3 ref" {
         \\                         Origin
         \\                         Rotation)
         \\        (begin (ModelCenter) <!__label1
-        \\               (if (> (Vec3->X #!__label1)
+        \\               (if (> (.x #!__label1)
         \\                      2)
-        \\                   (begin (return "my_export"))
-        \\                   (begin (return "EXPORT2")))))
+        \\                   (return "my_export")
+        \\                   (return "EXPORT2"))))
     , null);
     //std.debug.print("{any}\n", .{parsed});
     // FIXME: there is some double-free happening here?

@@ -107,6 +107,8 @@ pub const Sexp = struct {
     /// optional label
     label: ?[:0]const u8 = null,
     value: union(enum) {
+        // FIXME: remove module type since it mostly just creates useless branching that
+        // ModuleContext can handle special casing of
         /// holds indices into the arena
         module: std.ArrayListUnmanaged(u32),
         // NOTE: consider separating empty list and symbol-started list into variants
@@ -136,7 +138,6 @@ pub const Sexp = struct {
 
     pub const ValRef = struct {
         target: u32,
-        subindex: u32 = 0,
     };
 
     const Self = @This();
@@ -392,7 +393,7 @@ pub const Sexp = struct {
             .valref => |v| _: {
                 const target = mod_ctx.get(v.target);
                 var cw = std.io.countingWriter(writer);
-                try cw.writer().print("#!{s}.{}", .{ target.label orelse "$$NOLABEL$$", v.subindex });
+                try cw.writer().print("#!{s}", .{target.label orelse "$$NOLABEL$$"});
                 break :_ @as(usize, @intCast(cw.bytes_written));
             },
         };

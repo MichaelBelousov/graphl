@@ -443,26 +443,14 @@ pub const Parser = struct {
                     };
                 },
                 '!' => {
-                    const dot_index = std.mem.indexOfPosLinear(u8, src, 2, ".") orelse {
-                        diag.result = Diagnostic.Result{ .badValRef = loc };
-                        return Diagnostic.Code.BadValRef;
-                    };
+                    const end_index = std.mem.indexOfAnyPos(u8, src, 2, &.{ ' ', '\n', '\t', ')' }) orelse src.len;
 
-                    const label = src[2..dot_index];
-                    const subindex_src = src[dot_index + 1 ..];
-                    const subindex_res = scanNumberOrUnaryNegationToken(subindex_src, loc, diag);
-                    if (std.meta.isError(subindex_res) or (try subindex_res).sexp.value != .int) {
-                        // TODO: record why subindex is bad!
-                        diag.result = Diagnostic.Result{ .badValRef = loc };
-                        return Diagnostic.Code.BadValRef;
-                    }
-
-                    const subindex = try subindex_res;
+                    const label = src[2..end_index];
 
                     if (label_map.getPtr(pool.getSymbol(label))) |label_info| {
                         return .{
                             .sexp = .{
-                                .span = src[0 .. "#!".len + label.len + ".".len + subindex.sexp.span.?.len],
+                                .span = src[0 .. "#!".len + label.len],
                                 .value = .{ .valref = .{
                                     .target = label_info.target,
                                 } },
@@ -834,7 +822,7 @@ test "parse all" {
         \\#f
         \\'sym
         \\""
-        \\#!label1.0
+        \\#!label1
     ;
 
     var diag = Parser.Diagnostic{ .source = source };
