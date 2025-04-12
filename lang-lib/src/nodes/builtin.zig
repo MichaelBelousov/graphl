@@ -22,9 +22,11 @@ pub const StructType = struct {
     field_types: []const Type = &.{},
     // I feel like 32-bits is too many
     field_offsets: []const u32 = &.{},
+    size: u32,
+    // total amount of primitive slots if you recursively descend through all fields
+    total_slots: u16,
 
-    // TODO: implement and add comptime version
-    fn initAutoOffsets(alloc: std.mem.Allocator, arg: struct {
+    pub fn initFromTypeList(alloc: std.mem.Allocator, arg: struct {
         field_names: []const [:0]const u8 = &.{},
         field_types: []const Type = &.{},
     }) @This() {
