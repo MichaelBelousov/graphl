@@ -760,7 +760,7 @@ test "parse all" {
     var mod = try ModuleContext.initCapacity(t.allocator, 16);
     defer mod.deinit();
 
-    _ = try mod.addToRoot(Sexp{ .value = .{ .int = 0 }, .label = pool.getSymbol("label1") });
+    const label1_idx = try mod.addToRoot(Sexp{ .value = .{ .int = 0 }, .label = pool.getSymbol("label1") });
     _ = try mod.addToRoot(Sexp{ .value = .{ .int = 2 } });
     _ = try mod.addToRoot(Sexp{ .value = .{ .ownedString = "hel\"lo\nworld" }, .label = pool.getSymbol("label2") });
     const list_idx = try mod.addToRoot(try .emptyListCapacity(mod.alloc(), 3));
@@ -778,7 +778,7 @@ test "parse all" {
     _ = try mod.addToRoot(syms.false);
     _ = try mod.addToRoot(.symbol("'sym"));
     _ = try mod.addToRoot(Sexp{ .value = .{ .ownedString = "" } });
-    _ = try mod.addToRoot(.symbol("#!label1.0"));
+    _ = try mod.addToRoot(.valref(.{ .target = label1_idx }));
 
     const expected = mod.getRoot();
 

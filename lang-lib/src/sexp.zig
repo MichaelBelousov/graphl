@@ -130,13 +130,14 @@ pub const Sexp = struct {
             target: u32,
         },
         // /// looks like: '#!target.0'
-        // valref: struct {
-        //     target: u32,
-        //     subindex: u32,
-        // },
+        valref: ValRef,
         // TODO: quote/quasiquote, etc
-
     },
+
+    pub const ValRef = struct {
+        target: u32,
+        subindex: u32 = 0,
+    };
 
     const Self = @This();
 
@@ -187,6 +188,10 @@ pub const Sexp = struct {
 
     pub fn symbol(sym: []const u8) Sexp {
         return Sexp{ .value = .{ .symbol = pool.getSymbol(sym) } };
+    }
+
+    pub fn valref(in_valref: ValRef) Sexp {
+        return Sexp{ .value = .{ .valref = in_valref } };
     }
 
     pub fn jump(name: []const u8, target: u32) Sexp {
@@ -335,22 +340,22 @@ pub const Sexp = struct {
         }
 
         // TODO: calculate stack space requirements?
-        const write_state_or_err: @TypeOf(writer).Error!WriteState = switch (self.value) {
-            .module => |v| writeModule(mod_ctx, &v, writer, state, opts),
-            .list => |v| writeList(mod_ctx, &v, writer, state, opts),
+        const write_depth: usize = switch (self.value) {
+            .module => |v| (try writeModule(mod_ctx, &v, writer, state, opts)).depth,
+            .list => |v| (try writeList(mod_ctx, &v, writer, state, opts)).depth,
             inline .float, .int => |v| _: {
                 var counting_writer = std.io.countingWriter(writer);
                 try counting_writer.writer().print("{d}", .{v});
-                break :_ .{ .depth = @intCast(counting_writer.bytes_written), .emitted_labels = state.emitted_labels };
+                break :_ @as(usize, @intCast(counting_writer.bytes_written));
             },
             .bool => |v| _: {
                 _ = try writer.write(if (v) syms.true.value.symbol else syms.false.value.symbol);
                 std.debug.assert(syms.true.value.symbol.len == syms.false.value.symbol.len);
-                break :_ .{ .depth = syms.true.value.symbol.len, .emitted_labels = state.emitted_labels };
+                break :_ syms.true.value.symbol.len;
             },
             .void => _: {
                 _ = try writer.write(syms.void.value.symbol);
-                break :_ .{ .depth = syms.void.value.symbol.len, .emitted_labels = state.emitted_labels };
+                break :_ syms.void.value.symbol.len;
             },
             .ownedString, .borrowedString => |v| _: {
                 // able to specify via formating params
@@ -374,19 +379,28 @@ pub const Sexp = struct {
                         try cw.writer().writeByte('"');
                     },
                 }
-                break :_ .{ .depth = @intCast(cw.bytes_written + 2), .emitted_labels = state.emitted_labels };
+                break :_ @as(usize, @intCast(cw.bytes_written + 2));
             },
             .symbol => |v| _: {
                 try writer.print("{s}", .{v});
-                break :_ .{ .depth = v.len, .emitted_labels = state.emitted_labels };
+                break :_ v.len;
             },
             .jump => |v| _: {
                 try writer.print(">!{s}", .{v.name});
-                break :_ .{ .depth = v.name.len, .emitted_labels = state.emitted_labels };
+                break :_ v.name.len;
+            },
+            .valref => |v| _: {
+                const target = mod_ctx.get(v.target);
+                var cw = std.io.countingWriter(writer);
+                try cw.writer().print("#!{s}.{}", .{ target.label orelse "$$NOLABEL$$", v.subindex });
+                break :_ @as(usize, @intCast(cw.bytes_written));
             },
         };
 
-        return try write_state_or_err;
+        return WriteState{
+            .depth = write_depth,
+            .emitted_labels = state.emitted_labels,
+        };
     }
 
     const WriteOptions = struct {
@@ -449,6 +463,7 @@ pub const Sexp = struct {
             .borrowedString => |v| return std.mem.eql(u8, v, other.value.borrowedString),
             .symbol => |v| return std.meta.eql(v, other.value.symbol),
             .jump => |v| return std.meta.eql(v, other.value.jump),
+            .valref => |v| return std.meta.eql(v, other.value.valref),
             inline .module, .list => |v, sexp_type| {
                 const other_list = @field(other.value, @tagName(sexp_type));
                 if (v.items.len != other_list.items.len) {
