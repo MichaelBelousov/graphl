@@ -1498,7 +1498,11 @@ const Compilation = struct {
                     };
 
                     slot.type = info.type;
-                    slot.expr = byn.c.BinaryenLocalSet(self.module.c(), local_index, byn.c.BinaryenLocalGet(self.module.c(), info.ref, BinaryenHelper.getType(info.type, &self.used_features)));
+                    slot.expr = byn.c.BinaryenLocalSet(
+                        self.module.c(),
+                        local_index,
+                        byn.c.BinaryenLocalGet(self.module.c(), info.ref, BinaryenHelper.getType(info.type, &self.used_features)),
+                    );
                 },
 
                 .borrowedString, .ownedString => |v| {
@@ -1556,9 +1560,22 @@ const Compilation = struct {
                     slot.expr = byn.c.BinaryenUnreachable(self.module.c());
                 },
 
-                inline else => {
-                    log.err("unimplemented expr for compilation:\n{}\n", .{code_sexp});
-                    std.debug.panic("unimplemented type: '{s}'", .{@tagName(code_sexp.value)});
+                .void => {
+                    slot.type = graphl_builtin.empty_type;
+                    slot.expr = byn.c.BinaryenNop(self.module.c());
+                },
+
+                .module => unreachable,
+
+                .valref => |v| {
+                    // FIXME: warn on forward value uses
+                    const target_slot = &self._sexp_compiled[v.target];
+                    slot.type = target_slot.type;
+                    slot.expr = byn.c.BinaryenLocalGet(
+                        self.module.c(),
+                        target_slot.local_index,
+                        BinaryenHelper.getType(target_slot.type, &self.used_features),
+                    );
                 },
             }
         }

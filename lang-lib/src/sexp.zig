@@ -522,6 +522,7 @@ pub const Sexp = struct {
             // TODO: it's pooled, can do a cheaper comparison
             .symbol => |v| return if (std.meta.eql(v, pattern.value.symbol)) null else self_index,
             .jump => |v| return if (std.meta.eql(v, pattern.value.jump)) null else self_index,
+            .valref => |v| return if (std.meta.eql(v, pattern.value.valref)) null else self_index,
             inline .module, .list => |v, sexp_type| {
                 const pattern_list = @field(pattern.value, @tagName(sexp_type));
                 var i: usize = 0;
