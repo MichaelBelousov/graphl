@@ -757,28 +757,28 @@ fn escapeStr(alloc: std.mem.Allocator, src: []const u8) ![]u8 {
 const t = std.testing;
 
 test "parse all" {
-    var expected = Sexp{ .value = .{ .module = std.ArrayListUnmanaged(u32).init(t.allocator) } };
-    try expected.value.module.append(Sexp{ .value = .{ .int = 0 }, .label = "#!label1" });
-    try expected.value.module.append(Sexp{ .value = .{ .int = 2 } });
-    try expected.value.module.append(Sexp{ .value = .{ .ownedString = "hel\"lo\nworld" }, .label = "#!label2" });
-    try expected.value.module.append(Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) }, .label = "#!label3" });
-    try expected.value.module.items[3].value.list.append(Sexp{ .value = .{ .symbol = "+" } });
-    try expected.value.module.items[3].value.list.append(Sexp{ .value = .{ .int = 3 } });
-    try expected.value.module.items[3].value.list.append(Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(t.allocator) } });
-    try expected.value.module.items[3].value.list.items[2].value.list.append(Sexp{ .value = .{ .symbol = "-" } });
-    try expected.value.module.items[3].value.list.items[2].value.list.append(Sexp{ .value = .{ .int = 210 } });
-    try expected.value.module.items[3].value.list.items[2].value.list.append(Sexp{ .value = .{ .int = 5 } });
-    try expected.value.module.append(syms.void);
-    try expected.value.module.append(syms.true);
-    try expected.value.module.append(syms.false);
-    try expected.value.module.append(Sexp{ .value = .{ .symbol = "'sym" } });
-    try expected.value.module.append(Sexp{ .value = .{ .ownedString = "" } });
-    defer {
-        // don't free fake ownedString
-        expected.value.module.items[2] = Sexp{ .value = .void };
-        expected.value.module.items[8] = Sexp{ .value = .void };
-        expected.deinit(t.allocator);
-    }
+    var mod = try ModuleContext.initCapacity(t.allocator, 16);
+    defer mod.deinit();
+
+    _ = try mod.addToRoot(Sexp{ .value = .{ .int = 0 }, .label = "label1" });
+    _ = try mod.addToRoot(Sexp{ .value = .{ .int = 2 } });
+    _ = try mod.addToRoot(Sexp{ .value = .{ .ownedString = "hel\"lo\nworld" }, .label = "label2" });
+    const list = try mod.addGet(try .emptyListCapacity(mod.alloc(), 3));
+    list.label = "label3";
+    list.value.list.appendAssumeCapacity(try mod.add(Sexp{ .value = .{ .symbol = "+" } }));
+    list.value.list.appendAssumeCapacity(try mod.add(Sexp{ .value = .{ .int = 3 } }));
+    list.value.list.appendAssumeCapacity(try mod.add(try .emptyListCapacity(t.allocator, 3)));
+    const sublist = try mod.addGet(try .emptyListCapacity(t.allocator, 6));
+    sublist.value.list.appendAssumeCapacity(try mod.add(Sexp{ .value = .{ .symbol = "-" } }));
+    sublist.value.list.appendAssumeCapacity(try mod.add(Sexp{ .value = .{ .int = 210 } }));
+    sublist.value.list.appendAssumeCapacity(try mod.add(Sexp{ .value = .{ .int = 5 } }));
+    _ = try mod.addToRoot(syms.void);
+    _ = try mod.addToRoot(syms.true);
+    _ = try mod.addToRoot(syms.false);
+    _ = try mod.addToRoot(Sexp{ .value = .{ .symbol = "'sym" } });
+    _ = try mod.addToRoot(Sexp{ .value = .{ .ownedString = "" } });
+
+    const expected = mod.getRoot();
 
     const source =
         \\0
@@ -787,7 +787,7 @@ test "parse all" {
         \\"hel\"lo
         \\world" #!label2 ;; comment
         \\(+ 3 (- 210 5)
-        \\) #!label3
+        \\) <!label3
         \\#void
         \\#t
         \\#f
@@ -799,10 +799,11 @@ test "parse all" {
     defer if (diag.result != .none) {
         std.debug.print("diag={}", .{diag});
     };
-    var actual = try Parser.parse(t.allocator, source, &diag);
-    defer actual.deinit(t.allocator);
 
-    const result = expected.recursive_eq(actual);
+    var actual = try Parser.parse(t.allocator, source, &diag);
+    defer actual.deinit();
+
+    const result = expected.recursive_eq(&mod, actual.module.getRoot(), &actual.module);
 
     if (!result) {
         std.debug.print("====== ACTUAL ===========\n", .{});
@@ -1033,13 +1034,13 @@ test "parse recover unmatched closing paren" {
     ;
 
     var diagnostic: Parser.Diagnostic = undefined;
-    const actual = Parser.parse(t.allocator, source, &diagnostic);
+    var parsed = Parser.parse(t.allocator, source, &diagnostic);
     defer {
-        if (actual) |a| a.deinit(t.allocator) else |_| {
-            std.debug.print("diagnostic:\n{}\n", .{diagnostic});
-        }
+        if (parsed) |*val| {
+            val.deinit();
+        } else |_| {}
     }
-    try t.expectError(error.UnmatchedCloser, actual);
+    try t.expectError(error.UnmatchedCloser, parsed);
 
     try t.expectFmt(
         \\Closing parenthesis with no opener:
@@ -1056,11 +1057,13 @@ test "parse recover unmatched open paren" {
     ;
 
     var diagnostic: Parser.Diagnostic = undefined;
-    const actual = Parser.parse(t.allocator, source, &diagnostic);
+    var parsed = Parser.parse(t.allocator, source, &diagnostic);
     defer {
-        if (actual) |a| a.deinit(t.allocator) else |_| {}
+        if (parsed) |*val| {
+            val.deinit();
+        } else |_| {}
     }
-    try t.expectError(error.UnmatchedOpener, actual);
+    try t.expectError(error.UnmatchedOpener, parsed);
 
     // FIXME: the arrow should point to the opener!
     try t.expectFmt(
@@ -1075,9 +1078,9 @@ test "simple error1" {
     const source =
         \\())
     ;
-    const actual = Parser.parse(t.allocator, source, null);
+    var actual = Parser.parse(t.allocator, source, null);
     defer {
-        if (actual) |a| a.deinit(t.allocator) else |_| {}
+        if (actual) |*a| a.deinit() else |_| {}
     }
     try t.expectError(error.UnmatchedCloser, actual);
 }

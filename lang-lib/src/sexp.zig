@@ -43,6 +43,16 @@ pub const ModuleContext = struct {
         return @intCast(self.arena.items.len - 1);
     }
 
+    pub inline fn addGet(self: *@This(), sexp: Sexp) !*Sexp {
+        return &self.arena.items[try self.add(sexp)];
+    }
+
+    pub inline fn addToRoot(self: *@This(), sexp: Sexp) !u32 {
+        const added = try self.add(sexp);
+        try self.getRoot().value.module.append(self.alloc(), added);
+        return added;
+    }
+
     pub inline fn get(self: *const @This(), index: u32) *Sexp {
         return &self.arena.items[index];
     }
@@ -164,6 +174,7 @@ pub const Sexp = struct {
 
     pub const empty_list = Sexp{ .value = .{ .list = .empty } };
 
+    // FIXME: why not force use the module context's arena allocator?
     pub fn emptyListCapacity(alloc: std.mem.Allocator, capacity: usize) !Sexp {
         return Sexp{ .value = .{ .list = try std.ArrayListUnmanaged(u32).initCapacity(alloc, capacity) } };
     }
@@ -657,26 +668,20 @@ pub const Sexp = struct {
     }
 };
 
-test "free sexp" {
-    const alloc = std.testing.allocator;
-    const str = Sexp{ .value = .{ .ownedString = try alloc.alloc(u8, 10) } };
-    defer str.deinit(alloc);
-}
-
 test "write sexp" {
-    var list = std.ArrayListUnmanaged(u32).init(std.testing.allocator);
-    try list.append(Sexp{ .value = .{ .symbol = "hello" } });
-    try list.append(Sexp{ .value = .{ .borrowedString = "world\"" } });
-    try list.append(Sexp{ .value = .{ .float = 0.5 } });
-    try list.append(Sexp{ .value = .{ .float = 1.0 } });
-    defer list.deinit();
-    var root_sexp = Sexp{ .value = .{ .list = list } };
+    var mod = try ModuleContext.initCapacity(t.allocator, 5);
+    defer mod.deinit();
+
+    const list = try mod.addGet(try .emptyListCapacity(mod.alloc(), 4));
+    list.value.list.appendAssumeCapacity(try mod.add(Sexp{ .value = .{ .borrowedString = "world\"" } }));
+    list.value.list.appendAssumeCapacity(try mod.add(Sexp{ .value = .{ .float = 0.5 } }));
+    list.value.list.appendAssumeCapacity(try mod.add(Sexp{ .value = .{ .float = 1.0 } }));
 
     var buff: [1024]u8 = undefined;
     var fixed_buffer_stream = std.io.fixedBufferStream(&buff);
     const writer = fixed_buffer_stream.writer();
 
-    const bytes_written = try root_sexp.write(writer, .{});
+    const bytes_written = try mod.getRoot().write(&mod, writer, .{});
 
     try testing.expectEqualStrings(
         \\(hello "world\""
