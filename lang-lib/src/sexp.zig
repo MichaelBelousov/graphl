@@ -123,11 +123,17 @@ pub const Sexp = struct {
         borrowedString: []const u8,
         /// always in the intern pool
         symbol: [:0]const u8,
-        // looks like: '>!target'
+        /// looks like: '>!target'
         jump: struct {
+            // FIXME: remove, can just read the label from the target
             name: [:0]const u8,
             target: u32,
         },
+        // /// looks like: '#!target.0'
+        // valref: struct {
+        //     target: u32,
+        //     subindex: u32,
+        // },
         // TODO: quote/quasiquote, etc
 
     },

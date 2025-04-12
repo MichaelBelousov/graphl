@@ -516,10 +516,10 @@ pub const Parser = struct {
             _module: *@TypeOf(module),
             _out_diag: @TypeOf(out_diag),
 
-            fn pushExistingSexp(self: *const @This(), index: u32) !void {
+            fn pushAllocedSexp(self: *const @This(), index: u32) !void {
                 // not reachable because invalidly trying to pop the module scope is handled
                 const top = peek(self._stack) orelse unreachable;
-                try self._module.get(top).value.list.append(self._out_alloc, index);
+                try self._module.get(top).body().append(self._out_alloc, index);
                 self._last_sexp.* = index;
 
                 if (self._active_label.*) |label| {
@@ -546,7 +546,7 @@ pub const Parser = struct {
 
             fn pushSexp(self: *const @This(), in_sexp: Sexp) !void {
                 const new_idx = try self._module.add(in_sexp);
-                return self.pushExistingSexp(new_idx);
+                return self.pushAllocedSexp(new_idx);
             }
         }{
             ._loc = &loc,
@@ -760,32 +760,35 @@ test "parse all" {
     var mod = try ModuleContext.initCapacity(t.allocator, 16);
     defer mod.deinit();
 
-    _ = try mod.addToRoot(Sexp{ .value = .{ .int = 0 }, .label = "label1" });
+    _ = try mod.addToRoot(Sexp{ .value = .{ .int = 0 }, .label = pool.getSymbol("label1") });
     _ = try mod.addToRoot(Sexp{ .value = .{ .int = 2 } });
-    _ = try mod.addToRoot(Sexp{ .value = .{ .ownedString = "hel\"lo\nworld" }, .label = "label2" });
-    const list = try mod.addGet(try .emptyListCapacity(mod.alloc(), 3));
-    list.label = "label3";
-    list.value.list.appendAssumeCapacity(try mod.add(Sexp{ .value = .{ .symbol = "+" } }));
+    _ = try mod.addToRoot(Sexp{ .value = .{ .ownedString = "hel\"lo\nworld" }, .label = pool.getSymbol("label2") });
+    const list_idx = try mod.addToRoot(try .emptyListCapacity(mod.alloc(), 3));
+    const list = mod.get(list_idx);
+    list.label = pool.getSymbol("label3");
+    list.value.list.appendAssumeCapacity(try mod.add(.symbol("+")));
     list.value.list.appendAssumeCapacity(try mod.add(Sexp{ .value = .{ .int = 3 } }));
     list.value.list.appendAssumeCapacity(try mod.add(try .emptyListCapacity(t.allocator, 3)));
-    const sublist = try mod.addGet(try .emptyListCapacity(t.allocator, 6));
-    sublist.value.list.appendAssumeCapacity(try mod.add(Sexp{ .value = .{ .symbol = "-" } }));
+    const sublist = mod.get(list.value.list.items[2]);
+    sublist.value.list.appendAssumeCapacity(try mod.add(.symbol("-")));
     sublist.value.list.appendAssumeCapacity(try mod.add(Sexp{ .value = .{ .int = 210 } }));
     sublist.value.list.appendAssumeCapacity(try mod.add(Sexp{ .value = .{ .int = 5 } }));
     _ = try mod.addToRoot(syms.void);
     _ = try mod.addToRoot(syms.true);
     _ = try mod.addToRoot(syms.false);
-    _ = try mod.addToRoot(Sexp{ .value = .{ .symbol = "'sym" } });
+    _ = try mod.addToRoot(.symbol("'sym"));
     _ = try mod.addToRoot(Sexp{ .value = .{ .ownedString = "" } });
+    _ = try mod.addToRoot(.symbol("#!label1.0"));
 
     const expected = mod.getRoot();
 
     const source =
+        \\<!label1
         \\0
-        \\#!label1
+        \\
         \\2
         \\"hel\"lo
-        \\world" #!label2 ;; comment
+        \\world" <!label2 ;; comment
         \\(+ 3 (- 210 5)
         \\) <!label3
         \\#void
@@ -793,6 +796,7 @@ test "parse all" {
         \\#f
         \\'sym
         \\""
+        \\#!label1.0
     ;
 
     var diag = Parser.Diagnostic{ .source = source };
@@ -807,9 +811,9 @@ test "parse all" {
 
     if (!result) {
         std.debug.print("====== ACTUAL ===========\n", .{});
-        std.debug.print("{any}\n", .{actual});
+        std.debug.print("{}\n", .{actual.module});
         std.debug.print("====== EXPECTED =========\n", .{});
-        std.debug.print("{any}\n", .{expected});
+        std.debug.print("{}\n", .{mod});
         std.debug.print("=========================\n", .{});
     }
 
