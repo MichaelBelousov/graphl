@@ -281,38 +281,25 @@ test "simple string" {
     const expected =
         \\(module
         \\  (type (;0;) (array (mut i8)))
-        \\  (type (;1;) (func (param i32) (result f64)))
-        \\  (type (;2;) (func (result (ref null 0))))
+        \\  (type (;1;) (func (result (ref null 0))))
         \\  (memory (;0;) 1 256)
         \\  (export "memory" (memory 0))
         \\  (export "simple" (func $simple))
-        \\  (func $simple (;0;) (type 2) (result (ref null 0))
+        \\  (func $simple (;0;) (type 1) (result (ref null 0))
         \\    (local (ref null 0) (ref null 0) (ref null 0))
         \\    block ;; label = @1
         \\      block ;; label = @2
         \\      end
         \\      br 0 (;@1;)
         \\    end
-        \\    i32.const 1024
+        \\    i32.const 0
         \\    i32.const 5
-        \\    array.new_data 0 0
+        \\    array.new_data 0 $s_1024
         \\    local.set 2
         \\    local.get 2
         \\    return
         \\  )
-        \\  (func $Vec3->X (;1;) (type 1) (param i32) (result f64)
-        \\    local.get 0
-        \\    f64.load
-        \\  )
-        \\  (func $Vec3->Y (;2;) (type 1) (param i32) (result f64)
-        \\    local.get 0
-        \\    f64.load offset=8
-        \\  )
-        \\  (func $Vec3->Z (;3;) (type 1) (param i32) (result f64)
-        \\    local.get 0
-        \\    f64.load offset=16
-        \\  )
-        \\  (data (;0;) (i32.const 1024) "hello")
+        \\  (data $s_1024 (;0;) "hello")
         \\  (@custom "sourceMappingURL" (after data) "\07/script")
         \\)
         \\

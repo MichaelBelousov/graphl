@@ -295,11 +295,23 @@ const binaryop_builtins = .{
     },
 };
 
+const Features = struct {
+    vec3: bool = false,
+    string: bool = false,
+};
+
 const BinaryenHelper = struct {
     var alloc = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     var type_map: std.AutoHashMapUnmanaged(Type, byn.c.BinaryenType) = .{};
 
-    pub fn getType(graphl_type: Type) byn.c.BinaryenType {
+    pub fn getType(graphl_type: Type, features: *Features) byn.c.BinaryenType {
+        // TODO: use switch if compiler supports it
+        if (graphl_type == primitive_types.string) {
+            features.string = true;
+        } else if (graphl_type == primitive_types.vec3) {
+            features.vec3 = true;
+        }
+
         return type_map.get(graphl_type) orelse {
             std.debug.panic("No binaryen type registered for graphl type '{s}'", .{graphl_type.name});
         };
@@ -344,6 +356,7 @@ fn constructor() callconv(.C) void {
         }) catch unreachable,
     };
 
+    // FIXME: lazily add this type if a string is used!
     byn.c.TypeBuilderSetStructType(
         tb,
         1,
@@ -363,6 +376,7 @@ fn constructor() callconv(.C) void {
     // NOTE: stringref isn't standard
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.code, i8_array) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.symbol, i8_array) catch unreachable;
+    // FIXME: lazily add this type if a string is used!
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.string, i8_array) catch unreachable;
 }
 
@@ -399,6 +413,8 @@ const Compilation = struct {
         funcs: *const std.SinglyLinkedList(UserFunc),
         func_map: std.StringHashMapUnmanaged(*UserFunc),
     },
+
+    used_features: Features = .{},
 
     // FIXME: support multiple diagnostics
     diag: *Diagnostic,
@@ -784,14 +800,14 @@ const Compilation = struct {
         const param_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.param_types.len);
         defer self.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
         for (param_types, complete_func_type_desc.param_types) |*wasm_t, graphl_t| {
-            wasm_t.* = BinaryenHelper.getType(graphl_t);
+            wasm_t.* = BinaryenHelper.getType(graphl_t, &self.used_features);
         }
         const param_type_byn: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(param_types.ptr, @intCast(param_types.len));
 
         const result_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.result_types.len);
         defer self.arena.allocator().free(result_types); // FIXME: what is the binaryen ownership model?
         for (result_types, complete_func_type_desc.result_types) |*wasm_t, graphl_t| {
-            wasm_t.* = BinaryenHelper.getType(graphl_t);
+            wasm_t.* = BinaryenHelper.getType(graphl_t, &self.used_features);
         }
 
         const ResultType = struct {
@@ -803,7 +819,7 @@ const Compilation = struct {
         const result_type: ResultType = _: {
             if (func_type.result_types.len == 1) {
                 break :_ .{
-                    .byn = BinaryenHelper.getType(func_type.result_types[0]),
+                    .byn = BinaryenHelper.getType(func_type.result_types[0], &self.used_features),
                     .graphl = func_type.result_types[0],
                 };
             } else {
@@ -930,7 +946,7 @@ const Compilation = struct {
                 if (local_type == graphl_builtin.empty_type)
                     byn.Type.i32
                 else
-                    @enumFromInt(BinaryenHelper.getType(local_type));
+                    @enumFromInt(BinaryenHelper.getType(local_type, &self.used_features));
         }
 
         std.debug.print("result type: {s}\n", .{result_type.graphl.name});
@@ -1048,7 +1064,7 @@ const Compilation = struct {
                         const first_arg = self._sexp_compiled[v.items[1]];
                         slot.expr = byn.c.BinaryenReturn(
                             self.module.c(),
-                            byn.c.BinaryenLocalGet(self.module.c(), first_arg.local_index, BinaryenHelper.getType(first_arg.type)),
+                            byn.c.BinaryenLocalGet(self.module.c(), first_arg.local_index, BinaryenHelper.getType(first_arg.type, &self.used_features)),
                         );
 
                         break :done;
@@ -1127,7 +1143,7 @@ const Compilation = struct {
                                             byn.c.BinaryenLocalGet(
                                                 self.module.c(),
                                                 last_arg_slot.local_index,
-                                                BinaryenHelper.getType(last_arg_slot.type),
+                                                BinaryenHelper.getType(last_arg_slot.type, &self.used_features),
                                             ),
                                             slot.type,
                                         ),
@@ -1237,7 +1253,7 @@ const Compilation = struct {
                             self.module.c(),
                             local_info.index orelse unreachable,
                             // FIXME: promote value?
-                            byn.c.BinaryenLocalGet(self.module.c(), value_to_set.local_index, BinaryenHelper.getType(value_to_set.type)),
+                            byn.c.BinaryenLocalGet(self.module.c(), value_to_set.local_index, BinaryenHelper.getType(value_to_set.type, &self.used_features)),
                         );
                         break :done;
                     }
@@ -1290,12 +1306,12 @@ const Compilation = struct {
                                     op.c(),
                                     self.promoteToType(
                                         lhs.type,
-                                        byn.c.BinaryenLocalGet(self.module.c(), lhs.local_index, BinaryenHelper.getType(lhs.type)),
+                                        byn.c.BinaryenLocalGet(self.module.c(), lhs.local_index, BinaryenHelper.getType(lhs.type, &self.used_features)),
                                         args_top_type,
                                     ),
                                     self.promoteToType(
                                         rhs.type,
-                                        byn.c.BinaryenLocalGet(self.module.c(), rhs.local_index, BinaryenHelper.getType(rhs.type)),
+                                        byn.c.BinaryenLocalGet(self.module.c(), rhs.local_index, BinaryenHelper.getType(rhs.type, &self.used_features)),
                                         args_top_type,
                                     ),
                                 ),
@@ -1404,7 +1420,7 @@ const Compilation = struct {
 
                         for (v.items[1..], operands[0 .. v.items.len - 1]) |arg_idx, *operand| {
                             const arg_compiled = self._sexp_compiled[arg_idx];
-                            operand.* = byn.c.BinaryenLocalGet(self.module.c(), arg_compiled.local_index, BinaryenHelper.getType(arg_compiled.type));
+                            operand.* = byn.c.BinaryenLocalGet(self.module.c(), arg_compiled.local_index, BinaryenHelper.getType(arg_compiled.type, &self.used_features));
                         }
 
                         // if (requires_drop) {
@@ -1420,7 +1436,7 @@ const Compilation = struct {
                             func.value.symbol,
                             operands.ptr,
                             @intCast(operands.len),
-                            BinaryenHelper.getType(slot.type),
+                            BinaryenHelper.getType(slot.type, &self.used_features),
                         );
 
                         slot.expr = if (slot.type == primitive_types.void)
@@ -1478,7 +1494,7 @@ const Compilation = struct {
                     };
 
                     slot.type = info.type;
-                    slot.expr = byn.c.BinaryenLocalSet(self.module.c(), local_index, byn.c.BinaryenLocalGet(self.module.c(), info.ref, BinaryenHelper.getType(info.type)));
+                    slot.expr = byn.c.BinaryenLocalSet(self.module.c(), local_index, byn.c.BinaryenLocalGet(self.module.c(), info.ref, BinaryenHelper.getType(info.type, &self.used_features)));
                 },
 
                 .borrowedString, .ownedString => |v| {
@@ -1506,7 +1522,7 @@ const Compilation = struct {
                         local_index,
                         byn.c.BinaryenArrayNewData(
                             self.module.c(),
-                            byn.c.BinaryenTypeGetHeapType(BinaryenHelper.getType(primitive_types.string)),
+                            byn.c.BinaryenTypeGetHeapType(BinaryenHelper.getType(primitive_types.string, &self.used_features)),
                             seg_name,
                             // TODO: consider using an offset?
                             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
@@ -1811,7 +1827,7 @@ const Compilation = struct {
                         .post,
                         consequence_idx,
                         .pre,
-                        byn.c.BinaryenLocalGet(self.module.c(), condition_slot.local_index, BinaryenHelper.getType(condition_slot.type)),
+                        byn.c.BinaryenLocalGet(self.module.c(), condition_slot.local_index, BinaryenHelper.getType(condition_slot.type, &self.used_features)),
                         null,
                     );
                     self.RelooperAddBranch(consequence_idx, .post, code_sexp_idx, .post, null, null);
@@ -1879,7 +1895,7 @@ const Compilation = struct {
         //         // TODO: diagnostic
         //         return error.RecursiveDependency;
 
-        //     slot.expr = byn.c.BinaryenLocalGet(self.module.c(), slot.local_index, BinaryenHelper.getType(slot.type));
+        //     slot.expr = byn.c.BinaryenLocalGet(self.module.c(), slot.local_index, BinaryenHelper.getType(slot.type, &self.used_features));
         //     slot.type = primitive_types.code;
         //     return;
         // }
@@ -1998,14 +2014,14 @@ const Compilation = struct {
                 defer ctx.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
                 param_types[0] = byn.c.BinaryenTypeInt32();
                 for (_self.params, param_types[1..]) |graphl_t, *wasm_t| {
-                    wasm_t.* = BinaryenHelper.getType(graphl_t);
+                    wasm_t.* = BinaryenHelper.getType(graphl_t, &ctx.used_features);
                 }
                 const params: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(param_types.ptr, @intCast(param_types.len));
 
                 const result_types = try ctx.arena.allocator().alloc(byn.c.BinaryenType, _self.results.len);
                 defer ctx.arena.allocator().free(result_types); // FIXME: what is the binaryen ownership model?
                 for (_self.results, result_types) |graphl_t, *wasm_t| {
-                    wasm_t.* = BinaryenHelper.getType(graphl_t);
+                    wasm_t.* = BinaryenHelper.getType(graphl_t, &ctx.used_features);
                 }
                 const results: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(result_types.ptr, @intCast(result_types.len));
 
@@ -2102,11 +2118,11 @@ const Compilation = struct {
 
                 for (params, def.params, byn_params) |param, *param_type, *byn_param| {
                     param_type.* = param.kind.primitive.value;
-                    byn_param.* = BinaryenHelper.getType(param.kind.primitive.value);
+                    byn_param.* = BinaryenHelper.getType(param.kind.primitive.value, &self.used_features);
                 }
                 for (results, def.results, byn_results) |result, *result_type, *byn_result| {
                     result_type.* = result.kind.primitive.value;
-                    byn_result.* = BinaryenHelper.getType(result.kind.primitive.value);
+                    byn_result.* = BinaryenHelper.getType(result.kind.primitive.value, &self.used_features);
                 }
 
                 var byn_args = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), byn_params.len + 1);
@@ -2115,7 +2131,7 @@ const Compilation = struct {
                 byn_args.expandToCapacity();
 
                 for (params, 0.., byn_args.items[1..]) |p, i, *byn_arg| {
-                    byn_arg.* = byn.Expression.localGet(self.module, @intCast(i), @enumFromInt(BinaryenHelper.getType(p.kind.primitive.value)));
+                    byn_arg.* = byn.Expression.localGet(self.module, @intCast(i), @enumFromInt(BinaryenHelper.getType(p.kind.primitive.value, &self.used_features)));
                 }
 
                 const import_entry = try userfunc_imports.getOrPut(self.arena.allocator(), def);
@@ -2180,16 +2196,14 @@ const Compilation = struct {
             }
         }
 
-        // FIXME: only add this intrinsic if it's referenced during analysis
-        const vec3_module = byn.c.BinaryenModuleRead(@constCast(intrinsics_vec3.ptr), intrinsics_vec3.len);
+        if (self.used_features.vec3) {
+            const vec3_module = byn.c.BinaryenModuleRead(@constCast(intrinsics_vec3.ptr), intrinsics_vec3.len);
 
-        // FIXME: replace with generic struct breaking
-        std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_x".ptr, "Vec3->X".ptr));
-        std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_y".ptr, "Vec3->Y".ptr));
-        std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_z".ptr, "Vec3->Z".ptr));
-
-        // TODO: consider doing this
-        //byn.c.BinaryenModuleAutoDrop(self.module.c());
+            // FIXME: replace with generic struct breaking
+            std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_x".ptr, "Vec3->X".ptr));
+            std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_y".ptr, "Vec3->Y".ptr));
+            std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_z".ptr, "Vec3->Z".ptr));
+        }
 
         if (std.log.logEnabled(.debug, .graphlt_compiler)) {
             byn._BinaryenModulePrintStderr(self.module.c());
