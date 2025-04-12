@@ -42,6 +42,7 @@ const SpacePrint = @import("./sexp_parser.zig").SpacePrint;
 const log = std.log.scoped(.graphlt_compiler);
 
 const intrinsics_vec3 = @embedFile("graphl_intrinsics_vec3");
+const intrinsics_string = @embedFile("graphl_intrinsics_string");
 
 pub const Diagnostic = struct {
     err: Error = .None,
@@ -401,11 +402,8 @@ const Compilation = struct {
     // NOTE: this coul
     _sexp_compiled: []Slot,
 
-    // FIXME: figure out how this works cuz rn I'm not sure I'm even using this at all in the memory, using
-    // segments instead, but I need to read more
-    // according to binaryen docs, there are optimizations if you
-    // do not use the first 1Kb
-    ro_data_offset: u32 = 1024,
+    // FIXME: figure out how segments works cuz I haven't figured it out yet
+    ro_data_offset: u32 = mem_start + str_transfer_seg_size,
 
     module: *byn.Module,
     arena: std.heap.ArenaAllocator,
@@ -418,6 +416,13 @@ const Compilation = struct {
 
     // FIXME: support multiple diagnostics
     diag: *Diagnostic,
+
+    // according to binaryen docs, there are optimizations if you
+    // do not use the first 1Kb
+    pub const mem_start = 1024;
+
+    // TODO: only create this segment if string feature is used
+    pub const str_transfer_seg_size = 4096;
 
     pub const Slot = struct {
         // FIXME: should this have a pointer to its frame?
@@ -483,7 +488,6 @@ const Compilation = struct {
                 byn.Features.MutableGlobals(),
                 byn.Features.ReferenceTypes(),
                 byn.Features.Multivalue(),
-                byn.Features.Strings(),
                 byn.Features.BulkMemory(),
             }),
         );
@@ -513,6 +517,17 @@ const Compilation = struct {
             false, // shared
             false, // memory64
             main_mem_name, // name
+        );
+
+        // FIXME: only do this if !!features.string
+        byn.c.BinaryenAddDataSegment(
+            result.module.c(),
+            "str_transfer",
+            main_mem_name,
+            true,
+            null,
+            &[_]u8{0},
+            @intCast(str_transfer_seg_size),
         );
 
         return result;
@@ -1511,12 +1526,11 @@ const Compilation = struct {
                         main_mem_name,
                         true,
                         null,
-                        // FIXME: gross, use 0 terminated strings?
+                        // FIXME: gross, use 0 terminated strings
                         v.ptr,
                         @intCast(v.len),
                     );
 
-                    // FIXME: add fixed data and copy from it
                     slot.expr = byn.c.BinaryenLocalSet(
                         self.module.c(),
                         local_index,
@@ -2203,6 +2217,12 @@ const Compilation = struct {
             std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_x".ptr, "Vec3->X".ptr));
             std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_y".ptr, "Vec3->Y".ptr));
             std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_z".ptr, "Vec3->Z".ptr));
+        }
+
+        if (self.used_features.string) {
+            const string_module = byn.c.BinaryenModuleRead(@constCast(intrinsics_string.ptr), intrinsics_string.len);
+
+            std.debug.assert(byn._binaryenCloneFunction(string_module, self.module.c(), "__graphl_host_copy".ptr, "__graphl_host_copy".ptr));
         }
 
         if (std.log.logEnabled(.debug, .graphlt_compiler)) {

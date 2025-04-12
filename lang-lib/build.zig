@@ -30,6 +30,14 @@ pub fn build(b: *std.Build) void {
     // TODO: make this false in some cases
     const small_intrinsics = b.option(bool, "small_intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse true;
 
+    const build_string_intrinsics_step = b.addSystemCommand(&.{
+        "wasm-tools",
+        "parse",
+    });
+    build_string_intrinsics_step.addFileArg(b.path("./src/intrinsics/string/impl.wat"));
+    build_string_intrinsics_step.addArg("-o");
+    const build_string_intrinsics_wasm = build_string_intrinsics_step.addOutputFileArg("string_intrinsics.wasm");
+
     const intrinsics = .{
         .vec3 = b.addExecutable(.{
             .name = "graphl_intrinsics_vec3",
@@ -44,6 +52,9 @@ pub fn build(b: *std.Build) void {
             .error_tracing = false,
             .code_model = .small,
         }),
+        .string = .{
+            .bin = build_string_intrinsics_wasm,
+        },
     };
 
     intrinsics.vec3.entry = .disabled;
@@ -116,6 +127,11 @@ pub fn build(b: *std.Build) void {
         m.*.addOptions("build_opts", lib_opts);
         m.*.addAnonymousImport("graphl_intrinsics_vec3", .{
             .root_source_file = intrinsics.vec3.getEmittedBin(),
+            .optimize = optimize,
+            .target = web_target,
+        });
+        m.*.addAnonymousImport("graphl_intrinsics_string", .{
+            .root_source_file = intrinsics.string.bin,
             .optimize = optimize,
             .target = web_target,
         });
