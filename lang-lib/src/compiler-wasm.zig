@@ -519,8 +519,6 @@ const Compilation = struct {
             main_mem_name, // name
         );
 
-        // FIXME: create a zeroed memory segment, this is reading into readonly memory which is
-        // really really bad
         // FIXME: only do this if !!features.string
         byn.c.BinaryenAddDataSegment(
             result.module.c(),
@@ -528,7 +526,8 @@ const Compilation = struct {
             main_mem_name,
             true,
             null,
-            &[_]u8{0},
+            // FIXME: can I create a zeroed segment without generating a stupid literal?
+            &std.mem.zeroes([str_transfer_seg_size]u8),
             @intCast(str_transfer_seg_size),
         );
 
