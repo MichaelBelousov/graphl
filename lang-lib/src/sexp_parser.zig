@@ -9,7 +9,7 @@ const Sexp = sexp.Sexp;
 const ModuleContext = sexp.ModuleContext;
 const syms = sexp.syms;
 const Loc = @import("./loc.zig").Loc;
-// const InternPool = @import("./InternPool.zig").InternPool;
+const SymMapUnmanaged = @import("./InternPool.zig").SymMapUnmanaged;
 const pool = &@import("./InternPool.zig").pool;
 
 fn peek(stack: *std.SegmentedList(u32, 32)) ?u32 {
@@ -65,6 +65,7 @@ pub const Parser = struct {
                 loc: Loc,
                 name: []const u8,
             },
+            badValRef: Loc,
         };
 
         const Code = error{
@@ -79,6 +80,7 @@ pub const Parser = struct {
             EmptyQuote,
             DuplicateLabel,
             UnknownLabel,
+            BadValRef,
         };
 
         pub fn code(self: @This()) Code {
@@ -176,6 +178,17 @@ pub const Parser = struct {
                         SpacePrint.init(info.loc.col - 1),
                     });
                 },
+                .badValRef => |loc| {
+                    return try writer.print(
+                        \\Bad value reference at {}
+                        \\  | {s}
+                        \\    {}^
+                    , .{
+                        loc,
+                        try loc.containing_line(self.source),
+                        SpacePrint.init(loc.col - 1),
+                    });
+                },
             };
         }
 
@@ -198,7 +211,7 @@ pub const Parser = struct {
         sexp: Sexp,
     };
 
-    inline fn parseStringToken(alloc: std.mem.Allocator, src: []const u8, diag: *Diagnostic) Error!ParseTokenResult {
+    inline fn scanStringToken(alloc: std.mem.Allocator, src: []const u8, diag: *Diagnostic) Error!ParseTokenResult {
         std.debug.assert(src.len > 0 and src[0] == '"');
         var state: enum { normal, escaped } = .normal;
         for (src[1..], 1..) |c, i| {
@@ -225,7 +238,7 @@ pub const Parser = struct {
         return Error.UnterminatedString;
     }
 
-    inline fn parseSymbolToken(src: []const u8, loc: Loc, diag: *Diagnostic) Error!ParseTokenResult {
+    inline fn scanSymbolToken(src: []const u8, loc: Loc, diag: *Diagnostic) Error!ParseTokenResult {
         std.debug.assert(src.len > 0);
         const end = std.mem.indexOfAny(u8, src, &.{ ' ', '\n', '\t', ')' }) orelse src.len;
         const in_src_sym = src[0..end];
@@ -241,7 +254,7 @@ pub const Parser = struct {
     }
 
     // TODO: support hex literals
-    inline fn parseNumberOrUnaryNegationToken(src: []const u8, loc: Loc, diag: *Diagnostic) Error!ParseTokenResult {
+    inline fn scanNumberOrUnaryNegationToken(src: []const u8, loc: Loc, diag: *Diagnostic) Error!ParseTokenResult {
         std.debug.assert(src.len > 0 and (src[0] == '-' or std.ascii.isDigit(src[0])));
 
         var right_after: usize = src.len;
@@ -347,7 +360,7 @@ pub const Parser = struct {
         }
     }
 
-    inline fn parseLabelToken(src: []const u8, loc: Loc, diag: *Diagnostic) Error![]const u8 {
+    inline fn scanLabelToken(src: []const u8, loc: Loc, diag: *Diagnostic) Error![]const u8 {
         std.debug.assert(src.len >= 2);
         const end = std.mem.indexOfAnyPos(u8, src, 2, &.{ ' ', '\n', '\t', ')' }) orelse src.len;
 
@@ -363,7 +376,7 @@ pub const Parser = struct {
         }
     }
 
-    inline fn parseMultiLineComment(src: []const u8, loc: Loc, diag: *Diagnostic) Error![]const u8 {
+    inline fn scanMultiLineComment(src: []const u8, loc: Loc, diag: *Diagnostic) Error![]const u8 {
         std.debug.assert(src.len >= 2);
         const end = std.mem.indexOfPos(u8, src, 2, "|#") orelse {
             diag.result = .{ .unknownToken = loc };
@@ -372,7 +385,7 @@ pub const Parser = struct {
         _ = end;
     }
 
-    inline fn parseLineComment(whole_src: []const u8, loc: Loc) []const u8 {
+    inline fn scanLineComment(whole_src: []const u8, loc: Loc) []const u8 {
         const rest = whole_src[loc.index..];
         std.debug.assert(rest.len >= 1);
         const end = std.mem.indexOfScalarPos(u8, rest, 1, '\n') orelse rest.len;
@@ -380,14 +393,12 @@ pub const Parser = struct {
         return rest[0..end];
     }
 
-    const ParseHashStartedTokenResult = union(enum) {
-        sexp: ParseTokenResult,
-        label: []const u8,
-        //comment: []const u8,
-    };
-
-    // TODO: rename token "parse" functions to token "scan" functions
-    inline fn parseHashStartedToken(src: []const u8, loc: Loc, diag: *Diagnostic) Error!ParseTokenResult {
+    inline fn scanHashStartedToken(
+        src: []const u8,
+        loc: Loc,
+        diag: *Diagnostic,
+        label_map: *SymMapUnmanaged(LabelEntry),
+    ) Error!ParseTokenResult {
         std.debug.assert(src.len >= 1);
 
         for (src[1..]) |c| {
@@ -432,13 +443,39 @@ pub const Parser = struct {
                     };
                 },
                 '!' => {
-                    const label = try parseLabelToken(src, loc, diag);
-                    return .{
-                        .sexp = .{
-                            .value = .{ .symbol = pool.getSymbol(label) },
-                            .span = src[0..label.len],
-                        },
+                    const dot_index = std.mem.indexOfPosLinear(u8, src, 2, ".") orelse {
+                        diag.result = Diagnostic.Result{ .badValRef = loc };
+                        return Diagnostic.Code.BadValRef;
                     };
+
+                    const label = src[2..dot_index];
+                    const subindex_src = src[dot_index + 1 ..];
+                    const subindex_res = scanNumberOrUnaryNegationToken(subindex_src, loc, diag);
+                    if (std.meta.isError(subindex_res) or (try subindex_res).sexp.value != .int) {
+                        // TODO: record why subindex is bad!
+                        diag.result = Diagnostic.Result{ .badValRef = loc };
+                        return Diagnostic.Code.BadValRef;
+                    }
+
+                    const subindex = try subindex_res;
+
+                    if (label_map.getPtr(pool.getSymbol(label))) |label_info| {
+                        return .{
+                            .sexp = .{
+                                .span = src[0 .. "#!".len + label.len + ".".len + subindex.sexp.span.?.len],
+                                .value = .{ .valref = .{
+                                    .target = label_info.target,
+                                } },
+                            },
+                        };
+                    } else {
+                        // FIXME: should be able to reference "eventual" labels
+                        diag.result = Diagnostic.Result{ .unknownLabel = .{
+                            .name = label,
+                            .loc = loc,
+                        } };
+                        return Diagnostic.Code.UnknownLabel;
+                    }
                 },
                 // '|' => {
                 //     return parseMultiLineComment(src, loc, diag);
@@ -460,6 +497,11 @@ pub const Parser = struct {
         }
     };
 
+    const LabelEntry = struct {
+        target: u32,
+        loc: Loc,
+    };
+
     // FIXME: force arena allocator?
     pub fn parse(
         in_alloc: std.mem.Allocator,
@@ -478,11 +520,7 @@ pub const Parser = struct {
         defer local_arena.deinit();
         const local_alloc = local_arena.allocator();
 
-        // FIXME: make sure to reuse the hashing of the pool
-        var label_map = std.AutoHashMapUnmanaged([*:0]const u8, struct {
-            target: u32,
-            loc: Loc,
-        }){};
+        var label_map = SymMapUnmanaged(LabelEntry){};
         // no defer; arena
         //defer label_map.deinit(in_alloc);
 
@@ -525,7 +563,7 @@ pub const Parser = struct {
                 if (self._active_label.*) |label| {
                     self._module.get(index).label = label;
 
-                    const put_res = try self._label_map.getOrPut(self._local_alloc, label.ptr);
+                    const put_res = try self._label_map.getOrPut(self._local_alloc, label);
                     if (put_res.found_existing) {
                         self._out_diag.result = Diagnostic.Result{ .duplicateLabel = .{
                             .first = put_res.value_ptr.loc,
@@ -569,7 +607,7 @@ pub const Parser = struct {
 
             switch (c) {
                 '-', '0'...'9' => {
-                    const tok = try parseNumberOrUnaryNegationToken(src[loc.index..], loc, out_diag);
+                    const tok = try scanNumberOrUnaryNegationToken(src[loc.index..], loc, out_diag);
                     try helper.pushSexp(tok.sexp);
                     for (0..tok.sexp.span.?.len - 1) |_| loc.increment(src);
                 },
@@ -579,7 +617,7 @@ pub const Parser = struct {
                     if (active_label) |label| {
                         module.get(added).label = label;
 
-                        const put_res = try label_map.getOrPut(local_alloc, label.ptr);
+                        const put_res = try label_map.getOrPut(local_alloc, label);
                         if (put_res.found_existing) {
                             out_diag.result = Diagnostic.Result{ .duplicateLabel = .{
                                 .first = put_res.value_ptr.loc,
@@ -609,25 +647,25 @@ pub const Parser = struct {
                     last_sexp = old_top;
                 },
                 '"' => {
-                    const tok = try parseStringToken(out_alloc, src[loc.index..], out_diag);
+                    const tok = try scanStringToken(out_alloc, src[loc.index..], out_diag);
                     try helper.pushSexp(tok.sexp);
                     // unreachable cuz we'd have already failed if we popped the last one
                     for (0..tok.sexp.span.?.len - 1) |_| loc.increment(src);
                 },
                 '#' => {
                     // TODO: consider making all these token scanners
-                    const tok = try parseHashStartedToken(src[loc.index..], loc, out_diag);
+                    const tok = try scanHashStartedToken(src[loc.index..], loc, out_diag, &label_map);
                     try helper.pushSexp(tok.sexp);
                     for (0..tok.sexp.span.?.len - 1) |_| loc.increment(src);
                 },
                 ';' => {
-                    const comment = parseLineComment(src, loc);
+                    const comment = scanLineComment(src, loc);
                     // note we increment the newline which wasn't included
                     for (comment) |_| loc.increment(src);
                 },
                 // FIXME: temporarily this just returns an unquoted symbol
                 '\'' => {
-                    const tok = try parseSymbolToken(src[loc.index..], loc, out_diag);
+                    const tok = try scanSymbolToken(src[loc.index..], loc, out_diag);
                     try helper.pushSexp(tok.sexp);
                     for (0..tok.sexp.span.?.len - 1) |_| loc.increment(src);
                 },
@@ -648,13 +686,13 @@ pub const Parser = struct {
                 'a'...'z',
                 '{'...'~',
                 => {
-                    const tok = try parseSymbolToken(src[loc.index..], loc, out_diag);
+                    const tok = try scanSymbolToken(src[loc.index..], loc, out_diag);
                     const sym = pool.getSymbol(tok.sexp.span.?);
                     // might not be a symbol, could be a label jump or label
                     if (std.mem.startsWith(u8, sym, ">!")) {
                         // is label jump
                         const label_name = pool.getSymbol(tok.sexp.span.?[2..]);
-                        if (label_map.getPtr(label_name.ptr)) |label_info| {
+                        if (label_map.getPtr(label_name)) |label_info| {
                             try helper.pushSexp(Sexp{
                                 .span = sym,
                                 .value = .{ .jump = .{
@@ -675,7 +713,7 @@ pub const Parser = struct {
                         const label_name = pool.getSymbol(tok.sexp.span.?[2..]);
                         if (last_sexp) |last| {
                             module.get(last).label = label_name;
-                            const put_res = try label_map.getOrPut(local_alloc, label_name.ptr);
+                            const put_res = try label_map.getOrPut(local_alloc, label_name);
                             if (put_res.found_existing) {
                                 out_diag.result = Diagnostic.Result{ .duplicateLabel = .{
                                     .first = put_res.value_ptr.loc,
@@ -728,17 +766,17 @@ test "parseNumberOrUnaryNegationToken" {
     var diag: Parser.Diagnostic = .{ .source = undefined };
     const loc: Loc = undefined;
 
-    try std.testing.expectEqual(0, (try Parser.parseNumberOrUnaryNegationToken("0 ", loc, &diag)).sexp.value.int);
-    try std.testing.expectEqual(1, (try Parser.parseNumberOrUnaryNegationToken("1 ", loc, &diag)).sexp.value.int);
-    try std.testing.expectEqual(1, (try Parser.parseNumberOrUnaryNegationToken("1", loc, &diag)).sexp.value.int);
-    try std.testing.expectEqual(-3, (try Parser.parseNumberOrUnaryNegationToken("-3", loc, &diag)).sexp.value.int);
-    try std.testing.expectEqual(syms.@"-", (try Parser.parseNumberOrUnaryNegationToken("-", loc, &diag)).sexp);
-    try std.testing.expectEqual(1000, (try Parser.parseNumberOrUnaryNegationToken("1000)", loc, &diag)).sexp.value.int);
-    try std.testing.expectEqual(1.5e+2, (try Parser.parseNumberOrUnaryNegationToken("1.5e+2", loc, &diag)).sexp.value.float);
-    try std.testing.expectEqual(-0.5e-2, (try Parser.parseNumberOrUnaryNegationToken("-0.5e-2", loc, &diag)).sexp.value.float);
-    try std.testing.expectEqual(1.2340002e5, (try Parser.parseNumberOrUnaryNegationToken("1.2340002e5", loc, &diag)).sexp.value.float);
+    try std.testing.expectEqual(0, (try Parser.scanNumberOrUnaryNegationToken("0 ", loc, &diag)).sexp.value.int);
+    try std.testing.expectEqual(1, (try Parser.scanNumberOrUnaryNegationToken("1 ", loc, &diag)).sexp.value.int);
+    try std.testing.expectEqual(1, (try Parser.scanNumberOrUnaryNegationToken("1", loc, &diag)).sexp.value.int);
+    try std.testing.expectEqual(-3, (try Parser.scanNumberOrUnaryNegationToken("-3", loc, &diag)).sexp.value.int);
+    try std.testing.expectEqual(syms.@"-", (try Parser.scanNumberOrUnaryNegationToken("-", loc, &diag)).sexp);
+    try std.testing.expectEqual(1000, (try Parser.scanNumberOrUnaryNegationToken("1000)", loc, &diag)).sexp.value.int);
+    try std.testing.expectEqual(1.5e+2, (try Parser.scanNumberOrUnaryNegationToken("1.5e+2", loc, &diag)).sexp.value.float);
+    try std.testing.expectEqual(-0.5e-2, (try Parser.scanNumberOrUnaryNegationToken("-0.5e-2", loc, &diag)).sexp.value.float);
+    try std.testing.expectEqual(1.2340002e5, (try Parser.scanNumberOrUnaryNegationToken("1.2340002e5", loc, &diag)).sexp.value.float);
     // NOTE: in lisps, space is the only token separator, -0/ is not a number but it isn't an unknown token necessarily
-    try std.testing.expectError(Parser.Error.UnknownToken, Parser.parseNumberOrUnaryNegationToken("-0/", loc, &diag));
+    try std.testing.expectError(Parser.Error.UnknownToken, Parser.scanNumberOrUnaryNegationToken("-0/", loc, &diag));
 }
 
 // FIXME: use a known spec like JSON strings, to handle e.g. \x or \u{}
