@@ -469,7 +469,7 @@ const Compilation = struct {
     pub const Slot = struct {
         // FIXME: should this have a pointer to its frame?
         /// how far into its frame the data for this item starts (if it is a primitive)
-        frame_depth: u32,
+        frame_depth: u32 = 0,
         /// index of the local holding this data in its function
         local_index: byn.c.BinaryenIndex,
         type: Type = graphl_builtin.empty_type,
@@ -574,6 +574,8 @@ const Compilation = struct {
             stack_ptr_name,
             byn.c.BinaryenTypeInt32(),
             true,
+            // FIXME: note that the ro_data_offset is currently this same number, but since those are data segments
+            // I think it's actually fine... need to double check though
             byn.c.BinaryenConst(result.module.c(), byn.c.BinaryenLiteralInt32(@intCast(mem_start + str_transfer_seg_size))),
         ) != null);
 
@@ -1175,6 +1177,7 @@ const Compilation = struct {
                     if (func.value.symbol.ptr == syms.typeof.value.symbol.ptr) {
                         // FIXME: leave type unresolved
                         slot.type = graphl_builtin.empty_type;
+                        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                         slot.expr = byn.c.BinaryenNop(self.module.c());
 
                         if (v.items.len != 3) {
@@ -1243,11 +1246,13 @@ const Compilation = struct {
 
                         if (v.items.len == 1) {
                             slot.type = graphl_builtin.empty_type;
+                            try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                             slot.expr = byn.c.BinaryenReturn(self.module.c(), byn.c.BinaryenNop(self.module.c()));
                             //
                         } else if (v.items.len == 2) {
                             const first_arg = &self._sexp_compiled[v.items[1]];
                             slot.type = first_arg.type;
+                            try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                             slot.expr = byn.c.BinaryenReturn(
                                 self.module.c(),
                                 byn.c.BinaryenLocalGet(self.module.c(), first_arg.local_index, first_arg.getBynType(&self.used_features)),
@@ -1255,6 +1260,8 @@ const Compilation = struct {
                             //
                         } else if (v.items.len > 2) {
                             slot.type = fn_ctx.return_type;
+                            try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
+
                             const struct_info = fn_ctx.return_type.subtype.@"struct";
                             var return_instrs = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), struct_info.field_names.len + 1);
 
@@ -1319,6 +1326,7 @@ const Compilation = struct {
                             slot.type = self._sexp_compiled[last_arg_idx].type;
                         }
 
+                        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                         slot.expr = byn.c.BinaryenNop(self.module.c());
 
                         break :done;
@@ -1337,6 +1345,7 @@ const Compilation = struct {
                             // function def
                             .list => {
                                 slot.type = fn_ctx.return_type;
+                                try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                                 slot.expr = if (fn_ctx.return_type == primitive_types.void)
                                     byn.c.BinaryenNop(self.module.c())
                                 else
@@ -1366,10 +1375,10 @@ const Compilation = struct {
                                 local_symbol.index = local_index;
                                 // FIXME: check the typeof (via env?) and promote the type...
                                 slot.type = local_symbol.type;
+                                try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
 
                                 if (v.items.len == 3) {
                                     // has default to set
-                                    slot.type = local_symbol.type;
                                     slot.expr = byn.c.BinaryenLocalSet(
                                         self.module.c(),
                                         local_index,
@@ -1455,6 +1464,7 @@ const Compilation = struct {
                         const field_offset = struct_info.field_offsets[field_index];
 
                         slot.type = field_type;
+                        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
 
                         const struct_ptr = byn.c.BinaryenLocalGet(
                             self.module.c(),
@@ -1544,6 +1554,7 @@ const Compilation = struct {
 
                     if (func.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
                         slot.type = args_top_type;
+                        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                         slot.expr = byn.c.BinaryenNop(self.module.c());
                         break :done;
                     }
@@ -1567,6 +1578,7 @@ const Compilation = struct {
                         const value_to_set = self._sexp_compiled[v.items[2]];
 
                         slot.type = graphl_builtin.empty_type;
+                        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                         slot.expr = byn.c.BinaryenLocalSet(
                             self.module.c(),
                             local_info.index orelse unreachable,
@@ -1616,6 +1628,13 @@ const Compilation = struct {
                                 }
                             }
 
+                            if (@hasField(@TypeOf(builtin_op), "result_type")) {
+                                slot.type = builtin_op.result_type;
+                            } else {
+                                slot.type = args_top_type;
+                            }
+                            try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
+
                             slot.expr = byn.c.BinaryenLocalSet(
                                 self.module.c(),
                                 local_index,
@@ -1639,12 +1658,6 @@ const Compilation = struct {
                             if (!handled) {
                                 log.err("unimplemented type resolution: '{s}' for code:\n{}\n", .{ slot.type.name, code_sexp });
                                 std.debug.panic("unimplemented type resolution: '{s}'", .{slot.type.name});
-                            }
-
-                            if (@hasField(@TypeOf(builtin_op), "result_type")) {
-                                slot.type = builtin_op.result_type;
-                            } else {
-                                slot.type = args_top_type;
                             }
 
                             break :done;
@@ -1711,21 +1724,22 @@ const Compilation = struct {
                     // FIXME: make this work again
                     // ok, it must be a function in scope then (user or builtin)
                     {
-                        const outputs = func_node_desc.getOutputs();
+                        const rawOuts = func_node_desc.getOutputs();
 
-                        // FIXME: horrible
-                        const is_pure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .value;
-                        const is_simple_0_out_impure = outputs.len == 1 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec;
-                        const is_simple_1_out_impure = outputs.len == 2 and outputs[0].kind == .primitive and outputs[0].kind.primitive == .exec and outputs[1].kind == .primitive and outputs[1].kind.primitive == .value;
+                        const is_pure = rawOuts.len == 1 and rawOuts[0].kind == .primitive and rawOuts[0].kind.primitive == .value;
+                        const is_simple_0_out_impure = rawOuts.len == 1 and rawOuts[0].kind == .primitive and rawOuts[0].kind.primitive == .exec;
+                        const is_simple_1_out_impure = rawOuts.len == 2 and rawOuts[0].kind == .primitive and rawOuts[0].kind.primitive == .exec and rawOuts[1].kind == .primitive and rawOuts[1].kind.primitive == .value;
+
+                        const valOuts = if (is_pure) rawOuts else rawOuts[1..];
 
                         slot.type =
-                            if (is_pure) outputs[0].kind.primitive.value
+                            if (is_pure) rawOuts[0].kind.primitive.value
                                 //
                             else if (is_simple_0_out_impure)
                                 primitive_types.void
                                     //
                             else if (is_simple_1_out_impure)
-                                outputs[1].kind.primitive.value
+                                rawOuts[1].kind.primitive.value
                                     //
                             else _: {
                                 // FIXME: the type should be stored on the NodeDesc, no?
@@ -1738,11 +1752,10 @@ const Compilation = struct {
                                 };
                                 break :_ graphl_type_slot;
                             };
+                        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
 
-                        // TODO: consider calculating this in the FnContext
-                        const needs_return_ptr = fn_ctx.func_type.getOutputs().len > 1 or
-                            //
-                            (fn_ctx.func_type.getOutputs().len == 1 and fn_ctx.func_type.getOutputs()[1].kind.primitive.value == .@"struct");
+                        // TODO: calculate this in the NodeDesc
+                        const needs_return_ptr = valOuts.len > 1 or (valOuts.len == 1 and valOuts[0].kind.primitive.value.subtype == .@"struct");
                         const needs_retptr_offset: usize = if (needs_return_ptr) 1 else 0;
 
                         const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1 + needs_retptr_offset);
@@ -1770,7 +1783,7 @@ const Compilation = struct {
                             BinaryenHelper.getType(slot.type, &self.used_features),
                         );
 
-                        slot.expr = if (slot.type == primitive_types.void)
+                        slot.expr = if (slot.type == primitive_types.void or needs_return_ptr)
                             call_expr
                         else
                             byn.c.BinaryenLocalSet(self.module.c(), local_index, call_expr);
@@ -1785,11 +1798,13 @@ const Compilation = struct {
 
                 .int => |v| {
                     slot.type = primitive_types.i32_;
+                    try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                     slot.expr = byn.c.BinaryenLocalSet(self.module.c(), local_index, byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(v))));
                 },
 
                 .float => |v| {
                     slot.type = primitive_types.f64_;
+                    try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                     slot.expr = byn.c.BinaryenLocalSet(self.module.c(), local_index, byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat64(v)));
                 },
 
@@ -1797,12 +1812,14 @@ const Compilation = struct {
                     // FIXME: have a list of symbols in the scope (aka the env lol)
                     if (v.ptr == syms.true.value.symbol.ptr) {
                         slot.type = primitive_types.bool_;
+                        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                         slot.expr = byn.c.BinaryenLocalSet(self.module.c(), local_index, byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(1)));
                         break :done;
                     }
 
                     if (v.ptr == syms.false.value.symbol.ptr) {
                         slot.type = primitive_types.bool_;
+                        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                         slot.expr = byn.c.BinaryenLocalSet(self.module.c(), local_index, byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)));
                         break :done;
                     }
@@ -1825,6 +1842,7 @@ const Compilation = struct {
                     };
 
                     slot.type = info.type;
+                    try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                     slot.expr = byn.c.BinaryenLocalSet(
                         self.module.c(),
                         local_index,
@@ -1851,6 +1869,9 @@ const Compilation = struct {
                         @intCast(v.len),
                     );
 
+                    slot.type = primitive_types.string;
+                    try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
+
                     slot.expr = byn.c.BinaryenLocalSet(
                         self.module.c(),
                         local_index,
@@ -1866,12 +1887,11 @@ const Compilation = struct {
 
                     // TODO: handle overflow
                     self.ro_data_offset = std.math.add(u32, self.ro_data_offset, @intCast(v.len)) catch @panic("ro_data_offset overflow");
-
-                    slot.type = primitive_types.string;
                 },
 
                 .bool => |v| {
                     slot.type = primitive_types.bool_;
+                    try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                     slot.expr = byn.c.BinaryenLocalSet(
                         self.module.c(),
                         local_index,
@@ -1881,6 +1901,7 @@ const Compilation = struct {
 
                 .jump => {
                     slot.type = graphl_builtin.empty_type;
+                    try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                     //  FIXME: turn on!
                     // FIXME: probably post block of jump should be unreachable?
                     //slot.expr = byn.c.BinaryenNop(self.module.c());
@@ -1889,6 +1910,7 @@ const Compilation = struct {
 
                 .void => {
                     slot.type = graphl_builtin.empty_type;
+                    try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                     slot.expr = byn.c.BinaryenNop(self.module.c());
                 },
 
@@ -1899,6 +1921,7 @@ const Compilation = struct {
                     // FIXME: warn on forward value uses
                     const target_slot = &self._sexp_compiled[v.target];
                     slot.type = target_slot.type;
+                    try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                     slot.expr = byn.c.BinaryenLocalSet(
                         self.module.c(),
                         local_index,
@@ -1911,8 +1934,6 @@ const Compilation = struct {
                 },
             }
         }
-
-        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
 
         slot.pre_block = byn.c.RelooperAddBlock(fn_ctx.relooper, byn.c.BinaryenNop(self.module.c()));
         slot.post_block = byn.c.RelooperAddBlock(fn_ctx.relooper, slot.expr);
@@ -2096,6 +2117,8 @@ const Compilation = struct {
             if (!slot.type.isPrimitive()) {
                 slot.frame_depth = self._frame_byte_size;
                 self._frame_byte_size += slot.type.size;
+            } else {
+                slot.frame_depth = 0xffff_ffff;
             }
 
             const idx_in_local_types = slot.local_index - self.param_count;
@@ -2417,52 +2440,6 @@ const Compilation = struct {
         };
 
         var userfunc_imports: std.HashMapUnmanaged(UserFuncDef, [:0]const u8, UserFuncDefHashCtx, 80) = .{};
-
-        // FIXME: fix stack
-        // const stack_src =
-        //     // NOTE: safari doesn't support multimemory so the value stack is
-        //     // at a specific offset in the main memory
-        //     //\\(memory $__grappl_vstk 1)
-        //     // FIXME: really need to figure out how to customize the intrinsics output
-        //     // compiled by zig... or accept writing it manually?
-        //     // FIXME: if there is a lot of data, it will corrupt the stack,
-        //     // need to place the stack behind the data and possibly implement a routine
-        //     // for growing the stack...
-        //     \\(global $__grappl_vstkp (mut i32) (i32.const 4096))
-        // ;
-
-        // // prologue
-        // {
-        //     const stack_code = try SexpParser.parse(alloc, stack_src, null);
-        //     try self.module_body.appendSlice(stack_code.value.module.items);
-        // }
-
-        // // TODO: parse them at comptime and get the count that way
-        // const stack_code_count = comptime std.mem.count(u8, stack_src, "\n") + 1;
-
-        // FIXME: memory is already created and exported by the intrinsics
-        // {
-        //     const memory = self.module_body.addOneAssumeCapacity();
-        //     memory.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
-        //     try memory.value.list.ensureTotalCapacityPrecise(3);
-        //     memory.value.list.addOneAssumeCapacity().* = wat_syms.memory;
-        //     memory.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
-        //     memory.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .int = 1 } }; // require at least 1 page of memory
-        // }
-
-        // {
-        //     // TODO: export helper
-        //     const memory_export = self.module_body.addOneAssumeCapacity();
-        //     memory_export.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
-        //     try memory_export.value.list.ensureTotalCapacityPrecise(3);
-        //     memory_export.value.list.addOneAssumeCapacity().* = wat_syms.@"export";
-        //     memory_export.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .borrowedString = "memory" } };
-        //     const memory_export_val = memory_export.value.list.addOneAssumeCapacity();
-        //     memory_export_val.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(self.arena.allocator()) } };
-        //     try memory_export_val.value.list.ensureTotalCapacityPrecise(2);
-        //     memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.memory;
-        //     memory_export_val.value.list.addOneAssumeCapacity().* = wat_syms.@"$0";
-        // }
 
         {
             // TODO: for each user provided function, build a thunk and append it
