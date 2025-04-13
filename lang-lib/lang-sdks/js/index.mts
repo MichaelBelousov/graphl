@@ -48,7 +48,7 @@ export namespace GraphlTypes {
     // TODO: generate these from graphl, possibly even parse them out
     // of graphl output
     export const vec3: GraphlType = {
-        name: "string",
+        name: "vec3",
         kind: "struct",
         size: 24,
         fieldNames: ["x", "y", "z"],
@@ -64,8 +64,6 @@ export interface UserFuncInput {
 export interface UserFuncOutput {
     type: GraphlType;
 }
-
-const userFuncs = new Map<string, Map<number, Function>>() 
 
 function writeJsValueForGraphl<JsVal extends number | object>(jsVal: JsVal, view: DataView, offset: number, graphlType: GraphlType) {
     if (graphlType === GraphlTypes.f64) {
@@ -108,17 +106,22 @@ type WasmInstance = WebAssembly.Instance & {
     },
 };
 
-function makeCallUserFunc(inputs: UserFuncInput[], outputs: UserFuncOutput[], wasm: WasmInstance): [string, Function] {
-    const key = "callUserFunc" + [...inputs.map(i => i.type.name), "R", [...outputs.map(o => o.type.name)]].join("_");
-    if (!userFuncs.has(key))
-        userFuncs.set(key, new Map());
+type UserFuncCollection = Map<number, Function>;
 
+function makeCallUserFunc(
+    inputs: UserFuncInput[],
+    outputs: UserFuncOutput[],
+    wasm: WasmInstance,
+    userFuncs: UserFuncCollection
+): [string, Function] {
+    const key = ["callUserFunc", ...inputs.map(i => i.type.name), "R", [...outputs.map(o => o.type.name)]].join("_");
     const firstArgIsReturnPtr = outputs.length > 0 || outputs[0].type.kind === "struct";
 
     return [
         key,
         (funcId: number, abiParams: any[]) => {
-            const userFunc = userFuncs.get(key)!.get(funcId);
+            console.log(funcId, abiParams);
+            const userFunc = userFuncs.get(funcId);
             if (!userFunc) throw Error(`No user function with id ${funcId}, this is a bug`);
 
             const paramsToJs = (params: any[]): any[] => {
@@ -195,16 +198,37 @@ function makeCallUserFunc(inputs: UserFuncInput[], outputs: UserFuncOutput[], wa
     ];
 }
 
-interface GraphlProgram<Funcs extends Record<string, (...args: any[]) => any>> {
+export interface UserFuncDesc<F extends (...args: any[]) => any>{
+    name: string;
+    inputs?: UserFuncInput[],
+    outputs?: UserFuncOutput[],
+    impl?: F,
+}
+
+export interface GraphlProgram<Funcs extends Record<string, (...args: any[]) => any>> {
     functions: Funcs
 }
 
 export async function instantiateProgramFromWasmBuffer<Funcs extends Record<string, (...args: any[]) => any>>(
-    data: Buffer
+    data: Buffer,
+    hostEnv: Record<string, UserFuncDesc<Funcs[string]>>,
 ): Promise<GraphlProgram<Funcs>> {
+    // need a level of indirection unfortunately (TBD if this works if we need the imports at instantiation)
     const wasmExports = { exports: undefined as any };
-    const wasm = await WebAssembly.instantiate(data);
+
+    const userFuncs = new Map<number, Function>() ;
+    for (const [_name, userFuncDesc] of Object.entries(hostEnv ?? {})) {
+        userFuncs.set(userFuncs.size, userFuncDesc.impl ?? (() => {}));
+    }
+
+    const imports = {
+        env: Object.fromEntries([
+            makeCallUserFunc([], [{ type: GraphlTypes.vec3 }], wasmExports, userFuncs),
+        ]),
+    };
+    const wasm = await WebAssembly.instantiate(data, imports);
     wasmExports.exports = wasm.instance.exports;
+
     return {
         functions: wasm.instance.exports as any,
     };
