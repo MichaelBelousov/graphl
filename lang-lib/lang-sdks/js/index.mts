@@ -26,38 +26,36 @@ export type GraphlType =
     // }
 ;
 
-export const i32: GraphlType = {
-    name: "i32",
-    kind: "primitive",
-    size: 4,
-};
-export const f64: GraphlType = {
-    name: "f64",
-    kind: "primitive",
-    size: 8,
-};
-export const string: GraphlType = {
-    name: "string",
-    kind: "primitive",
-    size: 4, // FIXME: true only for wasm32
-};
-// TODO: generate these from graphl, possibly even parse them out
-// of graphl output
-export const vec3: GraphlType = {
-    name: "string",
-    kind: "struct",
-    size: 24,
-    fieldNames: ["x", "y", "z"],
-    fieldTypes: [f64, f64, f64],
-    fieldOffsets: [0, 8, 16],
-}
+export namespace GraphlTypes {
+    export const i32: GraphlType = {
+        name: "i32",
+        kind: "primitive",
+        size: 4,
+    };
 
-export const GraphlTypes = {
-    i32,
-    f64,
-    string,
-    vec3,
-} satisfies Record<string, GraphlType>;
+    export const f64: GraphlType = {
+        name: "f64",
+        kind: "primitive",
+        size: 8,
+    };
+
+    export const string: GraphlType = {
+        name: "string",
+        kind: "primitive",
+        size: 4, // FIXME: true only for wasm32
+    };
+
+    // TODO: generate these from graphl, possibly even parse them out
+    // of graphl output
+    export const vec3: GraphlType = {
+        name: "string",
+        kind: "struct",
+        size: 24,
+        fieldNames: ["x", "y", "z"],
+        fieldTypes: [f64, f64, f64],
+        fieldOffsets: [0, 8, 16],
+    }
+};
 
 export interface UserFuncInput {
     type: GraphlType;
