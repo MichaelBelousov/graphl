@@ -569,6 +569,14 @@ const Compilation = struct {
             main_mem_name, // name
         );
 
+        std.debug.assert(byn.c.BinaryenAddGlobal(
+            result.module.c(),
+            stack_ptr_name,
+            byn.c.BinaryenTypeInt32(),
+            true,
+            byn.c.BinaryenConst(result.module.c(), byn.c.BinaryenLiteralInt32(@intCast(mem_start + str_transfer_seg_size))),
+        ) != null);
+
         return result;
     }
 
@@ -1464,6 +1472,7 @@ const Compilation = struct {
                                 byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@bitCast(field_offset))),
                             ),
                         );
+                        break :done;
                     }
 
                     // call host functions
