@@ -101,6 +101,10 @@ fn constructor() callconv(.C) void {
         const sym = @field(syms, sym_decl.name);
         _ = addSourceSymbol(&pool, sym.value.symbol);
     }
+
+    inline for (@import("nodes/builtin.zig").primitive_types.vec3.subtype.@"struct".field_names) |field| {
+        _ = addSourceSymbol(&pool, field);
+    }
 }
 
 // FIXME: does this work in wasm?
