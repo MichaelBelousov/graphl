@@ -1000,32 +1000,38 @@ const Compilation = struct {
         // set up the stack frame
         const func_prologue = byn.c.RelooperAddBlock(
             fn_ctx.relooper,
-            byn.c.BinaryenGlobalSet(
-                self.module.c(),
-                stack_ptr_name,
-                byn.c.BinaryenBinary(
+            if (fn_ctx._frame_byte_size == 0)
+                byn.c.BinaryenNop(self.module.c())
+            else
+                byn.c.BinaryenGlobalSet(
                     self.module.c(),
-                    byn.c.BinaryenAddInt32(),
-                    byn.c.BinaryenGlobalGet(self.module.c(), stack_ptr_name, byn.c.BinaryenTypeInt32()),
-                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(fn_ctx._frame_byte_size))),
+                    stack_ptr_name,
+                    byn.c.BinaryenBinary(
+                        self.module.c(),
+                        byn.c.BinaryenAddInt32(),
+                        byn.c.BinaryenGlobalGet(self.module.c(), stack_ptr_name, byn.c.BinaryenTypeInt32()),
+                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(fn_ctx._frame_byte_size))),
+                    ),
                 ),
-            ),
         );
         const func_body = &self._sexp_compiled[func_decl.define_body_idx];
         // tear down the stack frame
         const func_epilogue = byn.c.RelooperAddBlock(
             fn_ctx.relooper,
-            byn.c.BinaryenGlobalSet(
-                self.module.c(),
-                stack_ptr_name,
-                byn.c.BinaryenBinary(
+            if (fn_ctx._frame_byte_size == 0)
+                byn.c.BinaryenNop(self.module.c())
+            else
+                byn.c.BinaryenGlobalSet(
                     self.module.c(),
-                    // would storing it as a local be better?
-                    byn.c.BinaryenSubInt32(),
-                    byn.c.BinaryenGlobalGet(self.module.c(), stack_ptr_name, byn.c.BinaryenTypeInt32()),
-                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(fn_ctx._frame_byte_size))),
+                    stack_ptr_name,
+                    byn.c.BinaryenBinary(
+                        self.module.c(),
+                        // would storing it as a local be better?
+                        byn.c.BinaryenSubInt32(),
+                        byn.c.BinaryenGlobalGet(self.module.c(), stack_ptr_name, byn.c.BinaryenTypeInt32()),
+                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(fn_ctx._frame_byte_size))),
+                    ),
                 ),
-            ),
         );
 
         byn.c.RelooperAddBranch(func_prologue, func_body.pre_block, null, null);
@@ -2161,11 +2167,10 @@ const Compilation = struct {
                         try self.linkExpr(item, context, slot.post_block);
                     }
 
-                    for (items[0 .. items.len - 1], items[1..]) |prev, next| {
-                        self.RelooperAddBranch(prev, .post, next, .pre, null, null);
-                    }
-
                     if (items.len > 0) {
+                        for (items[0 .. items.len - 1], items[1..]) |prev, next| {
+                            self.RelooperAddBranch(prev, .post, next, .pre, null, null);
+                        }
                         const first_item = items[0];
                         self.RelooperAddBranch(code_sexp_idx, .pre, first_item, .pre, null, null);
                         const last_item = items[items.len - 1];
@@ -2511,11 +2516,10 @@ const Compilation = struct {
 
         if (self.used_features.vec3) {
             const vec3_module = byn.c.BinaryenModuleRead(@constCast(intrinsics_vec3.ptr), intrinsics_vec3.len);
+            _ = vec3_module;
 
-            // FIXME: replace with generic struct breaking
-            std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_x".ptr, "Vec3->X".ptr));
-            std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_y".ptr, "Vec3->Y".ptr));
-            std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_z".ptr, "Vec3->Z".ptr));
+            // TODO: add vec3-length function
+            //std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_x".ptr, "Vec3->X".ptr));
         }
 
         if (self.used_features.string) {
