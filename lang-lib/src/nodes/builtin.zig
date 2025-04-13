@@ -401,6 +401,13 @@ pub const primitive_types = struct {
     pub const vec3: Type = &TypeInfo{
         .name = "vec3",
         .size = @sizeOf(Vec3),
+        .subtype = .{ .@"struct" = .{
+            .field_names = &.{ "x", "y", "z" },
+            .field_types = &.{ primitive_types.f64_, primitive_types.f64_, primitive_types.f64_ },
+            .field_offsets = &.{ 0, 8, 16 },
+            .size = 24,
+            .total_slots = 3,
+        } },
     };
 
     pub const rgba: Type = &TypeInfo{ .name = "rgba", .size = 4 };

@@ -378,10 +378,12 @@ const BinaryenHelper = struct {
 
     pub fn getType(graphl_type: Type, features: *Features) byn.c.BinaryenType {
         // TODO: use switch if compiler supports it
-        if (graphl_type == primitive_types.string) {
+        if (graphl_type == primitive_types.string and !features.string) {
             features.string = true;
-        } else if (graphl_type == primitive_types.vec3) {
+        } else if (graphl_type == primitive_types.vec3 and !features.vec3) {
             features.vec3 = true;
+            // FIXME: not a primitive type, rename primitive_types to builtin_types
+            BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.vec3, byn.c.BinaryenTypeInt32()) catch unreachable;
         }
 
         return type_map.get(graphl_type) orelse {
@@ -410,40 +412,9 @@ fn constructor() callconv(.C) void {
     //byn.c.TypeBuilderSetArrayType(tb, 0, byn.c.BinaryenTypeInt32(), byn.c.BinaryenPackedTypeInt8(), 1);
     byn.c.TypeBuilderSetArrayType(tb, 0, byn.c.BinaryenTypeInt32(), byn.c.BinaryenPackedTypeInt8(), 1);
 
-    var vec3_parts = .{
-        .types = [_]byn.c.BinaryenType{
-            byn.c.BinaryenTypeFloat64(),
-            byn.c.BinaryenTypeFloat64(),
-            byn.c.BinaryenTypeFloat64(),
-        },
-        .@"packed" = [_]byn.c.BinaryenPackedType{
-            byn.c.BinaryenPackedTypeNotPacked(),
-            byn.c.BinaryenPackedTypeNotPacked(),
-            byn.c.BinaryenPackedTypeNotPacked(),
-        },
-        .mut = BinaryenHelper.alloc.allocator().dupe(bool, &[_]bool{
-            true,
-            true,
-            true,
-        }) catch unreachable,
-    };
-
-    // FIXME: lazily add this type if a string is used!
-    byn.c.TypeBuilderSetStructType(
-        tb,
-        1,
-        &vec3_parts.types,
-        &vec3_parts.@"packed",
-        vec3_parts.mut.ptr,
-        3,
-    );
-
-    var built_heap_types: [2]byn.c.BinaryenHeapType = undefined;
+    var built_heap_types: [1]byn.c.BinaryenHeapType = undefined;
     std.debug.assert(byn.c.TypeBuilderBuildAndDispose(tb, &built_heap_types, 0, 0));
     const i8_array = byn.c.BinaryenTypeFromHeapType(built_heap_types[0], true);
-    const vec3 = byn.c.BinaryenTypeFromHeapType(built_heap_types[1], true);
-
-    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.vec3, vec3) catch unreachable;
 
     // NOTE: stringref isn't standard
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.code, i8_array) catch unreachable;
@@ -522,6 +493,7 @@ const Compilation = struct {
     };
 
     pub const main_mem_name = "0";
+    pub const stack_ptr_name = "__gstkp";
 
     pub fn init(
         alloc: std.mem.Allocator,
@@ -867,9 +839,6 @@ const Compilation = struct {
         // TODO: configure std.log.debug
         //std.log.debug("compile func: '{s}'\n", .{name});
 
-        // FIXME: remove this allocator it's very unobvious when rereading code
-        const alloc = self.arena.allocator();
-
         const complete_func_type_desc = graphl_builtin.FuncType{
             .param_names = func_decl.param_names,
             .param_types = func_type.param_types,
@@ -878,13 +847,6 @@ const Compilation = struct {
             .result_names = func_decl.result_names,
             .result_types = func_type.result_types,
         };
-
-        const param_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.param_types.len);
-        defer self.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
-        for (param_types, complete_func_type_desc.param_types) |*wasm_t, graphl_t| {
-            wasm_t.* = BinaryenHelper.getType(graphl_t, &self.used_features);
-        }
-        const param_type_byn: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(param_types.ptr, @intCast(param_types.len));
 
         const result_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.result_types.len);
         defer self.arena.allocator().free(result_types); // FIXME: what is the binaryen ownership model?
@@ -952,7 +914,7 @@ const Compilation = struct {
 
         for (func_decl.param_names, func_decl.param_name_idxs, func_type.param_types) |p_name, p_idx, p_type| {
             const index: u32 = @intCast(locals_symbols.count());
-            const put_res = try locals_symbols.getOrPut(alloc, p_name);
+            const put_res = try locals_symbols.getOrPut(self.arena.allocator(), p_name);
 
             if (put_res.found_existing) {
                 self.diag.err = .{ .DuplicateParam = p_idx };
@@ -972,6 +934,17 @@ const Compilation = struct {
 
         // add the return pointer param as first one if not returning a primitive
         const param_count: u16 = @intCast(@as(u16, if (result_type.graphl.isPrimitive()) 0 else 1) + func_type.param_types.len);
+
+        const param_types = try self.arena.allocator().alloc(byn.c.BinaryenType, param_count);
+        defer self.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
+        if (!result_type.graphl.isPrimitive()) {
+            // pointer to return location
+            param_types[0] = result_type.byn;
+        }
+        for (param_types[if (result_type.graphl.isPrimitive()) 0 else 1..], complete_func_type_desc.param_types) |*wasm_t, graphl_t| {
+            wasm_t.* = BinaryenHelper.getType(graphl_t, &self.used_features);
+        }
+        const param_type_byn = byn.c.BinaryenTypeCreate(param_types.ptr, @intCast(param_types.len));
 
         var fn_ctx = FnContext{
             .local_symbols = &locals_symbols,
@@ -1016,10 +989,43 @@ const Compilation = struct {
         //     }
         // };
 
-        const entry = self._sexp_compiled[func_decl.define_body_idx].pre_block;
+        // set up the stack frame
+        const func_prologue = byn.c.RelooperAddBlock(
+            fn_ctx.relooper,
+            byn.c.BinaryenGlobalSet(
+                self.module.c(),
+                stack_ptr_name,
+                byn.c.BinaryenBinary(
+                    self.module.c(),
+                    byn.c.BinaryenAddInt32(),
+                    byn.c.BinaryenGlobalGet(self.module.c(), stack_ptr_name, byn.c.BinaryenTypeInt32()),
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(fn_ctx._frame_byte_size))),
+                ),
+            ),
+        );
+        const func_body = &self._sexp_compiled[func_decl.define_body_idx];
+        // tear down the stack frame
+        const func_epilogue = byn.c.RelooperAddBlock(
+            fn_ctx.relooper,
+            byn.c.BinaryenGlobalSet(
+                self.module.c(),
+                stack_ptr_name,
+                byn.c.BinaryenBinary(
+                    self.module.c(),
+                    // would storing it as a local be better?
+                    byn.c.BinaryenSubInt32(),
+                    byn.c.BinaryenGlobalGet(self.module.c(), stack_ptr_name, byn.c.BinaryenTypeInt32()),
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(fn_ctx._frame_byte_size))),
+                ),
+            ),
+        );
+
+        byn.c.RelooperAddBranch(func_prologue, func_body.pre_block, null, null);
+        byn.c.RelooperAddBranch(func_body.post_block, func_epilogue, null, null);
+
         const body = byn.c.RelooperRenderAndDispose(
             fn_ctx.relooper,
-            entry,
+            func_prologue,
             0, // FIXME: figure out label
         );
 
