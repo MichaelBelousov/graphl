@@ -1887,10 +1887,14 @@ const Compilation = struct {
                     // FIXME: warn on forward value uses
                     const target_slot = &self._sexp_compiled[v.target];
                     slot.type = target_slot.type;
-                    slot.expr = byn.c.BinaryenLocalGet(
+                    slot.expr = byn.c.BinaryenLocalSet(
                         self.module.c(),
-                        target_slot.local_index,
-                        BinaryenHelper.getType(target_slot.type, &self.used_features),
+                        local_index,
+                        byn.c.BinaryenLocalGet(
+                            self.module.c(),
+                            target_slot.local_index,
+                            BinaryenHelper.getType(target_slot.type, &self.used_features),
+                        ),
                     );
                 },
             }
@@ -2734,6 +2738,7 @@ const Compilation = struct {
             @enumFromInt( //@intFromEnum(byn.Flags.quiet) |
             @intFromEnum(byn.Flags.globally)),
         )) {
+            // TODO: get validation result from Binaryen and store in the error
             self.diag.err = .InvalidIR;
             return error.InvalidIR;
         }
