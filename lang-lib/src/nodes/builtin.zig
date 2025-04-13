@@ -30,13 +30,25 @@ pub const StructType = struct {
     pub fn initFromTypeList(alloc: std.mem.Allocator, arg: struct {
         field_names: []const [:0]const u8 = &.{},
         field_types: []const Type = &.{},
-    }) @This() {
-        _ = alloc;
-        const field_offsets = &.{};
+    }) !@This() {
+        const field_offsets = try alloc.alloc(u32, arg.field_names.len);
+        var offset: u32 = 0;
+        var total_slots: u16 = 0;
+        for (arg.field_types, field_offsets) |field_type, *field_offset| {
+            field_offset.* = offset;
+            offset += field_type.size;
+            total_slots += switch (field_type.subtype) {
+                .@"struct" => |substruct_type| substruct_type.total_slots,
+                else => 1,
+            };
+        }
+        const total_size = offset;
         return @This(){
             .field_names = arg.field_names,
             .field_types = arg.field_types,
             .field_offsets = field_offsets,
+            .size = total_size,
+            .total_slots = total_slots,
         };
     }
 };
@@ -60,7 +72,7 @@ pub const TypeInfo = struct {
     size: u32,
 
     // FIXME: instead, any atom or singleton tuple type should be considered primitive
-    // NOTE: for now this only matters to wasm
+    // NOTE: for now this only matters to wasm // TODO: move to BinaryenHelper
     /// whether this type is a primitive (and can be put in a local in wasm)
     pub fn isPrimitive(self: *const @This()) bool {
         return self == empty_type //
@@ -75,6 +87,7 @@ pub const TypeInfo = struct {
         or self == primitive_types.char_ //
         or self == primitive_types.symbol //
         or self == primitive_types.rgba //
+        or self == primitive_types.string // is a reference type
         ;
     }
 };

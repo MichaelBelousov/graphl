@@ -501,11 +501,7 @@ const Compilation = struct {
         frame_depth: u32,
         /// index of the local holding this data in its function
         local_index: byn.c.BinaryenIndex,
-        type: union(enum) {
-            unresolved,
-            ptr: Type,
-            local: Type,
-        } = .unresolved,
+        type: Type = graphl_builtin.empty_type,
 
         /// the block of code to jump to to execute dependencies and then this slot's code
         pre_block: byn.c.RelooperBlockRef,
@@ -515,6 +511,14 @@ const Compilation = struct {
         // TODO: try to avoid having two blocks/exprs
         /// the expression to execute after evaluating dependencies
         expr: byn.c.BinaryenExpressionRef,
+
+        pub fn getBynType(self: *const @This(), features: *Features) byn.c.BinaryenType {
+            if (self.type.isPrimitive()) {
+                return BinaryenHelper.getType(self.type, features);
+            } else {
+                return byn.c.BinaryenTypeInt32();
+            }
+        }
     };
 
     pub const main_mem_name = "0";
@@ -906,13 +910,13 @@ const Compilation = struct {
                 graphl_type_slot.* = .{
                     .name = name,
                     .size = 0,
-                    .subtype = .{ .@"struct" = .initFromTypeList(self.arena.allocator(), .{
+                    .subtype = .{ .@"struct" = try .initFromTypeList(self.arena.allocator(), .{
                         .field_types = func_type.result_types,
                         .field_names = func_decl.result_names,
                     }) },
                 };
                 break :_ .{
-                    .byn = byn.c.BinaryenTypeCreate(result_types.ptr, @intCast(result_types.len)),
+                    .byn = byn.c.BinaryenTypeInt32(),
                     .graphl = graphl_type_slot,
                 };
             }
@@ -966,17 +970,20 @@ const Compilation = struct {
         var byn_locals_types: std.ArrayListUnmanaged(Type) = .{};
         defer byn_locals_types.deinit(self.arena.allocator());
 
+        // add the return pointer param as first one if not returning a primitive
+        const param_count: u16 = @intCast(@as(u16, if (result_type.graphl.isPrimitive()) 0 else 1) + func_type.param_types.len);
+
         var fn_ctx = FnContext{
             .local_symbols = &locals_symbols,
             .local_types = &byn_locals_types,
+            .param_count = param_count,
             // locals should be placed after params
-            .param_count = @intCast(func_type.param_types.len),
-            .next_sexp_local_idx = @intCast(func_type.param_types.len),
+            .next_sexp_local_idx = param_count,
             .relooper = byn.c.RelooperCreate(self.module.c()) orelse @panic("relooper creation failed"),
             .return_type = result_type.graphl,
         };
 
-        try self.compileExpr(func_decl.define_body_idx, &fn_ctx, ExprContext{ .type = result_type.graphl });
+        try self.compileExpr(func_decl.define_body_idx, &fn_ctx);
         try self.linkExpr(
             func_decl.define_body_idx,
             &fn_ctx,
@@ -987,9 +994,9 @@ const Compilation = struct {
 
         // FIXME: use a compound result type to avoid this check
         std.debug.assert(func_type.result_types.len == 1);
-        if (body_slot.type != .local or body_slot.type.local != func_type.result_types[0]) {
+        if (body_slot.type != func_type.result_types[0]) {
             //std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = expr_fragment.values } }});
-            log.warn("type: '{s}' doesn't match '{s}'", .{ body_slot.type.local.name, func_type.result_types[0].name });
+            log.warn("type: '{s}' doesn't match '{s}'", .{ body_slot.type.name, func_type.result_types[0].name });
             // FIXME/HACK: re-enable but disabling now to awkwardly allow for type promotion
             //return error.ReturnTypeMismatch;
         }
@@ -1027,7 +1034,6 @@ const Compilation = struct {
                     @enumFromInt(BinaryenHelper.getType(local_type, &self.used_features));
         }
 
-        std.debug.print("result type: {s}\n", .{result_type.graphl.name});
         const func = self.module.addFunction(
             name,
             @enumFromInt(param_type_byn),
@@ -1063,7 +1069,7 @@ const Compilation = struct {
                 self.module.c(),
                 byn.c.BinaryenAddInt32(),
                 dest_ptr,
-                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(dest_offset)),
+                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(dest_offset))),
             ),
             byn.c.BinaryenLoad(
                 self.module.c(),
@@ -1076,7 +1082,7 @@ const Compilation = struct {
                     self.module.c(),
                     byn.c.BinaryenAddInt32(),
                     src_ptr,
-                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(src_offset)),
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(src_offset))),
                 ),
                 main_mem_name,
             ),
@@ -1093,12 +1099,12 @@ const Compilation = struct {
         dst_ptr: byn.c.BinaryenExpressionRef,
         dest_offset: u32,
         instrs: *std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef),
-    ) []byn.c.BinaryenExpressionRef {
+    ) void {
         var in_struct_offset: u32 = 0;
 
         for (struct_type.field_types) |field_type| {
             switch (field_type.subtype) {
-                .primitive_type => {
+                .primitive => {
                     instrs.appendAssumeCapacity(self.copyFieldInstr(
                         src_ptr,
                         in_struct_offset,
@@ -1114,12 +1120,14 @@ const Compilation = struct {
                             self.module.c(),
                             byn.c.BinaryenAddInt32(),
                             src_ptr,
-                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(in_struct_offset)),
+                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(in_struct_offset))),
                         ),
+                        dst_ptr,
                         dest_offset + in_struct_offset,
                         instrs,
                     );
                 },
+                else => @panic("unimplemented"),
             }
             in_struct_offset += field_type.size;
         }
@@ -1130,7 +1138,6 @@ const Compilation = struct {
         code_sexp_idx: u32,
         /// not const because we may be expanding the frame to include this value
         fn_ctx: *FnContext,
-        expr_ctx: ExprContext,
     ) CompileExprError!void {
         const code_sexp = self.graphlt_module.get(code_sexp_idx);
         const slot = &self._sexp_compiled[code_sexp_idx];
@@ -1155,7 +1162,7 @@ const Compilation = struct {
 
                     if (func.value.symbol.ptr == syms.typeof.value.symbol.ptr) {
                         // FIXME: leave type unresolved
-                        slot.type = .{ .local = graphl_builtin.empty_type };
+                        slot.type = graphl_builtin.empty_type;
                         slot.expr = byn.c.BinaryenNop(self.module.c());
 
                         if (v.items.len != 3) {
@@ -1202,11 +1209,11 @@ const Compilation = struct {
                     }
 
                     if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
-                        const return_types = switch (fn_ctx.return_type.subtype) {
-                            .primitive => &.{fn_ctx.return_type},
-                            .@"struct" => |stype| stype.field_types,
-                            else => @panic("not yet handled return type"),
-                        };
+                        const return_types = if (fn_ctx.return_type.isPrimitive())
+                            &.{fn_ctx.return_type}
+                        else
+                            // FIXME: not just structs?
+                            fn_ctx.return_type.subtype.@"struct".field_types;
 
                         if (return_types.len != v.items[1..].len) {
                             self.diag.err = .{ .BuiltinWrongArity = .{
@@ -1218,12 +1225,12 @@ const Compilation = struct {
                         }
 
                         for (v.items[1..], return_types) |arg, return_type| {
-                            try self.compileExpr(arg, fn_ctx, expr_ctx);
+                            try self.compileExpr(arg, fn_ctx);
                             self.promoteToTypeInPlace(&self._sexp_compiled[arg], return_type);
                         }
 
                         if (v.items.len == 1) {
-                            slot.type == .{ .local = graphl_builtin.empty_type };
+                            slot.type = graphl_builtin.empty_type;
                             slot.expr = byn.c.BinaryenReturn(self.module.c(), byn.c.BinaryenNop(self.module.c()));
                             //
                         } else if (v.items.len == 2) {
@@ -1231,21 +1238,21 @@ const Compilation = struct {
                             slot.type = first_arg.type;
                             slot.expr = byn.c.BinaryenReturn(
                                 self.module.c(),
-                                byn.c.BinaryenLocalGet(self.module.c(), first_arg.local_index, BinaryenHelper.getType(first_arg.type, &self.used_features)),
+                                byn.c.BinaryenLocalGet(self.module.c(), first_arg.local_index, first_arg.getBynType(&self.used_features)),
                             );
                             //
                         } else if (v.items.len > 2) {
-                            slot.type.local = fn_ctx.return_type;
+                            slot.type = fn_ctx.return_type;
                             const struct_info = fn_ctx.return_type.subtype.@"struct";
-                            const return_instrs = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), struct_info.field_names.len + 1);
+                            var return_instrs = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), struct_info.field_names.len + 1);
 
                             var dest_offset: u32 = 0;
                             for (struct_info.field_types, v.items) |field_type, ctor_arg_idx| {
                                 const ctor_arg = &self._sexp_compiled[ctor_arg_idx];
                                 switch (field_type.subtype) {
-                                    .primitive_type => {
+                                    .primitive => {
                                         return_instrs.appendAssumeCapacity(self.copyFieldInstr(
-                                            byn.c.BinaryenLocalGet(self.module.c(), ctor_arg.local_index, BinaryenHelper.getType(ctor_arg.type.local, &self.used_features)),
+                                            byn.c.BinaryenLocalGet(self.module.c(), ctor_arg.local_index, ctor_arg.getBynType(&self.used_features)),
                                             0,
                                             // first local/param is the pointer to the result location if returning a struct
                                             byn.c.BinaryenLocalGet(self.module.c(), 0, byn.c.BinaryenTypeInt32()),
@@ -1261,9 +1268,10 @@ const Compilation = struct {
                                             // first local/param is the pointer to the result location if returning a struct
                                             byn.c.BinaryenLocalGet(self.module.c(), 0, byn.c.BinaryenTypeInt32()),
                                             dest_offset,
-                                            return_instrs,
+                                            &return_instrs,
                                         );
                                     },
+                                    else => @panic("unimplemented"),
                                 }
                                 dest_offset += field_type.size;
                             }
@@ -1275,6 +1283,7 @@ const Compilation = struct {
                             slot.expr = byn.c.BinaryenBlock(
                                 self.module.c(),
                                 null,
+                                return_instrs.items.ptr,
                                 4,
                                 byn.c.BinaryenTypeNone(),
                             );
@@ -1287,7 +1296,7 @@ const Compilation = struct {
 
                     if (func.value.symbol.ptr == syms.begin.value.symbol.ptr) {
                         for (v.items[1..]) |arg| {
-                            try self.compileExpr(arg, fn_ctx, expr_ctx);
+                            try self.compileExpr(arg, fn_ctx);
                         }
 
                         slot.type = graphl_builtin.empty_type;
@@ -1309,14 +1318,14 @@ const Compilation = struct {
                         // no need to compile bindings, they aren't valid expressions
                         // FIXME: add bindings to env
                         for (v.items[2..]) |arg| {
-                            try self.compileExpr(arg, fn_ctx, expr_ctx);
+                            try self.compileExpr(arg, fn_ctx);
                         }
 
                         switch (binding.value) {
                             // function def
                             .list => {
                                 slot.type = fn_ctx.return_type;
-                                slot.expr = if (fn_ctx.return_type == graphl_builtin.primitive_types.void)
+                                slot.expr = if (fn_ctx.return_type == primitive_types.void)
                                     byn.c.BinaryenNop(self.module.c())
                                 else
                                     // add an unreachable to the end of the function def if it must return, since
@@ -1327,8 +1336,6 @@ const Compilation = struct {
                             },
                             // variable def
                             .symbol => |sym| {
-                                // FIXME: check the typeof (via env?) and promote the type...
-                                slot.type = graphl_builtin.empty_type;
                                 slot.expr = byn.c.BinaryenNop(self.module.c());
 
                                 const last_arg_idx = v.items[v.items.len - 1];
@@ -1345,6 +1352,7 @@ const Compilation = struct {
                                 }
 
                                 local_symbol.index = local_index;
+                                // FIXME: check the typeof (via env?) and promote the type...
                                 slot.type = local_symbol.type;
 
                                 if (v.items.len == 3) {
@@ -1402,7 +1410,7 @@ const Compilation = struct {
                             return error.BuiltinWrongArity;
                         }
 
-                        try self.compileExpr(v.items[1], fn_ctx, expr_ctx);
+                        try self.compileExpr(v.items[1], fn_ctx);
                         const arg = &self._sexp_compiled[v.items[1]];
 
                         if (arg.type.subtype != .@"struct") {
@@ -1434,7 +1442,7 @@ const Compilation = struct {
                         const field_type = struct_info.field_types[field_index];
                         const field_offset = struct_info.field_offsets[field_index];
 
-                        slot.type = .{ .ptr = field_type };
+                        slot.type = field_type;
                         slot.expr = byn.c.BinaryenLocalSet(
                             self.module.c(),
                             local_index,
@@ -1446,7 +1454,8 @@ const Compilation = struct {
                                     arg.local_index,
                                     byn.c.BinaryenTypeInt32(),
                                 ),
-                                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(field_offset)),
+                                // FIXME: use bitCast for LiteralInt32 taking a u32
+                                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@bitCast(field_offset))),
                             ),
                         );
                     }
@@ -1495,9 +1504,7 @@ const Compilation = struct {
                     for (v.items[1..], input_descs) |arg_idx, input_desc| {
                         std.debug.assert(input_desc.asPrimitivePin() == .value);
 
-                        try self.compileExpr(arg_idx, fn_ctx, .{
-                            .type = input_desc.asPrimitivePin().value,
-                        });
+                        try self.compileExpr(arg_idx, fn_ctx);
                         const arg_compiled = &self._sexp_compiled[arg_idx];
                         args_top_type = resolvePeerType(args_top_type, arg_compiled.type);
                     }
@@ -1953,6 +1960,11 @@ const Compilation = struct {
             } else {
                 log.err("unimplemented type promotion: {s} -> {s}", .{ curr_type.name, target_type.name });
                 std.debug.panic("unimplemented type promotion: {s} -> {s}", .{ curr_type.name, target_type.name });
+                // FIXME:
+                // self.diag.err = .{ .InvalidTypeCoercion = .{
+                //     .op = {},
+                // } };
+                // return error.InvalidTypeCoercion;
             }
 
             curr_expr = byn.c.BinaryenUnary(self.module.c(), op.c(), curr_expr);
