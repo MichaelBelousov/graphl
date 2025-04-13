@@ -2,7 +2,7 @@
 
 import fs from "node:fs";
 import assert from "node:assert";
-import { instantiateProgramFromWasmBuffer } from "../js-sdk.mts";
+import { instantiateProgramFromWasmBuffer } from "../lang-sdks/js/index.mts";
 
 const program = await instantiateProgramFromWasmBuffer(fs.readFileSync("/tmp/compiler-test.wasm"));
 
