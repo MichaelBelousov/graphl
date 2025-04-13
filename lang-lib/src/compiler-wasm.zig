@@ -5,8 +5,7 @@
 //!   - Each graphl parameter function is converted to a wasm parameter
 //!     - primitives are passed by value
 //!     - compound types are passed by reference
-//!   - an i32 parameter is added storing the return address
-//!     - in the future we can return primitive types directly
+//!   - if the result is non-primitive/singleton, add a "return pointer" initial i32 parameter
 //!   - Every node that has value outputs is given a stack slot holding
 //!     its value
 //!   - executing a function involves pushing its frame on to the stack and
@@ -25,6 +24,7 @@ const Loc = @import("./loc.zig").Loc;
 const ModuleContext = @import("./sexp.zig").ModuleContext;
 const syms = @import("./sexp.zig").syms;
 const primitive_type_syms = @import("./sexp.zig").primitive_type_syms;
+// TODO: rename to graphl
 const graphl_builtin = @import("./nodes/builtin.zig");
 const empty_type = graphl_builtin.empty_type;
 const primitive_types = @import("./nodes/builtin.zig").primitive_types;
@@ -846,19 +846,31 @@ const Compilation = struct {
     fn finishCompileTypedFunc(self: *@This(), name: [:0]const u8, func_decl: DeferredFuncDeclInfo, func_type: DeferredFuncTypeInfo) !void {
         // TODO: configure std.log.debug
         //std.log.debug("compile func: '{s}'\n", .{name});
-
-        const complete_func_type_desc = graphl_builtin.FuncType{
-            .param_names = func_decl.param_names,
-            .param_types = func_type.param_types,
-            .local_names = func_decl.local_names,
-            .local_types = func_decl.local_types,
-            .result_names = func_decl.result_names,
-            .result_types = func_type.result_types,
+        // now that we have func
+        const node_desc = _: {
+            const slot = try self.arena.allocator().create(graphl_builtin.BasicMutNodeDesc);
+            slot.* = .{
+                .name = name,
+                .kind = .func,
+                // FIXME: can I reuse pins?
+                .inputs = try self.arena.allocator().alloc(Pin, func_type.param_types.len + 1),
+                .outputs = try self.arena.allocator().alloc(Pin, func_type.result_types.len + 1),
+            };
+            slot.inputs[0] = Pin{ .name = "in", .kind = .{ .primitive = .exec } };
+            for (slot.inputs[1..], func_decl.param_names, func_type.param_types) |*pin, pn, pt| {
+                pin.* = Pin{ .name = pn, .kind = .{ .primitive = .{ .value = pt } } };
+            }
+            slot.outputs[0] = Pin{ .name = "out", .kind = .{ .primitive = .exec } };
+            for (slot.outputs[1..], func_type.result_types) |*pin, rt| {
+                pin.* = Pin{ .name = "FIXME", .kind = .{ .primitive = .{ .value = rt } } };
+            }
+            // we must use the same allocator that env is deinited with!
+            break :_ try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(slot));
         };
 
-        const result_types = try self.arena.allocator().alloc(byn.c.BinaryenType, complete_func_type_desc.result_types.len);
+        const result_types = try self.arena.allocator().alloc(byn.c.BinaryenType, func_type.result_types.len);
         defer self.arena.allocator().free(result_types); // FIXME: what is the binaryen ownership model?
-        for (result_types, complete_func_type_desc.result_types) |*wasm_t, graphl_t| {
+        for (result_types, func_type.result_types) |*wasm_t, graphl_t| {
             wasm_t.* = BinaryenHelper.getType(graphl_t, &self.used_features);
         }
 
@@ -892,31 +904,8 @@ const Compilation = struct {
             }
         };
 
-        // now that we have func
-        {
-            const node_desc = try self.arena.allocator().create(graphl_builtin.BasicMutNodeDesc);
-            node_desc.* = .{
-                .name = name,
-                .kind = .func,
-                // FIXME: can I reuse pins?
-                .inputs = try self.arena.allocator().alloc(Pin, func_type.param_types.len + 1),
-                .outputs = try self.arena.allocator().alloc(Pin, func_type.result_types.len + 1),
-            };
-            node_desc.inputs[0] = Pin{ .name = "in", .kind = .{ .primitive = .exec } };
-            for (node_desc.inputs[1..], func_decl.param_names, func_type.param_types) |*pin, pn, pt| {
-                pin.* = Pin{ .name = pn, .kind = .{ .primitive = .{ .value = pt } } };
-            }
-            node_desc.outputs[0] = Pin{ .name = "out", .kind = .{ .primitive = .exec } };
-            for (node_desc.outputs[1..], func_type.result_types) |*pin, rt| {
-                pin.* = Pin{ .name = "FIXME", .kind = .{ .primitive = .{ .value = rt } } };
-            }
-            // we must use the same allocator that env is deinited with!
-            _ = try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(node_desc));
-        }
-
         // FIXME: rename
         // TODO: use @FieldType
-
         var locals_symbols: SymMapUnmanaged(FnContext.LocalInfo) = .{};
         defer locals_symbols.deinit(self.arena.allocator());
 
@@ -949,7 +938,7 @@ const Compilation = struct {
             // pointer to return location
             param_types[0] = result_type.byn;
         }
-        for (param_types[if (result_type.graphl.isPrimitive()) 0 else 1..], complete_func_type_desc.param_types) |*wasm_t, graphl_t| {
+        for (param_types[if (result_type.graphl.isPrimitive()) 0 else 1..], func_type.param_types) |*wasm_t, graphl_t| {
             wasm_t.* = BinaryenHelper.getType(graphl_t, &self.used_features);
         }
         const param_type_byn = byn.c.BinaryenTypeCreate(param_types.ptr, @intCast(param_types.len));
@@ -962,6 +951,7 @@ const Compilation = struct {
             .next_sexp_local_idx = param_count,
             .relooper = byn.c.RelooperCreate(self.module.c()) orelse @panic("relooper creation failed"),
             .return_type = result_type.graphl,
+            .func_type = node_desc,
         };
 
         try self.compileExpr(func_decl.define_body_idx, &fn_ctx);
@@ -1737,15 +1727,37 @@ const Compilation = struct {
                             else if (is_simple_1_out_impure)
                                 outputs[1].kind.primitive.value
                                     //
-                            else {
-                                std.debug.print("func={s}\n", .{func_node_desc.name()});
-                                return error.UnimplementedMultiResultHostFunc;
+                            else _: {
+                                // FIXME: the type should be stored on the NodeDesc, no?
+                                // why make a temp?
+                                const graphl_type_slot = try self.arena.allocator().create(TypeInfo);
+                                graphl_type_slot.* = .{
+                                    .name = pool.getSymbol("$TEMP_TYPE"),
+                                    .subtype = .{ .func = func_node_desc },
+                                    .size = 0,
+                                };
+                                break :_ graphl_type_slot;
                             };
 
-                        const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1);
+                        // TODO: consider calculating this in the FnContext
+                        const needs_return_ptr = fn_ctx.func_type.getOutputs().len > 1 or
+                            //
+                            (fn_ctx.func_type.getOutputs().len == 1 and fn_ctx.func_type.getOutputs()[1].kind.primitive.value == .@"struct");
+                        const needs_retptr_offset: usize = if (needs_return_ptr) 1 else 0;
+
+                        const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1 + needs_retptr_offset);
                         defer self.arena.allocator().free(operands);
 
-                        for (v.items[1..], operands[0 .. v.items.len - 1]) |arg_idx, *operand| {
+                        if (needs_return_ptr) {
+                            operands[0] = byn.c.BinaryenBinary(
+                                self.module.c(),
+                                byn.c.BinaryenAddInt32(),
+                                byn.c.BinaryenGlobalGet(self.module.c(), stack_ptr_name, byn.c.BinaryenTypeInt32()),
+                                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@bitCast(slot.frame_depth))),
+                            );
+                        }
+
+                        for (v.items[1..], operands[needs_retptr_offset .. v.items.len - 1 + needs_retptr_offset]) |arg_idx, *operand| {
                             const arg_compiled = self._sexp_compiled[arg_idx];
                             operand.* = byn.c.BinaryenLocalGet(self.module.c(), arg_compiled.local_index, BinaryenHelper.getType(arg_compiled.type, &self.used_features));
                         }
@@ -2061,6 +2073,7 @@ const Compilation = struct {
         local_symbols: *SymMapUnmanaged(LocalInfo),
 
         return_type: Type,
+        func_type: *graphl_builtin.NodeDesc,
 
         pub const LocalInfo = struct {
             index: ?byn.c.BinaryenIndex = null,
@@ -2355,22 +2368,33 @@ const Compilation = struct {
             }
 
             pub fn addImport(_self: @This(), ctx: *Compilation, in_name: [:0]const u8) !void {
-                const param_types = try ctx.arena.allocator().alloc(byn.c.BinaryenType, _self.params.len + 1);
-                defer ctx.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
+                const needs_return_ptr = _self.results.len > 1 or (_self.results.len == 1 and _self.results[0].subtype == .@"struct");
+                const needs_retptr_offset: usize = if (needs_return_ptr) 1 else 0;
+
+                const param_types = try ctx.arena.allocator().alloc(byn.c.BinaryenType, 1 + needs_retptr_offset + _self.params.len);
+                //defer ctx.arena.allocator().free(param_types); // consider using diff allocator
                 param_types[0] = byn.c.BinaryenTypeInt32();
-                for (_self.params, param_types[1..]) |graphl_t, *wasm_t| {
+                if (needs_return_ptr) {
+                    param_types[1] = byn.c.BinaryenTypeInt32();
+                }
+                for (_self.params, param_types[1 + needs_retptr_offset ..]) |graphl_t, *wasm_t| {
                     wasm_t.* = BinaryenHelper.getType(graphl_t, &ctx.used_features);
                 }
-                const params: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(param_types.ptr, @intCast(param_types.len));
+                const byn_params = byn.c.BinaryenTypeCreate(param_types.ptr, @intCast(param_types.len));
 
                 const result_types = try ctx.arena.allocator().alloc(byn.c.BinaryenType, _self.results.len);
-                defer ctx.arena.allocator().free(result_types); // FIXME: what is the binaryen ownership model?
+                //defer ctx.arena.allocator().free(result_types); // consider using diff allocator
                 for (_self.results, result_types) |graphl_t, *wasm_t| {
                     wasm_t.* = BinaryenHelper.getType(graphl_t, &ctx.used_features);
                 }
-                const results: byn.c.BinaryenType = byn.c.BinaryenTypeCreate(result_types.ptr, @intCast(result_types.len));
 
-                byn.c.BinaryenAddFunctionImport(ctx.module.c(), in_name, "env", in_name, params, results);
+                const byn_result = if (result_types.len > 1) byn.c.BinaryenTypeInt32()
+                    //
+                    else if (result_types.len == 0 or needs_return_ptr) byn.c.BinaryenTypeNone()
+                    //
+                    else result_types[0];
+
+                byn.c.BinaryenAddFunctionImport(ctx.module.c(), in_name, "env", in_name, byn_params, byn_result);
             }
         };
 
@@ -2454,28 +2478,38 @@ const Compilation = struct {
                 std.debug.assert(user_func.data.node.outputs[0].kind.primitive == .exec);
                 const results = user_func.data.node.outputs[1..];
 
+                // TODO: reuse this logic
+                const needs_return_ptr = results.len > 1 or (results.len == 1 and results[0].kind.primitive.value.subtype == .@"struct");
+                const needs_retptr_offset: usize = if (needs_return_ptr) 1 else 0;
+
                 const def = UserFuncDef{
                     .params = try self.arena.allocator().alloc(Type, params.len),
                     .results = try self.arena.allocator().alloc(Type, results.len),
                 };
-                const byn_params = try self.arena.allocator().alloc(byn.c.BinaryenType, params.len);
-                const byn_results = try self.arena.allocator().alloc(byn.c.BinaryenType, results.len);
+                const byn_params = try self.arena.allocator().alloc(byn.c.BinaryenType, params.len + needs_retptr_offset);
 
-                for (params, def.params, byn_params) |param, *param_type, *byn_param| {
+                if (needs_return_ptr) {
+                    byn_params[0] = byn.c.BinaryenTypeInt32();
+                }
+
+                for (params, def.params, byn_params[needs_retptr_offset..]) |param, *param_type, *byn_param| {
                     param_type.* = param.kind.primitive.value;
                     byn_param.* = BinaryenHelper.getType(param.kind.primitive.value, &self.used_features);
                 }
-                for (results, def.results, byn_results) |result, *result_type, *byn_result| {
+                for (results, def.results) |result, *result_type| {
                     result_type.* = result.kind.primitive.value;
-                    byn_result.* = BinaryenHelper.getType(result.kind.primitive.value, &self.used_features);
                 }
 
-                var byn_args = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), byn_params.len + 1);
+                var byn_args = try std.ArrayListUnmanaged(*byn.Expression).initCapacity(self.arena.allocator(), 1 + byn_params.len);
                 defer byn_args.deinit(self.arena.allocator());
                 byn_args.appendAssumeCapacity(@ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(user_func.data.id)))));
+                // add the return pointer argument
+                if (needs_return_ptr) {
+                    byn_args.appendAssumeCapacity(@ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 0, byn.c.BinaryenTypeInt32())));
+                }
                 byn_args.expandToCapacity();
 
-                for (params, 0.., byn_args.items[1..]) |p, i, *byn_arg| {
+                for (params, 0.., byn_args.items[1 + needs_retptr_offset ..]) |p, i, *byn_arg| {
                     byn_arg.* = byn.Expression.localGet(self.module, @intCast(i), @enumFromInt(BinaryenHelper.getType(p.kind.primitive.value, &self.used_features)));
                 }
 
@@ -2489,7 +2523,11 @@ const Compilation = struct {
                 };
 
                 const byn_param = byn.c.BinaryenTypeCreate(byn_params.ptr, @intCast(byn_params.len));
-                const byn_result = byn.c.BinaryenTypeCreate(byn_results.ptr, @intCast(byn_results.len));
+                const byn_result = if (results.len > 1) byn.c.BinaryenTypeInt32()
+                    //
+                    else if (results.len == 0 or needs_return_ptr) byn.c.BinaryenTypeNone()
+                    //
+                    else BinaryenHelper.getType(results[0].kind.primitive.value, &self.used_features);
 
                 const func = self.module.addFunction(
                     name,
@@ -3352,7 +3390,7 @@ test "vec3 ref" {
         \\(define (processInstance MeshId
         \\                         Origin
         \\                         Rotation)
-        \\        (begin (ModelCenter) <!__label1
+        \\        (begin (ModelCenter) <!__label1 ;; FIXME: this is unintuitive...
         \\               (if (> (.y #!__label1)
         \\                      2)
         \\                   (return "my_export")

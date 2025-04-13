@@ -64,7 +64,8 @@ pub const TypeInfo = struct {
     // FIXME: use a union?
     subtype: union(enum) {
         primitive: void,
-        func: FuncType,
+        // TODO: figure out how this differs from "Node"
+        func: *const NodeDesc,
         @"struct": StructType,
         array: ArrayType,
     } = .primitive,
@@ -144,6 +145,8 @@ pub const NodeDesc = struct {
     hidden: bool = false,
 
     kind: NodeDescKind = .func,
+    // TODO: consider adding a type wrapping ourselves
+    //type: Type,
 
     tags: []const []const u8 = &.{},
     context: *const anyopaque,
@@ -193,19 +196,13 @@ pub const NodeDesc = struct {
     }
 
     const FlowType = enum {
-        functionCall,
+        routine,
         pure,
         simpleBranch,
     };
 
-    // FIXME: pre-calculate this at construction (or cache it?)
-    pub fn isSimpleBranch(self: *const @This()) bool {
+    pub inline fn isSimpleBranch(self: *const @This()) bool {
         const is_branch = self == &builtin_nodes.@"if";
-        if (is_branch) {
-            std.debug.assert(self.getOutputs().len == 2);
-            std.debug.assert(self.getOutputs()[0].isExec());
-            std.debug.assert(self.getOutputs()[1].isExec());
-        }
         return is_branch;
     }
 
