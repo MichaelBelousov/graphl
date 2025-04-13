@@ -44,7 +44,7 @@ for (blk_side, id), label in node_to_label.items():
       print(f'  subgraph cluster_{id} {{ _pre_{id}; _post_{id} }}')
   except KeyError:
     pass
-  print(f'  _{blk_side}_{id} [label="{label}"]')
+  print(f'  _{blk_side}_{id} [label="{label.replace('"', '\\"')}"]')
 for (lblk, left), (rblk, right) in edges:
   print(f"  _{lblk}_{left} -> _{rblk}_{right};")
 print("}")
