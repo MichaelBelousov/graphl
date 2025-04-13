@@ -1463,20 +1463,40 @@ const Compilation = struct {
                         const field_offset = struct_info.field_offsets[field_index];
 
                         slot.type = field_type;
+
+                        const struct_ptr = byn.c.BinaryenLocalGet(
+                            self.module.c(),
+                            arg.local_index,
+                            byn.c.BinaryenTypeInt32(),
+                        );
+
+                        const field_ptr = byn.c.BinaryenBinary(
+                            self.module.c(),
+                            byn.c.BinaryenAddInt32(),
+                            struct_ptr,
+                            // FIXME: use bitCast for LiteralInt32 taking a u32
+                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@bitCast(field_offset))),
+                        );
+
+                        // FIXME: add a loadType helper
+                        const field_value = if (slot.type.isPrimitive())
+                            byn.c.BinaryenLoad(
+                                self.module.c(),
+                                field_type.size,
+                                false,
+                                0,
+                                4,
+                                slot.getBynType(&self.used_features),
+                                field_ptr,
+                                main_mem_name,
+                            )
+                        else
+                            field_ptr;
+
                         slot.expr = byn.c.BinaryenLocalSet(
                             self.module.c(),
                             local_index,
-                            byn.c.BinaryenBinary(
-                                self.module.c(),
-                                byn.c.BinaryenAddInt32(),
-                                byn.c.BinaryenLocalGet(
-                                    self.module.c(),
-                                    arg.local_index,
-                                    byn.c.BinaryenTypeInt32(),
-                                ),
-                                // FIXME: use bitCast for LiteralInt32 taking a u32
-                                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@bitCast(field_offset))),
-                            ),
+                            field_value,
                         );
                         break :done;
                     }
@@ -3325,7 +3345,7 @@ test "vec3 ref" {
         \\                         Origin
         \\                         Rotation)
         \\        (begin (ModelCenter) <!__label1
-        \\               (if (> (.x #!__label1)
+        \\               (if (> (.y #!__label1)
         \\                      2)
         \\                   (return "my_export")
         \\                   (return "EXPORT2"))))
