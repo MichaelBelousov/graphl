@@ -1084,6 +1084,8 @@ const Compilation = struct {
             self.module.c(),
             field_type.size,
             0,
+            // TODO: use 8-byte alignment for floats, just align shit in general
+            // cuz it probably performs badly without standard alignment
             4, // TODO: alignment
             byn.c.BinaryenBinary(
                 self.module.c(),
@@ -2176,6 +2178,7 @@ const Compilation = struct {
                         try self.linkExpr(condition_idx, context, self._sexp_compiled[alternative_idx].pre_block);
                         try self.linkExpr(alternative_idx, context, slot.post_block);
                         self.RelooperAddBranch(condition_idx, .post, alternative_idx, .pre, null, null);
+                        self.RelooperAddBranch(alternative_idx, .post, code_sexp_idx, .post, null, null);
                     } else {
                         try self.linkExpr(condition_idx, context, slot.post_block);
                         self.RelooperAddBranch(condition_idx, .post, code_sexp_idx, .pre, null, null);
