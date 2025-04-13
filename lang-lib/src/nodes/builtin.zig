@@ -22,6 +22,7 @@ pub const StructType = struct {
     field_types: []const Type = &.{},
     // I feel like 32-bits is too many
     field_offsets: []const u32 = &.{},
+    // FIXME: why have a size when the outer Type value will have one?
     size: u32,
     // total amount of primitive slots if you recursively descend through all fields
     total_slots: u16,

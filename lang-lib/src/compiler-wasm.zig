@@ -66,6 +66,7 @@ pub const Diagnostic = struct {
         // FIXME: add the dependency to the error message
         RecursiveDependency: u32,
         SetNonSymbol: u32,
+        // FIXME: rename to just "WrongArity", it's no longer used for just builtins
         BuiltinWrongArity: struct {
             callee: u32,
             expected: u16,
@@ -905,10 +906,10 @@ const Compilation = struct {
                 graphl_type_slot.* = .{
                     .name = name,
                     .size = 0,
-                    .subtype = .{ .@"struct" = .{
+                    .subtype = .{ .@"struct" = .initFromTypeList(self.arena.allocator(), .{
                         .field_types = func_type.result_types,
                         .field_names = func_decl.result_names,
-                    } },
+                    }) },
                 };
                 break :_ .{
                     .byn = byn.c.BinaryenTypeCreate(result_types.ptr, @intCast(result_types.len)),
@@ -1041,6 +1042,89 @@ const Compilation = struct {
         std.debug.assert(export_ref != null);
     }
 
+    /// given a source field pointer, a type, and a destination struct pointer with an offset
+    /// load the source field and store it to the destination struct at the offset
+    pub fn copyFieldInstr(
+        self: *@This(),
+        src_ptr: byn.c.BinaryenExpressionRef,
+        src_offset: u32,
+        dest_ptr: byn.c.BinaryenExpressionRef,
+        dest_offset: u32,
+        field_type: Type,
+    ) byn.c.BinaryenExpressionRef {
+        const field_byn_type = BinaryenHelper.getType(field_type, &self.used_features);
+
+        return byn.c.BinaryenStore(
+            self.module.c(),
+            field_type.size,
+            0,
+            4, // TODO: alignment
+            byn.c.BinaryenBinary(
+                self.module.c(),
+                byn.c.BinaryenAddInt32(),
+                dest_ptr,
+                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(dest_offset)),
+            ),
+            byn.c.BinaryenLoad(
+                self.module.c(),
+                field_type.size,
+                false,
+                0,
+                4,
+                field_byn_type,
+                byn.c.BinaryenBinary(
+                    self.module.c(),
+                    byn.c.BinaryenAddInt32(),
+                    src_ptr,
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(src_offset)),
+                ),
+                main_mem_name,
+            ),
+            field_byn_type,
+            main_mem_name,
+        );
+    }
+
+    /// assumes there is enough memory in instrs
+    pub fn copySubstructToStruct(
+        self: *@This(),
+        struct_type: graphl_builtin.StructType,
+        src_ptr: byn.c.BinaryenExpressionRef,
+        dst_ptr: byn.c.BinaryenExpressionRef,
+        dest_offset: u32,
+        instrs: *std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef),
+    ) []byn.c.BinaryenExpressionRef {
+        var in_struct_offset: u32 = 0;
+
+        for (struct_type.field_types) |field_type| {
+            switch (field_type.subtype) {
+                .primitive_type => {
+                    instrs.appendAssumeCapacity(self.copyFieldInstr(
+                        src_ptr,
+                        in_struct_offset,
+                        dst_ptr,
+                        dest_offset + in_struct_offset,
+                        field_type,
+                    ));
+                },
+                .@"struct" => |substruct| {
+                    self.copySubstructToStruct(
+                        substruct,
+                        byn.c.BinaryenBinary(
+                            self.module.c(),
+                            byn.c.BinaryenAddInt32(),
+                            src_ptr,
+                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(in_struct_offset)),
+                        ),
+                        dest_offset + in_struct_offset,
+                        instrs,
+                    );
+                },
+            }
+            in_struct_offset += field_type.size;
+        }
+    }
+
     fn compileExpr(
         self: *@This(),
         code_sexp_idx: u32,
@@ -1080,7 +1164,7 @@ const Compilation = struct {
                                 .expected = 2,
                                 .received = @intCast(v.items.len - 1),
                             } };
-                            return error.BuiltinWrongArity; // FIXME: add diag
+                            return error.BuiltinWrongArity;
                         }
 
                         const binding = self.graphlt_module.get(v.items[1]);
@@ -1124,6 +1208,15 @@ const Compilation = struct {
                             else => @panic("not yet handled return type"),
                         };
 
+                        if (return_types.len != v.items[1..].len) {
+                            self.diag.err = .{ .BuiltinWrongArity = .{
+                                .callee = v.items[0],
+                                .expected = 2,
+                                .received = @intCast(v.items.len - 1),
+                            } };
+                            return error.BuiltinWrongArity;
+                        }
+
                         for (v.items[1..], return_types) |arg, return_type| {
                             try self.compileExpr(arg, fn_ctx, expr_ctx);
                             self.promoteToTypeInPlace(&self._sexp_compiled[arg], return_type);
@@ -1144,36 +1237,40 @@ const Compilation = struct {
                         } else if (v.items.len > 2) {
                             slot.type.local = fn_ctx.return_type;
                             const struct_info = fn_ctx.return_type.subtype.@"struct";
-                            const block_exprs = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), struct_info.total_slots);
+                            const return_instrs = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), struct_info.field_names.len + 1);
 
-                            const local = struct {
-                                _block_exprs: @TypeOf(block_exprs),
-                                pub fn copyStruct(_self: *@This(), in_struct_info: *const graphl_builtin.StructType) void {
-                                    for (in_struct_info.field_types) |field_type| {
-                                        switch (field_type.subtype) {
-                                            .primitive_type => {
-                                                _self._block_exprs.appendAssumeCapacity(
-                                                    byn.c.BinaryenStore(
-                                                        self.module.c(),
-                                                        field_type.size,
-                                                        0,
-                                                        4, // TODO: alignment
-                                                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32()),
-                                                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32()),
-                                                        BinaryenHelper.getType(field_type, &self.used_features),
-                                                        main_mem_name,
-                                                    ),
-                                                );
-                                            },
-                                            .@"struct" => {},
-                                        }
-                                    }
+                            var dest_offset: u32 = 0;
+                            for (struct_info.field_types, v.items) |field_type, ctor_arg_idx| {
+                                const ctor_arg = &self._sexp_compiled[ctor_arg_idx];
+                                switch (field_type.subtype) {
+                                    .primitive_type => {
+                                        return_instrs.appendAssumeCapacity(self.copyFieldInstr(
+                                            byn.c.BinaryenLocalGet(self.module.c(), ctor_arg.local_index, BinaryenHelper.getType(ctor_arg.type.local, &self.used_features)),
+                                            0,
+                                            // first local/param is the pointer to the result location if returning a struct
+                                            byn.c.BinaryenLocalGet(self.module.c(), 0, byn.c.BinaryenTypeInt32()),
+                                            dest_offset,
+                                            field_type,
+                                        ));
+                                    },
+                                    .@"struct" => |substruct_type| {
+                                        self.copySubstructToStruct(
+                                            substruct_type,
+                                            // TODO: encode the fact that pointers are always i32 somewhere
+                                            byn.c.BinaryenLocalGet(self.module.c(), ctor_arg.local_index, byn.c.BinaryenTypeInt32()),
+                                            // first local/param is the pointer to the result location if returning a struct
+                                            byn.c.BinaryenLocalGet(self.module.c(), 0, byn.c.BinaryenTypeInt32()),
+                                            dest_offset,
+                                            return_instrs,
+                                        );
+                                    },
                                 }
-                            }{
-                                ._block_exprs = block_exprs,
-                            };
+                                dest_offset += field_type.size;
+                            }
 
-                            local.copyStruct(struct_info);
+                            return_instrs.appendAssumeCapacity(
+                                byn.c.BinaryenReturn(self.module.c(), byn.c.BinaryenNop(self.module.c())),
+                            );
 
                             slot.expr = byn.c.BinaryenBlock(
                                 self.module.c(),
@@ -1275,7 +1372,7 @@ const Compilation = struct {
                                         .expected = 2,
                                         .received = @intCast(v.items.len - 1),
                                     } };
-                                    return error.BuiltinWrongArity; // FIXME: add diag
+                                    return error.BuiltinWrongArity;
                                 }
 
                                 break :done;
