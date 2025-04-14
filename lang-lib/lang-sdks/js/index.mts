@@ -76,7 +76,8 @@ function writeJsValueForGraphl<JsVal extends number | object>(jsVal: JsVal, view
             err.badValue = jsVal;
             throw err;
         }
-        view.setFloat64(offset, jsVal);
+        console.log("writing f64", jsVal, "to", view.byteOffset + offset);
+        view.setFloat64(offset, jsVal, true);
     } else if (graphlType === GraphlTypes.i32) {
         if (typeof jsVal !== "number" || jsVal > 2**31 - 1 || jsVal < -(2**31) || Math.round(jsVal) !== jsVal) {
             const err = Error(`jsVal '${JSON.stringify(jsVal)}' was not a valid i32`);
@@ -86,13 +87,73 @@ function writeJsValueForGraphl<JsVal extends number | object>(jsVal: JsVal, view
             err.badValue = jsVal;
             throw err;
         }
-        view.setFloat64(offset, jsVal);
+        view.setInt32(offset, jsVal, true);
+        console.log("writing i32", jsVal, "to", view.byteOffset + offset);
     } else if (graphlType.kind === "struct") {
         for (let i = 0; i < graphlType.fieldNames.length; ++i) {
             const fieldName = graphlType.fieldNames[i];
             const fieldType = graphlType.fieldTypes[i];
             const fieldOffset = graphlType.fieldOffsets[i];
             writeJsValueForGraphl(jsVal[fieldName], view, offset + fieldOffset, fieldType)
+        }
+    }
+}
+
+function graphlPrimitiveValToJsVal(
+    graphlVal: number,
+    graphlType: GraphlType,
+    wasm: WasmInstance,
+): any {
+    if (graphlType === GraphlTypes.f64) {
+        return graphlVal
+    } else if (graphlType === GraphlTypes.i32) {
+        return graphlVal;
+    } else if (graphlType === GraphlTypes.string) {
+        // TODO: deduplicate with other exact same usage
+        // FIXME: use streaming Decoder
+        const textDecoder = new TextDecoder();
+        let offset = 0;
+        const chunks = [] as Uint8Array[];
+
+        while (true) {
+            const bytesWrittenCount = wasm.exports.__graphl_host_copy(graphlVal, offset);
+            if (bytesWrittenCount === 0) break;
+            offset += bytesWrittenCount;
+            const chunk = new Uint8Array(wasm.exports.memory.buffer, TRANSFER_BUF_PTR, bytesWrittenCount);
+            chunks.push(chunk);
+        }
+
+        const totalSize = offset;
+        const fullData = new Uint8Array(totalSize);
+
+        // TODO: use streaming decoder
+        {
+            let fullDataOffset = 0;
+            for (const chunk of chunks) {
+                fullData.set(chunk, fullDataOffset);
+                fullDataOffset += chunk.byteLength;
+            }
+        }
+
+        return textDecoder.decode(fullData);
+    }
+}
+
+
+function graphlValToJsVal(
+    graphlVal: number,
+    graphlType: GraphlType,
+    wasm: WasmInstance,
+): any {
+    if (graphlType.kind === "primitive") {
+        return graphlPrimitiveValToJsVal(graphlVal, graphlType, wasm)
+    } else if (graphlType.kind === "struct") {
+        throw Error("unimplemented");
+        const val = {};
+        for (let i = 0; i < graphlType.fieldNames.length; ++i) {
+            const fieldName = graphlType.fieldNames[i];
+            const fieldType = graphlType.fieldTypes[i];
+            const fieldOffset = graphlType.fieldOffsets[i];
         }
     }
 }
@@ -114,13 +175,12 @@ function makeCallUserFunc(
     wasm: WasmInstance,
     userFuncs: UserFuncCollection
 ): [string, Function] {
-    const key = ["callUserFunc", ...inputs.map(i => i.type.name), "R", [...outputs.map(o => o.type.name)]].join("_");
+    const key = ["callUserFunc", ...inputs.map(i => i.type.name), "R", ...outputs.map(o => o.type.name)].join("_");
     const firstArgIsReturnPtr = outputs.length > 0 || outputs[0].type.kind === "struct";
 
     return [
         key,
-        (funcId: number, abiParams: any[]) => {
-            console.log(funcId, abiParams);
+        (funcId: number, ...abiParams: any[]) => {
             const userFunc = userFuncs.get(funcId);
             if (!userFunc) throw Error(`No user function with id ${funcId}, this is a bug`);
 
@@ -181,7 +241,6 @@ function makeCallUserFunc(
                 const jsParams = paramsToJs(abiParams.slice(1));
                 const jsRes = userFunc.call(undefined, jsParams);
                 const resultView = new DataView(wasm.exports.memory.buffer, returnPtr, outputs[0].type.size);
-                // TODO: handle primitives which we can return directly
                 writeJsValueForGraphl(jsRes, resultView, 0, outputs[0].type);
                 return;
             } else if (!firstArgIsReturnPtr) {
@@ -222,14 +281,36 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
     }
 
     const imports = {
-        env: Object.fromEntries([
-            makeCallUserFunc([], [{ type: GraphlTypes.vec3 }], wasmExports, userFuncs),
-        ]),
+        env: {
+            ...Object.fromEntries([
+                makeCallUserFunc([], [{ type: GraphlTypes.vec3 }], wasmExports, userFuncs),
+            ]),
+            log_f64(f: number) {
+                console.log("f64: ", f);
+            },
+            log_i32(f: number) {
+                console.log("i32: ", f);
+            },
+        },
     };
     const wasm = await WebAssembly.instantiate(data, imports);
     wasmExports.exports = wasm.instance.exports;
 
+    // FIXME: this is a hardcoded hack
+    const functionOutputs = new Map<string, UserFuncOutput[]>;
+    functionOutputs.set("processInstance", [{ type: GraphlTypes.string }]);
+
     return {
-        functions: wasm.instance.exports as any,
+        // FIXME:
+        functions: Object.fromEntries(
+            Object.entries(wasm.instance.exports)
+            .filter(([_key, graphlFunc]) => typeof graphlFunc === "function")
+            .map(([key, graphlFunc]) => [key, (...args: any[]) => {
+                    // TODO: dedup with logic in makeCallUserFunc
+                    const graphlRes = (graphlFunc as Function)(...args);
+                    return graphlValToJsVal(graphlRes, functionOutputs.get(key)![0].type, wasmExports);
+                }
+            ])
+        ) as any
     };
 }
