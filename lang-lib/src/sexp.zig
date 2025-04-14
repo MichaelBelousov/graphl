@@ -8,6 +8,7 @@ const t = std.testing;
 const json = std.json;
 const pool = &@import("./InternPool.zig").pool;
 const Parser = @import("./sexp_parser.zig").Parser;
+const Loc = @import("./loc.zig").Loc;
 
 // FIXME: don't include in non-debug builds
 
@@ -20,12 +21,6 @@ comptime {
         @export(&_print_sexp, .{ .name = "_print_sexp", .linkage = .strong });
     }
 }
-
-// FIXME:
-// - this should be data-oriented
-// - u32 indices instead of pointers
-//
-// consider making `.x` a special syntax which accesses .x from an object
 
 // TODO: add an init function that initializes the root for you
 pub const ModuleContext = struct {
@@ -104,7 +99,9 @@ pub const Sexp = struct {
     comment: ?[]const u8 = null,
     /// optional text span, when parsed from a source file, mostly for diagnostics
     span: ?[]const u8 = null,
-    /// optional label
+    /// optional source location, when parsed from a source file, for debug info in the compiler or diagnostics
+    loc: ?Loc = null,
+    /// label if there is one on this sexp
     label: ?[:0]const u8 = null,
     value: union(enum) {
         // FIXME: remove module type since it mostly just creates useless branching that
