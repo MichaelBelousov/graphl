@@ -1002,14 +1002,6 @@ const Compilation = struct {
                 ),
         );
 
-        const func_return_fail = byn.c.RelooperAddBlock(
-            fn_ctx.relooper,
-            if (result_type.graphl == primitive_types.void)
-                byn.c.BinaryenNop(self.module.c())
-            else
-                byn.c.BinaryenUnreachable(self.module.c()),
-        );
-
         try self.linkExpr(
             func_decl.define_body_idx,
             &fn_ctx,
@@ -1017,8 +1009,6 @@ const Compilation = struct {
         );
 
         byn.c.RelooperAddBranch(func_prologue, func_body.pre_block, null, null);
-        // you should have returned before here
-        byn.c.RelooperAddBranch(func_body.post_block, func_return_fail, null, null);
 
         const body_slot = &self._sexp_compiled[func_decl.define_body_idx];
 
@@ -1034,7 +1024,24 @@ const Compilation = struct {
         const body = byn.c.RelooperRenderAndDispose(
             fn_ctx.relooper,
             func_prologue,
-            0, // FIXME: figure out label
+            0,
+        );
+
+        // NOTE: not sure why but branching from the define_body_idx/post to unreachable doesn't
+        // seem to work, so building a block manually
+        const body_with_end = byn.c.BinaryenBlock(
+            self.module.c(),
+            null,
+            // TODO: move this constCast
+            @constCast(&[_]byn.c.BinaryenExpressionRef{
+                body,
+                if (result_type.graphl == primitive_types.void)
+                    byn.c.BinaryenNop(self.module.c())
+                else
+                    byn.c.BinaryenUnreachable(self.module.c()),
+            }),
+            2,
+            byn.c.BinaryenTypeUnreachable(),
         );
 
         const byn_local_types = try self.arena.allocator().alloc(byn.Type, byn_locals_types.items.len);
@@ -1053,7 +1060,7 @@ const Compilation = struct {
             @enumFromInt(param_type_byn),
             @enumFromInt(result_type.byn),
             byn_local_types,
-            @ptrCast(body),
+            @ptrCast(body_with_end),
         );
 
         std.debug.assert(func != null);
