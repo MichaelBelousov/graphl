@@ -1786,8 +1786,29 @@ const Compilation = struct {
                             BinaryenHelper.getType(slot.type, &self.used_features),
                         );
 
-                        slot.expr = if (slot.type == primitive_types.void or needs_return_ptr)
+                        slot.expr = if (slot.type == primitive_types.void)
                             call_expr
+                        else if (needs_return_ptr)
+                            byn.c.BinaryenBlock(
+                                self.module.c(),
+                                null,
+                                @constCast(&[_]byn.c.BinaryenExpressionRef{
+                                    // first set our value to the return pointer, then call (order doesn't matter)
+                                    byn.c.BinaryenLocalSet(
+                                        self.module.c(),
+                                        local_index,
+                                        byn.c.BinaryenBinary(
+                                            self.module.c(),
+                                            byn.c.BinaryenAddInt32(),
+                                            byn.c.BinaryenGlobalGet(self.module.c(), stack_ptr_name, byn.c.BinaryenTypeInt32()),
+                                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@bitCast(slot.frame_depth))),
+                                        ),
+                                    ),
+                                    call_expr,
+                                }),
+                                2,
+                                byn.c.BinaryenTypeNone(),
+                            )
                         else
                             byn.c.BinaryenLocalSet(self.module.c(), local_index, call_expr);
 
@@ -1796,6 +1817,7 @@ const Compilation = struct {
 
                     // otherwise we have a non builtin
                     log.err("unhandled call: {}", .{code_sexp});
+                    self.diag.err = .{ .UnhandledCall = code_sexp_idx };
                     return error.UnhandledCall;
                 },
 
@@ -3438,10 +3460,16 @@ test "vec3 ref" {
         \\      br 0 (;@1;)
         \\    end
         \\    block ;; label = @1
-        \\      global.get $__gstkp
-        \\      i32.const 0
-        \\      i32.add
-        \\      call $ModelCenter
+        \\      block ;; label = @2
+        \\        global.get $__gstkp
+        \\        i32.const 0
+        \\        i32.add
+        \\        local.set 10
+        \\        global.get $__gstkp
+        \\        i32.const 0
+        \\        i32.add
+        \\        call $ModelCenter
+        \\      end
         \\      br 0 (;@1;)
         \\    end
         \\    block ;; label = @1
