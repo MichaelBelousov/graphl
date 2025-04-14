@@ -281,13 +281,13 @@ const DeferredFuncDeclInfo = struct {
     local_types: []const Type,
     /// indices into the graphlt module context, if there was a default
     local_defaults: []const ?u32,
-    result_names: []const [:0]const u8,
     define_body_idx: u32,
 };
 
 const DeferredFuncTypeInfo = struct {
     param_types: []const Type,
     result_types: []const Type,
+    result_names: []const [:0]const u8,
 };
 
 var empty_user_funcs = std.SinglyLinkedList(UserFunc){};
@@ -683,7 +683,6 @@ const Compilation = struct {
             .local_name_idxs = try local_name_idxs.toOwnedSlice(),
             .local_types = try local_types.toOwnedSlice(),
             .local_defaults = try local_defaults.toOwnedSlice(),
-            .result_names = &.{}, // FIXME
             .define_body_idx = sexp_index,
         };
 
@@ -796,30 +795,46 @@ const Compilation = struct {
         }
     }
 
-    /// e.g. (typeof (f i32) i32)
+    // FIXME: this will crash obscenely large result types lol
+    const result_names_cached = [_][:0]const u8{
+        "0",  "1",  "2",  "3",  "4",  "5",  "6",  "7",  "8",  "9",  "10", "11", "12",
+        //
+        "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24",
+    };
+
+    /// e.g. (typeof (foo i32) i32))
+    /// e.g. (typeof (bar i32) (i32 string))
     fn compileTypeOfFunc(self: *@This(), sexp: *const Sexp) !bool {
         const alloc = self.arena.allocator();
-
-        // std.debug.assert(sexp.value == .list);
-        // std.debug.assert(sexp.value.list.items[0].value == .symbol);
-        // // FIXME: parser should be aware of the define form!
-        // //std.debug.assert(sexp.value.list.items[0].value.symbol.ptr == syms.typeof.value.symbol.ptr);
-        // std.debug.assert(std.mem.eql(u8, sexp.value.list.items[0].value.symbol, syms.typeof.value.symbol));
-
-        // if (sexp.value.list.items[1].value != .list) return false;
-        // if (sexp.value.list.items[1].value.list.items.len == 0) return error.FuncTypeDeclListEmpty;
-        // for (sexp.value.list.items[1].value.list.items) |*def_item| {
-        //     // FIXME: function types names must be simple symbols (for now)
-        //     if (def_item.value != .symbol) return error.FuncBindingsListEmpty;
-        // }
 
         const func_name = sexp.getWithModule(1, self.graphlt_module).getWithModule(0, self.graphlt_module).value.symbol;
         const param_type_expr_idxs = sexp.getWithModule(1, self.graphlt_module).value.list.items[1..];
 
-        // FIXME: types must be symbols (for now)
-        if (sexp.getWithModule(2, self.graphlt_module).value != .symbol) return error.FuncTypeDeclResultNotASymbol;
+        const result_types_expr = sexp.getWithModule(2, self.graphlt_module);
 
-        const result_type_name = sexp.getWithModule(2, self.graphlt_module).value.symbol;
+        var result_names: []const [:0]const u8 = undefined;
+        var result_types: []Type = undefined;
+        // FIXME: types must be symbols (for now)
+        switch (result_types_expr.value) {
+            .symbol => |sym| {
+                result_types = try alloc.alloc(Type, 1);
+                result_types[0] = self.env.getType(sym) orelse return error.UnknownType;
+                result_names = result_names_cached[0..1];
+            },
+            .list => |list| {
+                result_types = try alloc.alloc(Type, list.items.len);
+                for (result_types, list.items) |*result_type, sexp_idx| {
+                    const result_type_sexp = self.graphlt_module.get(sexp_idx);
+                    if (result_type_sexp.value != .symbol) {
+                        return error.FuncTypeDeclMultiResultEntryNotSymbol;
+                    }
+                    result_type.* = self.env.getType(result_type_sexp.value.symbol) orelse return error.UnknownType;
+                }
+                result_names = result_names_cached[0..list.items.len];
+            },
+            else => return error.FuncTypeDeclResultNotSymbolOrList,
+        }
+        errdefer alloc.free(result_types);
 
         const param_types = try alloc.alloc(Type, param_type_expr_idxs.len);
         errdefer alloc.free(param_types);
@@ -829,13 +844,10 @@ const Compilation = struct {
             type_.* = self.env.getType(param_type) orelse return error.UnknownType;
         }
 
-        const result_types = try alloc.alloc(Type, 1);
-        errdefer alloc.free(result_types);
-        result_types[0] = self.env.getType(result_type_name) orelse return error.UnknownType;
-
         const func_type_desc = DeferredFuncTypeInfo{
             .param_types = param_types,
             .result_types = result_types,
+            .result_names = &.{}, // FIXME
         };
 
         if (self.deferred.func_decls.getPtr(func_name)) |func_decl| {
@@ -903,7 +915,7 @@ const Compilation = struct {
                     .size = 0,
                     .subtype = .{ .@"struct" = try .initFromTypeList(self.arena.allocator(), .{
                         .field_types = func_type.result_types,
-                        .field_names = func_decl.result_names,
+                        .field_names = func_type.result_names,
                     }) },
                 };
                 break :_ .{

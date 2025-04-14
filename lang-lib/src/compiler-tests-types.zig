@@ -367,6 +367,7 @@ test "simple string" {
     }
 }
 
+// FIXME: untested
 test "(u64,string) -> string ;; return literal" {
     var user_funcs = std.SinglyLinkedList(compiler.UserFunc){};
 
@@ -504,6 +505,7 @@ test "(u64,string) -> string ;; return literal" {
     }
 }
 
+// FIXME: untested
 test "(u64,string) -> string ;; labeled return" {
     var user_funcs = std.SinglyLinkedList(compiler.UserFunc){};
 
@@ -656,6 +658,169 @@ test "(u64,string) -> string ;; labeled return" {
         //     0,
         //     0,
         // });
+    } else |err| {
+        std.debug.print("err {}:\n{}", .{ err, diagnostic });
+        try t.expect(false);
+    }
+}
+
+test "multireturn simple" {
+    var env = try Env.initDefault(t.allocator);
+    defer env.deinit(t.allocator);
+
+    var parsed = try SexpParser.parse(t.allocator,
+        \\(meta version 1)
+        \\(typeof (foo i32) (i32 string))
+        \\(define (foo a)
+        \\        (return (+ a 2) "test"))
+    , null);
+    //std.debug.print("{any}\n", .{parsed});
+    // FIXME: there is some double-free happening here?
+    defer parsed.deinit();
+
+    const expected =
+        \\(module
+        \\  (type (;0;) (array (mut i8)))
+        \\  (type (;1;) (func (param i32)))
+        \\  (type (;2;) (func (param i64 i32 i32) (result (ref null 0))))
+        \\  (type (;3;) (func (param i32 i32)))
+        \\  (type (;4;) (func (param (ref null 0) i32) (result i32)))
+        \\  (import "env" "callUserFunc_R_vec3" (func (;0;) (type 3)))
+        \\  (memory (;0;) 1 256)
+        \\  (global $__gstkp (;0;) (mut i32) i32.const 5120)
+        \\  (export "memory" (memory 0))
+        \\  (export "processInstance" (func $processInstance))
+        \\  (export "__graphl_host_copy" (func $__graphl_host_copy))
+        \\  (func $ModelCenter (;1;) (type 1) (param i32)
+        \\    i32.const 0
+        \\    local.get 0
+        \\    call 0
+        \\  )
+        \\  (func $processInstance (;2;) (type 2) (param i64 i32 i32) (result (ref null 0))
+        \\    (local (ref null 0) (ref null 0) (ref null 0) (ref null 0) (ref null 0) (ref null 0) (ref null 0) i32 i32 i32 i32 f64)
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        global.get $__gstkp
+        \\        i32.const 0
+        \\        i32.add
+        \\        local.set 10
+        \\        global.get $__gstkp
+        \\        i32.const 0
+        \\        i32.add
+        \\        call $ModelCenter
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        local.get 10
+        \\        local.set 12
+        \\        local.get 12
+        \\        i32.const 8
+        \\        i32.add
+        \\        f64.load align=4
+        \\        local.set 14
+        \\      end
+        \\      br 0 (;@1;)
+        \\    end
+        \\    block ;; label = @1
+        \\      block ;; label = @2
+        \\        i32.const 2
+        \\        local.set 13
+        \\        local.get 14
+        \\        local.get 13
+        \\        i64.extend_i32_s
+        \\        f32.convert_i64_s
+        \\        f64.promote_f32
+        \\        f64.gt
+        \\        local.set 11
+        \\      end
+        \\      local.get 11
+        \\      if ;; label = @2
+        \\        i32.const 0
+        \\        i32.const 9
+        \\        array.new_data 0 $s_5120
+        \\        local.set 7
+        \\        local.get 7
+        \\        return
+        \\      else
+        \\        i32.const 0
+        \\        i32.const 7
+        \\        array.new_data 0 $s_5129
+        \\        local.set 9
+        \\        local.get 9
+        \\        return
+        \\      end
+        \\      unreachable
+        \\    end
+        \\    unreachable
+        \\  )
+        \\  (func $__graphl_host_copy (;3;) (type 4) (param (ref null 0) i32) (result i32)
+        \\    (local i32 i32)
+        \\    local.get 1
+        \\    local.set 3
+        \\    local.get 0
+        \\    array.len
+        \\    local.set 2
+        \\    local.get 3
+        \\    local.get 2
+        \\    i32.ge_u
+        \\    if ;; label = @1
+        \\      i32.const 0
+        \\      return
+        \\    end
+        \\    loop ;; label = @1
+        \\      i32.const 1024
+        \\      local.get 3
+        \\      local.get 1
+        \\      i32.sub
+        \\      i32.add
+        \\      local.get 0
+        \\      local.get 3
+        \\      array.get_u 0
+        \\      i32.store align=1
+        \\      local.get 3
+        \\      i32.const 1
+        \\      i32.add
+        \\      local.set 3
+        \\      local.get 3
+        \\      local.get 2
+        \\      i32.lt_u
+        \\      br_if 0 (;@1;)
+        \\      local.get 3
+        \\      i32.const 4096
+        \\      i32.ge_u
+        \\      if ;; label = @2
+        \\        i32.const 4096
+        \\        return
+        \\      end
+        \\    end
+        \\    i32.const 1024
+        \\    local.get 3
+        \\    i32.add
+        \\    i32.const 0
+        \\    i32.store
+        \\    local.get 3
+        \\    local.get 1
+        \\    i32.sub
+        \\    return
+        \\  )
+        \\  (data $s_5120 (;0;) "my_export")
+        \\  (data $s_5129 (;1;) "EXPORT2")
+        \\  (@custom "sourceMappingURL" (after data) "\07/script")
+        \\)
+        \\
+    ;
+
+    var diagnostic = Diagnostic.init();
+    if (compile(t.allocator, &parsed.module, null, &diagnostic)) |wasm| {
+        defer t.allocator.free(wasm);
+        try expectWasmEqualsWat(expected, wasm);
     } else |err| {
         std.debug.print("err {}:\n{}", .{ err, diagnostic });
         try t.expect(false);
