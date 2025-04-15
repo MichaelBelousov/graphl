@@ -16,6 +16,7 @@ pub const FuncType = struct {
     result_types: []const Type = &.{},
 };
 
+// FIXME: recursive types not supported
 pub const StructType = struct {
     field_names: []const [:0]const u8 = &.{},
     // should structs allow constrained generic fields?
@@ -91,9 +92,75 @@ pub const TypeInfo = struct {
         or self == primitive_types.char_ //
         or self == primitive_types.symbol //
         or self == primitive_types.rgba //
-        or self == primitive_types.string // is a reference type
         ;
     }
+
+    pub const PrimitiveFieldInfo = struct {
+        name: [:0]const u8,
+        type: Type,
+        offset: u32,
+    };
+
+    // NOTE: I am probably getting ahead of myself implementing recursive fields
+    pub fn primitiveFieldIterator(self: *const @This(), a: std.mem.Allocator) PrimitiveFieldIter {
+        std.debug.assert(self.subtype == .@"struct");
+        const result = PrimitiveFieldIter{
+            .stack = @FieldType(PrimitiveFieldIter, "stack"),
+            ._alloc = a,
+        };
+        // FIXME: why doesn't SegmentedList support appendAssumeCapacity?
+        result.stack.len = 1;
+        result.stack.uncheckedAt(0).* = self;
+        result.moveToNextPrimitive();
+        return result;
+    }
+
+    // FIXME: store visited type list to detect loops
+    // FIXME: add tests for this
+    pub const PrimitiveFieldIter = struct {
+        _alloc: std.mem.Allocator,
+        _total_offset: u32 = 0,
+        // TODO: support deeper structs
+        stack: std.SegmentedList(StackEntry, 8),
+
+        const StackEntry = struct { type: Type, depth: u16 };
+
+        pub fn next(self: *@This()) ?PrimitiveFieldInfo {
+            if (self.stack.count() == 0) {
+                return null;
+            }
+
+            const top: Type = self.stack.uncheckedAt(self.stack.count() - 1);
+            const result = PrimitiveFieldInfo{
+                .name = top.subtype.@"struct".field_names[self.top_offset],
+                .type = top.subtype.@"struct".field_types[self.top_offset],
+                .offset = self._total_offset,
+            };
+            self._total_offset += result.type.size;
+            self.moveToNextPrimitive();
+            return result;
+        }
+
+        fn moveToNextPrimitive(self: *@This()) void {
+            std.debug.assert(self.stack.count > 0);
+            const start_top: *StackEntry = self.stack.uncheckedAt(self.stack.count() - 1);
+            start_top.depth += 1;
+
+            while (self.stack.count() > 0) {
+                const top: *StackEntry = self.stack.uncheckedAt(self.stack.count() - 1);
+                if (top.depth >= top.type.subtype.@"struct".field_types.len) {
+                    self.stack.pop() orelse unreachable;
+                } else if (top.subtype.@"struct".field_types[top.depth].isPrimitive()) {
+                    return;
+                } else if (top.subtype.@"struct".field_types[top.depth].subtype == .@"struct") {
+                    const substruct_type = top.subtype.@"struct".field_types[top.depth].subtype;
+                    self.stack.append(self._alloc, .{ .type = substruct_type, .depth = 0 });
+                } else {
+                    top.depth += 1;
+                }
+            }
+        }
+    };
 };
 
 pub const Type = *const TypeInfo;
