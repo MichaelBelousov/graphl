@@ -847,7 +847,7 @@ const Compilation = struct {
         const func_type_desc = DeferredFuncTypeInfo{
             .param_types = param_types,
             .result_types = result_types,
-            .result_names = &.{}, // FIXME
+            .result_names = result_names,
         };
 
         if (self.deferred.func_decls.getPtr(func_name)) |func_decl| {
@@ -1021,17 +1021,6 @@ const Compilation = struct {
         );
 
         byn.c.RelooperAddBranch(func_prologue, func_body.pre_block, null, null);
-
-        const body_slot = &self._sexp_compiled[func_decl.define_body_idx];
-
-        // FIXME: use a compound result type to avoid this check
-        std.debug.assert(func_type.result_types.len == 1);
-        if (body_slot.type != func_type.result_types[0]) {
-            //std.log.warn("body_fragment:\n{}\n", .{Sexp{ .value = .{ .module = expr_fragment.values } }});
-            log.warn("type: '{s}' doesn't match '{s}'", .{ body_slot.type.name, func_type.result_types[0].name });
-            // FIXME/HACK: re-enable but disabling now to awkwardly allow for type promotion
-            //return error.ReturnTypeMismatch;
-        }
 
         const body = byn.c.RelooperRenderAndDispose(
             fn_ctx.relooper,
@@ -1287,7 +1276,7 @@ const Compilation = struct {
                             var return_instrs = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), struct_info.field_names.len + 1);
 
                             var dest_offset: u32 = 0;
-                            for (struct_info.field_types, v.items) |field_type, ctor_arg_idx| {
+                            for (struct_info.field_types, v.items[1..]) |field_type, ctor_arg_idx| {
                                 const ctor_arg = &self._sexp_compiled[ctor_arg_idx];
                                 switch (field_type.subtype) {
                                     .primitive => {
@@ -1981,6 +1970,13 @@ const Compilation = struct {
         // }
         slot.pre_block = byn.c.RelooperAddBlock(fn_ctx.relooper, byn.c.BinaryenNop(self.module.c()));
         slot.post_block = byn.c.RelooperAddBlock(fn_ctx.relooper, slot.expr);
+
+        if (builtin.mode == .Debug) {
+            // FIXME: use log.debug
+            std.debug.print("compiled index {} type={s}, expr=\n{}\nto\n", .{ code_sexp_idx, slot.type.name, Sexp.printOneLine(self.graphlt_module, code_sexp_idx) });
+            byn._BinaryenExpressionPrintStderr(slot.expr);
+            std.debug.print("\n", .{});
+        }
     }
 
     // find the nearest super type (if any) of two types
