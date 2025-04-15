@@ -26,10 +26,11 @@ pub const StructType = struct {
     // FIXME: why have a size when the outer Type value will have one?
     size: u32,
 
+    // FIXME: this is binaryen specific!
     /// total amount of array fields if you recursively descend through all fields
-    flat_array_count: u16,
+    flat_array_count: u12,
     /// total amount of primitive fields if you recursively descend through all fields
-    flat_primitive_slot_count: u16,
+    flat_primitive_slot_count: u24,
 
     pub fn initFromTypeList(alloc: std.mem.Allocator, arg: struct {
         field_names: []const [:0]const u8 = &.{},
@@ -37,14 +38,26 @@ pub const StructType = struct {
     }) !@This() {
         const field_offsets = try alloc.alloc(u32, arg.field_names.len);
         var offset: u32 = 0;
-        var total_slots: u16 = 0;
+        var flat_primitive_slot_count: u24 = 0;
+        var flat_array_count: u12 = 0;
+
         for (arg.field_types, field_offsets) |field_type, *field_offset| {
             field_offset.* = offset;
             offset += field_type.size;
-            total_slots += switch (field_type.subtype) {
-                .@"struct" => |substruct_type| substruct_type.total_slots,
-                else => 1,
-            };
+            switch (field_type.subtype) {
+                .@"struct" => |substruct_type| {
+                    flat_primitive_slot_count += substruct_type.flat_primitive_slot_count;
+                    flat_array_count += substruct_type.flat_array_count;
+                },
+                .primitive => {
+                    if (field_type == primitive_types.string) {
+                        flat_array_count += 1;
+                    } else {
+                        flat_primitive_slot_count += 1;
+                    }
+                },
+                else => @panic("unimplemented"),
+            }
         }
         const total_size = offset;
         return @This(){
@@ -52,7 +65,8 @@ pub const StructType = struct {
             .field_types = arg.field_types,
             .field_offsets = field_offsets,
             .size = total_size,
-            .total_slots = total_slots,
+            .flat_primitive_slot_count = flat_primitive_slot_count,
+            .flat_array_count = flat_array_count,
         };
     }
 };
@@ -76,25 +90,6 @@ pub const TypeInfo = struct {
     /// size in bytes of the type
     size: u32,
 
-    // FIXME: instead, any atom or singleton tuple type should be considered primitive
-    // NOTE: for now this only matters to wasm // TODO: move to BinaryenHelper
-    /// whether this type is a primitive (and can be put in a local in wasm)
-    pub fn isPrimitive(self: *const @This()) bool {
-        return self == empty_type //
-        or self == primitive_types.i32_ //
-        or self == primitive_types.i64_ //
-        or self == primitive_types.u32_ //
-        or self == primitive_types.u64_ //
-        or self == primitive_types.f32_ //
-        or self == primitive_types.f64_ //
-        or self == primitive_types.byte //
-        or self == primitive_types.bool_ //
-        or self == primitive_types.char_ //
-        or self == primitive_types.symbol //
-        or self == primitive_types.rgba //
-        ;
-    }
-
     pub const PrimitiveFieldInfo = struct {
         name: [:0]const u8,
         type: Type,
@@ -104,8 +99,8 @@ pub const TypeInfo = struct {
     // NOTE: I am probably getting ahead of myself implementing recursive fields
     pub fn primitiveFieldIterator(self: *const @This(), a: std.mem.Allocator) PrimitiveFieldIter {
         std.debug.assert(self.subtype == .@"struct");
-        const result = PrimitiveFieldIter{
-            .stack = @FieldType(PrimitiveFieldIter, "stack"),
+        var result = PrimitiveFieldIter{
+            .stack = @FieldType(PrimitiveFieldIter, "stack"){},
             ._alloc = a,
         };
         // FIXME: why doesn't SegmentedList support appendAssumeCapacity?
@@ -473,7 +468,8 @@ pub const primitive_types = struct {
             .field_types = &.{ primitive_types.f64_, primitive_types.f64_, primitive_types.f64_ },
             .field_offsets = &.{ 0, 8, 16 },
             .size = 24,
-            .total_slots = 3,
+            .flat_array_count = 0,
+            .flat_primitive_slot_count = 3,
         } },
     };
 
