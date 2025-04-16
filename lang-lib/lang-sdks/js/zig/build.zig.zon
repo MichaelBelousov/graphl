@@ -1,0 +1,16 @@
+.{
+    .name = .graphl_js_sdk_zigar_wrapper,
+    // TODO: match graphl version
+    .version = "0.1.0",
+    .fingerprint = 0xfc8c5419071c3f63,
+    .dependencies = .{
+        .graphl = .{
+            .path = "../../../",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

@@ -1,4 +1,4 @@
-// TODO: add a compiler level JS SDK to orchestrate calls like this
+// TODO: add a compiler levelJS SDK to orchestrate calls like this
 
 export type GraphlType =
     | {
@@ -269,8 +269,8 @@ export interface GraphlProgram<Funcs extends Record<string, (...args: any[]) => 
 }
 
 export async function instantiateProgramFromWasmBuffer<Funcs extends Record<string, (...args: any[]) => any>>(
-    data: Buffer,
-    hostEnv: Record<string, UserFuncDesc<Funcs[string]>>,
+    data: ArrayBufferLike,
+    hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
 ): Promise<GraphlProgram<Funcs>> {
     // need a level of indirection unfortunately (TBD if this works if we need the imports at instantiation)
     const wasmExports = { exports: undefined as any };
@@ -313,4 +313,21 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
             ])
         ) as any
     };
+}
+
+export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Record<string, (...args: any[]) => any>>(
+    source: string,
+    hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
+): Promise<GraphlProgram<Funcs>> {
+    await import("bun-zigar");
+    const zig = await import("./zig/js.zig");
+    console.log(zig)
+    let compiledWasm;
+    try {
+        compiledWasm = zig.compileSource("unknown", source, undefined);
+    } catch (err) {
+        // TODO: handle diagnostic
+        throw err;
+    }
+    return instantiateProgramFromWasmBuffer(compiledWasm.buffer, hostEnv);
 }
