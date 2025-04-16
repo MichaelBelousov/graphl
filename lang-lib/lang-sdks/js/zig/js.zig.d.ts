@@ -5,5 +5,8 @@ export declare interface Uint32Pair {
 export declare function compileSource(
   file_name: string,
   src: string,
+  diagnostic: {
+    error: string
+  } | undefined,
 ): any; // FIXME: use zigar types?
 

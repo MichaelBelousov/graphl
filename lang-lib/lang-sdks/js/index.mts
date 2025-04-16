@@ -27,11 +27,10 @@ export type GraphlType =
 ;
 
 export namespace GraphlTypes {
-    export const i32: GraphlType = {
-        name: "i32",
-        kind: "primitive",
-        size: 4,
-    };
+    export const i32: GraphlType = { name: "i32", kind: "primitive", size: 4 };
+    export const u32: GraphlType = { name: "u32", kind: "primitive", size: 4 };
+    export const i64: GraphlType = { name: "i64", kind: "primitive", size: 8 };
+    export const u64: GraphlType = { name: "u64", kind: "primitive", size: 8 };
 
     export const f64: GraphlType = {
         name: "f64",
@@ -104,11 +103,7 @@ function graphlPrimitiveValToJsVal(
     graphlType: GraphlType,
     wasm: WasmInstance,
 ): any {
-    if (graphlType === GraphlTypes.f64) {
-        return graphlVal
-    } else if (graphlType === GraphlTypes.i32) {
-        return graphlVal;
-    } else if (graphlType === GraphlTypes.string) {
+    if (graphlType === GraphlTypes.string) {
         // TODO: deduplicate with other exact same usage
         // FIXME: use streaming Decoder
         const textDecoder = new TextDecoder();
@@ -136,6 +131,8 @@ function graphlPrimitiveValToJsVal(
         }
 
         return textDecoder.decode(fullData);
+    } else {
+        return graphlVal
     }
 }
 
@@ -398,11 +395,14 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
 ): Promise<GraphlProgram<Funcs>> {
     const zig = await import("./zig/js.zig");
     let compiledWasm;
+    const diagnostic = { error: "none" };
     try {
-        compiledWasm = zig.compileSource("unknown", source).typedArray;
+        compiledWasm = zig.compileSource("unknown", source, diagnostic).typedArray;
         if (process.env.DEBUG)
             require("node:fs").writeFileSync("/tmp/jssdk-compiler-test.wasm", compiledWasm)
     } catch (err) {
+        // FIXME: why doesn't diagnostic work?
+        err.diagnostic = diagnostic.error;
         // TODO: handle diagnostic
         throw err;
     }
