@@ -405,6 +405,12 @@ const BinaryenHelper = struct {
     }
 
     pub fn getHeapType(graphl_type: Type, features: *Features) byn.c.BinaryenHeapType {
+        // FIXME: gross, figure out a better way to make this distinction, maybe above isValueType?
+        if (graphl_type == primitive_types.string) {
+            // FIXME: cache this specific one?
+            return heap_type_map.get(graphl_type) orelse unreachable;
+        }
+
         std.debug.assert(graphl_type.subtype == .@"struct");
 
         const graphl_struct_info = graphl_type.subtype.@"struct";
@@ -437,12 +443,14 @@ const BinaryenHelper = struct {
         );
 
         var built_heap_types: [1]byn.c.BinaryenHeapType = undefined;
-        std.debug.assert(byn.c.TypeBuilderBuildAndDispose(tb, &built_heap_types, 0, 0));
+        std.debug.assert(byn.c.TypeBuilderBuildAndDispose(tb, &built_heap_types, null, null));
 
         const byn_heap_type = built_heap_types[0];
-        const byn_type = byn.c.BinaryenTypeFromHeapType(byn_heap_type, false);
+        std.debug.assert(byn.c.BinaryenHeapTypeIsStruct(byn_heap_type));
 
         entry.value_ptr.* = byn_heap_type;
+
+        const byn_type = byn.c.BinaryenTypeFromHeapType(byn_heap_type, false);
         BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), graphl_type, byn_type) catch unreachable;
 
         return byn_heap_type;
@@ -1151,7 +1159,7 @@ const Compilation = struct {
 
         const has_intrinsics = (try self.type_intrinsics_generated.getOrPut(self.arena.allocator(), byn_type)).found_existing;
         if (graphl_type.subtype == .@"struct" and !has_intrinsics) {
-            _ = try self.addCopyInstrinsicFuncForHeapStruct(graphl_type, byn_type);
+            _ = try self.addCopyIntrinsicFuncForHeapStruct(graphl_type, byn_type);
         }
         return byn_type;
     }
@@ -1169,11 +1177,13 @@ const Compilation = struct {
         read_fields: byn.c.BinaryenFunctionRef,
     };
 
-    fn addCopyInstrinsicFuncForHeapStruct(
+    fn addCopyIntrinsicFuncForHeapStruct(
         self: *@This(),
         graphl_type: Type,
-        struct_byn_type: byn.c.BinaryenHeapType,
+        struct_byn_type: byn.c.BinaryenType,
     ) (Diagnostic.Code || std.mem.Allocator.Error)!HeapStructCopyFuncs {
+        const struct_byn_heap_type = try self.getBynHeapType(graphl_type);
+
         if (graphl_type.size > str_transfer_seg_size) {
             self.diag.err = .{ .StructTooLarge = .{ .type = graphl_type } };
             return error.StructTooLarge;
@@ -1231,7 +1241,7 @@ const Compilation = struct {
                         byn.c.BinaryenStructGet(
                             self.module.c(),
                             i,
-                            byn.c.BinaryenLocalGet(self.module.c(), vars.param_struct_ref, field_byn_type),
+                            byn.c.BinaryenLocalGet(self.module.c(), vars.param_struct_ref, struct_byn_type),
                             field_byn_type,
                             false,
                         ),
@@ -1340,7 +1350,7 @@ const Compilation = struct {
                 // ),
                 byn.c.BinaryenReturn(
                     self.module.c(),
-                    byn.c.BinaryenStructNew(self.module.c(), operands.ptr, @intCast(operands.len), struct_byn_type),
+                    byn.c.BinaryenStructNew(self.module.c(), operands.ptr, @intCast(operands.len), struct_byn_heap_type),
                 ),
             );
         };
@@ -1555,7 +1565,7 @@ const Compilation = struct {
 
                             const return_struct_info = fn_ctx.return_type.subtype.@"struct";
                             var operands = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), return_struct_info.field_names.len + 1);
-                            defer operands.deinit(self.arena.allocator());
+                            //defer operands.deinit(self.arena.allocator());
 
                             for (return_struct_info.field_types, v.items[1..], 0..) |field_type, ctor_arg_idx, i| {
                                 _ = field_type; // FIXME
@@ -2161,7 +2171,7 @@ const Compilation = struct {
                         local_index,
                         byn.c.BinaryenArrayNewData(
                             self.module.c(),
-                            byn.c.BinaryenTypeGetHeapType(try self.getBynType(primitive_types.string)),
+                            try self.getBynHeapType(primitive_types.string),
                             seg_name,
                             // TODO: consider using an offset?
                             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
@@ -3062,9 +3072,9 @@ const Compilation = struct {
             std.debug.assert(byn.c.BinaryenAddFunctionExport(self.module.c(), "__graphl_host_copy", "__graphl_host_copy") != null);
         }
 
-        if (std.log.logEnabled(.debug, .graphlt_compiler)) {
-            byn._BinaryenModulePrintStderr(self.module.c());
-        }
+        // if (std.log.logEnabled(.debug, .graphlt_compiler)) {
+        //     byn._BinaryenModulePrintStderr(self.module.c());
+        // }
 
         if (opts.optimize != .none) {
             byn.c.BinaryenModuleOptimize(self.module.c());
