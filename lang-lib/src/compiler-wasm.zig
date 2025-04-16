@@ -385,6 +385,7 @@ const Features = struct {
 const BinaryenHelper = struct {
     var alloc = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     var type_map: std.AutoHashMapUnmanaged(Type, byn.c.BinaryenType) = .{};
+    var heap_type_map: std.AutoHashMapUnmanaged(Type, byn.c.BinaryenHeapType) = .{};
 
     /// whether this type can be put in a local in wasm
     pub fn isValueType(graphl_type: Type) bool {
@@ -403,47 +404,60 @@ const BinaryenHelper = struct {
         ;
     }
 
+    pub fn getHeapType(graphl_type: Type, features: *Features) byn.c.BinaryenHeapType {
+        std.debug.assert(graphl_type.subtype == .@"struct");
+
+        const graphl_struct_info = graphl_type.subtype.@"struct";
+        const entry = heap_type_map.getOrPut(alloc.allocator(), graphl_type) catch unreachable;
+
+        if (entry.found_existing) {
+            return entry.value_ptr.*;
+        }
+
+        const tb: byn.c.TypeBuilderRef = byn.c.TypeBuilderCreate(1);
+
+        const byn_types = alloc.allocator().alloc(byn.c.BinaryenType, graphl_struct_info.field_types.len) catch unreachable;
+        for (graphl_struct_info.field_types, byn_types) |field_type, *byn_type| {
+            byn_type.* = getType(field_type, features);
+        }
+
+        const is_packed = alloc.allocator().alloc(byn.c.BinaryenPackedType, graphl_struct_info.field_types.len) catch unreachable;
+        for (is_packed) |*p| p.* = byn.c.BinaryenPackedTypeNotPacked();
+
+        const is_mut = alloc.allocator().alloc(bool, graphl_struct_info.field_types.len) catch unreachable;
+        for (is_mut) |*m| m.* = true;
+
+        byn.c.TypeBuilderSetStructType(
+            tb,
+            0,
+            byn_types.ptr,
+            is_packed.ptr,
+            is_mut.ptr,
+            3,
+        );
+
+        var built_heap_types: [1]byn.c.BinaryenHeapType = undefined;
+        std.debug.assert(byn.c.TypeBuilderBuildAndDispose(tb, &built_heap_types, 0, 0));
+
+        const byn_heap_type = built_heap_types[0];
+        const byn_type = byn.c.BinaryenTypeFromHeapType(byn_heap_type, false);
+
+        entry.value_ptr.* = byn_heap_type;
+        BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), graphl_type, byn_type) catch unreachable;
+
+        return byn_heap_type;
+    }
+
     pub fn getType(graphl_type: Type, features: *Features) byn.c.BinaryenType {
+        if (graphl_type.subtype == .@"struct")
+            _ = getHeapType(graphl_type, features); // careful of recursion
+
         // TODO: use switch if compiler supports it
         if (graphl_type == primitive_types.string and !features.string) {
+            // TODO: don't add string type until we hit this?
             features.string = true;
         } else if (graphl_type == primitive_types.vec3 and !features.vec3) {
             features.vec3 = true;
-
-            const tb: byn.c.TypeBuilderRef = byn.c.TypeBuilderCreate(1);
-
-            var vec3_parts = .{
-                .types = [_]byn.c.BinaryenType{
-                    byn.c.BinaryenTypeFloat64(),
-                    byn.c.BinaryenTypeFloat64(),
-                    byn.c.BinaryenTypeFloat64(),
-                },
-                .@"packed" = [_]byn.c.BinaryenPackedType{
-                    byn.c.BinaryenPackedTypeNotPacked(),
-                    byn.c.BinaryenPackedTypeNotPacked(),
-                    byn.c.BinaryenPackedTypeNotPacked(),
-                },
-                .mut = BinaryenHelper.alloc.allocator().dupe(bool, &[_]bool{
-                    true,
-                    true,
-                    true,
-                }) catch unreachable,
-            };
-
-            // FIXME: lazily add this type if a string is used!
-            byn.c.TypeBuilderSetStructType(
-                tb,
-                0,
-                &vec3_parts.types,
-                &vec3_parts.@"packed",
-                vec3_parts.mut.ptr,
-                3,
-            );
-
-            var built_heap_types: [1]byn.c.BinaryenHeapType = undefined;
-            std.debug.assert(byn.c.TypeBuilderBuildAndDispose(tb, &built_heap_types, 0, 0));
-            const byn_vec3 = byn.c.BinaryenTypeFromHeapType(built_heap_types[0], true);
-            BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.vec3, byn_vec3) catch unreachable;
         }
 
         return type_map.get(graphl_type) orelse {
@@ -473,13 +487,19 @@ fn constructor() callconv(.C) void {
 
     var built_heap_types: [1]byn.c.BinaryenHeapType = undefined;
     std.debug.assert(byn.c.TypeBuilderBuildAndDispose(tb, &built_heap_types, 0, 0));
-    const i8_array = byn.c.BinaryenTypeFromHeapType(built_heap_types[0], true);
+    const i8_array_heap = built_heap_types[0];
+    const i8_array = byn.c.BinaryenTypeFromHeapType(i8_array_heap, false);
 
     // TODO: do what hoot does and compile to stringref but downpass it to i8-array
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.code, i8_array) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.symbol, i8_array) catch unreachable;
     // FIXME: lazily add this type if a string is used!
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.string, i8_array) catch unreachable;
+
+    BinaryenHelper.heap_type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.code, i8_array_heap) catch unreachable;
+    BinaryenHelper.heap_type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.symbol, i8_array_heap) catch unreachable;
+    // FIXME: symbols should not be an i8-array... there should be a symbol store but it should be an int!
+    BinaryenHelper.heap_type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.string, i8_array_heap) catch unreachable;
 }
 
 // FIXME: idk if this works in wasm, maybe do it in tests only?
@@ -546,14 +566,6 @@ const Compilation = struct {
         // TODO: try to avoid having two blocks/exprs
         /// the expression to execute after evaluating dependencies
         expr: byn.c.BinaryenExpressionRef,
-
-        pub fn getBynType(self: *const @This(), ctx: *Compilation) !byn.c.BinaryenType {
-            if (self.type.subtype == .primitive) {
-                return ctx.getBynType(self.type);
-            } else {
-                return byn.c.BinaryenTypeInt32();
-            }
-        }
     };
 
     pub const main_mem_name = "0";
@@ -1134,7 +1146,7 @@ const Compilation = struct {
         std.debug.assert(export_ref != null);
     }
 
-    fn getBynType(self: *@This(), graphl_type: Type) (Diagnostic.Code || std.mem.Allocator.Error)!byn.c.BinaryenType {
+    inline fn getBynType(self: *@This(), graphl_type: Type) (Diagnostic.Code || std.mem.Allocator.Error)!byn.c.BinaryenType {
         const byn_type = BinaryenHelper.getType(graphl_type, &self.used_features);
 
         const has_intrinsics = (try self.type_intrinsics_generated.getOrPut(self.arena.allocator(), byn_type)).found_existing;
@@ -1142,6 +1154,13 @@ const Compilation = struct {
             _ = try self.addCopyInstrinsicFuncForHeapStruct(graphl_type, byn_type);
         }
         return byn_type;
+    }
+
+    inline fn getBynHeapType(self: *@This(), graphl_type: Type) (Diagnostic.Code || std.mem.Allocator.Error)!byn.c.BinaryenHeapType {
+        // FIXME: technically do this, maybe assert that it's in self.type_intrinsics_generated
+        // _ = self.getBynType(graphl_type);
+        const byn_heap_type = BinaryenHelper.getHeapType(graphl_type, &self.used_features);
+        return byn_heap_type;
     }
 
     const HeapStructCopyFuncs = struct {
@@ -1154,7 +1173,7 @@ const Compilation = struct {
         self: *@This(),
         graphl_type: Type,
         struct_byn_type: byn.c.BinaryenHeapType,
-    ) !HeapStructCopyFuncs {
+    ) (Diagnostic.Code || std.mem.Allocator.Error)!HeapStructCopyFuncs {
         if (graphl_type.size > str_transfer_seg_size) {
             self.diag.err = .{ .StructTooLarge = .{ .type = graphl_type } };
             return error.StructTooLarge;
@@ -1527,57 +1546,39 @@ const Compilation = struct {
                             try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                             slot.expr = byn.c.BinaryenReturn(
                                 self.module.c(),
-                                byn.c.BinaryenLocalGet(self.module.c(), first_arg.local_index, try first_arg.getBynType(self)),
+                                byn.c.BinaryenLocalGet(self.module.c(), first_arg.local_index, try self.getBynType(first_arg.type)),
                             );
                             //
                         } else if (v.items.len > 2) {
                             slot.type = fn_ctx.return_type;
                             try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
 
-                            const struct_info = fn_ctx.return_type.subtype.@"struct";
-                            var return_instrs = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), struct_info.field_names.len + 1);
+                            const return_struct_info = fn_ctx.return_type.subtype.@"struct";
+                            var operands = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), return_struct_info.field_names.len + 1);
+                            defer operands.deinit(self.arena.allocator());
 
-                            var dest_offset: u32 = 0;
-                            for (struct_info.field_types, v.items[1..]) |field_type, ctor_arg_idx| {
+                            for (return_struct_info.field_types, v.items[1..], 0..) |field_type, ctor_arg_idx, i| {
                                 const ctor_arg = &self._sexp_compiled[ctor_arg_idx];
-                                switch (field_type.subtype) {
-                                    .primitive => {
-                                        return_instrs.appendAssumeCapacity(self.copyFieldInstr(
-                                            byn.c.BinaryenLocalGet(self.module.c(), ctor_arg.local_index, try ctor_arg.getBynType(self)),
-                                            0,
-                                            // first local/param is the pointer to the result location if returning a struct
-                                            byn.c.BinaryenLocalGet(self.module.c(), 0, byn.c.BinaryenTypeInt32()),
-                                            dest_offset,
-                                            field_type,
-                                        ));
-                                    },
-                                    .@"struct" => |substruct_type| {
-                                        self.copySubstructToStruct(
-                                            substruct_type,
-                                            // TODO: encode the fact that pointers are always i32 somewhere
-                                            byn.c.BinaryenLocalGet(self.module.c(), ctor_arg.local_index, byn.c.BinaryenTypeInt32()),
-                                            // first local/param is the pointer to the result location if returning a struct
-                                            byn.c.BinaryenLocalGet(self.module.c(), 0, byn.c.BinaryenTypeInt32()),
-                                            dest_offset,
-                                            &return_instrs,
-                                        );
-                                    },
-                                    else => @panic("unimplemented"),
-                                }
-                                dest_offset += field_type.size;
+                                operands.appendAssumeCapacity(byn.c.BinaryenStructSet(
+                                    self.module.c(),
+                                    @intCast(i),
+                                    byn.c.BinaryenLocalGet(self.module.c(), local_index, try self.getBynType(ctor_arg.type)),
+                                    byn.c.BinaryenStructGet(
+                                        self.module.c(),
+                                        @intCast(i),
+                                        byn.c.BinaryenLocalGet(self.module.c(), ctor_arg.local_index, try self.getBynType(ctor_arg.type)),
+                                        try self.getBynType(field_type),
+                                        false,
+                                    ),
+                                ));
                             }
 
-                            return_instrs.appendAssumeCapacity(
-                                byn.c.BinaryenReturn(self.module.c(), byn.c.BinaryenNop(self.module.c())),
-                            );
-
-                            slot.expr = byn.c.BinaryenBlock(
+                            slot.expr = byn.c.BinaryenReturn(self.module.c(), byn.c.BinaryenStructNew(
                                 self.module.c(),
-                                null,
-                                return_instrs.items.ptr,
-                                4,
-                                byn.c.BinaryenTypeNone(),
-                            );
+                                operands.items.ptr,
+                                @intCast(operands.items.len),
+                                try self.getBynHeapType(fn_ctx.return_type),
+                            ));
                         }
 
                         // FIXME: construct return tuple type from all arguments
@@ -1747,14 +1748,14 @@ const Compilation = struct {
                         );
 
                         // FIXME: add a loadType helper
-                        const field_value = if (BinaryenHelper.isValueType(slot.type.subtype))
+                        const field_value = if (BinaryenHelper.isValueType(slot.type))
                             byn.c.BinaryenLoad(
                                 self.module.c(),
                                 field_type.size,
                                 false,
                                 0,
                                 4,
-                                slot.getBynType(&self.used_features),
+                                try self.getBynType(slot.type),
                                 field_ptr,
                                 main_mem_name,
                             )
@@ -2213,7 +2214,7 @@ const Compilation = struct {
                         byn.c.BinaryenLocalGet(
                             self.module.c(),
                             target_slot.local_index,
-                            target_slot.getBynType(self),
+                            try self.getBynType(target_slot.type),
                         ),
                     );
                 },
@@ -2537,7 +2538,7 @@ const Compilation = struct {
                         .post,
                         consequence_idx,
                         .pre,
-                        byn.c.BinaryenLocalGet(self.module.c(), condition_slot.local_index, condition_slot.getBynType(self)),
+                        byn.c.BinaryenLocalGet(self.module.c(), condition_slot.local_index, try self.getBynType(condition_slot.type)),
                         null,
                     );
                     self.RelooperAddBranch(consequence_idx, .post, code_sexp_idx, .post, null, null);

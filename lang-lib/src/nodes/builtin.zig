@@ -105,7 +105,7 @@ pub const TypeInfo = struct {
         };
         // FIXME: why doesn't SegmentedList support appendAssumeCapacity?
         result.stack.len = 1;
-        result.stack.uncheckedAt(0).* = self;
+        result.stack.uncheckedAt(0).* = .{ .type = self, .depth = 0 };
         result.moveToNextPrimitive();
         return result;
     }
@@ -125,10 +125,10 @@ pub const TypeInfo = struct {
                 return null;
             }
 
-            const top: Type = self.stack.uncheckedAt(self.stack.count() - 1);
+            const top = self.stack.uncheckedAt(self.stack.count() - 1);
             const result = PrimitiveFieldInfo{
-                .name = top.subtype.@"struct".field_names[self.top_offset],
-                .type = top.subtype.@"struct".field_types[self.top_offset],
+                .name = top.type.subtype.@"struct".field_names[top.depth],
+                .type = top.type.subtype.@"struct".field_types[top.depth],
                 .offset = self._total_offset,
             };
             self._total_offset += result.type.size;
@@ -137,19 +137,20 @@ pub const TypeInfo = struct {
         }
 
         fn moveToNextPrimitive(self: *@This()) void {
-            std.debug.assert(self.stack.count > 0);
+            std.debug.assert(self.stack.count() > 0);
             const start_top: *StackEntry = self.stack.uncheckedAt(self.stack.count() - 1);
             start_top.depth += 1;
 
             while (self.stack.count() > 0) {
                 const top: *StackEntry = self.stack.uncheckedAt(self.stack.count() - 1);
+                const curr_field_type = top.type.subtype.@"struct".field_types[top.depth];
                 if (top.depth >= top.type.subtype.@"struct".field_types.len) {
-                    self.stack.pop() orelse unreachable;
-                } else if (top.subtype.@"struct".field_types[top.depth].isPrimitive()) {
+                    _ = self.stack.pop() orelse unreachable;
+                    // FIXME generalize this or move this code to wasm compiler
+                } else if (curr_field_type.subtype == .primitive and curr_field_type != primitive_types.string) {
                     return;
-                } else if (top.subtype.@"struct".field_types[top.depth].subtype == .@"struct") {
-                    const substruct_type = top.subtype.@"struct".field_types[top.depth].subtype;
-                    self.stack.append(self._alloc, .{ .type = substruct_type, .depth = 0 });
+                } else if (curr_field_type.subtype == .@"struct") {
+                    self.stack.append(self._alloc, .{ .type = curr_field_type, .depth = 0 }) catch unreachable;
                 } else {
                     top.depth += 1;
                 }
