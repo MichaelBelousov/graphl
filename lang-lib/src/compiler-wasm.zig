@@ -944,6 +944,8 @@ const Compilation = struct {
     }
 
     fn finishCompileTypedFunc(self: *@This(), name: [:0]const u8, func_decl: DeferredFuncDeclInfo, func_type: DeferredFuncTypeInfo) !void {
+        // NOTE: technically we can free the deferred function infos after this function
+
         // TODO: configure std.log.debug
         //std.log.debug("compile func: '{s}'\n", .{name});
         // now that we have func
@@ -3075,6 +3077,55 @@ const Compilation = struct {
         // if (std.log.logEnabled(.debug, .graphlt_compiler)) {
         //     byn._BinaryenModulePrintStderr(self.module.c());
         // }
+
+        // FIXME: define a compiler-version independent spec for this data
+        var function_data = try std.ArrayListUnmanaged(struct {
+            name: []const u8,
+            inputs: []const []const u8,
+            outputs: []const []const u8,
+        }).initCapacity(self.arena.allocator(), self.deferred.func_decls.count());
+        defer function_data.deinit(self.arena.allocator());
+
+        {
+            std.debug.assert(self.deferred.func_decls.count() == self.deferred.func_types.count());
+
+            var func_decl_iter = self.deferred.func_decls.iterator();
+
+            while (func_decl_iter.next()) |func_decl_entry| {
+                //const func_decl = func_decl_entry.value_ptr;
+                const func_type = self.deferred.func_types.getPtr(func_decl_entry.key_ptr.*) orelse unreachable;
+                const inputs = try self.arena.allocator().alloc([]const u8, func_type.param_types.len);
+                for (inputs, func_type.param_types) |*i, param| {
+                    i.* = param.name;
+                }
+                const outputs = try self.arena.allocator().alloc([]const u8, func_type.result_types.len);
+                for (outputs, func_type.result_types) |*i, result| {
+                    i.* = result.name;
+                }
+
+                function_data.appendAssumeCapacity(.{
+                    .name = func_decl_entry.key_ptr.*,
+                    .inputs = inputs,
+                    .outputs = outputs,
+                });
+            }
+        }
+
+        // TODO: put readable json here
+        const graphl_meta_custom_data_json = try std.json.stringifyAlloc(self.arena.allocator(), .{
+            // FIXME: this is an expediant hack, define a JSON schema that will remain
+            .token = "63a7f259-5c6b-4206-8927-8102dc9ad34d",
+            .functions = function_data.items,
+            // FIXME: also define types
+            .types = &[_](struct { name: []const u8 }){},
+        }, .{});
+
+        byn.c.BinaryenAddCustomSection(
+            self.module.c(),
+            "graphl_meta",
+            graphl_meta_custom_data_json.ptr,
+            @intCast(graphl_meta_custom_data_json.len),
+        );
 
         if (opts.optimize != .none) {
             byn.c.BinaryenModuleOptimize(self.module.c());
