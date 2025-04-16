@@ -1,0 +1,36 @@
+{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "js",
+      "devDependencies": {
+        "@types/bun": "latest",
+        "bun-zigar": "^0.14.0",
+      },
+      "peerDependencies": {
+        "typescript": "^5",
+      },
+    },
+  },
+  "packages": {
+    "@types/bun": ["@types/bun@1.2.9", "", { "dependencies": { "bun-types": "1.2.9" } }, "sha512-epShhLGQYc4Bv/aceHbmBhOz1XgUnuTZgcxjxk+WXwNyDXavv5QHD1QEFV0FwbTSQtNq6g4ZcV6y0vZakTjswg=="],
+
+    "@types/node": ["@types/node@22.14.1", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-u0HuPQwe/dHrItgHHpmw3N2fYCR6x4ivMNbPHRkBVP4CvN+kiRrKHWk3i8tXiO/joPwXLMYvF9TTF0eqgHIuOw=="],
+
+    "@types/ws": ["@types/ws@8.18.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
+
+    "bun-types": ["bun-types@1.2.9", "", { "dependencies": { "@types/node": "*", "@types/ws": "*" } }, "sha512-dk/kOEfQbajENN/D6FyiSgOKEuUi9PWfqKQJEgwKrCMWbjS/S6tEXp178mWvWAcUSYm9ArDlWHZKO3T/4cLXiw=="],
+
+    "bun-zigar": ["bun-zigar@0.14.0", "", { "dependencies": { "node-zigar-addon": "0.14.0", "zigar-compiler": "^0.14.0" }, "bin": { "bun-zigar": "bin/cli.js" } }, "sha512-seQ3yvfnKRCV9bEETcPImHzoEAY7NWpkyJ2GCVfYhvRF5Ez7QjyX9LsOr1xgrIl7BgCj7kvZbZV3RT6DRKgJdg=="],
+
+    "node-api-headers": ["node-api-headers@1.5.0", "", {}, "sha512-Yi/FgnN8IU/Cd6KeLxyHkylBUvDTsSScT0Tna2zTrz8klmc8qF2ppj6Q1LHsmOueJWhigQwR4cO2p0XBGW5IaQ=="],
+
+    "node-zigar-addon": ["node-zigar-addon@0.14.0", "", { "dependencies": { "node-api-headers": "^1.5.0" } }, "sha512-39QwMVaRwJJjAawwfADsLCKWb+B5jZQRIgz/Bou15xsQ9ZLhu1kb35YISkHgg8hZa/mqUrwvyBVpIW7o6Ivixg=="],
+
+    "typescript": ["typescript@5.8.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ=="],
+
+    "undici-types": ["undici-types@6.21.0", "", {}, "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="],
+
+    "zigar-compiler": ["zigar-compiler@0.14.0", "", {}, "sha512-c4PjA89scL236Zg5QQDUmFD+EzV68ODI8i6shWxehncEN9t5dPXaPvg0lammVRlN57bcilla2ieWCBoxVZhHLg=="],
+  }
+}

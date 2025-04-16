@@ -1,0 +1,13 @@
+{
+  "name": "graphl-js-sdk",
+  "module": "index.mts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "bun-zigar": "^0.14.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
