@@ -433,7 +433,7 @@ const BinaryenHelper = struct {
             byn_types.ptr,
             is_packed.ptr,
             is_mut.ptr,
-            3,
+            @intCast(graphl_struct_info.field_types.len),
         );
 
         var built_heap_types: [1]byn.c.BinaryenHeapType = undefined;
@@ -1558,18 +1558,13 @@ const Compilation = struct {
                             defer operands.deinit(self.arena.allocator());
 
                             for (return_struct_info.field_types, v.items[1..], 0..) |field_type, ctor_arg_idx, i| {
+                                _ = field_type; // FIXME
                                 const ctor_arg = &self._sexp_compiled[ctor_arg_idx];
                                 operands.appendAssumeCapacity(byn.c.BinaryenStructSet(
                                     self.module.c(),
                                     @intCast(i),
-                                    byn.c.BinaryenLocalGet(self.module.c(), local_index, try self.getBynType(ctor_arg.type)),
-                                    byn.c.BinaryenStructGet(
-                                        self.module.c(),
-                                        @intCast(i),
-                                        byn.c.BinaryenLocalGet(self.module.c(), ctor_arg.local_index, try self.getBynType(ctor_arg.type)),
-                                        try self.getBynType(field_type),
-                                        false,
-                                    ),
+                                    byn.c.BinaryenLocalGet(self.module.c(), local_index, try self.getBynType(slot.type)),
+                                    byn.c.BinaryenLocalGet(self.module.c(), ctor_arg.local_index, try self.getBynType(ctor_arg.type)),
                                 ));
                             }
 

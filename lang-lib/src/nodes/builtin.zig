@@ -28,9 +28,9 @@ pub const StructType = struct {
 
     // FIXME: this is binaryen specific!
     /// total amount of array fields if you recursively descend through all fields
-    flat_array_count: u12,
+    flat_array_count: u16,
     /// total amount of primitive fields if you recursively descend through all fields
-    flat_primitive_slot_count: u24,
+    flat_primitive_slot_count: u16,
 
     pub fn initFromTypeList(alloc: std.mem.Allocator, arg: struct {
         field_names: []const [:0]const u8 = &.{},
@@ -38,8 +38,8 @@ pub const StructType = struct {
     }) !@This() {
         const field_offsets = try alloc.alloc(u32, arg.field_names.len);
         var offset: u32 = 0;
-        var flat_primitive_slot_count: u24 = 0;
-        var flat_array_count: u12 = 0;
+        var flat_primitive_slot_count: u16 = 0;
+        var flat_array_count: u16 = 0;
 
         for (arg.field_types, field_offsets) |field_type, *field_offset| {
             field_offset.* = offset;
@@ -105,7 +105,10 @@ pub const TypeInfo = struct {
         };
         // FIXME: why doesn't SegmentedList support appendAssumeCapacity?
         result.stack.len = 1;
-        result.stack.uncheckedAt(0).* = .{ .type = self, .depth = 0 };
+        result.stack.uncheckedAt(0).* = .{
+            .type = self,
+            .depth = std.math.maxInt(@FieldType(PrimitiveFieldIter.StackEntry, "depth")),
+        };
         result.moveToNextPrimitive();
         return result;
     }
@@ -139,15 +142,18 @@ pub const TypeInfo = struct {
         fn moveToNextPrimitive(self: *@This()) void {
             std.debug.assert(self.stack.count() > 0);
             const start_top: *StackEntry = self.stack.uncheckedAt(self.stack.count() - 1);
-            start_top.depth += 1;
+            start_top.depth +%= 1;
 
             while (self.stack.count() > 0) {
                 const top: *StackEntry = self.stack.uncheckedAt(self.stack.count() - 1);
-                const curr_field_type = top.type.subtype.@"struct".field_types[top.depth];
                 if (top.depth >= top.type.subtype.@"struct".field_types.len) {
                     _ = self.stack.pop() orelse unreachable;
+                    continue;
                     // FIXME generalize this or move this code to wasm compiler
-                } else if (curr_field_type.subtype == .primitive and curr_field_type != primitive_types.string) {
+                }
+
+                const curr_field_type = top.type.subtype.@"struct".field_types[top.depth];
+                if (curr_field_type.subtype == .primitive and curr_field_type != primitive_types.string) {
                     return;
                 } else if (curr_field_type.subtype == .@"struct") {
                     self.stack.append(self._alloc, .{ .type = curr_field_type, .depth = 0 }) catch unreachable;
