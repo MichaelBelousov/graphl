@@ -690,8 +690,6 @@ const Compilation = struct {
             return false;
         }
 
-        std.debug.print("comiling func: {}\n", .{Sexp.printOneLine(self.graphlt_module, sexp_index)});
-
         const body_expr_idxs = sexp.value.list.items[2..];
 
         // FIXME: use unmanaged array list? there are a lot of these...
