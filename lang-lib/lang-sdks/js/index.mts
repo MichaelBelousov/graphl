@@ -268,6 +268,71 @@ export interface GraphlProgram<Funcs extends Record<string, (...args: any[]) => 
     functions: Funcs
 }
 
+function indexOfSubArray(haystack: DataView, needle: DataView) {
+    let j = 0;
+
+    for (let i = 0; i < haystack.byteLength; ++i) {
+        if (haystack.getUint8(i) === needle.getUint8(j)) {
+            j += 1
+        } else {
+            j = 0;
+        }
+
+        if (j >= needle.byteLength) {
+            return i - needle.byteLength;
+        }
+    }
+
+    return -1;
+}
+
+/**
+ * TEMP: this is like really really going to change
+ */
+interface GraphlMeta {
+    functions: {
+        name: string;
+        // types
+        inputs: string[];
+        // types
+        outputs: string[];
+    }[];
+}
+
+
+function parseGraphlMeta(wasmBuffer: ArrayBufferLike): GraphlMeta {
+    const wasmView = new DataView(wasmBuffer);
+
+    // HACK: just parse for custom sections manually, it can't be that hard!
+    // FIXME: fix the types here
+    const graphlMetaTokenIndex = indexOfSubArray(wasmView, new DataView(new Uint8Array(Buffer.from("63a7f259-5c6b-4206-8927-8102dc9ad34d", "latin1")).buffer));
+
+    if (graphlMetaTokenIndex === -1)
+        throw Error("graphl meta token not found");
+
+    const graphlMetaStart = graphlMetaTokenIndex - '{"token":"'.length + 1;
+    let parenCount = 1;
+    for (let i = graphlMetaStart + 1; i < wasmBuffer.byteLength; ++i) {
+        // TODO: handle string literals, for now not parsing actual JSON
+        if (String.fromCharCode(wasmView.getUint8(i)) === "{"
+            || String.fromCharCode(wasmView.getUint8(i)) === "[")
+            parenCount += 1;
+        else if (String.fromCharCode(wasmView.getUint8(i)) === "}"
+            || String.fromCharCode(wasmView.getUint8(i)) === "]")
+            parenCount -= 1;
+
+        if (parenCount === 0) {
+            const slice = wasmBuffer.slice(graphlMetaStart, i + 1);
+            const jsonSrc = new TextDecoder().decode(slice);
+            const parsed = JSON.parse(jsonSrc);
+            delete parsed.token;
+            return parsed;
+        }
+    }
+
+    throw Error("couldn't find end of graphl meta")
+}
+
 export async function instantiateProgramFromWasmBuffer<Funcs extends Record<string, (...args: any[]) => any>>(
     data: ArrayBufferLike,
     hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
@@ -296,9 +361,21 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
     const wasm = await WebAssembly.instantiate(data, imports);
     wasmExports.exports = wasm.instance.exports;
 
-    // FIXME: this is a hardcoded hack
-    const functionOutputs = new Map<string, UserFuncOutput[]>;
-    functionOutputs.set("processInstance", [{ type: GraphlTypes.string }]);
+    const graphlMeta = parseGraphlMeta(data);
+
+    const functionMap = new Map<string, {
+        name: string,
+        inputs: UserFuncInput[],
+        outputs: UserFuncOutput[],
+    }>;
+
+    for (const fn of graphlMeta.functions) {
+        functionMap.set(fn.name, {
+            name: fn.name,
+            inputs: fn.inputs.map(i => ({ type: GraphlTypes[i]})),
+            outputs: fn.outputs.map(o => ({ type: GraphlTypes[o]})),
+        });
+    }
 
     return {
         // FIXME:
@@ -308,7 +385,7 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
             .map(([key, graphlFunc]) => [key, (...args: any[]) => {
                     // TODO: dedup with logic in makeCallUserFunc
                     const graphlRes = (graphlFunc as Function)(...args);
-                    return graphlValToJsVal(graphlRes, functionOutputs.get(key)![0].type, wasmExports);
+                    return graphlValToJsVal(graphlRes, functionMap.get(key)!.outputs[0].type, wasmExports);
                 }
             ])
         ) as any
@@ -319,12 +396,12 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
     source: string,
     hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
 ): Promise<GraphlProgram<Funcs>> {
-    await import("bun-zigar");
     const zig = await import("./zig/js.zig");
-    console.log(zig)
     let compiledWasm;
     try {
-        compiledWasm = zig.compileSource("unknown", source, undefined);
+        compiledWasm = zig.compileSource("unknown", source).typedArray;
+        if (process.env.DEBUG)
+            require("node:fs").writeFileSync("/tmp/jssdk-compiler-test.wasm", compiledWasm)
     } catch (err) {
         // TODO: handle diagnostic
         throw err;

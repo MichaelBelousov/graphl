@@ -690,6 +690,8 @@ const Compilation = struct {
             return false;
         }
 
+        std.debug.print("comiling func: {}\n", .{Sexp.printOneLine(self.graphlt_module, sexp_index)});
+
         const body_expr_idxs = sexp.value.list.items[2..];
 
         // FIXME: use unmanaged array list? there are a lot of these...
@@ -770,10 +772,10 @@ const Compilation = struct {
             .define_body_idx = sexp_index,
         };
 
+        try self.deferred.func_decls.put(alloc, func_name, func_desc);
+
         if (self.deferred.func_types.get(func_name)) |func_type| {
             try self.finishCompileTypedFunc(func_name, func_desc, func_type);
-        } else {
-            try self.deferred.func_decls.put(alloc, func_name, func_desc);
         }
 
         return true;
@@ -934,10 +936,10 @@ const Compilation = struct {
             .result_names = result_names,
         };
 
+        try self.deferred.func_types.put(alloc, func_name, func_type_desc);
+
         if (self.deferred.func_decls.getPtr(func_name)) |func_decl| {
             try self.finishCompileTypedFunc(func_name, func_decl.*, func_type_desc);
-        } else {
-            try self.deferred.func_types.put(alloc, func_name, func_type_desc);
         }
 
         return true;
@@ -3088,7 +3090,6 @@ const Compilation = struct {
 
         {
             std.debug.assert(self.deferred.func_decls.count() == self.deferred.func_types.count());
-
             var func_decl_iter = self.deferred.func_decls.iterator();
 
             while (func_decl_iter.next()) |func_decl_entry| {
@@ -3111,7 +3112,7 @@ const Compilation = struct {
             }
         }
 
-        // TODO: put readable json here
+        // TODO: dealloc after adding
         const graphl_meta_custom_data_json = try std.json.stringifyAlloc(self.arena.allocator(), .{
             // FIXME: this is an expediant hack, define a JSON schema that will remain
             .token = "63a7f259-5c6b-4206-8927-8102dc9ad34d",

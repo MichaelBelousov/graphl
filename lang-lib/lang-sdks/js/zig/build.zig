@@ -22,16 +22,6 @@ pub fn build(b: *std.Build) void {
     });
     const graphl = b.dependency("graphl", .{ .target = target, .optimize = optimize });
 
-    {
-        std.debug.print("MODULE\n", .{});
-        for (
-            graphl.builder.modules.values(),
-            graphl.builder.modules.keys(),
-        ) |m, k| {
-            std.debug.print("module: {s} -> {?}\n", .{ k, m.root_source_file });
-        }
-        std.debug.print("END MODULES\n", .{});
-    }
     const imports = [_]std.Build.Module.Import{
         .{ .name = "graphl", .module = graphl.module("graphl_core") },
         .{ .name = "zigar", .module = zigar },
