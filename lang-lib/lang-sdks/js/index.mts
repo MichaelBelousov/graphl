@@ -173,9 +173,9 @@ function graphlStructValToJsVal(
         const fieldOffset = graphlType.fieldOffsets[i];
 
         if (fieldType === GraphlTypes.f64) {
-            result[fieldName] = transferBufView.getFloat64(fieldOffset);
+            result[fieldName] = transferBufView.getFloat64(fieldOffset, true);
         } else if (fieldType === GraphlTypes.i32) {
-            result[fieldName] = transferBufView.getInt32(fieldOffset);
+            result[fieldName] = transferBufView.getInt32(fieldOffset, true);
         } else {
             throw Error(`unhandled field type: ${fieldType.name}`);
         }

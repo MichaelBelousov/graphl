@@ -17,7 +17,7 @@ describe("js sdk", () => {
     } catch (_err) {
       err = _err;
     }
-    assert.deepStrictEqual(err, Error("Unmatched closer"));
+    assert.strictEqual(err.message, "Unmatched closer");
     // TODO: handle full diagnostic from native library
   });
 

@@ -1318,7 +1318,6 @@ const Compilation = struct {
                 for (operands) |*operand| {
                     const field_info = prim_field_iter.next() orelse unreachable;
                     const field_byn_type = try self.getBynType(field_info.type);
-                    std.debug.print("type: {s}, field: {s} is {s}\n", .{ graphl_type.name, field_info.name, field_info.type.name });
                     operand.* = byn.c.BinaryenLoad(
                         self.module.c(),
                         field_info.type.size,
