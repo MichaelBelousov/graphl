@@ -1238,7 +1238,7 @@ const Compilation = struct {
                             self.module,
                             byn.Expression.Op.addInt32(),
                             @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(transfer_seg_start))),
-                            @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), field_info.offset, @intFromEnum(byn.Type.i32))),
+                            @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@bitCast(field_info.offset)))),
                         )),
                         byn.c.BinaryenStructGet(
                             self.module.c(),
@@ -1283,20 +1283,21 @@ const Compilation = struct {
             byn.c.BinaryenTypeInt32(), // returns string count
             null,
             0,
-            byn.c.BinaryenBlock(
-                self.module.c(),
-                null,
-                @constCast(&[_]byn.c.BinaryenExpressionRef{byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0))}).ptr,
-                1,
-                byn.c.BinaryenTypeNone(),
-            ),
+            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+            // byn.c.BinaryenBlock(
+            //     self.module.c(),
+            //     null,
+            //     @constCast(&[_]byn.c.BinaryenExpressionRef{byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0))}).ptr,
+            //     1,
+            //     byn.c.BinaryenTypeNone(),
+            // ),
         );
 
         // allocate a new struct and initialize it from pointed-to memory
         const read_fields = _: {
-            const vars = struct {
-                pub const param_base_ptr = 0;
-            };
+            // const vars = struct {
+            //     pub const param_base_ptr = 0;
+            // };
 
             const operands = try self.arena.allocator().alloc(
                 byn.c.BinaryenExpressionRef,
@@ -1315,6 +1316,7 @@ const Compilation = struct {
                 for (operands) |*operand| {
                     const field_info = prim_field_iter.next() orelse unreachable;
                     const field_byn_type = try self.getBynType(field_info.type);
+                    std.debug.print("type: {s}, field: {s} is {s}\n", .{ graphl_type.name, field_info.name, field_info.type.name });
                     operand.* = byn.c.BinaryenLoad(
                         self.module.c(),
                         field_info.type.size,
@@ -1325,7 +1327,7 @@ const Compilation = struct {
                         byn.c.BinaryenBinary(
                             self.module.c(),
                             byn.c.BinaryenAddInt32(),
-                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(vars.param_base_ptr)),
+                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(transfer_seg_start)),
                             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@bitCast(field_info.offset))),
                         ),
                         main_mem_name,
@@ -1337,10 +1339,8 @@ const Compilation = struct {
             break :_ byn.c.BinaryenAddFunction(
                 self.module.c(),
                 (try std.fmt.allocPrint(self.arena.allocator(), "__graphl_read_struct_{s}_fields", .{graphl_type.name})).ptr,
-                byn.c.BinaryenTypeCreate(@constCast(&[_]byn.c.BinaryenType{
-                    struct_byn_type, // struct ref
-                }).ptr, 1),
-                byn.c.BinaryenTypeInt32(), // returns array count
+                byn.c.BinaryenTypeCreate(@constCast(&[_]byn.c.BinaryenType{}).ptr, 0),
+                struct_byn_type, // returns read struct
                 null,
                 0,
                 // byn.c.BinaryenBlock(
@@ -1362,93 +1362,6 @@ const Compilation = struct {
             .write_arrays = write_arrays,
             .read_fields = read_fields,
         };
-    }
-
-    /// given a source field pointer, a type, and a destination struct pointer with an offset
-    /// load the source field and store it to the destination struct at the offset
-    pub fn copyFieldInstr(
-        self: *@This(),
-        src_ptr: byn.c.BinaryenExpressionRef,
-        src_offset: u32,
-        dest_ptr: byn.c.BinaryenExpressionRef,
-        dest_offset: u32,
-        field_type: Type,
-    ) byn.c.BinaryenExpressionRef {
-        const field_byn_type = try self.getBynType(field_type);
-
-        return byn.c.BinaryenStore(
-            self.module.c(),
-            field_type.size,
-            0,
-            // TODO: use 8-byte alignment for floats, just align shit in general
-            // cuz it probably performs badly without standard alignment
-            4, // TODO: alignment
-            byn.c.BinaryenBinary(
-                self.module.c(),
-                byn.c.BinaryenAddInt32(),
-                dest_ptr,
-                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(dest_offset))),
-            ),
-            byn.c.BinaryenLoad(
-                self.module.c(),
-                field_type.size,
-                false,
-                0,
-                4,
-                field_byn_type,
-                byn.c.BinaryenBinary(
-                    self.module.c(),
-                    byn.c.BinaryenAddInt32(),
-                    src_ptr,
-                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(src_offset))),
-                ),
-                main_mem_name,
-            ),
-            field_byn_type,
-            main_mem_name,
-        );
-    }
-
-    /// assumes there is enough memory in instrs
-    pub fn copySubstructToStruct(
-        self: *@This(),
-        struct_type: graphl_builtin.StructType,
-        src_ptr: byn.c.BinaryenExpressionRef,
-        dst_ptr: byn.c.BinaryenExpressionRef,
-        dest_offset: u32,
-        instrs: *std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef),
-    ) void {
-        var in_struct_offset: u32 = 0;
-
-        for (struct_type.field_types) |field_type| {
-            switch (field_type.subtype) {
-                .primitive => {
-                    instrs.appendAssumeCapacity(self.copyFieldInstr(
-                        src_ptr,
-                        in_struct_offset,
-                        dst_ptr,
-                        dest_offset + in_struct_offset,
-                        field_type,
-                    ));
-                },
-                .@"struct" => |substruct| {
-                    self.copySubstructToStruct(
-                        substruct,
-                        byn.c.BinaryenBinary(
-                            self.module.c(),
-                            byn.c.BinaryenAddInt32(),
-                            src_ptr,
-                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(in_struct_offset))),
-                        ),
-                        dst_ptr,
-                        dest_offset + in_struct_offset,
-                        instrs,
-                    );
-                },
-                else => @panic("unimplemented"),
-            }
-            in_struct_offset += field_type.size;
-        }
     }
 
     fn compileExpr(
@@ -1569,14 +1482,14 @@ const Compilation = struct {
                             var operands = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), return_struct_info.field_names.len + 1);
                             //defer operands.deinit(self.arena.allocator());
 
-                            for (return_struct_info.field_types, v.items[1..], 0..) |field_type, ctor_arg_idx, i| {
-                                _ = field_type; // FIXME
+                            for (return_struct_info.field_types, v.items[1..]) |field_type, ctor_arg_idx| {
                                 const ctor_arg = &self._sexp_compiled[ctor_arg_idx];
-                                operands.appendAssumeCapacity(byn.c.BinaryenStructSet(
+                                // FIXME: handle all array types
+                                _ = field_type; // FIXME
+                                operands.appendAssumeCapacity(byn.c.BinaryenLocalGet(
                                     self.module.c(),
-                                    @intCast(i),
-                                    byn.c.BinaryenLocalGet(self.module.c(), local_index, try self.getBynType(slot.type)),
-                                    byn.c.BinaryenLocalGet(self.module.c(), ctor_arg.local_index, try self.getBynType(ctor_arg.type)),
+                                    ctor_arg.local_index,
+                                    try self.getBynType(ctor_arg.type),
                                 ));
                             }
 

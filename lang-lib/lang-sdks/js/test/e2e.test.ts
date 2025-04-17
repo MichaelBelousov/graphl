@@ -1,10 +1,10 @@
 // TODO: make it possible to detect bun vs node
-//import { describe, expect, it, setDefaultTimeout } from "bun:test";
-import { describe, it } from "node:test";
+import { describe, expect, it, setDefaultTimeout } from "bun:test";
+// import { describe, it } from "node:test";
 import assert from "node:assert";
 import { compileGraphltSourceAndInstantiateProgram } from "../index.mts";
 
-//setDefaultTimeout(1_000_000); // might need to compile zig code
+setDefaultTimeout(1_000_000); // might need to compile zig code
 
 describe("js sdk", () => {
   it("syntax error extra paren", async () => {

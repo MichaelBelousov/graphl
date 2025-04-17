@@ -1,4 +1,16 @@
-// TODO: add a compiler levelJS SDK to orchestrate calls like this
+// calls of a userfunc from graphl looks like:
+// - graphl passes all inputs as arguments
+// - NOTE: could be faster if there are many struct params to just write all of them
+// - js must call "__graphl_write_struct_{s}_fields" and "__graphl_host_copy" to read
+//   struct and array params
+// - js prepares its return value
+// - js writes returns single primitives as a single return value
+//   js writes non-primitives or multiple results as a struct into transfer memory
+// - js enqueues any "arrays"
+// - js returns
+// - if the return was a single primitive, use it
+//   if the outputs were a struct or multi, read it with "__graphl_read_struct_{s}_fields"
+// - graphl calls "__host_transfer_enqueued_array(offset)" each time it needs an array
 
 export type GraphlType =
     | {
@@ -156,6 +168,7 @@ function graphlValToJsVal(
 }
 
 const TRANSFER_BUF_PTR = 1024;
+const TRANSFER_BUF_LEN = 4096;
 
 type WasmInstance = WebAssembly.Instance & {
     exports: {
@@ -335,12 +348,14 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
     hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
 ): Promise<GraphlProgram<Funcs>> {
     // need a level of indirection unfortunately (TBD if this works if we need the imports at instantiation)
-    const wasmExports = { exports: undefined as any };
+    const wasmExports: WasmInstance = { exports: undefined as any };
 
     const userFuncs = new Map<number, Function>() ;
     for (const [_name, userFuncDesc] of Object.entries(hostEnv ?? {})) {
         userFuncs.set(userFuncs.size, userFuncDesc.impl ?? (() => {}));
     }
+
+    const arrayQueue = [] as Uint8Array[];
 
     const imports = {
         env: {
@@ -353,6 +368,18 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
             log_i32(f: number) {
                 console.log("i32: ", f);
             },
+            __host_transfer_enqueued_array(offset: number): void {
+                const head = arrayQueue[0];
+                if (head === undefined) throw Error("bad graphl dequeue");
+                const page = head.slice(0, TRANSFER_BUF_LEN);
+                (new Uint8Array(wasmExports.exports.memory.buffer)).set(page);
+
+                if (head.byteLength < 4096) {
+                    arrayQueue.shift();
+                } else {
+                    arrayQueue[0] = head.slice(4096);
+                }
+            }
         },
     };
     const wasm = await WebAssembly.instantiate(data, imports);
@@ -400,7 +427,7 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
     try {
         compiledWasm = zig.compileSource("unknown", source, diagnostic).typedArray;
         if (process.env.DEBUG)
-            require("node:fs").writeFileSync("/tmp/jssdk-compiler-test.wasm", compiledWasm)
+            (await import("node:fs")).writeFileSync("/tmp/jssdk-compiler-test.wasm", compiledWasm)
     } catch (err) {
         // FIXME: why doesn't diagnostic work?
         err.diagnostic = diagnostic.error;
