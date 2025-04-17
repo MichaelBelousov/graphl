@@ -73,7 +73,7 @@ describe("js sdk", () => {
       (typeof (foo) (i32 i32))
       (define (foo) (return 5 10))
     `);
-    assert.deepStrictEqual(program.functions.foo(), [5, 10]);
+    assert.deepStrictEqual(program.functions.foo(), { 0: 5, 1: 10 });
   });
 
   it("return (i32)", async () => {

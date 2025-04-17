@@ -1250,9 +1250,11 @@ const Compilation = struct {
                 }
             }
 
-            break :_ byn.c.BinaryenAddFunction(
+            const name = try std.fmt.allocPrint(self.arena.allocator(), "__graphl_write_struct_{s}_fields", .{graphl_type.name});
+
+            const func = byn.c.BinaryenAddFunction(
                 self.module.c(),
-                (try std.fmt.allocPrint(self.arena.allocator(), "__graphl_write_struct_{s}_fields", .{graphl_type.name})).ptr,
+                name.ptr,
                 byn.c.BinaryenTypeCreate(@constCast(&[_]byn.c.BinaryenType{
                     struct_byn_type, // struct ref
                 }).ptr, 1),
@@ -1267,6 +1269,10 @@ const Compilation = struct {
                     byn.c.BinaryenTypeNone(),
                 ),
             );
+
+            std.debug.assert(byn.c.BinaryenAddFunctionExport(self.module.c(), name.ptr, name.ptr) != null);
+
+            break :_ func;
         };
 
         // FIXME: implement
@@ -1332,9 +1338,11 @@ const Compilation = struct {
                 }
             }
 
-            break :_ byn.c.BinaryenAddFunction(
+            const name = try std.fmt.allocPrint(self.arena.allocator(), "__graphl_read_struct_{s}_fields", .{graphl_type.name});
+
+            const func = byn.c.BinaryenAddFunction(
                 self.module.c(),
-                (try std.fmt.allocPrint(self.arena.allocator(), "__graphl_read_struct_{s}_fields", .{graphl_type.name})).ptr,
+                name.ptr,
                 byn.c.BinaryenTypeCreate(@constCast(&[_]byn.c.BinaryenType{}).ptr, 0),
                 struct_byn_type, // returns read struct
                 null,
@@ -1351,6 +1359,10 @@ const Compilation = struct {
                     byn.c.BinaryenStructNew(self.module.c(), operands.ptr, @intCast(operands.len), struct_byn_heap_type),
                 ),
             );
+
+            std.debug.assert(byn.c.BinaryenAddFunctionExport(self.module.c(), name.ptr, name.ptr) != null);
+
+            break :_ func;
         };
 
         return .{
