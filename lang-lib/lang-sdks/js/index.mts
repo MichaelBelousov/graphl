@@ -1,5 +1,3 @@
-// TODO: add a compiler levelJS SDK to orchestrate calls like this
-
 export type GraphlType =
     | {
       name: string;
@@ -55,6 +53,24 @@ export namespace GraphlTypes {
         fieldOffsets: [0, 8, 16],
     }
 };
+
+export function structFromTypeArray(name: string, types: GraphlType[]): GraphlType {
+    let offset = 0;
+    const fieldOffsets = [] as number[];
+    for (const graphlType of types) {
+        fieldOffsets.push(offset);
+        offset += graphlType.size;
+    }
+
+    return {
+        name,
+        kind: "struct",
+        fieldNames: types.map((_, i) => String(i)),
+        fieldTypes: types,
+        fieldOffsets,
+        size: offset,
+    };
+}
 
 export interface UserFuncInput {
     type: GraphlType;
@@ -136,6 +152,38 @@ function graphlPrimitiveValToJsVal(
     }
 }
 
+function graphlStructValToJsVal(
+    graphlVal: number,
+    graphlType: GraphlType,
+    wasm: WasmInstance,
+): any {
+    if (graphlType.kind !== "struct") throw Error("structs only");
+
+    // TODO: read arrays out as well
+    wasm.exports[`__graphl_write_struct_${graphlType.name}_fields`](graphlVal);
+    const result = {} as any;
+
+    const transferBufView = new DataView(wasm.exports.memory.buffer, TRANSFER_BUF_PTR, TRANSFER_BUF_LEN);
+
+    for (let i = 0; i < graphlType.fieldNames.length; ++i) {
+        // FIXME: iterate over nested fields!
+        // FIXME: extract arrays!
+        const fieldType = graphlType.fieldTypes[i];
+        const fieldName = graphlType.fieldNames[i];
+        const fieldOffset = graphlType.fieldOffsets[i];
+
+        if (fieldType === GraphlTypes.f64) {
+            result[fieldName] = transferBufView.getFloat64(fieldOffset);
+        } else if (fieldType === GraphlTypes.i32) {
+            result[fieldName] = transferBufView.getInt32(fieldOffset);
+        } else {
+            throw Error(`unhandled field type: ${fieldType.name}`);
+        }
+    }
+
+    return result;
+}
+
 
 function graphlValToJsVal(
     graphlVal: number,
@@ -145,27 +193,42 @@ function graphlValToJsVal(
     if (graphlType.kind === "primitive") {
         return graphlPrimitiveValToJsVal(graphlVal, graphlType, wasm)
     } else if (graphlType.kind === "struct") {
-        throw Error("unimplemented");
-        const val = {};
-        for (let i = 0; i < graphlType.fieldNames.length; ++i) {
-            const fieldName = graphlType.fieldNames[i];
-            const fieldType = graphlType.fieldTypes[i];
-            const fieldOffset = graphlType.fieldOffsets[i];
-        }
+        return graphlStructValToJsVal(graphlVal, graphlType, wasm);
+    } else {
+        throw Error("unhandled");
     }
+
 }
 
 const TRANSFER_BUF_PTR = 1024;
+const TRANSFER_BUF_LEN = 4096;
 
 type WasmInstance = WebAssembly.Instance & {
     exports: {
         memory: WebAssembly.Memory;
         __graphl_host_copy(str: any, offset: number): number;
+        /** returns the amount of arrays in the struct */
+        [K: `__graphl_write_struct_${string}_fields`]: (struct: any) => number,
+        /** returns amount of bytes written */
+        [K: `__graphl_write_struct_${string}_arrays`]: (struct: any, arrayIndex: number, offset: number) => number,
     },
 };
 
 type UserFuncCollection = Map<number, Function>;
 
+// calls of a userfunc from graphl looks like:
+// - graphl passes all inputs as arguments
+// - NOTE: could be faster if there are many struct params to just write all of them
+// - js must call "__graphl_write_struct_{s}_fields" and "__graphl_host_copy" to read
+//   struct and array params
+// - js prepares its return value
+// - js writes returns single primitives as a single return value
+//   js writes non-primitives or multiple results as a struct into transfer memory
+// - js enqueues any "arrays"
+// - js returns
+// - if the return was a single primitive, use it
+//   if the outputs were a struct or multi, graphl reads it with "__graphl_read_struct_{s}_fields"
+// - graphl calls "__host_transfer_enqueued_array(offset)" each time it needs an array
 function makeCallUserFunc(
     inputs: UserFuncInput[],
     outputs: UserFuncOutput[],
@@ -335,12 +398,14 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
     hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
 ): Promise<GraphlProgram<Funcs>> {
     // need a level of indirection unfortunately (TBD if this works if we need the imports at instantiation)
-    const wasmExports = { exports: undefined as any };
+    const wasmExports: WasmInstance = { exports: undefined as any };
 
     const userFuncs = new Map<number, Function>() ;
     for (const [_name, userFuncDesc] of Object.entries(hostEnv ?? {})) {
         userFuncs.set(userFuncs.size, userFuncDesc.impl ?? (() => {}));
     }
+
+    const arrayQueue = [] as Uint8Array[];
 
     const imports = {
         env: {
@@ -353,10 +418,20 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
             log_i32(f: number) {
                 console.log("i32: ", f);
             },
+            __host_transfer_enqueued_array(offset: number): void {
+                const head = arrayQueue[0];
+                if (head === undefined) throw Error("bad graphl dequeue");
+                const page = head.slice(offset, offset + TRANSFER_BUF_LEN);
+                (new Uint8Array(wasmExports.exports.memory.buffer)).set(page);
+
+                if (page.byteLength === 0) {
+                    arrayQueue.shift();
+                }
+            }
         },
     };
     const wasm = await WebAssembly.instantiate(data, imports);
-    wasmExports.exports = wasm.instance.exports;
+    wasmExports.exports = (wasm.instance as WasmInstance).exports;
 
     const graphlMeta = parseGraphlMeta(data);
 
@@ -382,7 +457,11 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
             .map(([key, graphlFunc]) => [key, (...args: any[]) => {
                     // TODO: dedup with logic in makeCallUserFunc
                     const graphlRes = (graphlFunc as Function)(...args);
-                    return graphlValToJsVal(graphlRes, functionMap.get(key)!.outputs[0].type, wasmExports);
+                    const fnOuts = functionMap.get(key)!.outputs;
+                    if (fnOuts.length === 0) return undefined;
+                    if (fnOuts.length === 1) return graphlValToJsVal(graphlRes, fnOuts[0].type, wasmExports);
+                    const returnType = structFromTypeArray(key, fnOuts.map(t => t.type));
+                    return graphlValToJsVal(graphlRes, returnType, wasmExports);
                 }
             ])
         ) as any
@@ -393,13 +472,14 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
     source: string,
     hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
 ): Promise<GraphlProgram<Funcs>> {
+    // if in node make sure to use --loader=node-zigar
     const zig = await import("./zig/js.zig");
     let compiledWasm;
     const diagnostic = { error: "none" };
     try {
         compiledWasm = zig.compileSource("unknown", source, diagnostic).typedArray;
         if (process.env.DEBUG)
-            require("node:fs").writeFileSync("/tmp/jssdk-compiler-test.wasm", compiledWasm)
+            (await import("node:fs")).writeFileSync("/tmp/jssdk-compiler-test.wasm", compiledWasm)
     } catch (err) {
         // FIXME: why doesn't diagnostic work?
         err.diagnostic = diagnostic.error;

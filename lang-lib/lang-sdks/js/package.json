@@ -3,9 +3,14 @@
   "module": "index.mts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "test": "bun test ./test/e2e.test.ts",
+    "test-node": "node --loader=node-zigar --experimental-transform-types ./test/e2e.test.ts"
+  },
   "devDependencies": {
     "@types/bun": "latest",
-    "bun-zigar": "^0.14.0"
+    "bun-zigar": "^0.14.0",
+    "node-zigar": "^0.14.0"
   },
   "peerDependencies": {
     "typescript": "^5"

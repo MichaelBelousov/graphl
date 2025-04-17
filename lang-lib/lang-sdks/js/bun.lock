@@ -6,6 +6,7 @@
       "devDependencies": {
         "@types/bun": "latest",
         "bun-zigar": "^0.14.0",
+        "node-zigar": "^0.14.0",
       },
       "peerDependencies": {
         "typescript": "^5",
@@ -24,6 +25,8 @@
     "bun-zigar": ["bun-zigar@0.14.0", "", { "dependencies": { "node-zigar-addon": "0.14.0", "zigar-compiler": "^0.14.0" }, "bin": { "bun-zigar": "bin/cli.js" } }, "sha512-seQ3yvfnKRCV9bEETcPImHzoEAY7NWpkyJ2GCVfYhvRF5Ez7QjyX9LsOr1xgrIl7BgCj7kvZbZV3RT6DRKgJdg=="],
 
     "node-api-headers": ["node-api-headers@1.5.0", "", {}, "sha512-Yi/FgnN8IU/Cd6KeLxyHkylBUvDTsSScT0Tna2zTrz8klmc8qF2ppj6Q1LHsmOueJWhigQwR4cO2p0XBGW5IaQ=="],
+
+    "node-zigar": ["node-zigar@0.14.0", "", { "dependencies": { "node-zigar-addon": "^0.14.0", "zigar-compiler": "^0.14.0" }, "bin": { "node-zigar": "bin/cli.js" } }, "sha512-KO1NzAMnQ/Tt1UBGbxjWTqoK+6r91hTcEklbHR6iFYqjlDr1XZInoCL5IyjbgmI3FsL/+Fj2FTImvlZ2WeJ+dw=="],
 
     "node-zigar-addon": ["node-zigar-addon@0.14.0", "", { "dependencies": { "node-api-headers": "^1.5.0" } }, "sha512-39QwMVaRwJJjAawwfADsLCKWb+B5jZQRIgz/Bou15xsQ9ZLhu1kb35YISkHgg8hZa/mqUrwvyBVpIW7o6Ivixg=="],
 

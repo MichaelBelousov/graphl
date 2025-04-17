@@ -1,9 +1,10 @@
-//import { describe, expect, it, setDefaultTimeout } from "bun:test";
-import { describe, it } from "node:test";
+// TODO: make it possible to detect bun vs node
+import { describe, expect, it, setDefaultTimeout } from "bun:test";
+//import { describe, it } from "node:test";
 import assert from "node:assert";
 import { compileGraphltSourceAndInstantiateProgram } from "../index.mts";
 
-//setDefaultTimeout(1_000_000); // might need to compile zig code
+setDefaultTimeout(1_000_000); // might need to compile zig code
 
 describe("js sdk", () => {
   it("syntax error extra paren", async () => {
@@ -72,7 +73,7 @@ describe("js sdk", () => {
       (typeof (foo) (i32 i32))
       (define (foo) (return 5 10))
     `);
-    assert.deepStrictEqual(program.functions.foo(), [5, 10]);
+    assert.deepStrictEqual(program.functions.foo(), { 0: 5, 1: 10 });
   });
 
   it("return (i32)", async () => {
@@ -81,6 +82,14 @@ describe("js sdk", () => {
       (define (foo) (return 5))
     `);
     assert.deepEqual(program.functions.foo(), 5);
+  });
+
+  it("no return", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (typeof (foo) ())
+      (define (foo) (+ 2 5))
+    `);
+    assert.deepEqual(program.functions.foo(), undefined);
   });
 
   it("return (string, i32)", async () => {
