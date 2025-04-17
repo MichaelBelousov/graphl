@@ -1037,15 +1037,11 @@ const Compilation = struct {
         defer byn_locals_types.deinit(self.arena.allocator());
 
         // add the return pointer param as first one if not returning a primitive
-        const param_count: u16 = @intCast(@as(u16, if (result_type.graphl.subtype == .@"struct") 1 else 0) + func_type.param_types.len);
+        const param_count: u16 = @intCast(func_type.param_types.len);
 
         const param_types = try self.arena.allocator().alloc(byn.c.BinaryenType, param_count);
         defer self.arena.allocator().free(param_types); // FIXME: what is the binaryen ownership model
-        if (result_type.graphl.subtype == .@"struct") {
-            // pointer to return location
-            param_types[0] = result_type.byn;
-        }
-        for (param_types[if (result_type.graphl.subtype == .@"struct") 1 else 0..], func_type.param_types) |*wasm_t, graphl_t| {
+        for (param_types, func_type.param_types) |*wasm_t, graphl_t| {
             wasm_t.* = try self.getBynType(graphl_t);
         }
         const param_type_byn = byn.c.BinaryenTypeCreate(param_types.ptr, @intCast(param_types.len));

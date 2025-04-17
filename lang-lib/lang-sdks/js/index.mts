@@ -371,19 +371,17 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
             __host_transfer_enqueued_array(offset: number): void {
                 const head = arrayQueue[0];
                 if (head === undefined) throw Error("bad graphl dequeue");
-                const page = head.slice(0, TRANSFER_BUF_LEN);
+                const page = head.slice(offset, offset + TRANSFER_BUF_LEN);
                 (new Uint8Array(wasmExports.exports.memory.buffer)).set(page);
 
-                if (head.byteLength < 4096) {
+                if (page.byteLength === 0) {
                     arrayQueue.shift();
-                } else {
-                    arrayQueue[0] = head.slice(4096);
                 }
             }
         },
     };
     const wasm = await WebAssembly.instantiate(data, imports);
-    wasmExports.exports = wasm.instance.exports;
+    wasmExports.exports = (wasm.instance as WasmInstance).exports;
 
     const graphlMeta = parseGraphlMeta(data);
 
