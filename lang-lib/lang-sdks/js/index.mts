@@ -393,6 +393,7 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
     source: string,
     hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
 ): Promise<GraphlProgram<Funcs>> {
+    // if in node make sure to use --loader=node-zigar
     const zig = await import("./zig/js.zig");
     let compiledWasm;
     const diagnostic = { error: "none" };
