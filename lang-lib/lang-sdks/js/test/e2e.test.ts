@@ -92,11 +92,11 @@ describe("js sdk", () => {
     assert.deepEqual(program.functions.foo(), undefined);
   });
 
-  it("return (string, i32)", async () => {
+  it("return (string i32)", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (foo) (i32 string))
       (define (foo) (return 5 "hello"))
     `);
-    assert.deepStrictEqual(program.functions.foo(), [5, "hello"]);
+    assert.deepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello" });
   });
 });

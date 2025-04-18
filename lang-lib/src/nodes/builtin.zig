@@ -90,24 +90,24 @@ pub const TypeInfo = struct {
     /// size in bytes of the type
     size: u32,
 
-    pub const PrimitiveFieldInfo = struct {
+    pub const SubfieldInfo = struct {
         name: [:0]const u8,
         type: Type,
         offset: u32,
     };
 
     // NOTE: I am probably getting ahead of myself implementing recursive fields
-    pub fn primitiveFieldIterator(self: *const @This(), a: std.mem.Allocator) PrimitiveFieldIter {
+    pub fn recursiveSubfieldIterator(self: *const @This(), a: std.mem.Allocator) SubfieldIter {
         std.debug.assert(self.subtype == .@"struct");
-        var result = PrimitiveFieldIter{
-            .stack = @FieldType(PrimitiveFieldIter, "stack"){},
+        var result = SubfieldIter{
+            .stack = @FieldType(SubfieldIter, "stack"){},
             ._alloc = a,
         };
         // FIXME: why doesn't SegmentedList support appendAssumeCapacity?
         result.stack.len = 1;
         result.stack.uncheckedAt(0).* = .{
             .type = self,
-            .depth = std.math.maxInt(@FieldType(PrimitiveFieldIter.StackEntry, "depth")),
+            .depth = std.math.maxInt(@FieldType(SubfieldIter.StackEntry, "depth")),
         };
         result.moveToNextPrimitive();
         return result;
@@ -115,7 +115,7 @@ pub const TypeInfo = struct {
 
     // FIXME: store visited type list to detect loops
     // FIXME: add tests for this
-    pub const PrimitiveFieldIter = struct {
+    pub const SubfieldIter = struct {
         _alloc: std.mem.Allocator,
         _total_offset: u32 = 0,
         // TODO: support deeper structs
@@ -123,18 +123,19 @@ pub const TypeInfo = struct {
 
         const StackEntry = struct { type: Type, depth: u16 };
 
-        pub fn next(self: *@This()) ?PrimitiveFieldInfo {
+        pub fn next(self: *@This()) ?SubfieldInfo {
             if (self.stack.count() == 0) {
                 return null;
             }
 
             const top = self.stack.uncheckedAt(self.stack.count() - 1);
-            const result = PrimitiveFieldInfo{
+            const result = SubfieldInfo{
                 .name = top.type.subtype.@"struct".field_names[top.depth],
                 .type = top.type.subtype.@"struct".field_types[top.depth],
                 .offset = self._total_offset,
             };
-            self._total_offset += result.type.size;
+            // FIXME: hack
+            self._total_offset += if (result.type == primitive_types.string) 0 else result.type.size;
             self.moveToNextPrimitive();
             return result;
         }
@@ -142,7 +143,7 @@ pub const TypeInfo = struct {
         fn moveToNextPrimitive(self: *@This()) void {
             std.debug.assert(self.stack.count() > 0);
             const start_top: *StackEntry = self.stack.uncheckedAt(self.stack.count() - 1);
-            start_top.depth +%= 1;
+            start_top.depth +%= 1; // FIXME this could bite me, infinite loop if struct > max(u16)
 
             while (self.stack.count() > 0) {
                 const top: *StackEntry = self.stack.uncheckedAt(self.stack.count() - 1);
@@ -153,7 +154,7 @@ pub const TypeInfo = struct {
                 }
 
                 const curr_field_type = top.type.subtype.@"struct".field_types[top.depth];
-                if (curr_field_type.subtype == .primitive and curr_field_type != primitive_types.string) {
+                if (curr_field_type.subtype == .primitive) {
                     return;
                 } else if (curr_field_type.subtype == .@"struct") {
                     self.stack.append(self._alloc, .{ .type = curr_field_type, .depth = 0 }) catch unreachable;
@@ -462,9 +463,8 @@ pub const primitive_types = struct {
     // FIXME: consider moving this to live in compound_types
     pub const string: Type = &TypeInfo{
         .name = "string",
-        // FIXME: figure out what the size is of heap types
-        // in wasm-gc
-        .size = @sizeOf(usize),
+        // FIXME: size is host-dependent, so should not be here tbh...
+        .size = 0,
     };
 
     pub const vec3: Type = &TypeInfo{
@@ -1308,6 +1308,7 @@ pub const Env = struct {
     // TODO: use this!
     _nodes_by_tag: std.StringHashMapUnmanaged(std.ArrayListUnmanaged(*const NodeDesc)) = .{},
 
+    // TODO: consider using SegmentedLists of each type (SoE)
     created_types: std.SinglyLinkedList(TypeInfo) = .{},
     created_nodes: std.SinglyLinkedList(NodeDesc) = .{},
 

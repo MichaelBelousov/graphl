@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "test": "bun test ./test/e2e.test.ts",
-    "test-node": "node --loader=node-zigar --experimental-transform-types ./test/e2e.test.ts"
+    "test-node": "node --loader=node-zigar --test-only --experimental-transform-types ./test/e2e.test.ts",
+    "test-debug": "node --inspect-brk --loader=node-zigar --test-only --experimental-transform-types ./test/e2e.test.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
