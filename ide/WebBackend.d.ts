@@ -121,7 +121,8 @@ export declare namespace Ide {
          *
          * this is a temporary measure for display-only scenarios
          */
-        watOnly?: boolean;
+        // TODO: remove? doesn't exist as an option atm
+        // watOnly?: boolean;
       };
     },
     /**

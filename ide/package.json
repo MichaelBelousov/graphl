@@ -29,6 +29,7 @@
     "test:e2e": "playwright test tests/e2e"
   },
   "devDependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.4.1",
     "@playwright/test": "^1.30.0",
     "@types/lodash.debounce": "^4.0.9",
     "@types/react": "^18.3.11",

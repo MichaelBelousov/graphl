@@ -1,3 +1,9 @@
+//! FIXME: wouldn't it be nice if I could just use Sexp as the in-memory format
+//! of the graph? Not sure how feasible it is, but if each "node" renders its edges,
+//! then maybe a valref can just render an edge?
+//! Of course also need a "position" (for now) for each sexp in another arena, and maybe
+//! some other stuff
+
 const std = @import("std");
 const builtin = @import("builtin");
 const io = std.io;
@@ -21,11 +27,6 @@ const App = @import("./app.zig");
 const Graph = App.Graph;
 
 const Graphs = std.SinglyLinkedList(Graph);
-
-// FIXME: wouldn't it be nice if I could just use Sexp as the in-memory format
-// of the graph? Not sure how feasible it is, but if each "node" renders its edges,
-// then maybe a valref can just render an edge?
-// Of course also need a "position" (for now) for each sexp in another arena
 
 fn funcSourceToGraph(
     // NOTE: for now this must be gpa...
@@ -136,7 +137,7 @@ fn funcSourceToGraph(
         }
     }
 
-    const node_for_sexp = try a.alloc(NodeId, mod.arena.len);
+    const node_for_sexp = try a.alloc(NodeId, mod.arena.items.len);
     defer a.free(node_for_sexp);
 
     const Local = struct {
@@ -160,7 +161,7 @@ fn funcSourceToGraph(
                         const input_node_id = try _graph.addNode(_a, callee.value.symbol, false, null, null, .{});
                         _node_for_sexp[arg_idx] = input_node_id;
                         const input_node = _graph.graphl_graph.nodes.map.getPtr(input_node_id) orelse unreachable;
-                        try attachArgs(_a, input_node, input_args, _env, _graph, _mod);
+                        try attachArgs(_a, input_node, input_args, _env, _graph, _mod, _node_for_sexp);
                         input.link = .{
                             .target = input_node_id,
                             .pin_index = 0, // FIXME: here I assume all nodes have 1 output
@@ -186,12 +187,13 @@ fn funcSourceToGraph(
                         input.value.bool = v;
                     },
                     .module => unreachable,
-                    .jump => |v| {
+                    .jump => |_| {
                         // need to know previous one to do this!
-                        const target = _node_for_sexp[v.target];
+                        //const target = _node_for_sexp[v.target];
+                        unreachable;
                     },
-                    .valref => |v| {
-
+                    .valref => |_| {
+                        unreachable;
                     },
                 }
             }
@@ -215,7 +217,7 @@ fn funcSourceToGraph(
         });
         new_node.inputs[0] = .{ .link = .{ .target = prev_node.id, .pin_index = 0 } };
         // FIXME: won't work for if duh
-        try Local.attachArgs(a, new_node, args, env, &graph, mod);
+        try Local.attachArgs(a, new_node, args, env, &graph, mod, node_for_sexp);
     }
 
     try graph.visual_graph.formatGraphNaive(a);

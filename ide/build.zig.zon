@@ -17,9 +17,12 @@
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
     .dependencies = .{
+        // .dvui = .{
+        //     .url = "https://github.com/david-vanderson/dvui/archive/797501bcb94014fdc049cf7c813e87dde2222fae.zip",
+        //     .hash = "dvui-0.2.0-AQFJmRSOygDqdfLgLTVsPQEJWwVU_zyash87RHBZrqXe",
+        // },
         .dvui = .{
-            .url = "https://github.com/david-vanderson/dvui/archive/797501bcb94014fdc049cf7c813e87dde2222fae.zip",
-            .hash = "dvui-0.2.0-AQFJmRSOygDqdfLgLTVsPQEJWwVU_zyash87RHBZrqXe",
+            .path = "../../dvui",
         },
         .graphl = .{
             .path = "../lang-lib",

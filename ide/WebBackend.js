@@ -3,6 +3,8 @@
 import frontendWasmUrl from './zig-out/bin/dvui-frontend.wasm?url';
 import { downloadFile, uploadFile } from './localFileManip';
 
+import { WASI, File, OpenFile, ConsoleStdout, PreopenDirectory } from '@bjorn3/browser_wasi_shim';
+
 // TODO: remove references to dvui in prod build (but acknowledge it somewhere)
 
 /** @param {number} ms */
@@ -29,12 +31,13 @@ const MAX_FUNC_NAME = 256;
 const WASM_PAGE_SIZE = 64 * 1024;
 const INIT_BUFFER_SZ = WASM_PAGE_SIZE;
 
-// FIXME: this should return a promise
+// FIXME: replace this with the new JS SDK
 /**
  * @param {HTMLCanvasElement} canvasElem
  * @param {import("./WebBackend").Ide.Options} opts
  */
-export function Ide(canvasElem, opts) {
+export async function Ide(canvasElem, opts) {
+
     /** @type {Map<number, { name: string, func: Required<Pick<import("./WebBackend").BasicMutNodeDescJson, "impl" | "inputs" | "outputs">> }>} */
     const userFuncs = new Map();
 
@@ -183,50 +186,18 @@ export function Ide(canvasElem, opts) {
     /** @type {undefined | (() => void)} */
     let onExportCompiledOverride = undefined;
 
-    /**
-     * @param {Uint8Array} data
-     * @returns {Uint8Array}
-     */
-    function compileWat_binaryen(data) {
-        const inputFile = '/input.wat';
-        const outputFile = '/optimized.wasm';
-        wasmOpt.FS.writeFile(inputFile, data);
-        // TODO: source maps
-        // FIXME: consider whether it's worth enabling optimizations
-
-        const status = wasmOpt.callMain([
-            inputFile,
-            '-o',
-            outputFile,
-            //'-g',
-            // NOTE: multimemory not supported by safari
-            "--enable-bulk-memory",
-            //"--enable-multivalue",
-        ]);
-
-        if (status !== 0)
-            throw Error(`non-zero return: ${status}`)
-
-        return wasmOpt.FS.readFile(outputFile, { encoding: "binary" });
-    }
-
-    // FIXME: use this, it's no optimizer but it's much much lighter
-    async function compileWat_wabt() {
-        const wabt = await wabtPromise;
-        var module = wabt.parseWat('graph.wat', data, {});
-
-        module.resolveNames();
-        module.validate({});
-        const binaryOutput = module.toBinary({log: true, write_debug_names:true});
-        const outputLog = binaryOutput.log;
-        console.warn(outputLog);
-        const binaryBuffer = binaryOutput.buffer;
-        return binaryBuffer;
-    }
-
+    let fds = [
+      new OpenFile(new File([])), // stdin
+      ConsoleStdout.lineBuffered(msg => console.log(`[WASI stdout] ${msg}`)),
+      ConsoleStdout.lineBuffered(msg => console.warn(`[WASI stderr] ${msg}`)),
+      new PreopenDirectory(".", []),
+    ];
+    let wasi = new WASI(["bin", "arg1"], ["FOO=bar"], fds);
 
     const imports = {
+        wasi_snapshot_preview1: wasi.wasiImport,
         env: {
+        main() {},
 
         wasm_opt_transfer: sharedWasmMem,
 
@@ -573,9 +544,7 @@ export function Ide(canvasElem, opts) {
         runCurrentWat: async (ptr, len) => {
             if (len === 0) return;
 
-            const data = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
-
-            const moduleBytes = compileWat_binaryen(data);
+            const moduleBytes = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
 
             /** @type {WasmInstWithMemory} */
             let compiled;
@@ -767,6 +736,7 @@ export function Ide(canvasElem, opts) {
       },
     };
 
+    // FIXME: unwrap this promise stuff
     WebAssembly.instantiateStreaming(fetch(frontendWasmUrl), imports)
     .then((_wasmResult) => {
         wasmResult = _wasmResult;
@@ -1124,33 +1094,6 @@ export function Ide(canvasElem, opts) {
         requestRender();
     });
 
-    /** @type {Promise<any>} */
-    let wabtPromise;
-    if (!(opts.preferences?.compiler.watOnly ?? false)) {
-        // old binaryen code
-        import("./zig-out/bin/wasm-opt.js")
-            .then(s => s.default())
-            .then((mod) => {
-                globalThis._wasmOpt = mod;
-                // FIXME: save the promise so there isn't a race!
-                wasmOpt = mod;
-            });
-
-        /*
-        // TODO: use wabt
-        const libWabtScript = document.createElement("script");
-        // FIXME: make async with onload
-        libWabtScript.src = "/graphl-demo/zig-out/bin/libwabt.js";
-        wabtPromise = new Promise((resolve) => libWabtScript.onload = () => {
-          globalThis.WabtModule().then((wabt) => {
-              globalThis._wabt = wabt;
-              resolve(wabt);
-          });
-        });
-        document.body.append(libWabtScript);
-        */
-    }
-
     return {
         functions: new Proxy({}, {
             get(_target, key, _receiver) {
@@ -1167,11 +1110,11 @@ export function Ide(canvasElem, opts) {
             let content;
             const original = onExportCompiledOverride;
             onExportCompiledOverride = (ptr, len) => {
-                content = utf8decoder.decode(new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len));
+                content = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
             };
             wasmResult.instance.exports.exportCurrentCompiled();
             onExportCompiledOverride = original;
-            return compileWat_binaryen(content);
+            return content;
         }
     };
 }

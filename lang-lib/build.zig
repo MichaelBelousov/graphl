@@ -12,6 +12,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .target = target,
         //.relooper_debug = optimize == .Debug,
+        .single_threaded = true, // TODO: make not true off web
     });
     //const bytebox_dep = b.dependency("bytebox", .{});
 
@@ -71,6 +72,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .pic = true,
+        .single_threaded = true,
     });
 
     // TODO: get a working test VM again
