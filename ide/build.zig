@@ -34,7 +34,7 @@ pub fn build(b: *std.Build) void {
     const dvui_generic_dep = b.dependency("dvui", .{
         .target = target,
         .optimize = optimize,
-        .backend = .all,
+        .backend = .raylib,
     });
     const graphl_core_dep = b.dependency("graphl", .{
         .target = target,
@@ -77,7 +77,6 @@ pub fn build(b: *std.Build) void {
     exe.entry = .disabled;
 
     exe.root_module.addImport("dvui", dvui_web_dep.module("dvui_web"));
-    exe.root_module.addImport("WebBackend", dvui_web_dep.module("WebBackend"));
     exe.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
 
     // This declares intent for the executable to be installed into the

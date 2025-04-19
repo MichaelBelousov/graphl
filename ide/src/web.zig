@@ -3,7 +3,10 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const WebBackend = @import("WebBackend");
+const WebBackend = dvui.backend;
+comptime {
+    std.debug.assert(@hasDecl(WebBackend, "WebBackend"));
+}
 usingnamespace WebBackend.wasm;
 
 const dvui = @import("dvui");
@@ -47,7 +50,6 @@ pub const std_options: std.Options = .{
 //pub const gpa = app.gpa;
 pub const gpa = std.heap.wasm_allocator;
 
-var win: dvui.Window = undefined;
 var backend: WebBackend = undefined;
 var touchPoints: [2]?dvui.Point = [_]?dvui.Point{null} ** 2;
 var orig_content_scale: f32 = 1.0;
@@ -68,7 +70,7 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
         std.log.err("WebBackend failed to init", .{});
         return @intFromEnum(AppInitErrorCodes.BackendInitFailed);
     };
-    win = dvui.Window.init(@src(), gpa, backend.backend(), .{ .keybinds = if (mac) .mac else .windows }) catch {
+    WebBackend.win = dvui.Window.init(@src(), gpa, backend.backend(), .{ .keybinds = if (mac) .mac else .windows }) catch {
         std.log.err("Window failed to init", .{});
         return @intFromEnum(AppInitErrorCodes.WindowInitFailed);
     };
@@ -79,22 +81,20 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
     };
 
     // small fonts look bad on the web, so bump the default theme up
-    var theme = win.themes.get("Adwaita Light").?;
+    var theme = WebBackend.win.themes.get("Adwaita Light").?;
     //win.themes.put("Adwaita Light", theme.fontSizeAdd(2)) catch {};
-    theme = win.themes.get("Adwaita Dark").?;
+    theme = WebBackend.win.themes.get("Adwaita Dark").?;
     //win.themes.put("Adwaita Dark", theme.fontSizeAdd(2)) catch {};
-    win.theme = win.themes.get("Adwaita Dark").?;
+    WebBackend.win.theme = WebBackend.win.themes.get("Adwaita Dark").?;
     //win.theme = win.themes.get("Adwaita Light").?;
 
-    WebBackend.win = &win;
-
-    orig_content_scale = win.content_scale;
+    orig_content_scale = WebBackend.win.content_scale;
 
     return 0;
 }
 
 export fn app_deinit() void {
-    win.deinit();
+    WebBackend.win.deinit();
     backend.deinit();
     app.deinit();
 }
@@ -103,22 +103,22 @@ export fn app_deinit() void {
 // return -1 to quit
 export fn app_update() i32 {
     const result: anyerror!i32 = _: {
-        const nstime = win.beginWait(backend.hasEvent());
+        const nstime = WebBackend.win.beginWait(backend.hasEvent());
 
-        win.begin(nstime) catch |e| break :_ e;
+        WebBackend.win.begin(nstime) catch |e| break :_ e;
 
         // Instead of the backend saving the events and then calling this, the web
         // backend is directly sending the events to dvui
-        //try backend.addAllEvents(&win);
+        //try backend.addAllEvents(&WebBackend.win);
 
         dvui_frame() catch |e| break :_ e;
 
-        const end_micros = win.end(.{}) catch |e| break :_ e;
+        const end_micros = WebBackend.win.end(.{}) catch |e| break :_ e;
 
-        backend.setCursor(win.cursorRequested());
-        backend.textInputRect(win.textInputRequested());
+        backend.setCursor(WebBackend.win.cursorRequested());
+        backend.textInputRect(WebBackend.win.textInputRequested());
 
-        const wait_event_micros = win.waitTime(end_micros, null);
+        const wait_event_micros = WebBackend.win.waitTime(end_micros, null);
         break :_ @intCast(@divTrunc(wait_event_micros, 1000));
     };
 
@@ -161,7 +161,7 @@ fn dvui_frame() !void {
                         dy = touchPoints[0].?.y - touchPoints[1].?.y;
                         const new_dist: f32 = @sqrt(dx * dx + dy * dy);
 
-                        new_content_scale = @max(0.1, win.content_scale * new_dist / old_dist.?);
+                        new_content_scale = @max(0.1, WebBackend.win.content_scale * new_dist / old_dist.?);
                     }
                 },
                 else => {},
@@ -172,10 +172,10 @@ fn dvui_frame() !void {
     try app.frame();
 
     if (new_content_scale) |ns| {
-        win.content_scale = ns;
+        WebBackend.win.content_scale = ns;
     }
 }
 
 export fn dvui_refresh() void {
-    dvui.refresh(&win, @src(), null);
+    dvui.refresh(&WebBackend.win, @src(), null);
 }

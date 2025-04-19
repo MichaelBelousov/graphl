@@ -588,7 +588,7 @@ pub const NodeAdder = struct {
 
 fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from: ?Socket) !void {
     // TODO: handle defocus event
-    var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
+    var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(pt) }, .{});
     defer fw.deinit();
 
     const search_input = _: {
@@ -628,7 +628,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
         if (bindings.items.len > 0) {
             if (maybe_create_from == null or maybe_create_from.?.kind == .input) {
                 if (try dvui.menuItemLabel(@src(), "Get " ++ bindings_info.display ++ " >", .{ .submenu = true }, .{ .expand = .horizontal, .id_extra = i })) |r| {
-                    var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
+                    var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{});
                     defer subfw.deinit();
 
                     for (bindings.items, 0..) |binding, j| {
@@ -656,7 +656,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
             }
 
             if (try dvui.menuItemLabel(@src(), "Set " ++ bindings_info.display ++ " >", .{ .submenu = true }, .{ .expand = .horizontal, .id_extra = i })) |r| {
-                var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
+                var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{});
                 defer subfw.deinit();
 
                 for (bindings.items, 0..) |binding, j| {
@@ -695,7 +695,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
     if (self.current_graph.graphl_graph.entry_node_basic_desc.outputs.len > 1) {
         if (maybe_create_from == null or maybe_create_from.?.kind == .input) {
             if (try dvui.menuItemLabel(@src(), "Get Params >", .{ .submenu = true }, .{ .expand = .horizontal })) |r| {
-                var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
+                var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{});
                 defer subfw.deinit();
 
                 for (self.current_graph.graphl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
@@ -723,7 +723,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
         }
 
         if (try dvui.menuItemLabel(@src(), "Set Params >", .{ .submenu = true }, .{ .expand = .horizontal })) |r| {
-            var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
+            var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{});
             defer subfw.deinit();
 
             for (self.current_graph.graphl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
@@ -996,7 +996,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
             .mouse => |me| {
                 if (me.action == .press and me.button.pointer()) {
                     e.handled = true;
-                    dvui.captureMouse(graph_area.scroll.data().id);
+                    dvui.captureMouse(graph_area.scroll.data());
                     dvui.dragPreStart(me.p, .{});
                 } else if (me.action == .release and me.button.pointer()) {
                     if (dvui.captured(graph_area.scroll.data().id)) {
@@ -1021,7 +1021,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
                 } else if (me.action == .wheel_y) {
                     e.handled = true;
                     const base: f32 = 1.005;
-                    const zs = @exp(@log(base) * me.data.wheel_y);
+                    const zs = @exp(@log(base) * me.action.wheel_y);
                     if (zs != 1.0) {
                         zoom *= zs;
                         zoomP = me.p;
@@ -1599,7 +1599,7 @@ fn renderNode(
                 .mouse => |me| {
                     if (me.action == .press and me.button.pointer()) {
                         e.handled = true;
-                        dvui.captureMouse(box.data().id);
+                        dvui.captureMouse(box.data());
                         const offset = me.p.diff(box.data().rectScale().r.topLeft()); // pixel offset from box corner
                         dvui.dragPreStart(me.p, .{ .offset = offset });
                         dvui.cursorSet(.hand);
@@ -1643,7 +1643,7 @@ fn renderNode(
     {
         const ctext = try dvui.context(@src(), .{ .rect = result }, .{ .expand = .both });
         if (ctext.activePoint()) |cp| {
-            var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(cp), .{});
+            var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(cp) }, .{});
             defer fw.deinit();
             if (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal })) |_| {
                 if (self.current_graph.removeNode(node.id)) |removed| {
@@ -2089,7 +2089,7 @@ pub fn frame(self: *@This()) !void {
         defer m.deinit();
 
         if (try dvui.menuItemLabel(@src(), "File", .{ .submenu = true }, .{ .expand = .none })) |r| {
-            var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
+            var fw = try dvui.floatingMenu(@src(), .{ .from = dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }) }, .{});
             defer fw.deinit();
 
             if (try dvui.menuItemLabel(@src(), "Save", .{}, .{ .expand = .horizontal })) |_| {
@@ -2107,7 +2107,7 @@ pub fn frame(self: *@This()) !void {
 
         if (self.init_opts.allow_running or builtin.mode == .Debug) {
             if (try dvui.menuItemLabel(@src(), "Go", .{ .submenu = true }, .{ .expand = .none })) |r| {
-                var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
+                var fw = try dvui.floatingMenu(@src(), .{ .from = dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }) }, .{});
                 defer fw.deinit();
 
                 if (self.init_opts.allow_running) {
@@ -2125,10 +2125,10 @@ pub fn frame(self: *@This()) !void {
         }
 
         if (try dvui.menuItemLabel(@src(), "Help", .{ .submenu = true }, .{ .expand = .none })) |r| {
-            var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
+            var fw = try dvui.floatingMenu(@src(), .{ .from = dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }) }, .{});
             defer fw.deinit();
             if (try dvui.menuItemLabel(@src(), "Graphl Guide", .{}, .{ .expand = .horizontal })) |_| {
-                try dvui.dialog(@src(), .{
+                try dvui.dialog(@src(), .{}, .{
                     .modal = true,
                     .title = "Guide",
                     .max_size = .{ .w = 600, .h = 600 },
@@ -2170,7 +2170,7 @@ pub fn frame(self: *@This()) !void {
                             on_click(app_ctx, menu.on_click_ctx);
                         }
 
-                        var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{ .id_extra = id });
+                        var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }) }, .{ .id_extra = id });
                         defer fw.deinit();
                         try recurseMenus(menu.submenus, in_counter, app_ctx);
                     }
