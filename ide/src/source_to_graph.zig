@@ -22,6 +22,11 @@ const Graph = App.Graph;
 
 const Graphs = std.SinglyLinkedList(Graph);
 
+// FIXME: wouldn't it be nice if I could just use Sexp as the in-memory format
+// of the graph? Not sure how feasible it is, but if each "node" renders its edges,
+// then maybe a valref can just render an edge?
+// Of course also need a "position" (for now) for each sexp in another arena
+
 fn funcSourceToGraph(
     // NOTE: for now this must be gpa...
     a: std.mem.Allocator,
@@ -131,6 +136,9 @@ fn funcSourceToGraph(
         }
     }
 
+    const node_for_sexp = try a.alloc(NodeId, mod.arena.len);
+    defer a.free(node_for_sexp);
+
     const Local = struct {
         pub fn attachArgs(
             _a: std.mem.Allocator,
@@ -139,6 +147,7 @@ fn funcSourceToGraph(
             _env: *Env,
             _graph: *Graph,
             _mod: *const ModuleContext,
+            _node_for_sexp: @TypeOf(node_for_sexp),
         ) !void {
             for (args, node.inputs) |arg_idx, *input| {
                 const arg = _mod.get(arg_idx);
@@ -149,6 +158,7 @@ fn funcSourceToGraph(
                         const input_args = v.items[1..];
                         assert(callee.value == .symbol);
                         const input_node_id = try _graph.addNode(_a, callee.value.symbol, false, null, null, .{});
+                        _node_for_sexp[arg_idx] = input_node_id;
                         const input_node = _graph.graphl_graph.nodes.map.getPtr(input_node_id) orelse unreachable;
                         try attachArgs(_a, input_node, input_args, _env, _graph, _mod);
                         input.link = .{
@@ -176,6 +186,13 @@ fn funcSourceToGraph(
                         input.value.bool = v;
                     },
                     .module => unreachable,
+                    .jump => |v| {
+                        // need to know previous one to do this!
+                        const target = _node_for_sexp[v.target];
+                    },
+                    .valref => |v| {
+
+                    },
                 }
             }
         }
