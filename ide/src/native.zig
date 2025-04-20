@@ -5,9 +5,6 @@ const std = @import("std");
 const RaylibBackend = dvui.backend;
 
 const dvui = @import("dvui");
-comptime {
-    std.debug.assert(dvui.backend_kind == .raylib);
-}
 
 const app = @import("./native-app.zig");
 

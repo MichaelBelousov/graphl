@@ -3,13 +3,9 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const bytebox = @import("bytebox");
-pub usingnamespace @import("grappl_core");
+pub usingnamespace @import("graphl_core");
 
 const dvui = @import("dvui");
-comptime {
-    std.debug.assert(dvui.backend_kind == .raylib);
-}
 
 const App = @import("./app.zig");
 
@@ -86,84 +82,8 @@ export fn runCurrentWat(ptr: ?[*]const u8, len: usize) void {
 }
 
 fn _runCurrentWat(wat: []const u8) !void {
-    var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
-    defer tmp_dir.close();
-
-    var dbg_file = try tmp_dir.createFile("compiler-test.wat", .{});
-    defer dbg_file.close();
-
-    try dbg_file.writeAll(wat);
-
-    const wat2wasm_run = try std.process.Child.run(.{
-        .allocator = gpa,
-        .argv = &.{
-            "wat2wasm",
-            "/tmp/compiler-test.wat",
-            "-o",
-            "/tmp/compiler-test.wasm",
-        },
-    });
-    defer gpa.free(wat2wasm_run.stdout);
-    defer gpa.free(wat2wasm_run.stderr);
-    if (!std.meta.eql(wat2wasm_run.term, .{ .Exited = 0 })) {
-        std.debug.print("wat2wasm exited with {any}:\n{s}\n", .{ wat2wasm_run.term, wat2wasm_run.stderr });
-        return error.FailTest;
-    }
-
-    var dbg_wasm_file = try tmp_dir.openFile("compiler-test.wasm", .{});
-    defer dbg_wasm_file.close();
-    var buff: [65536]u8 = undefined;
-    const wasm_data_size = try dbg_wasm_file.readAll(&buff);
-
-    const wasm_data = buff[0..wasm_data_size];
-
-    const module_def = try bytebox.createModuleDefinition(gpa, .{});
-    defer module_def.destroy();
-
-    try module_def.decode(wasm_data);
-
-    const module_instance = try bytebox.createModuleInstance(.Stack, module_def, gpa);
-    defer module_instance.destroy();
-
-    const Local = struct {
-        fn nullHostFunc(user_data: ?*anyopaque, _module: *bytebox.ModuleInstance, _params: [*]const bytebox.Val, _returns: [*]bytebox.Val) void {
-            _ = user_data;
-            _ = _module;
-            _ = _params;
-            _ = _returns;
-        }
-    };
-
-    var imports = try bytebox.ModuleImportPackage.init("env", null, null, gpa);
-    defer imports.deinit();
-
-    inline for (&.{
-        .{ "callUserFunc_code_R", &.{ .I32, .I32, .I32 }, &.{} },
-        .{ "callUserFunc_code_R_string", &.{ .I32, .I32, .I32 }, &.{.I32} },
-        .{ "callUserFunc_string_R", &.{ .I32, .I32, .I32 }, &.{} },
-        .{ "callUserFunc_R", &.{.I32}, &.{} },
-        .{ "callUserFunc_i32_R", &.{ .I32, .I32 }, &.{} },
-        .{ "callUserFunc_i32_R_i32", &.{ .I32, .I32 }, &.{.I32} },
-        .{ "callUserFunc_i32_i32_R_i32", &.{ .I32, .I32, .I32 }, &.{.I32} },
-        .{ "callUserFunc_bool_R", &.{ .I32, .I32 }, &.{} },
-    }) |import_desc| {
-        const name, const params, const results = import_desc;
-        try imports.addHostFunction(name, params, results, Local.nullHostFunc, null);
-    }
-
-    try module_instance.instantiate(.{
-        .imports = &.{imports},
-    });
-
-    const handle = try module_instance.getFunctionHandle("main");
-
-    const args = [_]bytebox.Val{};
-    var results = [_]bytebox.Val{bytebox.Val{ .I32 = 0 }};
-    results[0] = bytebox.Val{ .I32 = 0 };
-    try module_instance.invoke(handle, &args, &results, .{});
-
-    _ = std.fmt.bufPrint(&result_buffer, "{}", .{results[0].I32}) catch {};
-    dvui.refresh(null, @src(), null);
+    _ = wat;
+    // TODO:
 }
 
 export fn onClickReportIssue() void {

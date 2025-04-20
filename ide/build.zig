@@ -141,15 +141,17 @@ pub fn build(b: *std.Build) void {
                 .ReleaseFast, .ReleaseSmall => true,
                 else => false,
             },
+            // FIXME: remove!
+            .single_threaded = true,
         });
 
         native_exe.linkLibC();
 
-        native_exe.import_symbols = true;
-        native_exe.rdynamic = true; // https://github.com/ziglang/zig/issues/14139
-        native_exe.entry = .disabled;
+        native_exe.use_lld = false;
 
-        native_exe.root_module.addImport("dvui", dvui_generic_dep.module("dvui_raylib"));
+        const dvui_mod = dvui_generic_dep.module("dvui_raylib");
+
+        native_exe.root_module.addImport("dvui", dvui_mod);
         native_exe.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
 
         const native_install = b.addInstallArtifact(native_exe, .{});
