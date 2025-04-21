@@ -849,8 +849,6 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
     defer socket_positions.deinit(gpa);
 
     const mouse_pt = dvui.currentWindow().mouse_pt;
-    //var mouse_pt2 = graph_area.scroll.data().contentRectScale().pointFromScreen(dvui.currentWindow().mouse_pt);
-    //mouse_pt2 = mouse_pt.plus(ScrollData.origin).plus(ScrollData.scroll_info.viewport.topLeft());
 
     var mbbox: ?Rect = null;
 

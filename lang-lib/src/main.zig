@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const build_opts = @import("build_opts");
 
 // FIXME: remove old garbage
 // import to export these public functions
@@ -25,7 +26,11 @@ pub const Sexp = @import("./sexp.zig").Sexp;
 pub const ModuleContext = @import("./sexp.zig").ModuleContext;
 pub const syms = @import("./sexp.zig").syms;
 pub const SexpParser = @import("./sexp_parser.zig").Parser;
-pub const compiler = @import("./compiler-wasm.zig");
+
+// FIXME: use @deprecated
+pub const compiler = if (build_opts.disable_compiler) 
+    @import("./compiler-types.zig")
+else @import("./compiler-wasm.zig");
 
 pub const std_options: std.Options = .{
     .log_level = if (builtin.is_test) .debug else std.log.default_level,

@@ -35,6 +35,7 @@ const builtin_nodes = @import("./nodes/builtin.zig").builtin_nodes;
 const Pin = @import("./nodes/builtin.zig").Pin;
 const pool = &@import("./InternPool.zig").pool;
 const SymMapUnmanaged = @import("./InternPool.zig").SymMapUnmanaged;
+pub const UserFunc = @import("./compiler-types.zig").UserFunc;
 
 const t = std.testing;
 const SexpParser = @import("./sexp_parser.zig").Parser;
@@ -301,11 +302,6 @@ const DeferredFuncTypeInfo = struct {
 };
 
 var empty_user_funcs = std.SinglyLinkedList(UserFunc){};
-
-pub const UserFunc = struct {
-    id: usize,
-    node: graphl_builtin.BasicMutNodeDesc,
-};
 
 const binaryop_builtins = .{
     .{

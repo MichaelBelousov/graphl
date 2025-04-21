@@ -8,11 +8,11 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run library tests");
 
-    const binaryen_dep = b.dependency("binaryen-zig", .{
+    const binaryen_dep = b.lazyDependency("binaryen-zig", .{
         .optimize = optimize,
         .target = target,
         //.relooper_debug = optimize == .Debug,
-        .single_threaded = true, // TODO: make not true off web
+        .single_threaded = true, // TODO: make not true off the web target
     });
     //const bytebox_dep = b.dependency("bytebox", .{});
 
@@ -125,7 +125,11 @@ pub fn build(b: *std.Build) void {
         graphl_core_mod,
         &graphltc_exe.root_module,
     }) |m| {
-        m.*.addImport("binaryen", binaryen_dep.module("binaryen"));
+        if (!disable_compiler) {
+            if (binaryen_dep) |d| {
+                m.*.addImport("binaryen", d.module("binaryen"));
+            }
+        }
         m.*.addOptions("build_opts", lib_opts);
         m.*.addAnonymousImport("graphl_intrinsics_vec3", .{
             .root_source_file = intrinsics.vec3.getEmittedBin(),

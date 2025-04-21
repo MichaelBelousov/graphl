@@ -36,11 +36,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .backend = .raylib,
     });
-    const graphl_core_dep = b.dependency("graphl", .{
+    const graphl_core_dep_no_compiler = b.dependency("graphl", .{
         .target = target,
         .optimize = optimize,
-        // FIXME: remove this old flag
-        .small_intrinsics = true,
+        // FIXME: don't disable for native
+        .disable_compiler = true,
     });
 
     const exe = b.addExecutable(.{
@@ -68,7 +68,7 @@ pub fn build(b: *std.Build) void {
         .wasi => ide_module.addImport("dvui", dvui_web_dep.module("dvui_web")),
         else => ide_module.addImport("dvui", dvui_generic_dep.module("dvui_raylib")),
     }
-    ide_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
+    ide_module.addImport("graphl_core", graphl_core_dep_no_compiler.module("graphl_core"));
 
     exe.linkLibC();
 
@@ -77,7 +77,7 @@ pub fn build(b: *std.Build) void {
     exe.entry = .disabled;
 
     exe.root_module.addImport("dvui", dvui_web_dep.module("dvui_web"));
-    exe.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
+    exe.root_module.addImport("graphl_core", graphl_core_dep_no_compiler.module("graphl_core"));
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -121,7 +121,7 @@ pub fn build(b: *std.Build) void {
         exe_unit_tests.entry = .disabled;
 
         exe_unit_tests.root_module.addImport("dvui", dvui_generic_dep.module("dvui_raylib"));
-        exe_unit_tests.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
+        exe_unit_tests.root_module.addImport("graphl_core", graphl_core_dep_no_compiler.module("graphl_core"));
 
         // Similar to creating the run step earlier, this exposes a `test` step to
         // the `zig build --help` menu, providing a way for the user to request
@@ -150,8 +150,13 @@ pub fn build(b: *std.Build) void {
 
         const dvui_mod = dvui_generic_dep.module("dvui_raylib");
 
+        const graphl_core_dep_with_compiler = b.dependency("graphl", .{
+            .target = target,
+            .optimize = optimize,
+        });
+
         native_exe.root_module.addImport("dvui", dvui_mod);
-        native_exe.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
+        native_exe.root_module.addImport("graphl_core", graphl_core_dep_with_compiler.module("graphl_core"));
 
         const native_install = b.addInstallArtifact(native_exe, .{});
 
