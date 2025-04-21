@@ -426,7 +426,7 @@ function parseGraphlMeta(wasmBuffer: ArrayBufferLike): GraphlMeta {
 
         if (parenCount === 0) {
             const slice = wasmBuffer.slice(graphlMetaStart, i + 1);
-            const jsonSrc = new TextDecoder().decode(slice);
+            const jsonSrc = new TextDecoder().decode(slice as BufferSource);
             const parsed = JSON.parse(jsonSrc);
             delete parsed.token;
             return parsed;
@@ -488,8 +488,8 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
     for (const fn of graphlMeta.functions) {
         functionMap.set(fn.name, {
             name: fn.name,
-            inputs: fn.inputs.map(i => ({ type: GraphlTypes[i]})),
-            outputs: fn.outputs.map(o => ({ type: GraphlTypes[o]})),
+            inputs: fn.inputs.map(i => ({ type: (GraphlTypes as any)[i]})),
+            outputs: fn.outputs.map(o => ({ type: (GraphlTypes as any)[o]})),
         });
     }
 
@@ -524,7 +524,7 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
         compiledWasm = zig.compileSource("unknown", source, diagnostic).typedArray;
         if (process.env.DEBUG)
             (await import("node:fs")).writeFileSync("/tmp/jssdk-compiler-test.wasm", compiledWasm)
-    } catch (err) {
+    } catch (err: any) {
         // FIXME: why doesn't diagnostic work?
         err.diagnostic = diagnostic.error;
         // TODO: handle diagnostic

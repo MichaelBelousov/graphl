@@ -1,10 +1,12 @@
 // TODO: type check with this file isn't working
 
+import { GraphlType, GraphlProgram } from "@graphl/compiler-js";
+
 /** @see {./src/web-app.zig} */
 
-export declare class Ide<Funcs extends Record<string, Function>> {
+export declare class Ide<Funcs extends Record<string, (...args: any[]) => any>> {
   public constructor(canvas: HTMLCanvasElement, opts?: Ide.Options)
-  public functions: Funcs;
+  public compile(): Promise<GraphlProgram<Funcs>>;
   public exportCompiled(): Promise<Uint8Array>;
 }
 

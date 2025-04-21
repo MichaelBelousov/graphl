@@ -1,6 +1,7 @@
 import { WASI, File, OpenFile, ConsoleStdout, PreopenDirectory } from '@bjorn3/browser_wasi_shim';
 import frontendWasmUrl from './zig-out/bin/dvui-frontend.wasm?url';
 import { downloadFile, uploadFile } from './localFileManip';
+import { GraphlTypes, compileGraphltSourceAndInstantiateProgram } from "@graphl/compiler-js";
 
 /**
  * @param {number} ms Number of milliseconds to sleep
@@ -1305,8 +1306,8 @@ const INIT_BUFFER_SZ = WASM_PAGE_SIZE;
 /**
  * @template {Record<string, Function>} T
  * @param {HTMLCanvasElement} canvasElem
- * @param {import("./WebBackend").Ide.Options} opts
- * @returns{Promise<import("./WebBackend").Ide<T>>}
+ * @param {import("./WebBackend.js").Ide.Options} opts
+ * @returns{Promise<import("./WebBackend.js").Ide<T>>}
  */
 export async function Ide(canvasElem, opts) {
     /** @type {Map<number, { name: string, func: Required<Pick<import("./WebBackend").BasicMutNodeDescJson, "impl" | "inputs" | "outputs">> }>} */
@@ -1338,7 +1339,7 @@ export async function Ide(canvasElem, opts) {
         env: {
             main() {},
             //wasm_opt_transfer: sharedWasmMem,
-            onExportCurrentSource: (ptr, len) => {
+            onExportSource: (ptr, len) => {
                 if (len === 0) return;
                 const content = utf8decoder.decode(new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len));
                 console.log("compiled:")
@@ -1346,19 +1347,6 @@ export async function Ide(canvasElem, opts) {
                 globalThis._monacoSyncHook?.(content);
                 void downloadFile({
                     fileName: "project.scm",
-                    content,
-                });
-            },
-
-            onExportCompiled: (ptr, len) => {
-                if (onExportCompiledOverride !== undefined) {
-                    onExportCompiledOverride(ptr, len);
-                    return;
-                }
-                if (len === 0) return;
-                const content = utf8decoder.decode(new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len));
-                void downloadFile({
-                    fileName: "compiled.wat",
                     content,
                 });
             },
@@ -1816,27 +1804,19 @@ export async function Ide(canvasElem, opts) {
         });
 
     // FIXME: use the new js sdk instead
-    return {
-        functions: new Proxy({}, {
-            get(_target, key, _receiver) {
-                if (typeof key !== "string")
-                    throw Error("function names are strings");
-                //if (!lastCompiled) {
-                // fix compilation to allow specific function execution!
-                return wasmResult?.instance.exports._runCurrentGraphs;
-                //}
-                //return lastCompiled?.instance.exports?.[key];
-            }
-        }),
-        async exportCompiled() {
-            let content;
-            const original = onExportCompiledOverride;
-            onExportCompiledOverride = (ptr, len) => {
-                content = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
-            };
-            wasmResult.instance.exports.exportCurrentCompiled();
-            onExportCompiledOverride = original;
+    const result = {
+        async compile() {
+            const source = await this.compileGraph();
+            return compileGraphltSourceAndInstantiateProgram(source, opts.userFuncs);
+        },
+        async compileGraph() {
+            const len = wasmResult.instance.exports.exportCurrentCompiled();
+            const buffer = new Uint8Array(wasmResult.instance.exports.memory.buffer, wasmResult.instance.exports.graphl_init_buffer, len);
+            const content = utf8decoder.decode(buffer);
+
             return content;
         }
     };
+
+    return result;
 }

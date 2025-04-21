@@ -37,6 +37,7 @@
     "@vitejs/plugin-react": "^3.0.1",
     "chai": "^4.3.7",
     "esbuild": "^0.24.0",
+    "@graphl/compiler-js": "workspace:*",
     "jsdom": "^21.1.0",
     "jsdom-global": "^3.0.2",
     "lodash.debounce": "^4.0.8",
