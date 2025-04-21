@@ -1,9 +1,9 @@
 {
   "name": "graphl-js-sdk",
-  "module": "dist/graphlt-js.mjs",
-  "main": "dist/graphlt-js.cjs",
-  "browser": "dist/graphlt-js.umd.js",
-  "types": "dist/graphlt-js.d.ts",
+  "module": "./dist/esm/index.js",
+  "main": "./dist/cjs/index.js",
+  "browser": "TODO UMD",
+  "types": "dist/TODO/index.d.ts",
   "type": "module",
   "private": true,
   "scripts": {
