@@ -97,28 +97,8 @@ pub fn frame() !void {
     try app.frame();
 }
 
-// NOTE: check if this is bad
-const graphl_init_buffer: [std.wasm.page_size]u8 = _: {
-    var result = std.mem.zeroes([std.wasm.page_size]u8);
-    result[0] = '\x1B';
-    result[1] = '\x2D';
-    result[std.wasm.page_size - 2] = '\x3E';
-    result[std.wasm.page_size - 1] = '\x4F';
-    break :_ result;
-};
-
-export const graphl_init_start: [*]const u8 = switch (builtin.mode) {
-    //.Debug => &graphl_init_buffer[0],
-    else => @ptrCast(&graphl_init_buffer[0]),
-};
-
-// fuck it just ship this crap, WTF: REPORT ME HACK FIXME
-const init_buff_offset: isize = switch (builtin.mode) {
-    .Debug => 0,
-    else => 0,
-};
-
-const graphl_real_init_buff: *const [std.wasm.page_size]u8 = @ptrCast(graphl_init_start + init_buff_offset);
+export const graphl_init_buffer = std.mem.zeroes([std.wasm.page_size]u8); // = undefined;
+// var graphl_init_buffer: *[std.wasm.page_size]u8 = undefined;
 
 // TODO: also a result size global
 export var result_buffer = std.mem.zeroes([4096]u8);
