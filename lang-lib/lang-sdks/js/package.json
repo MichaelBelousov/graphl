@@ -1,19 +1,34 @@
 {
   "name": "graphl-js-sdk",
-  "module": "index.mts",
+  "module": "dist/graphlt-js.mjs",
+  "main": "dist/graphlt-js.cjs",
+  "browser": "dist/graphlt-js.umd.js",
+  "types": "dist/graphlt-js.d.ts",
   "type": "module",
   "private": true,
   "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
     "test": "bun test ./test/e2e.test.ts",
     "test-node": "node --loader=node-zigar --test-only --experimental-transform-types ./test/e2e.test.ts",
-    "test-debug": "node --inspect-brk --loader=node-zigar --test-only --experimental-transform-types ./test/e2e.test.ts"
+    "test-debug": "node --inspect-brk --loader=node-zigar --test-only --experimental-transform-types ./test/e2e.test.ts",
+    "preview": "vite preview"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "bun-zigar": "^0.14.0",
-    "node-zigar": "^0.14.0"
+    "node-zigar": "^0.14.0",
+    "rollup": "^4.40.0",
+    "rollup-plugin-typescript": "^1.0.1",
+    "rollup-plugin-zigar": "^0.14.0",
+    "typescript": "4.8",
+    "vite": "^6.3.2",
+    "vite-plugin-inspect": "^11.0.1"
   },
-  "peerDependencies": {
-    "typescript": "^5"
+  "files": [
+    "dist"
+  ],
+  "patchedDependencies": {
+    "rollup-plugin-typescript@1.0.1": "patches/rollup-plugin-typescript@1.0.1.patch"
   }
 }
