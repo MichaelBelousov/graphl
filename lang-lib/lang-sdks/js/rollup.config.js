@@ -1,6 +1,4 @@
 // FIXME: remove
-// import resolve from "rollup-plugin-node-resolve";
-// import commonjs from "rollup-plugin-typescript";
 import typescript from "rollup-plugin-typescript";
 import zigar from "rollup-plugin-zigar";
 import pkgJson from "./package.json" with { type: "json" };
@@ -14,7 +12,10 @@ export default [
   //     format: 'umd',
   //   },
   //   plugins: [
-  //     zigar(),
+  //     zigar({
+  //       optimize: "ReleaseSmall",
+  //       topLevelAwait: false,
+  //     }),
   //     typescript({
   //       include: "**/*.(|m)ts(|x)",
   //     }),
