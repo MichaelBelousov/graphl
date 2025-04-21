@@ -85,7 +85,7 @@ fn _runCurrentWat(wat: []const u8) !void {
     var file = try std.fs.createFileAbsolute("/tmp/compiler-native.wasm", .{});
     defer file.close();
     try file.writer().writeAll(wat);
-    // TODO:
+    // TODO: run wasmtime or javascript SDK lol
 }
 
 export fn onClickReportIssue() void {

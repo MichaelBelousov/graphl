@@ -471,7 +471,10 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
 }
 
 pub fn runCurrentGraphs(self: *const @This()) !void {
-    var mod = try combineGraphs(self);
+    var mod = combineGraphs(self) catch |err| {
+        std.log.err("error '{!}' combining graphs", .{err});
+        return;
+    };
     defer mod.deinit();
 
     if (builtin.mode == .Debug) {

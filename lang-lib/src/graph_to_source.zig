@@ -562,35 +562,31 @@ pub const GraphBuilder = struct {
         std.debug.assert(body.value == .list);
 
         const insert_pt_idx = try mod_ctx.add(.empty_list);
-        const insert_pt = mod_ctx.get(insert_pt_idx);
         try mod_ctx.getRoot().body().append(mod_ctx.alloc(), insert_pt_idx);
-        try insert_pt.value.module.ensureTotalCapacityPrecise(alloc, 2);
+        try mod_ctx.get(insert_pt_idx).value.list.ensureTotalCapacityPrecise(alloc, 2);
         const type_def_idx = try mod_ctx.add(.empty_list);
-        insert_pt.value.module.appendAssumeCapacity(type_def_idx);
+        mod_ctx.get(insert_pt_idx).value.list.appendAssumeCapacity(type_def_idx);
         const func_def_idx = try mod_ctx.add(.empty_list);
-        insert_pt.value.module.appendAssumeCapacity(func_def_idx);
+        mod_ctx.get(insert_pt_idx).value.list.appendAssumeCapacity(func_def_idx);
 
         const params = self.entry_node_basic_desc.outputs[1..];
 
         {
-            const type_def = mod_ctx.get(type_def_idx);
-            try type_def.value.list.ensureTotalCapacityPrecise(alloc, 3);
-            type_def.value.list.appendAssumeCapacity(try mod_ctx.add(syms.typeof));
+            try mod_ctx.get(type_def_idx).value.list.ensureTotalCapacityPrecise(alloc, 3);
+            _ = try mod_ctx.addAndAppendToList(type_def_idx, syms.typeof);
 
             const param_bindings_idx = try mod_ctx.add(.empty_list);
-            const param_bindings = mod_ctx.get(param_bindings_idx);
             const result_type_idx = try mod_ctx.add(undefined);
-            const result_type = mod_ctx.get(result_type_idx);
-            type_def.value.list.appendAssumeCapacity(param_bindings_idx);
-            type_def.value.list.appendAssumeCapacity(result_type_idx);
+            mod_ctx.get(type_def_idx).value.list.appendAssumeCapacity(param_bindings_idx);
+            mod_ctx.get(type_def_idx).value.list.appendAssumeCapacity(result_type_idx);
 
-            try param_bindings.value.list.ensureTotalCapacityPrecise(alloc, 1 + params.len);
+            try mod_ctx.get(param_bindings_idx).value.list.ensureTotalCapacityPrecise(alloc, 1 + params.len);
             const name_idx = try mod_ctx.add(.symbol(name));
-            param_bindings.value.list.appendAssumeCapacity(name_idx);
+            mod_ctx.get(param_bindings_idx).value.list.appendAssumeCapacity(name_idx);
             for (params) |param| {
                 std.debug.assert(param.asPrimitivePin() == .value);
                 const param_binding_idx = try mod_ctx.add(.symbol(param.asPrimitivePin().value.name));
-                param_bindings.value.list.appendAssumeCapacity(param_binding_idx);
+                mod_ctx.get(param_bindings_idx).value.list.appendAssumeCapacity(param_binding_idx);
             }
 
             if (self.result_node_basic_desc.inputs.len < 1) return error.InvalidResultNode;
@@ -602,61 +598,55 @@ pub const GraphBuilder = struct {
                 if (self.result_node_basic_desc.inputs[1].kind != .primitive) return error.InvalidResultNode;
                 if (self.result_node_basic_desc.inputs[1].kind.primitive != .value) return error.InvalidResultNode;
 
-                // FIXME: share symbols for primitives!
-                result_type.* = .symbol(self.result_node_basic_desc.inputs[1].kind.primitive.value.name);
+                mod_ctx.get(result_type_idx).* = .symbol(self.result_node_basic_desc.inputs[1].kind.primitive.value.name);
             }
         }
 
         {
-            const func_def = mod_ctx.get(func_def_idx);
-            func_def.* = .empty_list;
-            try func_def.value.list.ensureTotalCapacityPrecise(alloc, 3);
-            func_def.value.list.appendAssumeCapacity(try mod_ctx.add(syms.define));
+            mod_ctx.get(func_def_idx).* = .empty_list;
+            try mod_ctx.get(func_def_idx).value.list.ensureTotalCapacityPrecise(alloc, 3);
+            _ = try mod_ctx.addAndAppendToList(func_def_idx, syms.define);
             const func_bindings_idx = try mod_ctx.add(try .emptyListCapacity(alloc, 1 + params.len));
             const body_begin_idx = try mod_ctx.add(.empty_list);
-            const func_bindings = mod_ctx.get(func_bindings_idx);
-            const body_begin = mod_ctx.get(body_begin_idx);
-            func_def.value.list.appendAssumeCapacity(func_bindings_idx);
-            func_def.value.list.appendAssumeCapacity(body_begin_idx);
+            mod_ctx.get(func_def_idx).value.list.appendAssumeCapacity(func_bindings_idx);
+            mod_ctx.get(func_def_idx).value.list.appendAssumeCapacity(body_begin_idx);
 
             // 1 for "begin", then local defs, then 1 for body
-            try body_begin.value.list.ensureTotalCapacityPrecise(alloc, 1 + 2 * self.locals.items.len + body.value.list.items.len + 1);
-            body_begin.value.list.appendAssumeCapacity(try mod_ctx.add(syms.begin));
+            try mod_ctx.get(body_begin_idx).value.list.ensureTotalCapacityPrecise(alloc, 1 + 2 * self.locals.items.len + body.value.list.items.len + 1);
+            _ = try mod_ctx.addAndAppendToList(body_begin_idx, syms.begin);
             for (self.locals.items) |local| {
                 const local_type_idx = try mod_ctx.add(.empty_list);
-                body_begin.value.list.appendAssumeCapacity(local_type_idx);
-                const local_type = mod_ctx.get(local_type_idx);
-                try local_type.value.list.ensureTotalCapacityPrecise(alloc, 3);
-                local_type.value.list.appendAssumeCapacity(try mod_ctx.add(syms.typeof));
-                local_type.value.list.appendAssumeCapacity(try mod_ctx.add(Sexp{
+                mod_ctx.get(body_begin_idx).value.list.appendAssumeCapacity(local_type_idx);
+                try mod_ctx.get(local_type_idx).value.list.ensureTotalCapacityPrecise(alloc, 3);
+                _ = try mod_ctx.addAndAppendToList(local_type_idx, syms.typeof);
+                _ = try mod_ctx.addAndAppendToList(local_type_idx, Sexp{
                     .value = .{ .symbol = pool.getSymbol(local.name) },
                     .comment = local.comment,
-                }));
-                local_type.value.list.appendAssumeCapacity(try mod_ctx.add(Sexp{
+                });
+                _ = try mod_ctx.addAndAppendToList(local_type_idx, Sexp{
                     .value = .{ .symbol = pool.getSymbol(local.type_.name) },
                     .comment = local.comment,
-                }));
+                });
 
                 const local_def_idx = try mod_ctx.add(try .emptyListCapacity(alloc, if (local.default != null) 3 else 2));
-                const local_def = mod_ctx.get(local_def_idx);
-                body_begin.value.list.appendAssumeCapacity(local_def_idx);
+                mod_ctx.get(body_begin_idx).value.list.appendAssumeCapacity(local_def_idx);
 
-                local_def.value.list.appendAssumeCapacity(try mod_ctx.add(syms.define));
-                local_def.value.list.appendAssumeCapacity(try mod_ctx.add(Sexp{
+                _ = try mod_ctx.addAndAppendToList(local_def_idx, syms.define);
+                _ = try mod_ctx.addAndAppendToList(local_def_idx, Sexp{
                     .value = .{ .symbol = pool.getSymbol(local.name) },
                     .comment = local.comment,
-                }));
+                });
                 if (local.default) |default|
-                    try local_def.value.list.append(mod_ctx.alloc(), try mod_ctx.add(default));
+                    _ = try mod_ctx.addAndAppendToList(local_def_idx, default);
             }
-            body_begin.value.list.appendSliceAssumeCapacity(body.value.list.items);
+            mod_ctx.get(body_begin_idx).value.list.appendSliceAssumeCapacity(body.value.list.items);
             body.value.list.clearAndFree(alloc);
 
             // FIXME: also emit imports and definitions!
             // FIXME: dupe this?
-            try func_bindings.value.list.append(mod_ctx.alloc(), try mod_ctx.add(.symbol(name)));
+            _ = try mod_ctx.addAndAppendToList(func_bindings_idx, .symbol(name));
             for (params) |param| {
-                try func_bindings.value.list.append(mod_ctx.alloc(), try mod_ctx.add(.symbol(param.name)));
+                _ = try mod_ctx.addAndAppendToList(func_bindings_idx, .symbol(param.name));
             }
         }
     }
@@ -962,21 +952,17 @@ pub const GraphBuilder = struct {
 
             const branch_sexp_idx = try self.mod_ctx.add(.empty_list);
             try state.block.append(self.mod_ctx.alloc(), branch_sexp_idx);
-            const branch_sexp = self.mod_ctx.get(branch_sexp_idx);
-
-            // FIXME: still needed?
-            //errdefer branch_sexp.deinit(alloc);
 
             // (if
-            try branch_sexp.value.list.append(self.mod_ctx.alloc(), try self.mod_ctx.add(.symbol(node.desc().name())));
+            _ = try self.mod_ctx.addAndAppendToList(branch_sexp_idx, .symbol(node.desc().name()));
 
             // condition
             const condition_sexp = try self.nodeInputTreeToSexp(alloc, node.inputs[1], state, context, false);
-            try branch_sexp.value.list.append(self.mod_ctx.alloc(), condition_sexp);
+            try self.mod_ctx.get(branch_sexp_idx).value.list.append(self.mod_ctx.alloc(), condition_sexp);
             // consequence
-            try branch_sexp.value.list.append(self.mod_ctx.alloc(), consequence_sexp);
+            try self.mod_ctx.get(branch_sexp_idx).value.list.append(self.mod_ctx.alloc(), consequence_sexp);
             // alternative
-            try branch_sexp.value.list.append(self.mod_ctx.alloc(), alternative_sexp);
+            try self.mod_ctx.get(branch_sexp_idx).value.list.append(self.mod_ctx.alloc(), alternative_sexp);
 
             // FIXME: remove this double hash map fetch
             if (self.graph.branch_joiner_map.get(node.id)) |join| {
@@ -1004,9 +990,8 @@ pub const GraphBuilder = struct {
                 .entry => std.debug.panic("onFunctionCallNode should ignore entry nodes", .{}),
                 .set, .func, .return_ => {
                     const list_idx = destination_idx;
-                    const list_sexp = self.mod_ctx.get(list_idx);
-                    list_sexp.* = try Sexp.emptyListCapacity(self.mod_ctx.alloc(), 1 + node.inputs.len - 1);
-                    try list_sexp.value.list.append(self.mod_ctx.alloc(), try self.mod_ctx.add(.symbol(name)));
+                    self.mod_ctx.get(list_idx).* = try Sexp.emptyListCapacity(self.mod_ctx.alloc(), 1 + node.inputs.len - 1);
+                    _ = try self.mod_ctx.addAndAppendToList(list_idx, .symbol(name));
 
                     for (node.inputs[1..], node.desc().getInputs()[1..]) |input, input_desc| {
                         std.debug.assert(input_desc.kind == .primitive and input_desc.kind.primitive == .value);
@@ -1017,7 +1002,7 @@ pub const GraphBuilder = struct {
                             context,
                             input_desc.asPrimitivePin().value == helpers.primitive_types.code,
                         );
-                        try list_sexp.value.list.append(self.mod_ctx.alloc(), input_tree_idx);
+                        try self.mod_ctx.get(list_idx).value.list.append(self.mod_ctx.alloc(), input_tree_idx);
                     }
 
                     // TODO: impure functions should always have an optional next_node at first output
@@ -1032,7 +1017,7 @@ pub const GraphBuilder = struct {
                     }
 
                     if (needs_label) {
-                        list_sexp.label = try context.getNextLabel(alloc, node.id, list_idx);
+                        self.mod_ctx.get(list_idx).label = try context.getNextLabel(alloc, node.id, list_idx);
                     }
 
                     if (next_node == null and node.desc().kind != .return_) {

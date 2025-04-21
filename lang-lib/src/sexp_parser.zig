@@ -490,7 +490,6 @@ pub const Parser = struct {
         loc: Loc,
     };
 
-    // FIXME: force arena allocator?
     pub fn parse(
         in_alloc: std.mem.Allocator,
         src: []const u8,
@@ -512,10 +511,9 @@ pub const Parser = struct {
         // no defer; arena
         //defer label_map.deinit(in_alloc);
 
-        var module = try ModuleContext.initCapacity(out_alloc, 256);
+        var module = try ModuleContext.initCapacity(in_alloc, 256);
         module.source = src;
-        // no defer; arena
-        //errdefer module.deinit(out_alloc);
+        defer module.deinit();
 
         var loc: Loc = .{};
         // TODO: store the the opener position and whether it's a quote
@@ -742,7 +740,11 @@ pub const Parser = struct {
         }
 
         return ParseResult{
-            .module = module,
+            .module = ModuleContext{
+                .source = module.source,
+                .arena = .fromOwnedSlice(try out_alloc.dupe(Sexp, module.arena.items)),
+                ._alloc = out_alloc,
+            },
             .arena = out_arena,
         };
     }

@@ -27,6 +27,7 @@ pub const ModuleContext = struct {
     // TODO: rename from arena, which means something else in zig
     arena: std.ArrayListUnmanaged(Sexp) = .{},
     source: ?[]const u8 = null,
+    // NOTE: do not use an arena for this since 'arena' may grow often!
     _alloc: std.mem.Allocator,
 
     pub inline fn alloc(self: *@This()) std.mem.Allocator {
@@ -55,6 +56,16 @@ pub const ModuleContext = struct {
     pub inline fn getRoot(self: *const @This()) *Sexp {
         return self.get(0);
     }
+
+    /// useful because an inline add can invalidate the array list
+    pub inline fn addAndAppendToList(self: *@This(), index: u32, sexp: Sexp) !u32 {
+        const added_idx = try self.add(sexp);
+        try self.get(index).body().append(self.alloc(), added_idx);
+        return added_idx;
+    }
+
+
+
 
     pub fn init(a: std.mem.Allocator) !@This() {
         return initCapacity(a, 1);
