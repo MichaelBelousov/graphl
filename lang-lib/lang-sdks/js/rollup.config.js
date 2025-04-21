@@ -23,19 +23,32 @@ export default [
   {
     input: "./index.mts",
     plugins: [
-      zigar(),
+      zigar({
+        optimize: "ReleaseSmall",
+        //embedWASM: true, // fetch wasm by default
+      }),
       typescript({
         include: "**/*.(|m)ts(|x)",
-        noEmitHelpers: true,
-        module: 'ESNext',
-        sourceMap: true,
-        importHelpers: true
       }),
     ],
     output: [
-      // toplevel await by zigar not supported
-      //{ dir: "cjs", format: "cjs" },
       { dir: "dist/esm", format: "es" },
+    ]
+  },
+  {
+    input: "./index.mts",
+    plugins: [
+      zigar({
+        optimize: "ReleaseSmall",
+        //embedWASM: true, // fetch wasm by default
+        topLevelAwait: false,
+      }),
+      typescript({
+        include: "**/*.(|m)ts(|x)",
+      }),
+    ],
+    output: [
+      { dir: "dist/cjs", format: "cjs" },
     ]
   }
 ]
