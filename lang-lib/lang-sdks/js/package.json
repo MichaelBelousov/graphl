@@ -27,8 +27,5 @@
   },
   "files": [
     "dist"
-  ],
-  "patchedDependencies": {
-    "rollup-plugin-typescript@1.0.1": "patches/rollup-plugin-typescript@1.0.1.patch"
-  }
+  ]
 }

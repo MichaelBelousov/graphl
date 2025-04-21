@@ -1221,7 +1221,6 @@ fn renderNode(
     graph_area: *dvui.ScrollAreaWidget,
     dataRectScale: dvui.RectScale,
 ) !Rect {
-    std.log.info("node={s}, tags.len={}", .{ node._desc.name(), node._desc.tags.len });
     const root_id_extra: usize = @intCast(node.id);
 
     // FIXME:  this is temp, go back to auto graph formatting

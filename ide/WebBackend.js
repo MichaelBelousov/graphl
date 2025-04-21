@@ -1385,7 +1385,7 @@ export async function Ide(canvasElem, opts) {
 
                 const moduleBytes = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
 
-                /** @type {WasmInstWithMemory} */
+                /** @type {WebAssembly.WebAssemblyInstantiatedSource} */
                 let compiled;
 
                 const scriptImports = {
