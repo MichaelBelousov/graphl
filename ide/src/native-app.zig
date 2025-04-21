@@ -82,7 +82,9 @@ export fn runCurrentWat(ptr: ?[*]const u8, len: usize) void {
 }
 
 fn _runCurrentWat(wat: []const u8) !void {
-    _ = wat;
+    var file = try std.fs.createFileAbsolute("/tmp/compiler-native.wasm", .{});
+    defer file.close();
+    try file.writer().writeAll(wat);
     // TODO:
 }
 

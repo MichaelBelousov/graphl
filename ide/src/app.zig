@@ -481,15 +481,7 @@ pub fn runCurrentGraphs(self: *const @This()) !void {
         std.log.info("graph '{s}':\n{s}", .{ self.current_graph.name, bytes.items });
     }
 
-    var diagnostic = compiler.Diagnostic.init();
-
-    if (compiler.compile(gpa, &mod, &self.user_funcs, &diagnostic)) |module| {
-        std.log.info("compile_result:\n{s}", .{module});
-        runCurrentWat(module.ptr, module.len);
-        gpa.free(module);
-    } else |err| {
-        std.log.err("compile_error={any}", .{err});
-    }
+    @panic("compiler usage removed, FIXME");
 }
 
 pub fn exportCurrentCompiled(self: *const @This()) !void {
@@ -503,15 +495,7 @@ pub fn exportCurrentCompiled(self: *const @This()) !void {
         std.log.info("graph '{s}':\n{s}", .{ self.current_graph.name, bytes.items });
     }
 
-    var diagnostic = compiler.Diagnostic.init();
-
-    if (compiler.compile(gpa, &mod, &self.user_funcs, &diagnostic)) |module| {
-        std.log.info("compile_result:\n{s}", .{module});
-        onExportCompiled(module.ptr, module.len);
-        gpa.free(module);
-    } else |err| {
-        std.log.err("compile_error={any}", .{err});
-    }
+    @panic("compiler usage removed, FIXME");
 }
 
 fn deinitGraphs(self: *@This()) void {
