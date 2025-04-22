@@ -280,7 +280,7 @@ function makeCallUserFunc(
 ): [string, Function] {
     const key = ["callUserFunc", ...inputs.map(i => i.type.name), "R", ...outputs.map(o => o.type.name)].join("_");
     // FIXME: not a thing anymore
-    const firstArgIsReturnPtr = outputs.length > 0 && outputs[0].type.kind === "struct";
+    const firstArgIsReturnPtr = false;
 
     return [
         key,
@@ -353,8 +353,9 @@ function makeCallUserFunc(
                 // TODO: if it's a string, we need to marshal it through the transfer buffer
                 if (typeof jsRes === "string")
                     throw Error("Unimplemented string return type");
-                if (typeof jsRes !== "number")
+                if (!(typeof jsRes === "number" || typeof jsRes === "undefined")) {
                     throw Error("Unimplemented return type");
+                }
                 return jsRes;
             }
         }

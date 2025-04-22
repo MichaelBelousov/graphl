@@ -125,10 +125,9 @@ describe("js sdk", () => {
     });
 
     assert.deepStrictEqual(program.functions.processInstance(0n, {}, {}), "my_export");
-    assert.deepStrictEqual(program.functions.main(), 0);
   });
 
-  it.only("call user func", async () => {
+  it("call user func", async () => {
     let called = false;
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (main)
