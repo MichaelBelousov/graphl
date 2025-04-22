@@ -279,7 +279,8 @@ function makeCallUserFunc(
     userFuncs: UserFuncCollection
 ): [string, Function] {
     const key = ["callUserFunc", ...inputs.map(i => i.type.name), "R", ...outputs.map(o => o.type.name)].join("_");
-    const firstArgIsReturnPtr = outputs.length > 0 || outputs[0].type.kind === "struct";
+    // FIXME: not a thing anymore
+    const firstArgIsReturnPtr = outputs.length > 0 && outputs[0].type.kind === "struct";
 
     return [
         key,
@@ -400,6 +401,16 @@ interface GraphlMeta {
         // types
         outputs: string[];
     }[];
+    host: {
+        functions: {
+            id: number;
+            name: string;
+            // types
+            inputs: string[];
+            // types
+            outputs: string[];
+        }[];
+    }
 }
 
 
@@ -443,24 +454,32 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
     // need a level of indirection unfortunately (TBD if this works if we need the imports at instantiation)
     const wasmExports: WasmInstance = { exports: undefined as any };
 
+    const graphlMeta = parseGraphlMeta(data);
+
+    const neededUserFuncs = new Map(graphlMeta.host.functions.map(f => [f.name, f.id]));
+    const userFuncEnvImports: any = {};
+
     const userFuncs = new Map<number, Function>() ;
-    for (const [_name, userFuncDesc] of Object.entries(hostEnv ?? {})) {
-        userFuncs.set(userFuncs.size, userFuncDesc.impl ?? (() => {}));
+
+    for (const [name, userFuncDesc] of Object.entries(hostEnv ?? {})) {
+        const id = neededUserFuncs.get(name);
+        // ignore unnecessary user funcs
+        if (id === undefined) continue;
+        //if (id === undefined) throw Error(`unnecessary user function: ${name}`);
+        userFuncs.set(id, userFuncDesc.impl ?? (() => {}));
+        neededUserFuncs.delete(name);
+
+        const [key, impl] = makeCallUserFunc(userFuncDesc.inputs ?? [], userFuncDesc.outputs ?? [], wasmExports, userFuncs);
+        if (!(key in userFuncEnvImports)) {
+            userFuncEnvImports[key] = impl;
+        }
     }
 
-    const arrayQueue = [] as Uint8Array[];
-
-    const imports = {
-        env: {
-            ...Object.fromEntries([
-                makeCallUserFunc([], [{ type: GraphlTypes.vec3 }], wasmExports, userFuncs),
-            ]),
-        },
-    };
-    const wasm = await WebAssembly.instantiate(data, imports);
-    wasmExports.exports = (wasm.instance as WasmInstance).exports;
-
-    const graphlMeta = parseGraphlMeta(data);
+    if (neededUserFuncs.size > 0) {
+        const err = Error(`Unspecified host functions: ${[...neededUserFuncs]}`);
+        (err as any).unspecifiedFunctionNames = [...neededUserFuncs];
+        throw err;
+    }
 
     const functionMap = new Map<string, {
         name: string,
@@ -476,13 +495,21 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
         });
     }
 
+    const imports = {
+        env: {
+            ...userFuncEnvImports,
+        },
+    };
+    const wasm = await WebAssembly.instantiate(data, imports);
+    wasmExports.exports = (wasm.instance as WasmInstance).exports;
+
     return {
         // FIXME:
         functions: Object.fromEntries(
             Object.entries(wasm.instance.exports)
             .filter(([_key, graphlFunc]) => typeof graphlFunc === "function")
             .map(([key, graphlFunc]) => [key, (...args: any[]) => {
-                    // TODO: dedup with logic in makeCallUserFunc
+                    // FIXME: convert arguments (e.g. write structs)
                     const graphlRes = (graphlFunc as Function)(...args);
                     const fnOuts = functionMap.get(key)!.outputs;
                     if (fnOuts.length === 0) return undefined;

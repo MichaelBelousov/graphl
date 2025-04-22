@@ -632,6 +632,7 @@ const Compilation = struct {
             while (next) |cursor| : (next = cursor.next) {
                 // NOTE: I _think_ this is a valid use of an arena that is about to be copied...
                 try func_map.putNoClobber(result.arena.allocator(), cursor.data.node.name, &cursor.data);
+                _ = try env.addNode(alloc, graphl_builtin.basicMutableNode(&cursor.data.node));
             }
         }
 
@@ -1265,7 +1266,7 @@ const Compilation = struct {
                             field_byn_type,
                             false,
                         ),
-                        @intFromEnum(byn.Type.i32),
+                        field_byn_type,
                         main_mem_name,
                     );
                     i += 1;
@@ -3053,19 +3054,52 @@ const Compilation = struct {
         //}
 
         // FIXME: define a compiler-version independent spec for this data
+        var user_func_data = try std.ArrayListUnmanaged(struct {
+            name: []const u8,
+            id: usize,
+            inputs: []const []const u8,
+            outputs: []const []const u8,
+        }).initCapacity(self.arena.allocator(), self.user_context.func_map.count());
+        defer user_func_data.deinit(self.arena.allocator());
+
+        {
+            var user_func_iter = self.user_context.func_map.iterator();
+            while (user_func_iter.next()) |entry| {
+                const inputs = try self.arena.allocator().alloc([]const u8, entry.value_ptr.*.node.inputs.len - 1);
+                for (inputs, entry.value_ptr.*.node.inputs[1..]) |*i, param| {
+                    i.* = param.kind.primitive.value.name;
+                }
+                const outputs = try self.arena.allocator().alloc([]const u8, entry.value_ptr.*.node.outputs.len - 1);
+                for (outputs, entry.value_ptr.*.node.outputs[1..]) |*i, result| {
+                    i.* = result.kind.primitive.value.name;
+                }
+
+                user_func_data.appendAssumeCapacity(.{
+                    .name = entry.key_ptr.*,
+                    .id = entry.value_ptr.*.id,
+                    .inputs = inputs,
+                    .outputs = outputs,
+                });
+            }
+        }
+
+        // FIXME: define a compiler-version independent spec for this data
         var function_data = try std.ArrayListUnmanaged(struct {
             name: []const u8,
             inputs: []const []const u8,
             outputs: []const []const u8,
         }).initCapacity(self.arena.allocator(), self.deferred.func_decls.count());
-        defer function_data.deinit(self.arena.allocator());
+        defer {
+            // don't deallocate arena-allocated input/output arrays
+            //for (function_data.items) |fd| 
+            function_data.deinit(self.arena.allocator());
+        }
 
         {
             std.debug.assert(self.deferred.func_decls.count() == self.deferred.func_types.count());
             var func_decl_iter = self.deferred.func_decls.iterator();
 
             while (func_decl_iter.next()) |func_decl_entry| {
-                //const func_decl = func_decl_entry.value_ptr;
                 const func_type = self.deferred.func_types.getPtr(func_decl_entry.key_ptr.*) orelse unreachable;
                 const inputs = try self.arena.allocator().alloc([]const u8, func_type.param_types.len);
                 for (inputs, func_type.param_types) |*i, param| {
@@ -3091,6 +3125,9 @@ const Compilation = struct {
             .functions = function_data.items,
             // FIXME: also define types
             .types = &[_](struct { name: []const u8 }){},
+            .host = .{
+                .functions = user_func_data.items,
+            },
         }, .{});
 
         byn.c.BinaryenAddCustomSection(

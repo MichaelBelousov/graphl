@@ -100,11 +100,12 @@ describe("js sdk", () => {
     assert.deepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello" });
   });
 
-  it.only("return (string i32)", async () => {
+  it.only("vec3 param", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (processInstance u64
                                vec3
-                               vec3)
+                               vec3
+                              )
               string)
       (define (processInstance MeshId
                                Origin
@@ -116,14 +117,37 @@ describe("js sdk", () => {
               (begin (Confetti 100)
                      (return 0)))
     `, {
-        Confetti: {
-            name: "Confetti",
-            inputs: [{
-                type: GraphlTypes.i32,
-            }],
-            outputs: [],
-        },
+      Confetti: {
+        name: "Confetti",
+        inputs: [{ type: GraphlTypes.i32 }],
+        outputs: [],
+      },
     });
-    assert.deepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello" });
+
+    assert.deepStrictEqual(program.functions.processInstance(0n, {}, {}), "my_export");
+    assert.deepStrictEqual(program.functions.main(), 0);
+  });
+
+  it.only("call user func", async () => {
+    let called = false;
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (typeof (main)
+              i32)
+      (define (main)
+              (begin (Confetti 100)
+                     (return 0)))
+    `, {
+      Confetti: {
+        name: "Confetti",
+        inputs: [{ type: GraphlTypes.i32 }],
+        outputs: [],
+        impl() {
+          called = true;
+        }
+      },
+    });
+
+    assert.deepStrictEqual(program.functions.main(), 0);
+    assert(called);
   });
 });
