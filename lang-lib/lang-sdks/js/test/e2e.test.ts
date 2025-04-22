@@ -1,10 +1,10 @@
 // TODO: make it possible to detect bun vs node
-import { describe, expect, it, setDefaultTimeout } from "bun:test";
-//import { describe, it } from "node:test";
+//import { describe, expect, it, setDefaultTimeout } from "bun:test";
+import { describe, it } from "node:test";
 import assert from "node:assert";
-import { compileGraphltSourceAndInstantiateProgram } from "../index.mts";
+import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../index.mts";
 
-setDefaultTimeout(1_000_000); // might need to compile zig code
+//setDefaultTimeout(1_000_000); // might need to compile zig code
 
 describe("js sdk", () => {
   it("syntax error extra paren", async () => {
@@ -97,6 +97,33 @@ describe("js sdk", () => {
       (typeof (foo) (i32 string))
       (define (foo) (return 5 "hello"))
     `);
+    assert.deepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello" });
+  });
+
+  it.only("return (string i32)", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (typeof (processInstance u64
+                               vec3
+                               vec3)
+              string)
+      (define (processInstance MeshId
+                               Origin
+                               Rotation)
+              (begin (return "my_export")))
+      (typeof (main)
+              i32)
+      (define (main)
+              (begin (Confetti 100)
+                     (return 0)))
+    `, {
+        Confetti: {
+            name: "Confetti",
+            inputs: [{
+                type: GraphlTypes.i32,
+            }],
+            outputs: [],
+        },
+    });
     assert.deepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello" });
   });
 });

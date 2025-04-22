@@ -134,7 +134,10 @@ pub const Diagnostic = struct {
                 // FIXME: HACK
                 const sexp = self.graphlt_module.get(sym_id);
 
-                std.debug.assert(sexp.span != null and self.graphlt_module.source != null);
+                if (sexp.span == null or self.graphlt_module.source == null) {
+                    try writer.print("Undefined symbol '{s}'", .{sexp.value.symbol});
+                    return;
+                }
 
                 const span = sexp.span.?;
                 const byte_offset: usize = span.ptr - self.graphlt_module.source.?.ptr;
@@ -160,7 +163,10 @@ pub const Diagnostic = struct {
                 // FIXME: HACK
                 const sexp = self.graphlt_module.get(err_info.callee);
 
-                std.debug.assert(sexp.span != null and self.graphlt_module.source != null);
+                if (sexp.span == null or self.graphlt_module.source == null) {
+                    try writer.print("Incorrect argument count for '{s}'", .{sexp.value.symbol});
+                    return;
+                }
 
                 const span = sexp.span.?;
                 const byte_offset: usize = span.ptr - self.graphlt_module.source.?.ptr;
@@ -189,7 +195,13 @@ pub const Diagnostic = struct {
                 // FIXME: HACK
                 const sexp = self.graphlt_module.get(err_info.idx);
 
-                std.debug.assert(sexp.span != null and self.graphlt_module.source != null);
+                if (sexp.span == null or self.graphlt_module.source == null) {
+                    try writer.print("Attempted to access field '{s}' of type '{s}' which doesn't support field access", .{
+                        err_info.field_name,
+                        err_info.type.name,
+                    });
+                    return;
+                }
 
                 const span = sexp.span.?;
                 const byte_offset: usize = span.ptr - self.graphlt_module.source.?.ptr;
@@ -217,7 +229,13 @@ pub const Diagnostic = struct {
                 // FIXME: HACK
                 const sexp = self.graphlt_module.get(err_info.idx);
 
-                std.debug.assert(sexp.span != null and self.graphlt_module.source != null);
+                if (sexp.span == null or self.graphlt_module.source == null) {
+                    try writer.print("Attempted to access field '{s}', but type '{s}' has no such field", .{
+                        err_info.field_name,
+                        err_info.type.name,
+                    });
+                    return;
+                }
 
                 const span = sexp.span.?;
                 const byte_offset: usize = span.ptr - self.graphlt_module.source.?.ptr;
@@ -257,7 +275,12 @@ pub const Diagnostic = struct {
                 // FIXME: HACK
                 const sexp = self.graphlt_module.get(idx);
 
-                std.debug.assert(sexp.span != null and self.graphlt_module.source != null);
+                if (sexp.span == null or self.graphlt_module.source == null) {
+                    try writer.print("{s}: '{s}'", .{ @tagName(tag), sexp.value.symbol });
+                    return;
+                }
+
+
                 const span = sexp.span.?;
                 const byte_offset: usize = span.ptr - self.graphlt_module.source.?.ptr;
 
@@ -1774,7 +1797,7 @@ const Compilation = struct {
                     const func_node_desc = self.env.getNode(func.value.symbol) orelse {
                         log.err("while in:\n{}\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
                         log.err("undefined symbol1: '{s}'\n", .{func.value.symbol});
-                        self.diag.err = .{ .UndefinedSymbol = code_sexp_idx };
+                        self.diag.err = .{ .UndefinedSymbol = v.items[0] };
                         return error.UndefinedSymbol;
                     };
 

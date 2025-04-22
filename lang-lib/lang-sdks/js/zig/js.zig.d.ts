@@ -3,12 +3,14 @@ export declare interface Uint32Pair {
 }
 
 export declare class Diagnostic {
-    error: string;
+  public constructor(obj: {});
+  error: string;
 }
 
 export declare function compileSource(
   file_name: string,
   src: string,
+  user_func_json: string,
   diagnostic: {
     error: string
   } | undefined,

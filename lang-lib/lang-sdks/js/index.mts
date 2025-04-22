@@ -455,23 +455,6 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
             ...Object.fromEntries([
                 makeCallUserFunc([], [{ type: GraphlTypes.vec3 }], wasmExports, userFuncs),
             ]),
-            log_f64(f: number) {
-                console.log("f64: ", f);
-            },
-            log_i32(f: number) {
-                console.log("i32: ", f);
-            },
-            // FIXME: remove
-            // __host_transfer_enqueued_array(offset: number): void {
-            //     const head = arrayQueue[0];
-            //     if (head === undefined) throw Error("bad graphl dequeue");
-            //     const page = head.slice(offset, offset + TRANSFER_BUF_LEN);
-            //     (new Uint8Array(wasmExports.exports.memory.buffer)).set(page);
-
-            //     if (page.byteLength === 0) {
-            //         arrayQueue.shift();
-            //     }
-            // }
         },
     };
     const wasm = await WebAssembly.instantiate(data, imports);
@@ -516,12 +499,30 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
     source: string,
     hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
 ): Promise<GraphlProgram<Funcs>> {
+    const userFuncDescs = Object.fromEntries(
+        Object.entries(hostEnv).map(([k, v], i) => [
+            k,
+            {
+                id: i,
+                node: {
+                    name: v.name,
+                    //hidden: false,
+                    //kind: "func",
+                    inputs: v.inputs?.map((inp, j) => ({ name: `p${j}`, type: inp.type.name })) ?? [],
+                    outputs: v.outputs?.map((out, j) => ({ name: `p${j}`, type: out.type.name })) ?? [],
+                    tags: ["host"],
+                },
+            }
+        ]),
+    );
+    const userFuncDescsJson = JSON.stringify(userFuncDescs);
+
     // if in node make sure to use --loader=node-zigar
     const zig = await import("./zig/js.zig");
     let compiledWasm;
     const diagnostic = new zig.Diagnostic({});
     try {
-        compiledWasm = zig.compileSource("unknown", source, diagnostic).typedArray;
+        compiledWasm = zig.compileSource("unknown", source, userFuncDescsJson, diagnostic).typedArray;
         if (process.env.DEBUG)
             (await import("node:fs")).writeFileSync("/tmp/jssdk-compiler-test.wasm", compiledWasm)
     } catch (err: any) {

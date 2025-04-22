@@ -739,10 +739,13 @@ pub const Parser = struct {
             return Error.UnmatchedOpener;
         }
 
+        const out_mod_arena = std.ArrayListUnmanaged(Sexp).fromOwnedSlice(try out_alloc.dupe(Sexp, module.arena.items));
+        module.arena.clearRetainingCapacity();
+
         return ParseResult{
             .module = ModuleContext{
                 .source = module.source,
-                .arena = .fromOwnedSlice(try out_alloc.dupe(Sexp, module.arena.items)),
+                .arena = out_mod_arena,
                 ._alloc = out_alloc,
             },
             .arena = out_arena,

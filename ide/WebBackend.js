@@ -49,6 +49,7 @@ async function dvui_open_file_picker(accept, multiple) {
                 return;
             }
             res(file_input.files);
+
         };
         file_input.click();
     });

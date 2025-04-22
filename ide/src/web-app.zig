@@ -32,6 +32,7 @@ pub const GraphInitStateJson = struct {
 
 pub const GraphsInitStateJson = std.json.ArrayHashMap(GraphInitStateJson);
 
+// FIXME: copied by compiler js sdk, should move up and share
 pub const PinJson = struct {
     name: [:0]const u8,
     type: []const u8,
