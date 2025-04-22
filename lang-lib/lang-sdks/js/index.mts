@@ -116,6 +116,117 @@ function writeJsValueToDataForGraphl(jsVal: any, view: DataView, offset: number,
     }
 }
 
+function jsValToGraphlPrimitiveVal(
+    graphlVal: number,
+    graphlType: GraphlType,
+    wasm: WasmInstance,
+): number | WasmHeapType {
+    if (graphlType === GraphlTypes.string) {
+        // TODO: deduplicate with other exact same usage
+        // FIXME: use streaming Decoder
+        const textDecoder = new TextEncoder();
+        let offset = 0;
+        const chunks = [] as Uint8Array[];
+
+        while (true) {
+            const bytesWrittenCount = wasm.exports.__graphl_host_copy(graphlVal, offset);
+            if (bytesWrittenCount === 0) break;
+            offset += bytesWrittenCount;
+            const chunk = new Uint8Array(wasm.exports.memory.buffer, TRANSFER_BUF_PTR, bytesWrittenCount);
+            chunks.push(chunk);
+        }
+
+        const totalSize = offset;
+        const fullData = new Uint8Array(totalSize);
+
+        // TODO: use streaming decoder
+        {
+            let fullDataOffset = 0;
+            for (const chunk of chunks) {
+                fullData.set(chunk, fullDataOffset);
+                fullDataOffset += chunk.byteLength;
+            }
+        }
+
+        return textDecoder.decode(fullData);
+    } else {
+        return graphlVal
+    }
+}
+
+function jsValToGraphlStructVal(
+    graphlVal: WasmHeapType,
+    graphlType: GraphlType,
+    wasm: WasmInstance,
+): any {
+    const _arrayCount = wasm.exports[`__graphl_write_struct_${graphlType.name}_fields`](graphlVal);
+
+    const arraySlotQueue = [] as { obj: any, fieldName: string }[];
+
+    const result: any = {};
+
+    function graphlStructMemToJsVal(subStructType: GraphlType, offset: number, result: any = {}) {
+        if (subStructType.kind !== "struct") throw Error("structs only");
+
+        const transferBufView = new DataView(wasm.exports.memory.buffer, TRANSFER_BUF_PTR, TRANSFER_BUF_LEN);
+
+        // FIXME: extract arrays!
+        for (let i = 0; i < subStructType.fieldNames.length; ++i) {
+            const fieldType = subStructType.fieldTypes[i];
+            const fieldName = subStructType.fieldNames[i];
+            const fieldOffset = subStructType.fieldOffsets[i];
+
+            if (fieldType === GraphlTypes.f64) {
+                result[fieldName] = transferBufView.getFloat64(fieldOffset, true);
+            } else if (fieldType === GraphlTypes.i32) {
+                result[fieldName] = transferBufView.getInt32(fieldOffset, true);
+            } else if (fieldType === GraphlTypes.string) {
+                arraySlotQueue.push({ obj: result, fieldName })
+            } else if (fieldType.kind === "struct") {
+                result[fieldName] = {};
+                // FIXME: bad struct val
+                graphlStructMemToJsVal(fieldType, offset + fieldOffset);
+            } else {
+                throw Error(`unhandled field type: ${fieldType.name}`);
+            }
+        }
+
+
+        return result;
+    }
+
+    graphlStructMemToJsVal(graphlType, 0, result);
+
+    {
+        let i = 0;
+        for (const arraySlot of arraySlotQueue) {
+            // FIXME: make a common function for this...
+            const chunks = [] as Uint8Array[];
+            let offset = 0;
+            while (true) {
+                const arrayLen = wasm.exports[`__graphl_write_struct_${graphlType.name}_array`](graphlVal, i, offset);
+                const chunk = new Uint8Array(wasm.exports.memory.buffer, TRANSFER_BUF_PTR, arrayLen);
+                chunks.push(chunk);
+                if (chunk.byteLength === 0) break;
+                offset += arrayLen;
+            }
+            const fullData = new Uint8Array(offset);
+            // TODO: use streaming decoder instead
+            {
+                let fullDataOffset = 0;
+                for (const chunk of chunks) {
+                    fullData.set(chunk, fullDataOffset);
+                    fullDataOffset += chunk.byteLength;
+                }
+            }
+            arraySlot.obj[arraySlot.fieldName] = new TextDecoder().decode(fullData);
+            i += 1;
+        }
+    }
+
+    return result;
+}
+
 function graphlPrimitiveValToJsVal(
     graphlVal: number,
     graphlType: GraphlType,
@@ -154,7 +265,7 @@ function graphlPrimitiveValToJsVal(
     }
 }
 
-function readGraphlStructValToJsVal(
+function graphlStructValToJsVal(
     graphlVal: WasmHeapType,
     graphlType: GraphlType,
     wasm: WasmInstance,
@@ -229,13 +340,18 @@ function readGraphlStructValToJsVal(
 
 type WasmHeapType = {};
 
-function jsValToGraphlStruct(
+function jsValToGraphlVal(
     jsVal: any,
-    structType: GraphlType,
+    graphlType: GraphlType,
     wasm: WasmInstance,
-): WasmHeapType {
-    //const result = wasm.exports[`__graphl_write_struct_${graphlType.name}_array`](graphlVal, i, offset);
-    return result;
+): any {
+    if (graphlType.kind === "primitive") {
+        return jsValToGraphlPrimitiveVal(jsVal, graphlType, wasm)
+    } else if (graphlType.kind === "struct") {
+        return jsValToGraphlStructVal(jsVal, graphlType, wasm);
+    } else {
+        throw Error("unhandled");
+    }
 }
 
 function graphlValToJsVal(
@@ -246,7 +362,7 @@ function graphlValToJsVal(
     if (graphlType.kind === "primitive") {
         return graphlPrimitiveValToJsVal(graphlVal, graphlType, wasm)
     } else if (graphlType.kind === "struct") {
-        return readGraphlStructValToJsVal(graphlVal, graphlType, wasm);
+        return graphlStructValToJsVal(graphlVal, graphlType, wasm);
     } else {
         throw Error("unhandled");
     }
@@ -259,11 +375,29 @@ const TRANSFER_BUF_LEN = 4096;
 type WasmInstance = WebAssembly.Instance & {
     exports: {
         memory: WebAssembly.Memory;
-        __graphl_host_copy(str: any, offset: number): number;
-        /** returns the amount of arrays in the struct */
-        [K: `__graphl_write_struct_${string}_fields`]: (struct: any) => number,
-        /** returns amount of bytes written */
-        [K: `__graphl_write_struct_${string}_array`]: (struct: any, arraySlotIndex: number, offset: number) => number,
+        __graphl_create_array_string(size: number): WasmHeapType;
+        __graphl_write_array(str: WasmHeapType, offset: number): void;
+        // FIXME: rename this to like read_array_page
+        __graphl_host_copy(str: WasmHeapType, offset: number): number;
+        /**
+         * writes the fields of a graphl struct into the transfer buffer
+         * @returns the amount of arrays in the struct
+         */
+        [K: `__graphl_write_struct_${string}_fields`]: (struct: WasmHeapType) => number,
+        /**
+         * writes the bytes of a graphl array at the specified array slot index of a struct into the transfer buffer
+         * @returns the amount of bytes written which may be the transfer buffer size meaning this should
+         * be called again with a higher offset
+         */
+        [K: `__graphl_write_struct_${string}_array`]: (struct: WasmHeapType, arraySlotIndex: number, offset: number) => number,
+        /**
+         * reads the fields for a graphl struct from the transfer buffer
+         */
+        [K: `__graphl_read_struct_${string}_fields`]: (struct: WasmHeapType) => void,
+        /**
+         * reads bytes from the transfer buffer for a graphl array at the spec
+         */
+        [K: `__graphl_read_struct_${string}_array`]: (struct: WasmHeapType, arraySlotIndex: number, offset: number, length: number) => void,
     },
 };
 
@@ -506,7 +640,8 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
             .filter(([_key, graphlFunc]) => typeof graphlFunc === "function")
             .map(([key, graphlFunc]) => [key, (...args: any[]) => {
                     // FIXME: convert arguments (e.g. write structs)
-                    const graphlRes = (graphlFunc as Function)(...args);
+                    const graphlArgs = args.map(arg => jsValToGraphlStruct);
+                    const graphlRes = (graphlFunc as Function)(...graphlArgs);
                     const fnOuts = functionMap.get(key)!.outputs;
                     if (fnOuts.length === 0) return undefined;
                     if (fnOuts.length === 1) return graphlValToJsVal(graphlRes, fnOuts[0].type, wasmExports);

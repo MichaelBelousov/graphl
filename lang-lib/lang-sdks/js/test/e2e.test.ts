@@ -104,8 +104,7 @@ describe("js sdk", () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (processInstance u64
                                vec3
-                               vec3
-                              )
+                               vec3)
               string)
       (define (processInstance MeshId
                                Origin
@@ -124,7 +123,11 @@ describe("js sdk", () => {
       },
     });
 
-    assert.deepStrictEqual(program.functions.processInstance(0n, {}, {}), "my_export");
+    assert.deepStrictEqual(program.functions.processInstance(
+      0xffff_ffff_ffff_ffffn,
+      { x: 1, y: 2, z: 3 },
+      { x: 4.5, y: 6.7, z: 8.9 },
+    ), "my_export");
   });
 
   it("call user func", async () => {
