@@ -547,32 +547,28 @@ pub const GraphBuilder = struct {
 
     // FIXME: emit move name to the graph
     /// NOTE: the outer module is a sexp list
-    pub fn compile(self: *@This(), alloc: std.mem.Allocator, name: []const u8, mod_ctx: *ModuleContext, diagnostic: ?*Diagnostics) !void {
-        try self.branch_joiner_map.ensureTotalCapacity(alloc, self.branch_count);
-        try self.is_join_set.resize(alloc, self.nodes.map.count(), false);
+    pub fn compile(self: *@This(), in_alloc: std.mem.Allocator, name: []const u8, mod_ctx: *ModuleContext, diagnostic: ?*Diagnostics) !void {
+        try self.branch_joiner_map.ensureTotalCapacity(in_alloc, self.branch_count);
+        try self.is_join_set.resize(in_alloc, self.nodes.map.count(), false);
 
         // FIXME: this causes a crash in non-debug builds
-        var analysis_arena = std.heap.ArenaAllocator.init(alloc);
-        try self.analyzeNodes(alloc);
+        var analysis_arena = std.heap.ArenaAllocator.init(in_alloc);
+        try self.analyzeNodes(in_alloc);
         analysis_arena.deinit();
 
-        try mod_ctx.getRoot().value.module.ensureTotalCapacity(alloc, 1 + self.nodes.map.count());
+        try mod_ctx.arena.ensureUnusedCapacity(mod_ctx.alloc(), 1 + self.nodes.map.count());
+        try mod_ctx.getRoot().value.module.ensureUnusedCapacity(mod_ctx.alloc(), 2);
 
-        var body = try self.rootToSexp(alloc, mod_ctx, diagnostic);
+        var body = try self.rootToSexp(in_alloc, mod_ctx, diagnostic);
         std.debug.assert(body.value == .list);
+        defer body.value.list.clearAndFree(in_alloc);
 
-        const insert_pt_idx = try mod_ctx.add(.empty_list);
-        try mod_ctx.getRoot().body().append(mod_ctx.alloc(), insert_pt_idx);
-        try mod_ctx.get(insert_pt_idx).value.list.ensureTotalCapacityPrecise(alloc, 2);
-        const type_def_idx = try mod_ctx.add(.empty_list);
-        mod_ctx.get(insert_pt_idx).value.list.appendAssumeCapacity(type_def_idx);
-        const func_def_idx = try mod_ctx.add(.empty_list);
-        mod_ctx.get(insert_pt_idx).value.list.appendAssumeCapacity(func_def_idx);
+        const type_def_idx = try mod_ctx.addToRoot(.empty_list);
 
         const params = self.entry_node_basic_desc.outputs[1..];
 
         {
-            try mod_ctx.get(type_def_idx).value.list.ensureTotalCapacityPrecise(alloc, 3);
+            try mod_ctx.get(type_def_idx).value.list.ensureTotalCapacityPrecise(mod_ctx.alloc(), 3);
             _ = try mod_ctx.addAndAppendToList(type_def_idx, syms.typeof);
 
             const param_bindings_idx = try mod_ctx.add(.empty_list);
@@ -580,7 +576,7 @@ pub const GraphBuilder = struct {
             mod_ctx.get(type_def_idx).value.list.appendAssumeCapacity(param_bindings_idx);
             mod_ctx.get(type_def_idx).value.list.appendAssumeCapacity(result_type_idx);
 
-            try mod_ctx.get(param_bindings_idx).value.list.ensureTotalCapacityPrecise(alloc, 1 + params.len);
+            try mod_ctx.get(param_bindings_idx).value.list.ensureTotalCapacityPrecise(mod_ctx.alloc(), 1 + params.len);
             const name_idx = try mod_ctx.add(.symbol(name));
             mod_ctx.get(param_bindings_idx).value.list.appendAssumeCapacity(name_idx);
             for (params) |param| {
@@ -602,22 +598,24 @@ pub const GraphBuilder = struct {
             }
         }
 
+        const func_def_idx = try mod_ctx.addToRoot(.empty_list);
+
         {
             mod_ctx.get(func_def_idx).* = .empty_list;
-            try mod_ctx.get(func_def_idx).value.list.ensureTotalCapacityPrecise(alloc, 3);
+            try mod_ctx.get(func_def_idx).value.list.ensureTotalCapacityPrecise(mod_ctx.alloc(), 3);
             _ = try mod_ctx.addAndAppendToList(func_def_idx, syms.define);
-            const func_bindings_idx = try mod_ctx.add(try .emptyListCapacity(alloc, 1 + params.len));
+            const func_bindings_idx = try mod_ctx.add(try .emptyListCapacity(mod_ctx.alloc(), 1 + params.len));
             const body_begin_idx = try mod_ctx.add(.empty_list);
             mod_ctx.get(func_def_idx).value.list.appendAssumeCapacity(func_bindings_idx);
             mod_ctx.get(func_def_idx).value.list.appendAssumeCapacity(body_begin_idx);
 
             // 1 for "begin", then local defs, then 1 for body
-            try mod_ctx.get(body_begin_idx).value.list.ensureTotalCapacityPrecise(alloc, 1 + 2 * self.locals.items.len + body.value.list.items.len + 1);
+            try mod_ctx.get(body_begin_idx).value.list.ensureTotalCapacityPrecise(mod_ctx.alloc(), 1 + 2 * self.locals.items.len + body.value.list.items.len + 1);
             _ = try mod_ctx.addAndAppendToList(body_begin_idx, syms.begin);
             for (self.locals.items) |local| {
                 const local_type_idx = try mod_ctx.add(.empty_list);
                 mod_ctx.get(body_begin_idx).value.list.appendAssumeCapacity(local_type_idx);
-                try mod_ctx.get(local_type_idx).value.list.ensureTotalCapacityPrecise(alloc, 3);
+                try mod_ctx.get(local_type_idx).value.list.ensureTotalCapacityPrecise(mod_ctx.alloc(), 3);
                 _ = try mod_ctx.addAndAppendToList(local_type_idx, syms.typeof);
                 _ = try mod_ctx.addAndAppendToList(local_type_idx, Sexp{
                     .value = .{ .symbol = pool.getSymbol(local.name) },
@@ -628,7 +626,7 @@ pub const GraphBuilder = struct {
                     .comment = local.comment,
                 });
 
-                const local_def_idx = try mod_ctx.add(try .emptyListCapacity(alloc, if (local.default != null) 3 else 2));
+                const local_def_idx = try mod_ctx.add(try .emptyListCapacity(mod_ctx.alloc(), if (local.default != null) 3 else 2));
                 mod_ctx.get(body_begin_idx).value.list.appendAssumeCapacity(local_def_idx);
 
                 _ = try mod_ctx.addAndAppendToList(local_def_idx, syms.define);
@@ -639,8 +637,8 @@ pub const GraphBuilder = struct {
                 if (local.default) |default|
                     _ = try mod_ctx.addAndAppendToList(local_def_idx, default);
             }
+            // FIXME: why not to owned slice?
             mod_ctx.get(body_begin_idx).value.list.appendSliceAssumeCapacity(body.value.list.items);
-            body.value.list.clearAndFree(alloc);
 
             // FIXME: also emit imports and definitions!
             // FIXME: dupe this?

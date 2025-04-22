@@ -1419,7 +1419,7 @@ export async function Ide(canvasElem, opts) {
                     name: "Build",
                     submenus: [
                         {
-                            name: "Run",
+                            name: "Run main",
                             async onClick() {
                                 /** @type {Awaited<ReturnType<typeof result["compile"]>>} */
                                 let compiled;
