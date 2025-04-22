@@ -25,6 +25,7 @@ export type GraphlType =
 ;
 
 export namespace GraphlTypes {
+    export const void_: GraphlType = { name: "void", kind: "primitive", size: 0 };
     export const i32: GraphlType = { name: "i32", kind: "primitive", size: 4 };
     export const u32: GraphlType = { name: "u32", kind: "primitive", size: 4 };
     export const i64: GraphlType = { name: "i64", kind: "primitive", size: 8 };
@@ -54,7 +55,10 @@ export namespace GraphlTypes {
     }
 };
 
-export function structFromTypeArray(name: string, types: GraphlType[]): GraphlType {
+export function typeFromTypeArray(name: string, types: GraphlType[]): GraphlType {
+    if (types.length === 0) return GraphlTypes.void_;
+    if (types.length === 1) return types[0];
+
     let offset = 0;
     const fieldOffsets = [] as number[];
     for (const graphlType of types) {
@@ -80,7 +84,7 @@ export interface UserFuncOutput {
     type: GraphlType;
 }
 
-function writeJsValueForGraphl(jsVal: any, view: DataView, offset: number, graphlType: GraphlType) {
+function writeJsValueToDataForGraphl(jsVal: any, view: DataView, offset: number, graphlType: GraphlType) {
     if (graphlType === GraphlTypes.f64) {
         if (typeof jsVal !== "number") {
             const err = Error(`jsVal '${JSON.stringify(jsVal)}' was not a valid f64`);
@@ -107,7 +111,7 @@ function writeJsValueForGraphl(jsVal: any, view: DataView, offset: number, graph
             const fieldName = graphlType.fieldNames[i];
             const fieldType = graphlType.fieldTypes[i];
             const fieldOffset = graphlType.fieldOffsets[i];
-            writeJsValueForGraphl(jsVal[fieldName], view, offset + fieldOffset, fieldType)
+            writeJsValueToDataForGraphl(jsVal[fieldName], view, offset + fieldOffset, fieldType)
         }
     }
 }
@@ -150,13 +154,11 @@ function graphlPrimitiveValToJsVal(
     }
 }
 
-function graphlStructValToJsVal(
-    graphlVal: any,
+function readGraphlStructValToJsVal(
+    graphlVal: WasmHeapType,
     graphlType: GraphlType,
     wasm: WasmInstance,
 ): any {
-    if (graphlType.kind !== "struct") throw Error("structs only");
-
     const _arrayCount = wasm.exports[`__graphl_write_struct_${graphlType.name}_fields`](graphlVal);
 
     const arraySlotQueue = [] as { obj: any, fieldName: string }[];
@@ -225,6 +227,16 @@ function graphlStructValToJsVal(
     return result;
 }
 
+type WasmHeapType = {};
+
+function jsValToGraphlStruct(
+    jsVal: any,
+    structType: GraphlType,
+    wasm: WasmInstance,
+): WasmHeapType {
+    //const result = wasm.exports[`__graphl_write_struct_${graphlType.name}_array`](graphlVal, i, offset);
+    return result;
+}
 
 function graphlValToJsVal(
     graphlVal: any,
@@ -234,11 +246,10 @@ function graphlValToJsVal(
     if (graphlType.kind === "primitive") {
         return graphlPrimitiveValToJsVal(graphlVal, graphlType, wasm)
     } else if (graphlType.kind === "struct") {
-        return graphlStructValToJsVal(graphlVal, graphlType, wasm);
+        return readGraphlStructValToJsVal(graphlVal, graphlType, wasm);
     } else {
         throw Error("unhandled");
     }
-
 }
 
 const TRANSFER_BUF_PTR = 1024;
@@ -279,8 +290,6 @@ function makeCallUserFunc(
     userFuncs: UserFuncCollection
 ): [string, Function] {
     const key = ["callUserFunc", ...inputs.map(i => i.type.name), "R", ...outputs.map(o => o.type.name)].join("_");
-    // FIXME: not a thing anymore
-    const firstArgIsReturnPtr = false;
 
     return [
         key,
@@ -340,24 +349,10 @@ function makeCallUserFunc(
                 return jsParams;
             };
 
-            if (firstArgIsReturnPtr && outputs[0].type.kind === "struct") {
-                const returnPtr = abiParams[0];
-                const jsParams = paramsToJs(abiParams.slice(1));
-                const jsRes = userFunc.call(undefined, jsParams);
-                const resultView = new DataView(wasm.exports.memory.buffer, returnPtr, outputs[0].type.size);
-                writeJsValueForGraphl(jsRes, resultView, 0, outputs[0].type);
-                return;
-            } else if (!firstArgIsReturnPtr) {
-                const jsParams = paramsToJs(abiParams);
-                const jsRes = userFunc.call(undefined, jsParams);
-                // TODO: if it's a string, we need to marshal it through the transfer buffer
-                if (typeof jsRes === "string")
-                    throw Error("Unimplemented string return type");
-                if (!(typeof jsRes === "number" || typeof jsRes === "undefined")) {
-                    throw Error("Unimplemented return type");
-                }
-                return jsRes;
-            }
+            const jsParams = paramsToJs(abiParams);
+            const jsRes = userFunc.call(undefined, jsParams);
+            const returnType = typeFromTypeArray(key, outputs.map(t => t.type));
+            return graphlValToJsVal(jsRes, returnType, wasm);
         }
     ];
 }
@@ -515,7 +510,7 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
                     const fnOuts = functionMap.get(key)!.outputs;
                     if (fnOuts.length === 0) return undefined;
                     if (fnOuts.length === 1) return graphlValToJsVal(graphlRes, fnOuts[0].type, wasmExports);
-                    const returnType = structFromTypeArray(key, fnOuts.map(t => t.type));
+                    const returnType = typeFromTypeArray(key, fnOuts.map(t => t.type));
                     return graphlValToJsVal(graphlRes, returnType, wasmExports);
                 }
             ])
