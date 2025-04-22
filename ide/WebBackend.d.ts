@@ -7,7 +7,7 @@ import { GraphlType, GraphlProgram } from "@graphl/compiler-js";
 export declare class Ide<Funcs extends Record<string, (...args: any[]) => any>> {
   public constructor(canvas: HTMLCanvasElement, opts?: Ide.Options)
   public compile(): Promise<GraphlProgram<Funcs>>;
-  public exportCompiled(): Promise<Uint8Array>;
+  public compileGraph(): Promise<string>;
 }
 
 export declare type PrimitiveType =

@@ -1,6 +1,8 @@
-// FIXME: avoid globals until the consumer level
-var app: App = .{};
-var init_opts: App.InitOptions = .{};
+// FIXME: avoid globals/module-level-state until the consumer level
+var app: App = undefined;
+var init_opts: App.InitOptions = .{
+    .transfer_buffer = transfer_buffer[0..],
+};
 
 pub const MenuOptionJson = struct {
     name: []const u8,
@@ -97,17 +99,9 @@ pub fn frame() !void {
     try app.frame();
 }
 
-export const graphl_init_buffer = std.mem.zeroes([std.wasm.page_size]u8); // = undefined;
-// var graphl_init_buffer: *[std.wasm.page_size]u8 = undefined;
-
-// TODO: also a result size global
+// FIXME: just use the transfer buffer again
 export var result_buffer = std.mem.zeroes([4096]u8);
-
-export fn _runCurrentGraphs() void {
-    app.runCurrentGraphs() catch |e| {
-        std.log.err("Error running: {}", .{e});
-    };
-}
+export var transfer_buffer = std.mem.zeroes([std.wasm.page_size]u8);
 
 export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
     const src = (in_ptr orelse return)[0..len];
@@ -119,10 +113,10 @@ export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
 }
 
 /// returns null if failure
-export fn exportCurrentCompiled() void {
-    app.exportCurrentCompiled() catch |err| {
+export fn exportCurrentCompiled() usize {
+    return app.exportCurrentCompiled() catch |err| {
         std.log.err("sourceToGraph error: {}", .{err});
-        return;
+        return 0;
     };
 }
 
@@ -307,6 +301,7 @@ fn _setInitOpts(in_json: []const u8) !void {
 
     init_opts = .{
         .result_buffer = &result_buffer,
+        .transfer_buffer = &transfer_buffer,
         .menus = menus,
         .graphs = graphs,
         .user_funcs = user_funcs,

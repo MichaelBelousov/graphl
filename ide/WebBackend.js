@@ -1314,23 +1314,15 @@ export async function Ide(canvasElem, opts) {
     const userFuncs = new Map();
 
     /** @type {Map<number, (() => void) | undefined>} */
-    const menuOnClick = new Map();
-    //
-    // FIXME: gross, instead expose ide.exportCompiled and allow the host
-    // to define custom menu items using that to download the file
-    /** @type {undefined | (() => void)} */
-    let onExportCompiledOverride = undefined;
+    const menuOnClickMap = new Map();
 
     let fds = [
       new OpenFile(new File([])), // stdin
       ConsoleStdout.lineBuffered(msg => console.log(`[WASI stdout] ${msg}`)),
       ConsoleStdout.lineBuffered(msg => console.warn(`[WASI stderr] ${msg}`)),
-      new PreopenDirectory(".", []),
+      new PreopenDirectory(".", new Map()),
     ];
     let wasi = new WASI(["bin", "arg1"], ["FOO=bar"], fds);
-
-    /** @type {WebAssembly.WebAssemblyInstantiatedSource} */
-    let compiled;
 
     const dvui = new Dvui();
     const imports = {
@@ -1339,12 +1331,14 @@ export async function Ide(canvasElem, opts) {
         env: {
             main() {},
             //wasm_opt_transfer: sharedWasmMem,
-            onExportSource: (ptr, len) => {
+            // FIXME: remove
+            onExportCurrentSource: (ptr, len) => {
                 if (len === 0) return;
-                const content = utf8decoder.decode(new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len));
+                const content = utf8decoder.decode(new Uint8Array(ideWasm.instance.exports.memory.buffer, ptr, len));
                 console.log("compiled:")
                 console.log(content)
                 globalThis._monacoSyncHook?.(content);
+                // FIXME: move this elsewhere
                 void downloadFile({
                     fileName: "project.scm",
                     content,
@@ -1354,13 +1348,13 @@ export async function Ide(canvasElem, opts) {
             onRequestLoadSource() {
                 uploadFile({ type: "text" }).then((file) => {
                     const len = file.content.length;
-                    const ptr = wasmResult.instance.exports.graphl_init_buffer;
-                    const transferBuffer = () => new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
+                    const ptr = ideWasm.instance.exports.transfer_buffer;
+                    const transferBuffer = () => new Uint8Array(ideWasm.instance.exports.memory.buffer, ptr, len);
                     {
                         const write = utf8encoder.encodeInto(file.content, transferBuffer());
                         assert(write.written === len, `failed to write file to transfer buffer`);
                     }
-                    return wasmResult.instance.exports.onReceiveLoadedSource(ptr, len)
+                    return ideWasm.instance.exports.onReceiveLoadedSource(ptr, len)
                 });
             },
 
@@ -1368,371 +1362,36 @@ export async function Ide(canvasElem, opts) {
                 window.open("https://docs.google.com/forms/d/e/1FAIpQLSf2dRcS7Nrv4Ut9GGmxIDVuIpzYnKR7CyHBMUkJQwdjenAXAA/viewform?usp=header", "_blank").focus();
             },
 
-            runCurrentWat: async (ptr, len) => {
-                if (len === 0) return;
-
-                const moduleBytes = new Uint8Array(wasmResult.instance.exports.memory.buffer, ptr, len);
-
-                /** @type {WebAssembly.WebAssemblyInstantiatedSource} */
-                let compiled;
-
-                const scriptImports = {
-                    env: {
-                        callUserFunc_R_vec3(func_id) {
-                            const funcInfo = userFuncs.get(func_id);
-
-                            if (funcInfo === undefined
-                             || funcInfo.func.inputs.length !== 0
-                             || funcInfo.func.outputs.length !== 1
-                             || funcInfo.func.outputs[0].type !== "vec3"
-                            ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
-
-                            const __grappl_make_vec3 = wasmResult.instance.exports["__grappl_make_vec3"];
-                            const { x, y, z } = funcInfo.func.impl();
-
-                            return __grappl_make_vec3(x, y, z);
-                        },
-
-                        callUserFunc_JSON_R(func_id, json1) {
-                            const funcInfo = userFuncs.get(func_id);
-
-                            throw Error(`json not yet supported`);
-
-                            return funcInfo.func.impl(json1);
-                        },
-
-                        callUserFunc_code_R(func_id, i1) {
-                            const funcInfo = userFuncs.get(func_id);
-
-                            if (funcInfo === undefined
-                             || funcInfo.func.inputs.length !== 1
-                             || funcInfo.func.inputs[0].type !== "code"
-                             || funcInfo.func.outputs.length !== 0
-                            ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
-
-                            const len = new DataView(compiled.instance.exports.memory.buffer, i1, 4).getUint32(0, true);
-                            const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr + 4, len));
-                            const code = JSON.parse(str);
-
-                            funcInfo.func.impl(code);
-                        },
-
-                        callUserFunc_code_R_string(func_id, i1) {
-                            const funcInfo = userFuncs.get(func_id);
-
-                            if (funcInfo === undefined
-                             || funcInfo.func.inputs.length !== 1
-                             || funcInfo.func.inputs[0].type !== "code"
-                             || funcInfo.func.outputs.length !== 1
-                             || funcInfo.func.outputs[0].type !== "string"
-                            ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
-
-                            const len = new DataView(compiled.instance.exports.memory.buffer, i1, 4).getUint32(0, true);
-                            const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr + 4, len));
-                            const code = JSON.parse(str);
-
-                            const resultStr = funcInfo.func.impl(code);
-
-                            // FIXME: leaks!
-                            const resultPtr = compiled.instance.exports.__grappl_alloc(resultStr.length + 4);
-                            const resultView = new DataView(compiled.instance.exports.memory.buffer, resultPtr, resultStr.length + 4);
-                            resultView.setUint32(0, resultStr.length, true);
-                            assert(utf8encoder.encodeInto(resultStr, new Uint8Array(compiled.instance.exports.memory.buffer, resultPtr + 4, resultStr.length)).written === resultStr.length);
-                            return resultPtr;
-                        },
-
-                            // FIXME: this is broken!
-                        callUserFunc_string_R(func_id, i1) {
-                            const funcInfo = userFuncs.get(func_id);
-
-                            if (funcInfo === undefined
-                             || funcInfo.func.inputs.length !== 1
-                             || funcInfo.func.inputs[0].type !== "string"
-                             || funcInfo.func.outputs.length !== 0
-                            ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
-
-                            const len = new DataView(compiled.instance.exports.memory.buffer, i1, 4).getUint32(0, true);
-                            const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr + 4, len));
-                            funcInfo.func.impl(str);
-                        },
-
-                        callUserFunc_R(func_id) {
-                            const funcInfo = userFuncs.get(func_id);
-
-                            if (funcInfo === undefined
-                             || funcInfo.func.inputs.length !== 0
-                             || funcInfo.func.outputs.length !== 0
-                            ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
-
-                            funcInfo.func.impl();
-                        },
-
-                        callUserFunc_i32_R(func_id, i1) {
-                            const funcInfo = userFuncs.get(func_id);
-
-                            if (funcInfo === undefined
-                             || funcInfo.func.inputs.length !== 1
-                             || funcInfo.func.inputs[0].type !== "i32"
-                             || funcInfo.func.outputs.length !== 0
-                            ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
-
-                            funcInfo.func.impl(i1);
-                        },
-
-                        get callUserFunc_bool_R() { return this.callUserFunc_i32_R; },
-
-                        callUserFunc_i32_R_i32(func_id, i1) {
-                            const funcInfo = userFuncs.get(func_id);
-
-                            if (funcInfo === undefined
-                             || funcInfo.func.inputs.length !== 1
-                             || funcInfo.func.inputs[0].type !== "i32"
-                             || funcInfo.func.outputs.length !== 1
-                             || funcInfo.func.outputs[0].type !== "i32"
-                            ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
-
-                            return funcInfo.func.impl(i1);
-                        },
-
-                        callUserFunc_i32_i32_R_i32(func_id, i1, i2) {
-                            const funcInfo = userFuncs.get(func_id);
-
-                            if (funcInfo === undefined
-                             || funcInfo.func.inputs.length !== 2
-                             || funcInfo.func.inputs[0].type !== "i32"
-                             || funcInfo.func.inputs[1].type !== "i32"
-                             || funcInfo.func.outputs.length !== 1
-                             || funcInfo.func.outputs[0].type !== "i32"
-                            ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
-
-                            return funcInfo.func.impl(i1, i2);
-                        },
-
-                        /**
-                         * @param {bigint} i1
-                         * @param {number} i2
-                         * @return {number}
-                         */
-                        callUserFunc_u64_string_R_string(func_id, i1, i2) {
-                            const funcInfo = userFuncs.get(func_id);
-
-                            if (funcInfo === undefined
-                             || funcInfo.func.inputs.length !== 2
-                             || funcInfo.func.inputs[0].type !== "u32"
-                             || funcInfo.func.inputs[1].type !== "string"
-                             || funcInfo.func.outputs.length !== 1
-                             || funcInfo.func.outputs[0].type !== "string"
-                            ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
-
-                            const len = new DataView(compiled.instance.exports.memory.buffer, i2, 4).getUint32(0, true);
-                            const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr + 4, len));
-                            const code = JSON.parse(str);
-
-                            const resultStr = funcInfo.func.impl(code);
-
-                            // FIXME: leaks!
-                            const resultPtr = compiled.instance.exports.__grappl_alloc(resultStr.length + 4);
-                            const resultView = new DataView(compiled.instance.exports.memory.buffer, resultPtr, resultStr.length + 4);
-                            resultView.setUint32(0, resultStr.length, true);
-                            assert(utf8encoder.encodeInto(resultStr, new Uint8Array(compiled.instance.exports.memory.buffer, resultPtr + 4, resultStr.length)).written === resultStr.length);
-
-                            return resultPtr;
-                        },
-                    },
-                };
-
-                // @ts-ignore
-                compiled = await WebAssembly.instantiate(moduleBytes, scriptImports);
-                lastCompiled = compiled;
-                // FIXME: check return type of functions and read string pointers
-                const result = compiled.instance.exports["main"]();
-
-                console.log("exec result", result);
-                const resultsBuffer = () => new Uint8Array(wasmResult.instance.exports.memory.buffer, wasmResult.instance.exports.result_buffer, 4096);
-
-                utf8encoder.encodeInto(JSON.stringify(result), resultsBuffer());
-
-                opts.onMainResult?.(result);
-                wasmResult.instance.exports.dvui_refresh();
-            },
-
             /** @param {number} handle */
             on_menu_click: (handle) => {
-                menuOnClick.get(handle)?.();
+                menuOnClickMap.get(handle)?.();
             }
         }
-        // env: {
-        //     callUserFunc_R_vec3(func_id) {
-        //         const funcInfo = userFuncs.get(func_id);
-
-        //         if (funcInfo === undefined
-        //             || funcInfo.func.inputs.length !== 0
-        //             || funcInfo.func.outputs.length !== 1
-        //             || funcInfo.func.outputs[0].type !== "vec3"
-        //         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
-
-        //         const __grappl_make_vec3 = wasmResult.instance.exports["__grappl_make_vec3"];
-        //         const { x, y, z } = funcInfo.func.impl();
-
-        //         return __grappl_make_vec3(x, y, z);
-        //     },
-
-        //     callUserFunc_JSON_R(func_id, json1) {
-        //         const funcInfo = userFuncs.get(func_id);
-
-        //         throw Error(`json not yet supported`);
-
-        //         return funcInfo.func.impl(json1);
-        //     },
-
-        //     callUserFunc_code_R(func_id, i1) {
-        //         const funcInfo = userFuncs.get(func_id);
-
-        //         if (funcInfo === undefined
-        //             || funcInfo.func.inputs.length !== 1
-        //             || funcInfo.func.inputs[0].type !== "code"
-        //             || funcInfo.func.outputs.length !== 0
-        //         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
-
-        //         const len = new DataView(compiled.instance.exports.memory.buffer, i1, 4).getUint32(0, true);
-        //         const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr + 4, len));
-        //         const code = JSON.parse(str);
-
-        //         funcInfo.func.impl(code);
-        //     },
-
-        //     callUserFunc_code_R_string(func_id, i1) {
-        //         const funcInfo = userFuncs.get(func_id);
-
-        //         if (funcInfo === undefined
-        //             || funcInfo.func.inputs.length !== 1
-        //             || funcInfo.func.inputs[0].type !== "code"
-        //             || funcInfo.func.outputs.length !== 1
-        //             || funcInfo.func.outputs[0].type !== "string"
-        //         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
-
-        //         const len = new DataView(compiled.instance.exports.memory.buffer, i1, 4).getUint32(0, true);
-        //         const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr + 4, len));
-        //         const code = JSON.parse(str);
-
-        //         const resultStr = funcInfo.func.impl(code);
-
-        //         // FIXME: leaks!
-        //         const resultPtr = compiled.instance.exports.__grappl_alloc(resultStr.length + 4);
-        //         const resultView = new DataView(compiled.instance.exports.memory.buffer, resultPtr, resultStr.length + 4);
-        //         resultView.setUint32(0, resultStr.length, true);
-        //         assert(utf8encoder.encodeInto(resultStr, new Uint8Array(compiled.instance.exports.memory.buffer, resultPtr + 4, resultStr.length)).written === resultStr.length);
-        //         return resultPtr;
-        //     },
-
-        //     // FIXME: this is broken!
-        //     callUserFunc_string_R(func_id, i1) {
-        //         const funcInfo = userFuncs.get(func_id);
-
-        //         if (funcInfo === undefined
-        //             || funcInfo.func.inputs.length !== 1
-        //             || funcInfo.func.inputs[0].type !== "string"
-        //             || funcInfo.func.outputs.length !== 0
-        //         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
-
-        //         const len = new DataView(compiled.instance.exports.memory.buffer, i1, 4).getUint32(0, true);
-        //         const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr + 4, len));
-        //         funcInfo.func.impl(str);
-        //     },
-
-        //     callUserFunc_R(func_id) {
-        //         const funcInfo = userFuncs.get(func_id);
-
-        //         if (funcInfo === undefined
-        //             || funcInfo.func.inputs.length !== 0
-        //             || funcInfo.func.outputs.length !== 0
-        //         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
-
-        //         funcInfo.func.impl();
-        //     },
-
-        //     callUserFunc_i32_R(func_id, i1) {
-        //         const funcInfo = userFuncs.get(func_id);
-
-        //         if (funcInfo === undefined
-        //             || funcInfo.func.inputs.length !== 1
-        //             || funcInfo.func.inputs[0].type !== "i32"
-        //             || funcInfo.func.outputs.length !== 0
-        //         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`);
-
-        //         funcInfo.func.impl(i1);
-        //     },
-
-        //     get callUserFunc_bool_R() { return this.callUserFunc_i32_R; },
-
-        //     callUserFunc_i32_R_i32(func_id, i1) {
-        //         const funcInfo = userFuncs.get(func_id);
-
-        //         if (funcInfo === undefined
-        //             || funcInfo.func.inputs.length !== 1
-        //             || funcInfo.func.inputs[0].type !== "i32"
-        //             || funcInfo.func.outputs.length !== 1
-        //             || funcInfo.func.outputs[0].type !== "i32"
-        //         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
-
-        //         return funcInfo.func.impl(i1);
-        //     },
-
-        //     callUserFunc_i32_i32_R_i32(func_id, i1, i2) {
-        //         const funcInfo = userFuncs.get(func_id);
-
-        //         if (funcInfo === undefined
-        //             || funcInfo.func.inputs.length !== 2
-        //             || funcInfo.func.inputs[0].type !== "i32"
-        //             || funcInfo.func.inputs[1].type !== "i32"
-        //             || funcInfo.func.outputs.length !== 1
-        //             || funcInfo.func.outputs[0].type !== "i32"
-        //         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
-
-        //         return funcInfo.func.impl(i1, i2);
-        //     },
-
-        //     /**
-        //              * @param {bigint} i1
-        //              * @param {number} i2
-        //              * @return {number}
-        //              */
-        //     callUserFunc_u64_string_R_string(func_id, i1, i2) {
-        //         const funcInfo = userFuncs.get(func_id);
-
-        //         if (funcInfo === undefined
-        //             || funcInfo.func.inputs.length !== 2
-        //             || funcInfo.func.inputs[0].type !== "u32"
-        //             || funcInfo.func.inputs[1].type !== "string"
-        //             || funcInfo.func.outputs.length !== 1
-        //             || funcInfo.func.outputs[0].type !== "string"
-        //         ) throw Error(`bad user function #${func_id}(${funcInfo?.name})`)
-
-        //         const len = new DataView(compiled.instance.exports.memory.buffer, i2, 4).getUint32(0, true);
-        //         const str = utf8decoder.decode(new Uint8Array(compiled.instance.exports.memory.buffer, ptr + 4, len));
-        //         const code = JSON.parse(str);
-
-        //         const resultStr = funcInfo.func.impl(code);
-
-        //         // FIXME: leaks!
-        //         const resultPtr = compiled.instance.exports.__grappl_alloc(resultStr.length + 4);
-        //         const resultView = new DataView(compiled.instance.exports.memory.buffer, resultPtr, resultStr.length + 4);
-        //         resultView.setUint32(0, resultStr.length, true);
-        //         assert(utf8encoder.encodeInto(resultStr, new Uint8Array(compiled.instance.exports.memory.buffer, resultPtr + 4, resultStr.length)).written === resultStr.length);
-
-        //         return resultPtr;
-        //     },
-        // },
     };
 
     /** @type {WebAssembly.WebAssemblyInstantiatedSource} */
-    let wasmResult;
+    let ideWasm;
+
+    // FIXME: use the new js sdk instead
+    const result = {
+        async compile() {
+            const source = await this.compileGraph();
+            return compileGraphltSourceAndInstantiateProgram(source, opts.userFuncs);
+        },
+        async compileGraph() {
+            const len = ideWasm.instance.exports.exportCurrentCompiled();
+            const buffer = new Uint8Array(ideWasm.instance.exports.memory.buffer, ideWasm.instance.exports.transfer_buffer, len);
+            const content = utf8decoder.decode(buffer);
+
+            return content;
+        }
+    };
 
     WebAssembly.instantiateStreaming(fetch(frontendWasmUrl), imports)
-        .then((result) => {
-            wasmResult = result
-            const we = result.instance.exports;
-            dvui.setInstance(result.instance);
+        .then((wasmResult) => {
+            ideWasm = wasmResult
+            const we = wasmResult.instance.exports;
+            dvui.setInstance(wasmResult.instance);
             dvui.setCanvas(canvasElem);
 
             let nextMenuClickHandle = 0;
@@ -1742,10 +1401,37 @@ export async function Ide(canvasElem, opts) {
                 for (const menu of menus) {
                     const handle = nextMenuClickHandle;
                     nextMenuClickHandle++;
-                    menuOnClick.set(handle, menu.onClick);
+                    menuOnClickMap.set(handle, menu.onClick);
+                    // FIXME: use a more secret property for the JSON
                     menu.on_click_handle = handle;
                     bindMenus(menu.submenus);
                 }
+            }
+
+            // FIXME: standardize this for all lang sdks
+            const hasBuildMenuOverride = opts.menus?.find(m => m.name === "Build");
+
+            if (!hasBuildMenuOverride) {
+                if (opts.menus === undefined)
+                    opts.menus = [];
+
+                opts.menus.unshift({
+                    name: "Build",
+                    submenus: [
+                        {
+                            name: "Run",
+                            async onClick() {
+                                /** @type {Awaited<ReturnType<typeof result["compile"]>>} */
+                                let compiled;
+                                try { compiled = await result.compile(); } catch (err) {
+                                    alert(String(err) + "\n" + err.diagnostic);
+                                    return;
+                                }
+                                compiled.functions.main();
+                            },
+                        },
+                    ],
+                });
             }
 
             bindMenus(opts.menus);
@@ -1776,10 +1462,10 @@ export async function Ide(canvasElem, opts) {
             }
 
             const transferBuffer = () => new Uint8Array(
-                result.instance.exports.memory.buffer,
+                wasmResult.instance.exports.memory.buffer,
                 // FIXME: why is the end of the region exported? This doesn't seem to match what zig sees
                 // FIXME: the value I think is a pointer, not the actual value?
-                result.instance.exports.graphl_init_buffer,
+                wasmResult.instance.exports.transfer_buffer,
                 INIT_BUFFER_SZ,
             );
 
@@ -1793,7 +1479,7 @@ export async function Ide(canvasElem, opts) {
             }
 
 
-            const json_ptr = we.graphl_init_buffer;
+            const json_ptr = we.transfer_buffer;
             const json_len = optsJson.length;
 
             if (!we.setInitOpts(json_ptr, json_len)) {
@@ -1802,21 +1488,6 @@ export async function Ide(canvasElem, opts) {
 
             dvui.run();
         });
-
-    // FIXME: use the new js sdk instead
-    const result = {
-        async compile() {
-            const source = await this.compileGraph();
-            return compileGraphltSourceAndInstantiateProgram(source, opts.userFuncs);
-        },
-        async compileGraph() {
-            const len = wasmResult.instance.exports.exportCurrentCompiled();
-            const buffer = new Uint8Array(wasmResult.instance.exports.memory.buffer, wasmResult.instance.exports.graphl_init_buffer, len);
-            const content = utf8decoder.decode(buffer);
-
-            return content;
-        }
-    };
 
     return result;
 }

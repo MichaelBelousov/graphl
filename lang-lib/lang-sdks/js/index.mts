@@ -519,15 +519,13 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
     // if in node make sure to use --loader=node-zigar
     const zig = await import("./zig/js.zig");
     let compiledWasm;
-    const diagnostic = { error: "none" };
+    const diagnostic = new zig.Diagnostic({});
     try {
         compiledWasm = zig.compileSource("unknown", source, diagnostic).typedArray;
         if (process.env.DEBUG)
             (await import("node:fs")).writeFileSync("/tmp/jssdk-compiler-test.wasm", compiledWasm)
     } catch (err: any) {
-        // FIXME: why doesn't diagnostic work?
-        err.diagnostic = diagnostic.error;
-        // TODO: handle diagnostic
+        err.diagnostic = diagnostic.error.string;
         throw err;
     }
     return instantiateProgramFromWasmBuffer(compiledWasm.buffer, hostEnv);

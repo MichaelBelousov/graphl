@@ -27,7 +27,6 @@ extern fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void;
 extern fn onExportCompiled(ptr: ?[*]const u8, len: usize) void;
 extern fn onRequestLoadSource() void;
 extern fn onClickReportIssue() void;
-extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
 // FIXME: should use the new std.heap.SmpAllocator in release mode off wasm
 //const gpa = gpa_instance.allocator();
@@ -311,7 +310,7 @@ next_graph_index: u16 = 0,
 //pub var user_funcs = UserFuncList{};
 //var next_user_func: usize = 0;
 
-init_opts: InitOptions = .{},
+init_opts: InitOptions,
 user_funcs: UserFuncList = .{},
 
 pub const UserFuncList = std.SinglyLinkedList(compiler.UserFunc);
@@ -325,7 +324,9 @@ pub const MenuOption = struct {
 
 pub const InitOptions = struct {
     menus: []const MenuOption = &.{},
+    // FIXME: use the transfer buffer for results
     result_buffer: ?[]u8 = null,
+    transfer_buffer: []u8,
     context: ?*anyopaque = null,
     graphs: ?GraphsInitState = null,
     user_funcs: []const compiler.UserFunc = &.{},
@@ -470,35 +471,20 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
     }
 }
 
-pub fn runCurrentGraphs(self: *const @This()) !void {
+pub fn exportCurrentCompiled(self: *const @This()) !usize {
     var mod = combineGraphs(self) catch |err| {
         std.log.err("error '{!}' combining graphs", .{err});
-        return;
+        return err;
     };
     defer mod.deinit();
 
+    var fbs = std.io.fixedBufferStream(self.init_opts.transfer_buffer);
+    _ = try mod.getRoot().write(&mod, fbs.writer(), .{});
     if (builtin.mode == .Debug) {
-        var bytes = std.ArrayList(u8).init(gpa);
-        defer bytes.deinit();
-        _ = try mod.getRoot().write(&mod, bytes.writer(), .{});
-        std.log.info("graph '{s}':\n{s}", .{ self.current_graph.name, bytes.items });
+        std.log.info("graph '{s}':\n{s}", .{ self.current_graph.name, fbs.getWritten() });
     }
 
-    @panic("compiler usage removed, FIXME");
-}
-
-pub fn exportCurrentCompiled(self: *const @This()) !void {
-    var mod = try combineGraphs(self);
-    defer mod.deinit();
-
-    if (builtin.mode == .Debug) {
-        var bytes = std.ArrayList(u8).init(gpa);
-        defer bytes.deinit();
-        _ = try mod.getRoot().write(&mod, bytes.writer(), .{});
-        std.log.info("graph '{s}':\n{s}", .{ self.current_graph.name, bytes.items });
-    }
-
-    @panic("compiler usage removed, FIXME");
+    return fbs.getWritten().len;
 }
 
 fn deinitGraphs(self: *@This()) void {
@@ -2088,33 +2074,10 @@ pub fn frame(self: *@This()) !void {
         var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .expand = .horizontal });
         defer m.deinit();
 
-        if (try dvui.menuItemLabel(@src(), "File", .{ .submenu = true }, .{ .expand = .none })) |r| {
-            var fw = try dvui.floatingMenu(@src(), .{ .from = dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }) }, .{});
-            defer fw.deinit();
-
-            if (try dvui.menuItemLabel(@src(), "Save", .{}, .{ .expand = .horizontal })) |_| {
-                try exportCurrentSource(self);
-            }
-
-            if (try dvui.menuItemLabel(@src(), "Open", .{}, .{ .expand = .horizontal })) |_| {
-                onRequestLoadSource();
-            }
-
-            if (try dvui.menuItemLabel(@src(), "Export Wasm", .{}, .{ .expand = .horizontal })) |_| {
-                try exportCurrentCompiled(self);
-            }
-        }
-
-        if (self.init_opts.allow_running or builtin.mode == .Debug) {
-            if (try dvui.menuItemLabel(@src(), "Go", .{ .submenu = true }, .{ .expand = .none })) |r| {
+        if (builtin.mode == .Debug) {
+            if (try dvui.menuItemLabel(@src(), "DevMode", .{ .submenu = true }, .{ .expand = .none })) |r| {
                 var fw = try dvui.floatingMenu(@src(), .{ .from = dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }) }, .{});
                 defer fw.deinit();
-
-                if (self.init_opts.allow_running) {
-                    if (try dvui.menuItemLabel(@src(), "Run (F5)", .{}, .{ .expand = .horizontal })) |_| {
-                        try runCurrentGraphs(self);
-                    }
-                }
 
                 if (builtin.mode == .Debug) {
                     if (try dvui.menuItemLabel(@src(), "Debug DVUI", .{}, .{ .expand = .horizontal })) |_| {
@@ -2585,15 +2548,6 @@ pub fn frame(self: *@This()) !void {
     }
 
     try renderGraph(self, hbox);
-
-    // FIXME: this doesn't work
-    // left over global events
-    for (dvui.events()) |*e| {
-        if (!e.handled and e.evt == .key and e.evt.key.code == .f5) {
-            e.handled = true;
-            try runCurrentGraphs(self);
-        }
-    }
 }
 
 test {

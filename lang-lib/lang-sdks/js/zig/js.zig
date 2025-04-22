@@ -2,13 +2,15 @@ const std = @import("std");
 
 const graphl = @import("graphl");
 
+pub const Diagnostic = struct {
+    @"error": []const u8 = "",
+};
+
 pub fn compileSource(
     a: std.mem.Allocator,
     file_name: []const u8,
     src: []const u8,
-    out_diag_ptr: ?*struct {
-        @"error": []const u8,
-    },
+    out_diag_ptr: ?*Diagnostic,
 ) ![]const u8 {
     _ = file_name; // FIXME
 
