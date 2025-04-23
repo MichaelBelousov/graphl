@@ -55,7 +55,11 @@ export namespace GraphlTypes {
     }
 };
 
-export function typeFromTypeArray(name: string, types: GraphlType[]): GraphlType {
+function assert(condition: any, message?: string): asserts condition {
+    if (!condition) throw Error(message ?? "assertion condition was false");
+}
+
+function typeFromTypeArray(name: string, types: GraphlType[]): GraphlType {
     if (types.length === 0) return GraphlTypes.void_;
     if (types.length === 1) return types[0];
 
@@ -84,142 +88,92 @@ export interface UserFuncOutput {
     type: GraphlType;
 }
 
-function writeJsValueToDataForGraphl(jsVal: any, view: DataView, offset: number, graphlType: GraphlType) {
-    if (graphlType === GraphlTypes.f64) {
-        if (typeof jsVal !== "number") {
-            const err = Error(`jsVal '${JSON.stringify(jsVal)}' was not a valid f64`);
-            // TODO: store the property path for better error
-            // @ts-ignore
-            err.code = "EBADJSVAL-f64";
-            // @ts-ignore
-            err.badValue = jsVal;
-            throw err;
-        }
-        view.setFloat64(offset, jsVal, true);
-    } else if (graphlType === GraphlTypes.i32) {
-        if (typeof jsVal !== "number" || jsVal > 2**31 - 1 || jsVal < -(2**31) || Math.round(jsVal) !== jsVal) {
-            const err = Error(`jsVal '${JSON.stringify(jsVal)}' was not a valid i32`);
-            // @ts-ignore
-            err.code = "EBADJSVAL-i32";
-            // @ts-ignore
-            err.badValue = jsVal;
-            throw err;
-        }
-        view.setInt32(offset, jsVal, true);
-    } else if (graphlType.kind === "struct") {
-        for (let i = 0; i < graphlType.fieldNames.length; ++i) {
-            const fieldName = graphlType.fieldNames[i];
-            const fieldType = graphlType.fieldTypes[i];
-            const fieldOffset = graphlType.fieldOffsets[i];
-            writeJsValueToDataForGraphl(jsVal[fieldName], view, offset + fieldOffset, fieldType)
-        }
-    }
-}
-
 function jsValToGraphlPrimitiveVal(
-    graphlVal: number,
+    jsVal: number | string,
     graphlType: GraphlType,
     wasm: WasmInstance,
 ): number | WasmHeapType {
     if (graphlType === GraphlTypes.string) {
-        // TODO: deduplicate with other exact same usage
-        // FIXME: use streaming Decoder
-        const textDecoder = new TextEncoder();
+        assert(typeof jsVal === "string");
+
+        // FIXME: use streaming Encoder and encode into memory directly
+        const fullData = new TextEncoder().encode(jsVal);
         let offset = 0;
-        const chunks = [] as Uint8Array[];
 
-        while (true) {
-            const bytesWrittenCount = wasm.exports.__graphl_host_copy(graphlVal, offset);
-            if (bytesWrittenCount === 0) break;
-            offset += bytesWrittenCount;
-            const chunk = new Uint8Array(wasm.exports.memory.buffer, TRANSFER_BUF_PTR, bytesWrittenCount);
-            chunks.push(chunk);
+        const graphlString = wasm.exports.__graphl_create_array_string(fullData.byteLength);
+
+        while (offset < fullData.byteLength) {
+            const chunk = fullData.slice(offset, offset + TRANSFER_BUF_LEN)
+            getTransferBufUint8Array(wasm).set(chunk);
+            wasm.exports.__graphl_read_array(graphlString, offset);
+            offset += TRANSFER_BUF_LEN;
         }
 
-        const totalSize = offset;
-        const fullData = new Uint8Array(totalSize);
-
-        // TODO: use streaming decoder
-        {
-            let fullDataOffset = 0;
-            for (const chunk of chunks) {
-                fullData.set(chunk, fullDataOffset);
-                fullDataOffset += chunk.byteLength;
-            }
-        }
-
-        return textDecoder.decode(fullData);
+        return graphlString;
     } else {
-        return graphlVal
+        return jsVal;
     }
 }
 
 function jsValToGraphlStructVal(
-    graphlVal: WasmHeapType,
+    jsVal: string,
     graphlType: GraphlType,
     wasm: WasmInstance,
 ): any {
-    const _arrayCount = wasm.exports[`__graphl_write_struct_${graphlType.name}_fields`](graphlVal);
-
-    const arraySlotQueue = [] as { obj: any, fieldName: string }[];
+    const arraySlotQueue = [] as { fullData: Uint8Array }[];
 
     const result: any = {};
 
-    function graphlStructMemToJsVal(subStructType: GraphlType, offset: number, result: any = {}) {
-        if (subStructType.kind !== "struct") throw Error("structs only");
-
+    function jsValToGraphlStructMem(jsVal: any, subStructType: GraphlType, offset: number) {
+        assert(subStructType.kind === "struct");
         const transferBufView = new DataView(wasm.exports.memory.buffer, TRANSFER_BUF_PTR, TRANSFER_BUF_LEN);
 
-        // FIXME: extract arrays!
         for (let i = 0; i < subStructType.fieldNames.length; ++i) {
-            const fieldType = subStructType.fieldTypes[i];
             const fieldName = subStructType.fieldNames[i];
+            const fieldType = subStructType.fieldTypes[i];
             const fieldOffset = subStructType.fieldOffsets[i];
-
+            const fieldValue = jsVal[fieldName];
             if (fieldType === GraphlTypes.f64) {
-                result[fieldName] = transferBufView.getFloat64(fieldOffset, true);
+                assert(
+                    typeof fieldValue === "number",
+                    `received non-number value '${JSON.stringify(fieldValue)}' for field '${fieldName}' of struct ${fieldType.name}`,
+                );
+                transferBufView.setFloat64(offset, fieldValue, true);
             } else if (fieldType === GraphlTypes.i32) {
-                result[fieldName] = transferBufView.getInt32(fieldOffset, true);
+                assert(
+                    typeof fieldValue === "number" && fieldValue > 2**31 - 1 || fieldValue < -(2**31) && Math.round(fieldValue) === fieldValue,
+                    `received non-32-bit-integer value '${JSON.stringify(fieldValue)}' for field '${fieldName}' of struct ${fieldType.name}`,
+                );
+                transferBufView.setInt32(offset, fieldValue, true);
             } else if (fieldType === GraphlTypes.string) {
-                arraySlotQueue.push({ obj: result, fieldName })
+                // FIXME: should write an empty usize into memory for array references, even if they aren't used yet
+                assert(
+                    typeof fieldValue === "string",
+                    `received non-string value '${JSON.stringify(fieldValue)}' for field '${fieldName}' of struct ${fieldType.name}`,
+                );
+                arraySlotQueue.push({ fullData: new TextEncoder().encode(fieldValue) });
             } else if (fieldType.kind === "struct") {
-                result[fieldName] = {};
-                // FIXME: bad struct val
-                graphlStructMemToJsVal(fieldType, offset + fieldOffset);
+                jsValToGraphlStructMem(fieldValue, fieldType, offset + fieldOffset);
             } else {
                 throw Error(`unhandled field type: ${fieldType.name}`);
             }
         }
-
-
-        return result;
     }
 
-    graphlStructMemToJsVal(graphlType, 0, result);
+    jsValToGraphlStructMem(jsVal, graphlType, 0);
+
+    const graphlStructVal = wasm.exports[`__graphl_read_struct_${graphlType.name}_fields`]();
 
     {
         let i = 0;
-        for (const arraySlot of arraySlotQueue) {
-            // FIXME: make a common function for this...
-            const chunks = [] as Uint8Array[];
+        for (const { fullData } of arraySlotQueue) {
             let offset = 0;
-            while (true) {
-                const arrayLen = wasm.exports[`__graphl_write_struct_${graphlType.name}_array`](graphlVal, i, offset);
-                const chunk = new Uint8Array(wasm.exports.memory.buffer, TRANSFER_BUF_PTR, arrayLen);
-                chunks.push(chunk);
-                if (chunk.byteLength === 0) break;
-                offset += arrayLen;
+            while (offset < fullData.byteLength) {
+                const transferBuf = getTransferBufUint8Array(wasm);
+                transferBuf.set(fullData.slice(offset));
+                wasm.exports[`__graphl_read_struct_${graphlType.name}_array`](graphlStructVal, i, offset, Math.min(TRANSFER_BUF_LEN, fullData.byteLength - offset));
+                offset += TRANSFER_BUF_LEN;
             }
-            const fullData = new Uint8Array(offset);
-            // TODO: use streaming decoder instead
-            {
-                let fullDataOffset = 0;
-                for (const chunk of chunks) {
-                    fullData.set(chunk, fullDataOffset);
-                    fullDataOffset += chunk.byteLength;
-                }
-            }
-            arraySlot.obj[arraySlot.fieldName] = new TextDecoder().decode(fullData);
             i += 1;
         }
     }
@@ -228,7 +182,7 @@ function jsValToGraphlStructVal(
 }
 
 function graphlPrimitiveValToJsVal(
-    graphlVal: number,
+    graphlVal: number | WasmHeapType,
     graphlType: GraphlType,
     wasm: WasmInstance,
 ): any {
@@ -277,7 +231,7 @@ function graphlStructValToJsVal(
     const result: any = {};
 
     function graphlStructMemToJsVal(subStructType: GraphlType, offset: number, result: any = {}) {
-        if (subStructType.kind !== "struct") throw Error("structs only");
+        assert(subStructType.kind === "struct");
 
         const transferBufView = new DataView(wasm.exports.memory.buffer, TRANSFER_BUF_PTR, TRANSFER_BUF_LEN);
 
@@ -371,12 +325,14 @@ function graphlValToJsVal(
 const TRANSFER_BUF_PTR = 1024;
 // FIXME: maybe the tranfer buffer should be one wasm page size
 const TRANSFER_BUF_LEN = 4096;
+const getTransferBufView = (w: WasmInstance) => new DataView(w.exports.memory.buffer, TRANSFER_BUF_PTR, TRANSFER_BUF_LEN);
+const getTransferBufUint8Array = (w: WasmInstance) => new Uint8Array(w.exports.memory.buffer, TRANSFER_BUF_PTR, TRANSFER_BUF_LEN);
 
 type WasmInstance = WebAssembly.Instance & {
     exports: {
         memory: WebAssembly.Memory;
         __graphl_create_array_string(size: number): WasmHeapType;
-        __graphl_write_array(str: WasmHeapType, offset: number): void;
+        __graphl_read_array(str: WasmHeapType, offset: number): void;
         // FIXME: rename this to like read_array_page
         __graphl_host_copy(str: WasmHeapType, offset: number): number;
         /**
@@ -393,7 +349,7 @@ type WasmInstance = WebAssembly.Instance & {
         /**
          * reads the fields for a graphl struct from the transfer buffer
          */
-        [K: `__graphl_read_struct_${string}_fields`]: (struct: WasmHeapType) => void,
+        [K: `__graphl_read_struct_${string}_fields`]: () => WasmHeapType,
         /**
          * reads bytes from the transfer buffer for a graphl array at the spec
          */
@@ -429,7 +385,7 @@ function makeCallUserFunc(
         key,
         (funcId: number, ...abiParams: any[]) => {
             const userFunc = userFuncs.get(funcId);
-            if (!userFunc) throw Error(`No user function with id ${funcId}, this is a bug`);
+            assert(userFunc, `No user function with id ${funcId}, this is a bug`);
             const jsParams = abiParams.map((p, i) => graphlValToJsVal(p, inputs[i].type, wasm));
             const jsRes = userFunc.call(undefined, jsParams);
             const returnType = typeFromTypeArray(key, outputs.map(t => t.type));
@@ -498,8 +454,7 @@ function parseGraphlMeta(wasmBuffer: ArrayBufferLike): GraphlMeta {
     // FIXME: fix the types here
     const graphlMetaTokenIndex = indexOfSubArray(wasmView, new DataView(new Uint8Array(Buffer.from("63a7f259-5c6b-4206-8927-8102dc9ad34d", "latin1")).buffer));
 
-    if (graphlMetaTokenIndex === -1)
-        throw Error("graphl meta token not found");
+    assert(graphlMetaTokenIndex !== -1, "graphl meta token not found");
 
     const graphlMetaStart = graphlMetaTokenIndex - '{"token":"'.length + 1;
     let parenCount = 1;
@@ -542,7 +497,6 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
         const id = neededUserFuncs.get(name);
         // ignore unnecessary user funcs
         if (id === undefined) continue;
-        //if (id === undefined) throw Error(`unnecessary user function: ${name}`);
         userFuncs.set(id, userFuncDesc.impl ?? (() => {}));
         neededUserFuncs.delete(name);
 
