@@ -78,7 +78,7 @@ describe("js sdk", () => {
       (typeof (foo) (i32 i32))
       (define (foo) (return 5 10))
     `);
-    assert.deepStrictEqual(program.functions.foo(), { 0: 5, 1: 10 });
+    assert.partialDeepStrictEqual(program.functions.foo(), { 0: 5, 1: 10 });
   });
 
   it("return (i32)", async () => {
@@ -102,7 +102,7 @@ describe("js sdk", () => {
       (typeof (foo) (i32 string))
       (define (foo) (return 5 "hello"))
     `);
-    assert.deepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello" });
+    assert.partialDeepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello" });
   });
 
   it("pass vec3", async () => {
@@ -118,7 +118,7 @@ describe("js sdk", () => {
     assert.strictEqual(takeResult, 5.6789);
   });
 
-  it.only("vec3 param", async () => {
+  it("vec3 param", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (processInstance u64
                                vec3

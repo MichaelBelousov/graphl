@@ -125,8 +125,6 @@ function jsValToGraphlStructVal(
 
     const arraySlotQueue = [] as { fullData: Uint8Array }[];
 
-    const result: any = {};
-
     function jsValToGraphlStructMem(jsVal: any, subStructType: GraphlType, offset: number) {
         assert(subStructType.kind === "struct");
         const transferBufView = new DataView(wasm.exports.memory.buffer, TRANSFER_BUF_PTR, TRANSFER_BUF_LEN);
@@ -187,7 +185,7 @@ function jsValToGraphlStructVal(
         }
     }
 
-    return result;
+    return graphlStructVal;
 }
 
 function graphlPrimitiveValToJsVal(
@@ -228,7 +226,7 @@ function graphlPrimitiveValToJsVal(
     }
 }
 
-const graphlNativeValSym = Symbol("graphl-native-val");
+const graphlNativeValSym = Symbol.for("graphl-native-val");
 
 function graphlStructValToJsVal(
     graphlVal: WasmHeapType,
