@@ -598,8 +598,8 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
         if (process.env.DEBUG)
             (await import("node:fs")).writeFileSync("/tmp/jssdk-compiler-test.wasm", compiledWasm)
     } catch (err: any) {
-        err.diagnostic = diagnostic.error.string;
-        throw err;
+        // FIXME: add zigar types
+        throw new Error(diagnostic.error.string);
     }
     return instantiateProgramFromWasmBuffer(compiledWasm.buffer, hostEnv);
 }

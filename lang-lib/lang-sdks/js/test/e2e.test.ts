@@ -22,8 +22,13 @@ describe("js sdk", () => {
     } catch (_err) {
       err = _err;
     }
-    assert.strictEqual(err.message, "Unmatched closer");
-    // TODO: handle full diagnostic from native library
+    assert.strictEqual(
+      err.message,
+      "Closing parenthesis with no opener:\n" +
+      " at unknown:3:34\n" +
+      "  |         (define (foo) (return 2)))\n" +
+      "                                     ^"
+    );
   });
 
   it("return i32", async () => {
