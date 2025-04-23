@@ -636,7 +636,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
                         const label = try std.fmt.bufPrint(&buf, "Get {s}", .{binding.name});
 
                         if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = id_extra }) != null) {
-                            const getter_name = try std.fmt.bufPrint(&buf, "get_{s}", .{binding.name});
+                            const getter_name = try std.fmt.bufPrint(&buf, "{s}", .{binding.name});
                             _ = try NodeAdder.addNode(self, getter_name, maybe_create_from, pt_in_graph, 0);
                             subfw.close();
                         }
@@ -703,7 +703,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
 
                     if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = j }) != null) {
                         var buf: [MAX_FUNC_NAME]u8 = undefined;
-                        const name = try std.fmt.bufPrint(&buf, "get_{s}", .{binding.name});
+                        const name = try std.fmt.bufPrint(&buf, "{s}", .{binding.name});
                         _ = try NodeAdder.addNode(self, name, maybe_create_from, pt_in_graph, 0);
                         subfw.close();
                     }
@@ -1251,8 +1251,8 @@ fn renderNode(
     // FIXME: maybe remove node.kind since we need a desc anyway?
     switch (node.desc().kind) {
         .func, .entry, .return_ => try dvui.label(@src(), "{s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
-        .get => try dvui.label(@src(), "Get {s}", .{node.desc().name()[4..]}, .{ .font_style = .title_3 }),
-        .set => try dvui.label(@src(), "Set {s}", .{node.desc().name()[4..]}, .{ .font_style = .title_3 }),
+        .get => try dvui.label(@src(), "Get {s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
+        .set => try dvui.label(@src(), "Set {s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
     }
 
     // switch (node.kind) {
@@ -1387,7 +1387,7 @@ fn renderNode(
                                     }
                                 }
 
-                                const entry = try dvui.textEntryNumber(@src(), T, .{ .value = &value }, .{ .max_size_content = .{ .w = 30 }, .id_extra = j });
+                                const entry = try dvui.textEntryNumber(@src(), T, .{ .value = &value }, .{ .min_size_content = .{ .w = 80 }, .max_size_content = .{ .w = 80 }, .id_extra = j, });
 
                                 if (entry.value == .Valid) {
                                     switch (@typeInfo(T)) {
@@ -1515,6 +1515,7 @@ fn renderNode(
 
             try socket_positions.put(gpa, socket, socket_point);
 
+            // FIXME: this doesn't render?
             _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .font_style = .heading, .id_extra = j });
         }
     }
@@ -1928,7 +1929,7 @@ pub fn addParamOrResult(
         while (true) : (name_suffix += 1) {
             var buf: [MAX_FUNC_NAME]u8 = undefined;
 
-            const getter_name_attempt = try std.fmt.bufPrintZ(&buf, "get_a{}", .{name_suffix});
+            const getter_name_attempt = try std.fmt.bufPrintZ(&buf, "a{}", .{name_suffix});
             if (self.current_graph.env._nodes.contains(getter_name_attempt))
                 continue;
 
@@ -1954,7 +1955,7 @@ pub fn addParamOrResult(
     if (kind == .params) {
         const param_get_slot = try gpa.create(helpers.BasicMutNodeDesc);
         param_get_slot.* = .{
-            .name = try std.fmt.allocPrintZ(gpa, "get_{s}", .{new_name}),
+            .name = try std.fmt.allocPrintZ(gpa, "{s}", .{new_name}),
             .kind = .get,
             .inputs = &.{},
             .outputs = try gpa.alloc(helpers.Pin, 1),
@@ -1967,6 +1968,7 @@ pub fn addParamOrResult(
 
         (try self.current_graph.param_getters.addOne(gpa)).* = param_get_slot;
 
+        std.log.info("adding getter node: {s} for {s}", .{param_get_slot.name, @tagName(kind)});
         _ = self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot)) catch unreachable;
 
         const param_set_slot = try gpa.create(helpers.BasicMutNodeDesc);
@@ -1997,6 +1999,7 @@ pub fn addParamOrResult(
 
         (try self.current_graph.param_setters.addOne(gpa)).* = param_set_slot;
 
+        std.log.info("adding setter node: {s} for {s}", .{param_set_slot.name, @tagName(kind)});
         _ = self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot)) catch unreachable;
     }
 
@@ -2254,12 +2257,11 @@ pub fn frame(self: *@This()) !void {
 
                     // FIXME: obviously this could be faster by keeping track of state
                     const name = try gpa.dupeZ(u8, for (0..10_000) |j| {
-                        const getter_name = try std.fmt.bufPrint(&name_buf, "get_new{}", .{j});
+                        const getter_name = try std.fmt.bufPrint(&name_buf, "new{}", .{j});
                         // FIXME: use contains
                         if (self.current_graph.env.getNode(getter_name) != null)
                             continue;
-                        const name = try std.fmt.bufPrint(&name_buf, "new{}", .{j});
-                        break name;
+                        break getter_name;
                     } else {
                         return error.MaxItersFindingFreeBindingName;
                     });
@@ -2302,7 +2304,7 @@ pub fn frame(self: *@This()) !void {
 
                     const node_descs = try gpa.alloc(graphl.helpers.BasicMutNodeDesc, 2);
                     node_descs[0] = graphl.helpers.BasicMutNodeDesc{
-                        .name = try std.fmt.allocPrintZ(gpa, "get_{s}", .{name}),
+                        .name = try std.fmt.allocPrintZ(gpa, "{s}", .{name}),
                         .kind = .get,
                         .inputs = try gpa.dupe(helpers.Pin, &getter_inputs),
                         .outputs = try gpa.dupe(helpers.Pin, &getter_outputs),
@@ -2358,7 +2360,7 @@ pub fn frame(self: *@This()) !void {
                         // TODO: REPORT ME... allocator doesn't seem to return right slice len
                         // when freeing right before resetting?
                         const old_get_node_name = get_node.name;
-                        get_node.name = try std.fmt.allocPrintZ(gpa, "get_{s}", .{new_name});
+                        get_node.name = try std.fmt.allocPrintZ(gpa, "{s}", .{new_name});
                         const old_set_node_name = set_node.name;
                         set_node.name = try std.fmt.allocPrintZ(gpa, "set_{s}", .{new_name});
                         // FIXME: should be able to use removeByPtr here to avoid look up?
@@ -2410,20 +2412,19 @@ pub fn frame(self: *@This()) !void {
         }
 
         const params_results_bindings = &.{
-            // FIXME: uncomment to allow editing results
-            // .{
-            //     .node_desc = current_graph.graphl_graph.result_node,
-            //     .node_basic_desc = current_graph.graphl_graph.result_node_basic_desc,
-            //     .name = "Results",
-            //     .pin_dir = "inputs",
-            //     .type = .results,
-            // },
             .{
                 .node_desc = self.current_graph.graphl_graph.entry_node,
                 .node_basic_desc = self.current_graph.graphl_graph.entry_node_basic_desc,
                 .name = "Parameters",
                 .pin_dir = "outputs",
                 .type = .params,
+            },
+            .{
+                .node_desc = self.current_graph.graphl_graph.result_node,
+                .node_basic_desc = self.current_graph.graphl_graph.result_node_basic_desc,
+                .name = "Results",
+                .pin_dir = "inputs",
+                .type = .results,
             },
         };
 
@@ -2450,30 +2451,35 @@ pub fn frame(self: *@This()) !void {
 
                 const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = id_extra });
                 if (text_entry.text_changed) {
-                    var buf: [MAX_FUNC_NAME]u8 = undefined;
+                    if (info.type == .params) {
+                        var buf: [MAX_FUNC_NAME]u8 = undefined;
 
-                    const old_get_name = try std.fmt.bufPrint(&buf, "get_{s}", .{pin_desc.name});
-                    std.debug.assert(self.current_graph.env._nodes.remove(old_get_name));
-                    const old_set_name = try std.fmt.bufPrint(&buf, "set_{s}", .{pin_desc.name});
-                    std.debug.assert(self.current_graph.env._nodes.remove(old_set_name));
+                        const old_get_name = try std.fmt.bufPrint(&buf, "{s}", .{pin_desc.name});
+                        std.debug.assert(self.current_graph.env._nodes.remove(old_get_name));
+                        const old_set_name = try std.fmt.bufPrint(&buf, "set_{s}", .{pin_desc.name});
+                        std.debug.assert(self.current_graph.env._nodes.remove(old_set_name));
+                    }
 
                     gpa.free(pin_desc.name);
                     pin_desc.name = try gpa.dupeZ(u8, text_entry.getText());
 
-                    const param_get_slot = self.current_graph.param_getters.items[j - 1];
-                    gpa.free(param_get_slot.name);
-                    param_get_slot.name = try std.fmt.allocPrintZ(gpa, "get_{s}", .{pin_desc.name});
-                    param_get_slot.outputs[0].name = pin_desc.name;
+                    if (info.type == .params) {
+                        const param_get_slot = self.current_graph.param_getters.items[j - 1];
+                        gpa.free(param_get_slot.name);
+                        param_get_slot.name = try std.fmt.allocPrintZ(gpa, "{s}", .{pin_desc.name});
+                        param_get_slot.outputs[0].name = pin_desc.name;
 
-                    const param_set_slot = self.current_graph.param_setters.items[j - 1];
-                    gpa.free(param_set_slot.name);
-                    param_set_slot.name = try std.fmt.allocPrintZ(gpa, "set_{s}", .{pin_desc.name});
-                    param_set_slot.inputs[1].name = pin_desc.name;
-                    param_set_slot.outputs[1].name = pin_desc.name;
+                        const param_set_slot = self.current_graph.param_setters.items[j - 1];
+                        gpa.free(param_set_slot.name);
+                        param_set_slot.name = try std.fmt.allocPrintZ(gpa, "set_{s}", .{pin_desc.name});
+                        param_set_slot.inputs[1].name = pin_desc.name;
+                        param_set_slot.outputs[1].name = pin_desc.name;
 
-                    _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot));
-                    _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot));
+                        _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot));
+                        _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot));
+                    }
                 }
+
                 // must occur after text_changed check or this operation will set it
                 if (dvui.firstFrame(text_entry.data().id)) {
                     text_entry.textTyped(pin_desc.name, false);
