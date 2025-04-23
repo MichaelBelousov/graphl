@@ -89,10 +89,10 @@ export interface UserFuncOutput {
 }
 
 function jsValToGraphlPrimitiveVal(
-    jsVal: number | string,
+    jsVal: number | bigint | string,
     graphlType: GraphlType,
     wasm: WasmInstance,
-): number | WasmHeapType {
+): bigint | number | WasmHeapType {
     if (graphlType === GraphlTypes.string) {
         assert(typeof jsVal === "string");
 
@@ -141,10 +141,16 @@ function jsValToGraphlStructVal(
                 transferBufView.setFloat64(offset, fieldValue, true);
             } else if (fieldType === GraphlTypes.i32) {
                 assert(
-                    typeof fieldValue === "number" && fieldValue > 2**31 - 1 || fieldValue < -(2**31) && Math.round(fieldValue) === fieldValue,
-                    `received non-32-bit-integer value '${JSON.stringify(fieldValue)}' for field '${fieldName}' of struct ${fieldType.name}`,
+                    typeof fieldValue === "number" && fieldValue > 2**31 - 1 && fieldValue < -(2**31) && Math.round(fieldValue) === fieldValue,
+                    `received value '${JSON.stringify(fieldValue)}' that was not a 32-bit signed integer for field '${fieldName}' of struct ${fieldType.name}`,
                 );
                 transferBufView.setInt32(offset, fieldValue, true);
+            } else if (fieldType === GraphlTypes.u64) {
+                assert(
+                    typeof fieldValue === "bigint" && fieldValue >= 0 && fieldValue <= 0xffff_ffff_ffff_ffffn,
+                    `received value '${JSON.stringify(fieldValue)}' that was not a 64-bit unsigned bigint value for field '${fieldName}' of struct ${fieldType.name}`,
+                );
+                transferBufView.setBigInt64(offset, fieldValue, true);
             } else if (fieldType === GraphlTypes.string) {
                 // FIXME: should write an empty usize into memory for array references, even if they aren't used yet
                 assert(
@@ -245,6 +251,8 @@ function graphlStructValToJsVal(
                 result[fieldName] = transferBufView.getFloat64(fieldOffset, true);
             } else if (fieldType === GraphlTypes.i32) {
                 result[fieldName] = transferBufView.getInt32(fieldOffset, true);
+            } else if (fieldType === GraphlTypes.u64) {
+                result[fieldName] = transferBufView.getBigUint64(fieldOffset, true);
             } else if (fieldType === GraphlTypes.string) {
                 arraySlotQueue.push({ obj: result, fieldName })
             } else if (fieldType.kind === "struct") {

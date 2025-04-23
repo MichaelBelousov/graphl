@@ -100,7 +100,19 @@ describe("js sdk", () => {
     assert.deepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello" });
   });
 
-  it.only("vec3 param", async () => {
+  it.only("pass vec3", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (typeof (make) vec3)
+      (define (make) (begin (return 1.2 3.4 5.6789)))
+      (typeof (take vec3) f64)
+      (define (take v) (return (.z v)))
+    `);
+
+    const vec3 = program.functions.make();
+    assert.strictEqual(program.functions.take(vec3), 5.6789);
+  });
+
+  it("vec3 param", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (processInstance u64
                                vec3
