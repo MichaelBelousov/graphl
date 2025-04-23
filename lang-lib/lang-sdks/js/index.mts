@@ -430,60 +430,7 @@ function makeCallUserFunc(
         (funcId: number, ...abiParams: any[]) => {
             const userFunc = userFuncs.get(funcId);
             if (!userFunc) throw Error(`No user function with id ${funcId}, this is a bug`);
-
-            const paramsToJs = (params: any[]): any[] => {
-                const jsParams = [] as any[];
-
-                for (let i = 0; i < params.length; ++i) {
-                    const paramWasmVal = params[0];
-                    const paramType = inputs[0].type;
-                    if (paramType === GraphlTypes.string) {
-                        // FIXME: use streaming decoder
-                        const textDecoder = new TextDecoder();
-                        let offset = 0;
-                        const chunks = [] as Uint8Array[];
-
-                        while (true) {
-                            const bytesWrittenCount = wasm.exports.__graphl_host_copy(paramWasmVal, offset);
-                            if (bytesWrittenCount === 0) break;
-                            offset += bytesWrittenCount;
-                            const chunk = new Uint8Array(wasm.exports.memory.buffer, TRANSFER_BUF_PTR, bytesWrittenCount);
-                            chunks.push(chunk);
-                            //textDecoder.writable.getWriter().write(chunk);
-                            //textDecoder.readable.getReader().read();
-                        }
-
-                        const totalSize = offset;
-                        const fullData = new Uint8Array(totalSize);
-
-                        // TODO: use streaming decoder
-                        {
-                            let fullDataOffset = 0;
-                            for (const chunk of chunks) {
-                                fullData.set(chunk, fullDataOffset);
-                                fullDataOffset += chunk.byteLength;
-                            }
-                        }
-
-                        const jsVal = textDecoder.decode(fullData);
-                        jsParams.push(jsVal);
-                    } else if (paramType.kind === "primitive") {
-                        jsParams.push(paramWasmVal);
-                    } else {
-                        throw Error("struct params not implemented yet");
-                        // const jsVal = {};
-                        // for (let i = 0; i < paramType.fieldNames.length; ++i) {
-                        //     const fieldType = paramType.fieldTypes[i];
-                        //     const fieldName = paramType.fieldNames[i];
-                        //     const fieldOffset = paramType.fieldOffsets[i];
-                        // }
-                    }
-                }
-
-                return jsParams;
-            };
-
-            const jsParams = paramsToJs(abiParams);
+            const jsParams = abiParams.map((p, i) => graphlValToJsVal(p, inputs[i].type, wasm));
             const jsRes = userFunc.call(undefined, jsParams);
             const returnType = typeFromTypeArray(key, outputs.map(t => t.type));
             return graphlValToJsVal(jsRes, returnType, wasm);
@@ -639,16 +586,14 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
             Object.entries(wasm.instance.exports)
             .filter(([_key, graphlFunc]) => typeof graphlFunc === "function")
             .map(([key, graphlFunc]) => [key, (...args: any[]) => {
-                    // FIXME: convert arguments (e.g. write structs)
-                    const graphlArgs = args.map(arg => jsValToGraphlStruct);
-                    const graphlRes = (graphlFunc as Function)(...graphlArgs);
-                    const fnOuts = functionMap.get(key)!.outputs;
-                    if (fnOuts.length === 0) return undefined;
-                    if (fnOuts.length === 1) return graphlValToJsVal(graphlRes, fnOuts[0].type, wasmExports);
-                    const returnType = typeFromTypeArray(key, fnOuts.map(t => t.type));
-                    return graphlValToJsVal(graphlRes, returnType, wasmExports);
-                }
-            ])
+                const fnInfo = functionMap.get(key)!;
+                const graphlArgs = args.map((arg, i) => jsValToGraphlVal(arg, fnInfo.inputs[i].type, wasmExports));
+                const graphlRes = (graphlFunc as Function)(...graphlArgs);
+                if (fnInfo.outputs.length === 0) return undefined;
+                if (fnInfo.outputs.length === 1) return graphlValToJsVal(graphlRes, fnInfo.outputs[0].type, wasmExports);
+                const returnType = typeFromTypeArray(key, fnInfo.outputs.map(t => t.type));
+                return graphlValToJsVal(graphlRes, returnType, wasmExports);
+            }])
         ) as any
     };
 }

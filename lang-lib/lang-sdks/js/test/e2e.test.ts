@@ -100,7 +100,7 @@ describe("js sdk", () => {
     assert.deepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello" });
   });
 
-  it.only("vec3 param", async () => {
+  it("vec3 param", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (processInstance u64
                                vec3
