@@ -400,7 +400,7 @@ function makeCallUserFunc(
             const userFunc = userFuncs.get(funcId);
             assert(userFunc, `No user function with id ${funcId}, this is a bug`);
             const jsParams = abiParams.map((p, i) => graphlValToJsVal(p, inputs[i].type, wasm));
-            const jsRes = userFunc.call(undefined, jsParams);
+            const jsRes = userFunc.call(undefined, ...jsParams);
             const returnType = typeFromTypeArray(key, outputs.map(t => t.type));
             return graphlValToJsVal(jsRes, returnType, wasm);
         }

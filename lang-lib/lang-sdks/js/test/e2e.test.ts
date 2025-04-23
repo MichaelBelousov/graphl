@@ -166,7 +166,8 @@ describe("js sdk", () => {
         name: "Confetti",
         inputs: [{ type: GraphlTypes.i32 }],
         outputs: [],
-        impl() {
+        impl(param) {
+          assert.strictEqual(param, 100);
           called = true;
         }
       },
