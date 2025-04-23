@@ -1,10 +1,15 @@
-// TODO: make it possible to detect bun vs node
-//import { describe, expect, it, setDefaultTimeout } from "bun:test";
-import { describe, it } from "node:test";
 import assert from "node:assert";
 import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../index.mts";
+let describe: import("bun:test").Describe;
+let it: import("bun:test").Test;
 
-//setDefaultTimeout(1_000_000); // might need to compile zig code
+if (typeof Bun === "undefined") {
+  ({ describe, it } = (await import("node:test")) as any);
+} else {
+  ({ describe, it } = require("bun:test"));
+  const { setDefaultTimeout } = require("bun:test");
+  setDefaultTimeout(1_000_000); // might need to compile zig code
+}
 
 describe("js sdk", () => {
   it("syntax error extra paren", async () => {
@@ -100,7 +105,7 @@ describe("js sdk", () => {
     assert.deepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello" });
   });
 
-  it.only("pass vec3", async () => {
+  it("pass vec3", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (make) vec3)
       (define (make) (begin (return 1.2 3.4 5.6789)))
@@ -108,11 +113,12 @@ describe("js sdk", () => {
       (define (take v) (return (.z v)))
     `);
 
-    const vec3 = program.functions.make();
-    assert.strictEqual(program.functions.take(vec3), 5.6789);
+    const makeResult = program.functions.make();
+    const takeResult = program.functions.take(makeResult);
+    assert.strictEqual(takeResult, 5.6789);
   });
 
-  it("vec3 param", async () => {
+  it.only("vec3 param", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (processInstance u64
                                vec3

@@ -116,10 +116,13 @@ function jsValToGraphlPrimitiveVal(
 }
 
 function jsValToGraphlStructVal(
-    jsVal: string,
+    jsVal: any,
     graphlType: GraphlType,
     wasm: WasmInstance,
 ): any {
+    if (graphlNativeValSym in jsVal)
+        return jsVal[graphlNativeValSym];
+
     const arraySlotQueue = [] as { fullData: Uint8Array }[];
 
     const result: any = {};
@@ -225,6 +228,8 @@ function graphlPrimitiveValToJsVal(
     }
 }
 
+const graphlNativeValSym = Symbol("graphl-native-val");
+
 function graphlStructValToJsVal(
     graphlVal: WasmHeapType,
     graphlType: GraphlType,
@@ -234,7 +239,9 @@ function graphlStructValToJsVal(
 
     const arraySlotQueue = [] as { obj: any, fieldName: string }[];
 
-    const result: any = {};
+    const result: any = {
+        [graphlNativeValSym]: graphlVal,
+    };
 
     function graphlStructMemToJsVal(subStructType: GraphlType, offset: number, result: any = {}) {
         assert(subStructType.kind === "struct");
@@ -411,6 +418,7 @@ export interface UserFuncDesc<F extends (...args: any[]) => any>{
 
 export interface GraphlProgram<Funcs extends Record<string, (...args: any[]) => any>> {
     functions: Funcs
+    _wasmInstance: WasmInstance
 }
 
 function indexOfSubArray(haystack: DataView, needle: DataView) {
@@ -556,7 +564,8 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
                 const returnType = typeFromTypeArray(key, fnInfo.outputs.map(t => t.type));
                 return graphlValToJsVal(graphlRes, returnType, wasmExports);
             }])
-        ) as any
+        ) as any,
+        _wasmInstance: wasm.instance as WasmInstance,
     };
 }
 
