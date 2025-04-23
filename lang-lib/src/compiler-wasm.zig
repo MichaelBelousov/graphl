@@ -1752,45 +1752,30 @@ const Compilation = struct {
                         };
 
                         const field_type = struct_info.field_types[field_index];
-                        const field_offset = struct_info.field_offsets[field_index];
 
                         slot.type = field_type;
                         try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
 
-                        const struct_ptr = byn.c.BinaryenLocalGet(
+                        const struct_ref = byn.c.BinaryenLocalGet(
                             self.module.c(),
                             arg.local_index,
-                            byn.c.BinaryenTypeInt32(),
+                            try self.getBynType(arg.type),
                         );
 
-                        const field_ptr = byn.c.BinaryenBinary(
+                        const field_value = byn.c.BinaryenStructGet(
                             self.module.c(),
-                            byn.c.BinaryenAddInt32(),
-                            struct_ptr,
-                            // FIXME: use bitCast for LiteralInt32 taking a u32
-                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@bitCast(field_offset))),
+                            @intCast(field_index),
+                            struct_ref,
+                            try self.getBynType(slot.type),
+                            false,
                         );
-
-                        // FIXME: add a loadType helper
-                        const field_value = if (BinaryenHelper.isValueType(slot.type))
-                            byn.c.BinaryenLoad(
-                                self.module.c(),
-                                field_type.size,
-                                false,
-                                0,
-                                4,
-                                try self.getBynType(slot.type),
-                                field_ptr,
-                                main_mem_name,
-                            )
-                        else
-                            field_ptr;
 
                         slot.expr = byn.c.BinaryenLocalSet(
                             self.module.c(),
                             local_index,
                             field_value,
                         );
+
                         break :done;
                     }
 
