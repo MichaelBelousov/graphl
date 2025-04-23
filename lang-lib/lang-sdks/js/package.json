@@ -8,6 +8,7 @@
   "private": true,
   "scripts": {
     "build": "rollup -c",
+    "build-debug": "NODE_ENV=development rollup -c",
     "build-types": "tsc -p ./tsconfig.json",
     "dev": "rollup -c -w",
     "test": "bun test ./test/e2e.test.ts",

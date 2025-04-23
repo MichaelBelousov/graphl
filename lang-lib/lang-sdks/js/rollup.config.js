@@ -3,6 +3,8 @@ import typescript from "rollup-plugin-typescript";
 import zigar from "rollup-plugin-zigar";
 import pkgJson from "./package.json" with { type: "json" };
 
+const optimize = process.env.NODE_ENV === "development" ? "Debug" : "ReleaseSmall";
+
 export default [
   // {
   //   input: "./index.mts",
@@ -25,7 +27,7 @@ export default [
     input: "./index.mts",
     plugins: [
       zigar({
-        optimize: "ReleaseSmall",
+        optimize,
         //embedWASM: true, // fetch wasm by default
       }),
       typescript({
@@ -33,14 +35,18 @@ export default [
       }),
     ],
     output: [
-      { dir: "dist/esm", format: "es" },
+      {
+        dir: "dist/esm",
+        format: "es",
+        sourcemap: true,
+      },
     ]
   },
   {
     input: "./index.mts",
     plugins: [
       zigar({
-        optimize: "ReleaseSmall",
+        optimize,
         //embedWASM: true, // fetch wasm by default
         topLevelAwait: false,
       }),
@@ -49,7 +55,11 @@ export default [
       }),
     ],
     output: [
-      { dir: "dist/cjs", format: "cjs" },
+      {
+        dir: "dist/cjs",
+        format: "cjs",
+        sourcemap: true,
+      },
     ]
   }
 ]
