@@ -28,10 +28,17 @@ pub fn compileSource(
         var json_arena = std.heap.ArenaAllocator.init(a);
         defer json_arena.deinit();
 
-        const user_funcs_parsed = try std.json.parseFromSlice(std.json.ArrayHashMap(UserFuncJson), a, user_func_json, .{ .ignore_unknown_fields = true });
+        var json_diagnostics = std.json.Diagnostics{};
+        var json_scanner = std.json.Scanner.initCompleteInput(a, user_func_json);
+        json_scanner.enableDiagnostics(&json_diagnostics);
+        const user_funcs_parsed = std.json.parseFromTokenSource(std.json.ArrayHashMap(UserFuncJson), a, &json_scanner, .{ .ignore_unknown_fields = true }) catch |err| {
+            std.log.err("json parsing err: {}", .{err});
+            std.log.err("byte={}, diagnostic={}", .{ json_diagnostics.getByteOffset(), json_diagnostics });
+            return err;
+        };
         // FIXME: this causes a leak that can't be fixed
         // do not deallocate on success so we can keep pointers into the json
-        errdefer user_funcs_parsed.deinit();
+        errdefer json_scanner.deinit();
 
         var entry_iter = user_funcs_parsed.value.map.iterator();
         while (entry_iter.next()) |entry| {
