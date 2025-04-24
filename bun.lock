@@ -9,7 +9,7 @@
       "version": "0.1.0",
       "devDependencies": {
         "@bjorn3/browser_wasi_shim": "^0.4.1",
-        "@graphl/compiler-js": "../lang-lib/lang-sdks/js/",
+        "@graphl/compiler-js": "workspace:*",
         "@playwright/test": "^1.30.0",
         "@types/lodash.debounce": "^4.0.9",
         "@types/react": "^18.3.11",
@@ -41,7 +41,7 @@
         "rollup": "^4.40.0",
         "rollup-plugin-typescript": "^1.0.1",
         "rollup-plugin-zigar": "^0.14.0",
-        "typescript": "4.8",
+        "typescript": "^5",
         "vite": "^6.3.2",
         "vite-plugin-inspect": "^11.0.1",
       },
@@ -49,6 +49,7 @@
   },
   "patchedDependencies": {
     "rollup-plugin-typescript@1.0.1": "patches/rollup-plugin-typescript@1.0.1.patch",
+    "zigar-compiler@0.14.0": "patches/zigar-compiler@0.14.0.patch",
   },
   "packages": {
     "@ampproject/remapping": ["@ampproject/remapping@2.3.0", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw=="],
@@ -661,7 +662,7 @@
 
     "type-detect": ["type-detect@4.1.0", "", {}, "sha512-Acylog8/luQ8L7il+geoSxhEkazvkslg7PSNKOX59mbB9cOveP5aq9h74Y7YU8yDpJwetzQQrfIwtf4Wp4LKcw=="],
 
-    "typescript": ["typescript@4.8.4", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-QCh+85mCy+h0IGff8r5XWzOVSbBO+KfeYrMQh7NJ58QujwcE22u+NUSmUxqF+un70P9GXKxa2HCNiTTMJknyjQ=="],
+    "typescript": ["typescript@5.8.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ=="],
 
     "undici-types": ["undici-types@6.21.0", "", {}, "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="],
 

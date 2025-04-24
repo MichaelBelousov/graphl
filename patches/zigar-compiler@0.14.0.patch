@@ -1,0 +1,28 @@
+diff --git a/dist/transpiler.js b/dist/transpiler.js
+index 4a8c115a14a882bda42590064067871c7b6009a2..939eb0fd053b1393ee82dbfa21ee630e96bfab8f 100644
+--- a/dist/transpiler.js
++++ b/dist/transpiler.js
+@@ -4174,7 +4174,10 @@ var moduleLoading = mixin({
+         tableInitial,
+         multithreaded,
+       } = this.options = options;
+-      const res = await source;
++      // MIKE CHANGE START
++      console.log("MIKE", source);
++      //const res = await source;
++      // MIKE CHANGE END
+       const suffix = (res[Symbol.toStringTag] === 'Response') ? 'Streaming' : '';
+       const w = WebAssembly;
+       const f = w['compile' + suffix];
+@@ -4207,7 +4210,10 @@ var moduleLoading = mixin({
+         shared: multithreaded,
+       });
+       this.initialTableLength = tableInitial;
+-      return new w.Instance(executable, exports);
++      // MIKE CHANGE START
++      //return new w.Instance(executable, exports);
++      return WebAssembly.instantiateStreaming(executable, exports).then(w => w.instance);
++      // MIKE CHANGE END
+     },
+     loadModule(source, options) {
+       return this.initPromise = (async () => {
