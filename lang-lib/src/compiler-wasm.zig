@@ -630,9 +630,7 @@ const Compilation = struct {
         if (maybe_user_funcs) |user_funcs| {
             var next = user_funcs.first;
             while (next) |cursor| : (next = cursor.next) {
-                // NOTE: I _think_ this is a valid use of an arena that is about to be copied...
                 try func_map.putNoClobber(result.arena.allocator(), cursor.data.node.name, &cursor.data);
-                _ = try env.addNode(alloc, graphl_builtin.basicMutableNode(&cursor.data.node));
             }
         }
 
@@ -854,7 +852,10 @@ const Compilation = struct {
 
         const item_name = path[first_slash + 1 ..];
 
-        const user_func = self.user_context.func_map.get(item_name) orelse return error.NoSuchHostFunc;
+        const user_func = self.user_context.func_map.get(item_name) orelse {
+            std.log.warn("No such host function: '{s}'", .{item_name});
+            return error.NoSuchHostFunc;
+        };
 
         return ImportInfo{
             .inputs = user_func.node.inputs,
@@ -2792,6 +2793,8 @@ const Compilation = struct {
                 };
 
                 const byn_param = byn.c.BinaryenTypeCreate(byn_params.ptr, @intCast(byn_params.len));
+
+                // FIXME: need a struct return type here...
                 const byn_result = if (results.len > 1) byn.c.BinaryenTypeInt32()
                     //
                     else if (results.len == 0) byn.c.BinaryenTypeNone()
@@ -3892,6 +3895,60 @@ test "vec3 ref" {
         \\  (data $s_5129 (;1;) "EXPORT2")
         \\  (@custom "sourceMappingURL" (after data) "\07/script")
         \\)
+        \\
+    ;
+
+    var diagnostic = Diagnostic.init();
+    if (compile(t.allocator, &parsed.module, &user_funcs, &diagnostic)) |wasm| {
+        defer t.allocator.free(wasm);
+        try expectWasmEqualsWat(expected, wasm);
+    } else |err| {
+        std.debug.print("err {}:\n{}", .{ err, diagnostic });
+        try t.expect(false);
+    }
+}
+
+test "userfunc(u64, string)" {
+    var env = try Env.initDefault(t.allocator);
+    defer env.deinit(t.allocator);
+
+    var user_funcs = std.SinglyLinkedList(UserFunc){};
+
+    const user_func_1 = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
+    user_func_1.* = std.SinglyLinkedList(UserFunc).Node{
+        .data = .{ .id = 0, .node = .{
+            .name = "JavaScript-Eval",
+            .inputs = try t.allocator.dupe(Pin, &.{
+                Pin{ .name = "", .kind = .{ .primitive = .exec } },
+                Pin{ .name = "elemId", .kind = .{ .primitive = .{ .value = primitive_types.u64 } } },
+                Pin{ .name = "code", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+            }),
+            .outputs = try t.allocator.dupe(Pin, &.{
+                Pin{ .name = "", .kind = .{ .primitive = .exec } },
+                Pin{ .name = "json", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+            }),
+        } },
+    };
+    defer t.allocator.destroy(user_func_1);
+    defer t.allocator.free(user_func_1.data.node.inputs);
+    defer t.allocator.free(user_func_1.data.node.outputs);
+    user_funcs.prepend(user_func_1);
+
+    var parsed = try SexpParser.parse(t.allocator,
+        \\(meta version 1)
+        \\(import JavaScript-Eval "host/JavaScript-Eval")
+        \\
+        \\(typeof (main) i32)
+        \\(define (main)
+        \\        (begin (JavaScript-Eval 0 "console.log(5)")
+        \\               (return 1)))
+    , null);
+    //std.debug.print("{any}\n", .{parsed});
+    // FIXME: there is some double-free happening here?
+    defer parsed.deinit();
+
+    const expected =
+        \\(module)
         \\
     ;
 

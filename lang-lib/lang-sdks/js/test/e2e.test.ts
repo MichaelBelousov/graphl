@@ -126,6 +126,7 @@ describe("js sdk", () => {
 
   it("vec3 param", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
+      (import Confetti "host/Confetti")
       (typeof (processInstance u64
                                vec3
                                vec3)
@@ -157,6 +158,7 @@ describe("js sdk", () => {
   it("call user func", async () => {
     let called = false;
     const program = await compileGraphltSourceAndInstantiateProgram(`
+      (import Confetti "host/Confetti")
       (typeof (main)
               i32)
       (define (main)
@@ -174,7 +176,55 @@ describe("js sdk", () => {
       },
     });
 
-    assert.deepStrictEqual(program.functions.main(), 0);
+    assert.strictEqual(program.functions.main(), 0);
+    assert(called);
+  });
+
+  it("imports", async () => {
+    let called = false;
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (import JavaScript-Eval "host/JavaScript-Eval")
+      (import Confetti "host/Confetti")
+
+      (typeof (processInstance u64 vec3 vec3)
+              string)
+      (define (processInstance MeshId Origin Rotation)
+              (begin (return "my_export")))
+      (typeof (main)
+              i32)
+      (define (main)
+              (begin (Confetti 100)
+                     (return 0)))
+    `, {
+      Confetti: {
+        name: "Confetti",
+        inputs: [{ type: GraphlTypes.i32 }],
+        outputs: [],
+        impl(param: number) {
+          console.log(param);
+          called = true;
+        }
+      },
+      "JavaScript-Eval": {
+        inputs: [
+          { name: "elementId", type: GraphlTypes.u64 },
+          { name: "code", type: GraphlTypes.string },
+        ],
+        outputs: [{ name: "JSON result", type: GraphlTypes.string }],
+        tags: ["text"],
+        /**
+         * @param {bigint} elemId
+         * @param {string} code
+         * @returns {string}
+         */
+        impl(elemId, code) {
+          return JSON.stringify(eval(code) ?? null);
+        }
+      },
+    });
+
+    assert.strictEqual(program.functions.main(), 0);
+    assert.strictEqual(program.functions.processInstance(0n, {x: 0, y: 0, z: 0}, {x: 1, y: 1, z: 1}), "my_export");
     assert(called);
   });
 });

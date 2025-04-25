@@ -2,12 +2,22 @@ pub const Diagnostic = struct {
     @"error": []const u8 = "",
 };
 
-// FIXME: work around this with wasm lib entry point?
-pub fn init() void {
-    if (builtin.cpu.arch.isWasm()) graphl._wasm_init();
+pub fn compileSource(
+    a: std.mem.Allocator,
+    file_name: []const u8,
+    src: []const u8,
+    user_func_json: []const u8,
+    out_diag_ptr: ?*Diagnostic,
+) ![]const u8 {
+    return _compileSource(a, file_name, src, user_func_json, out_diag_ptr) catch |err| {
+        if (@errorReturnTrace()) |trace| {
+            std.debug.dumpStackTrace(trace.*);
+        }
+        return err;
+    };
 }
 
-pub fn compileSource(
+fn _compileSource(
     a: std.mem.Allocator,
     file_name: []const u8,
     src: []const u8,

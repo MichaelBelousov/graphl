@@ -5,10 +5,7 @@
 let _zigPromise = undefined;
 
 const getZig = () => {
-    return _zigPromise ??= import("./zig/js.zig").then((zig) => {
-        zig.init();
-        return zig;
-    });
+    return _zigPromise ??= import("./zig/js.zig");
 };
 
 
@@ -615,7 +612,8 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
             (await import("node:fs")).writeFileSync("/tmp/jssdk-compiler-test.wasm", compiledWasm)
     } catch (err: any) {
         // FIXME: add zigar types
-        throw new Error(diagnostic.error.string || err.message);
+        const diagStr = diagnostic.error.string;
+        throw new Error(diagStr === "" || diagStr === "Not an error" ? err.message : diagStr);
     }
     return instantiateProgramFromWasmBuffer(compiledWasm.buffer, hostEnv);
 }

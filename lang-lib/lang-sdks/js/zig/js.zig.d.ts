@@ -15,7 +15,3 @@ export declare function compileSource(
     error: string
   } | undefined,
 ): any; // FIXME: use zigar types?
-
-
-export declare function init(): void;
-

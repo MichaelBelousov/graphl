@@ -15,7 +15,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .single_threaded = !cfg.multithreaded,
-        .strip = false, // FIXME temp
     });
 
     const zigar = b.createModule(.{
@@ -40,8 +39,7 @@ pub fn build(b: *std.Build) void {
         // WASM needs to be compiled as exe
         lib.kind = .exe;
         lib.linkage = .static;
-        // FIXME: not working... must call manually for now
-        lib.entry = .{ .symbol_name = "_wasm_init" };
+        lib.entry = .disabled;
         lib.rdynamic = true;
         lib.wasi_exec_model = .reactor;
         lib.import_memory = true;
