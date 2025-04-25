@@ -22,6 +22,8 @@ var show_dialog_outside_frame: bool = false;
 const vsync = true;
 var scale_val: f32 = 1.0;
 
+var transfer_buffer = std.mem.zeroes([std.heap.page_size_min]u8);
+
 pub fn main() !void {
     defer _ = gpa_instance.deinit();
 
@@ -43,7 +45,28 @@ pub fn main() !void {
     var win = try dvui.Window.init(@src(), gpa, backend.backend(), .{});
     defer win.deinit();
 
-    try app.init(.{});
+    try app.init(.{
+        .transfer_buffer = &transfer_buffer,
+        .menus = &.{
+            .{
+                .name = "Build",
+                .submenus = &.{
+                    .{
+                        .name = "compile",
+                        .on_click = &(struct { pub fn impl(_: ?*anyopaque, _: ?*anyopaque) void {
+                            const graphlt = app.app.compileToGraphlt() catch |e| {
+                                std.debug.print("compilation failed with '{}'", .{e});
+                                return;
+                            };
+                            defer gpa.free(graphlt);
+                            std.debug.print("graphlt:\n{s}\n", .{graphlt});
+                            //const wasm = try app.compileToWasm();
+                        } }.impl),
+                    },
+                },
+            },
+        },
+    });
     defer app.deinit();
 
     // small fonts look bad on the web, so bump the default theme up

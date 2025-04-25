@@ -183,7 +183,7 @@ pub const Value = union(enum) {
     bool: bool,
     // FIXME: rename to "void" to match sexp
     null: void,
-    symbol: [:0]const u8,
+    symbol: []const u8,
 };
 
 pub const Pin = struct {

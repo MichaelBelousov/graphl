@@ -28,11 +28,11 @@ extern fn onClickReportIssue() void;
 
 // FIXME: should use the new std.heap.SmpAllocator in release mode off wasm
 //const gpa = gpa_instance.allocator();
-var gpa_instance = std.heap.GeneralPurposeAllocator(.{
-    //.retain_metadata = true,
-    //.never_unmap = true,
+var gpa_instance = std.heap.GeneralPurposeAllocator(if (builtin.mode == .Debug) .{
+    .retain_metadata = true,
+    .never_unmap = true,
     //.verbose_log = true,
-}){};
+} else .{}){};
 
 pub const gpa = if (builtin.cpu.arch.isWasm())
     std.heap.wasm_allocator
@@ -1329,9 +1329,7 @@ fn renderNode(
                     // } else switch (i.kind.primitive.value) {
                     //     graphl.primitive_types.i32_ => {
                     if (input.* != .link) {
-                        // FIXME: return early on handling...
-                        // TODO: handle all possible types using switch or something
-                        var handled = false;
+                        // TODO: handle all possible types using exhaustive switch or something
 
                         // FIXME: hack!
                         // const is_text_field = input_desc.kind.primitive.value == graphl.primitive_types.string
@@ -1345,8 +1343,9 @@ fn renderNode(
                             //
                         and std.mem.eql(u8, node._desc.name(), "JavaScript-Eval");
 
+                        const empty = "";
+
                         if (is_text_field) {
-                            const empty = "";
                             if (input.* != .value or input.value != .string) {
                                 input.* = .{ .value = .{ .string = empty } };
                             }
@@ -1371,8 +1370,7 @@ fn renderNode(
                                 input.value.string = try gpa.dupe(u8, text_result.getText());
                             }
 
-                            handled = true;
-                            continue;
+                            break :_ socket_center;
                         }
 
                         inline for (.{ i32, i64, u32, u64, f32, f64 }) |T| {
@@ -1413,7 +1411,7 @@ fn renderNode(
                                     }
                                 }
 
-                                handled = true;
+                                break :_ socket_center;
                             }
                         }
 
@@ -1424,7 +1422,8 @@ fn renderNode(
                             }
 
                             _ = try dvui.checkbox(@src(), &input.value.bool, null, .{ .id_extra = j });
-                            handled = true;
+
+                            break :_ socket_center;
                         }
 
                         if (input_desc.kind.primitive.value == graphl.primitive_types.symbol and input.* == .value) {
@@ -1455,40 +1454,54 @@ fn renderNode(
                             } else {
                                 try dvui.label(@src(), "No locals", .{}, .{ .id_extra = j });
                             }
-                            handled = true;
+
+                            break :_ socket_center;
                         }
 
-                        inline for (.{
-                            .{
-                                .type = graphl.primitive_types.string,
-                                .tag = .string,
-                            },
-                            .{
-                                .type = graphl.primitive_types.symbol,
-                                .tag = .symbol,
-                            },
-                        }, 0..) |info, k| {
-                            const id_extra = (j << 1) | k;
-                            if (input_desc.kind.primitive.value == info.type and input.* == .value) {
-                                const empty = "";
-                                if (input.* != .value or input.value != info.tag) {
-                                    input.* = .{ .value = @unionInit(graphl.Value, @tagName(info.tag), empty) };
-                                }
-
-                                const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{} } }, .{ .id_extra = id_extra });
-                                defer text_result.deinit();
-                                if (dvui.firstFrame(text_result.data().id)) {
-                                    text_result.textTyped(@field(input.value, @tagName(info.tag)), false);
-                                }
-                                // TODO: don't dupe this memory! use a dynamic buffer instead
-                                if (text_result.text_changed) {
-                                    if (@field(input.value, @tagName(info.tag)).ptr != empty.ptr)
-                                        gpa.free(@field(input.value, @tagName(info.tag)));
-                                    @field(input.value, @tagName(info.tag)) = try gpa.dupeZ(u8, text_result.getText());
-                                }
-
-                                handled = true;
+                        if (input_desc.kind.primitive.value == graphl.primitive_types.string and input.* == .value) {
+                            if (input.* != .value or input.value != .string) {
+                                input.* = .{ .value = .{ .string = empty} };
                             }
+
+                            const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = j });
+                            defer text_entry.deinit();
+
+                            if (dvui.firstFrame(text_entry.data().id)) {
+                                text_entry.textTyped(input.value.string, false);
+                            }
+
+                            // TODO: don't dupe this memory! use a dynamic buffer instead
+                            if (text_entry.text_changed) {
+                                if (input.value.string.ptr != empty.ptr)
+                                    gpa.free(input.value.string);
+
+                                input.value.string = try gpa.dupe(u8, text_entry.getText());
+                            }
+
+                            break :_ socket_center;
+                        }
+
+                        if (input_desc.kind.primitive.value == graphl.primitive_types.symbol and input.* == .value) {
+                            if (input.* != .value or input.value != .symbol) {
+                                input.* = .{ .value = .{ .symbol = empty} };
+                            }
+
+                            const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = j });
+                            defer text_entry.deinit();
+
+                            if (dvui.firstFrame(text_entry.data().id)) {
+                                text_entry.textTyped(input.value.symbol, false);
+                            }
+
+                            // TODO: don't dupe this memory! use a dynamic buffer instead
+                            if (text_entry.text_changed) {
+                                if (input.value.symbol.ptr != empty.ptr)
+                                    gpa.free(input.value.symbol);
+
+                                input.value.symbol = try gpa.dupe(u8, text_entry.getText());
+                            }
+
+                            break :_ socket_center;
                         }
 
                         if (input_desc.kind.primitive.value == graphl.primitive_types.char_ and input.* == .value) {
@@ -1506,20 +1519,19 @@ fn renderNode(
                                 input.value.string = try gpa.dupe(u8, text_result.getText());
                             }
 
-                            handled = true;
+                            break :_ socket_center;
                         }
 
                         // FIXME: add a color picker?
                         if (input_desc.kind.primitive.value == graphl.primitive_types.rgba) {
-                            handled = true;
-                        }
-                        if (input_desc.kind.primitive.value == graphl.primitive_types.vec3) {
-                            handled = true;
+                            break :_ socket_center;
                         }
 
-                        if (!handled) {
-                            try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .id_extra = j });
+                        if (input_desc.kind.primitive.value == graphl.primitive_types.vec3) {
+                            break :_ socket_center;
                         }
+
+                        try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .id_extra = j });
                     }
 
                     break :_ socket_center;

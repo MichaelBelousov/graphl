@@ -10,7 +10,8 @@ const dvui = @import("dvui");
 const App = @import("./app.zig");
 
 // FIXME: gross
-pub var app: App = .{};
+pub var app: App = undefined;
+
 var result_buffer = std.mem.zeroes([4096]u8);
 
 // TODO: using namespace?
@@ -34,14 +35,16 @@ pub fn frame() !void {
     try app.frame();
 }
 
-export fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void {
-    _onExportCurrentSource((ptr orelse @panic("bad onExportCurrentSource"))[0..len]) catch |err| {
-        std.log.err("error '{}', in onExportCurrentSource", .{err});
-        return;
-    };
+var transfer_slice: []const u8 = undefined; 
+
+export fn onReceiveSlice(ptr: ?[*]const u8, len: usize) void {
+    _ = ptr;
+    _ = len;
 }
 
-fn _onExportCurrentSource(src: []const u8) !void {
+pub fn compileToGraphlt() !void {
+    const src = try app.compileToGraphlt();
+
     const path = try dvui.dialogNativeFileSave(gpa, .{
         .path = "project.scm",
         .title = "Export Graphlt",
@@ -54,14 +57,9 @@ fn _onExportCurrentSource(src: []const u8) !void {
     try file.writeAll(src);
 }
 
-export fn onExportCompiled(ptr: ?[*]const u8, len: usize) void {
-    _onExportCompiled((ptr orelse @panic("bad onExportCompiled"))[0..len]) catch |err| {
-        std.log.err("error '{}', in onExportCompiled", .{err});
-        return;
-    };
-}
+pub fn compileToWasm() !void {
+    const compiled = try app.compileToWasm();
 
-fn _onExportCompiled(compiled: []const u8) !void {
     const path = try dvui.dialogNativeFileSave(gpa, .{
         .path = "compiled.wat",
         .title = "Export WebAssembly Text",
