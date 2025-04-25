@@ -113,12 +113,27 @@ export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
     };
 }
 
+extern fn onReceiveSlice(ptr: ?[*]const u8, len: usize) void;
+
 /// returns null if failure
-export fn exportCurrentCompiled() usize {
-    return app.exportCurrentCompiled() catch |err| {
-        std.log.err("sourceToGraph error: {}", .{err});
-        return 0;
+export fn compileToWasm() void {
+    const wasm = app.compileToWasm() catch |e| {
+        std.log.err("compileToWasm error {}", .{e});
+        return;
     };
+    defer gpa.free(wasm);
+
+    onReceiveSlice(wasm.ptr, wasm.len);
+}
+
+export fn compileToGraphlt() void {
+    const graphlt = app.compileToGraphlt() catch |e| {
+        std.log.err("compileToGraphlt error {}", .{e});
+        return;
+    };
+    defer gpa.free(graphlt);
+
+    onReceiveSlice(graphlt.ptr, graphlt.len);
 }
 
 export fn setInitOpts(json_ptr: ?[*]const u8, json_len: usize) bool {

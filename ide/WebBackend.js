@@ -1,7 +1,7 @@
 import { WASI, File, OpenFile, ConsoleStdout, PreopenDirectory } from '@bjorn3/browser_wasi_shim';
 import frontendWasmUrl from './zig-out/bin/dvui-frontend.wasm?url';
 import { downloadFile, uploadFile } from './localFileManip';
-import { GraphlTypes, compileGraphltSourceAndInstantiateProgram } from "@graphl/compiler-js";
+import { GraphlTypes, instantiateProgramFromWasmBuffer } from "@graphl/compiler-js";
 
 /**
  * @param {number} ms Number of milliseconds to sleep
@@ -1326,6 +1326,19 @@ export async function Ide(canvasElem, opts) {
     let wasi = new WASI(["bin", "arg1"], ["FOO=bar"], fds);
 
     const dvui = new Dvui();
+
+    /** @type {undefined | ((mem: Uint8Array) => void)} */
+    let onReceiveSliceCb = undefined;
+
+    /** @type {(() => Promise<Uint8Array>)} */
+    const setupSliceReturn = () => new Promise((resolve) => {
+        assert(onReceiveSliceCb === undefined);
+        onReceiveSliceCb = (mem) => {
+            onReceiveSliceCb = undefined;
+            resolve(mem);
+        }
+    });
+
     const imports = {
         wasi_snapshot_preview1: wasi.wasiImport,
         dvui: dvui.imports, 
@@ -1359,6 +1372,15 @@ export async function Ide(canvasElem, opts) {
                 });
             },
 
+            /**
+             * @param {number} ptr
+             * @param {number} len
+             */
+            onReceiveSlice(ptr, len) {
+                const mem = new Uint8Array(ideWasm.instance.exports.memory.buffer, ptr, len);
+                onReceiveSliceCb?.(mem);
+            },
+
             onClickReportIssue() {
                 window.open("https://docs.google.com/forms/d/e/1FAIpQLSf2dRcS7Nrv4Ut9GGmxIDVuIpzYnKR7CyHBMUkJQwdjenAXAA/viewform?usp=header", "_blank").focus();
             },
@@ -1375,28 +1397,23 @@ export async function Ide(canvasElem, opts) {
 
     // FIXME: use the new js sdk instead
     const result = {
-        async compile() {
-            const source = await this.compileGraph();
-
-            // FIXME: consolidate the types?
-            const hostEnv = Object.fromEntries(Object.entries(opts.userFuncs ?? {}).map(([k, v]) => [
-                k,
-                {
-                    ...v,
-                    inputs: v.inputs?.map(inp => GraphlTypes[inp.type]),
-                    outputs: v.outputs?.map(out => GraphlTypes[out.type]),
-                }
-            ]));
-
-            return compileGraphltSourceAndInstantiateProgram(source, hostEnv);
-        },
-        async compileGraph() {
-            const len = ideWasm.instance.exports.exportCurrentCompiled();
-            const buffer = new Uint8Array(ideWasm.instance.exports.memory.buffer, ideWasm.instance.exports.transfer_buffer, len);
-            const content = utf8decoder.decode(buffer);
-
+        async exportGraphlt() {
+            const resultPromise = setupSliceReturn();
+            ideWasm.instance.exports.compileToGraphlt();
+            const result = await resultPromise;
+            const content = utf8decoder.decode(result);
             return content;
-        }
+        },
+        async exportWasm() {
+            const resultPromise = setupSliceReturn();
+            ideWasm.instance.exports.compileToWasm();
+            const result = await resultPromise;
+            return result;
+        },
+        async compile() {
+            const wasm = this.exportWasm();
+            return instantiateProgramFromWasmBuffer(wasm, opts.userFuncs);
+        },
     };
 
     WebAssembly.instantiateStreaming(fetch(frontendWasmUrl), imports)
@@ -1405,6 +1422,9 @@ export async function Ide(canvasElem, opts) {
             const we = wasmResult.instance.exports;
             dvui.setInstance(wasmResult.instance);
             dvui.setCanvas(canvasElem);
+
+            we._intern_pool_constructor();
+            we._binaryen_helper_constructor();
 
             let nextMenuClickHandle = 0;
             /** @param {import("./WebBackend.d.ts").MenuOption[] | undefined} menus */
@@ -1420,29 +1440,21 @@ export async function Ide(canvasElem, opts) {
                 }
             }
 
-            const menus = [...opts.menus ?? []];
-
-            /** @type {any} */
-            const optsForWasm = { ...opts, menus, userFuncs: {} };
-
             // FIXME: standardize this for all lang sdks
-            const hasBuildMenuOverride = menus?.find(m => m.name === "Build");
+            const hasBuildMenuOverride = opts.menus?.find(m => m.name === "Build");
 
             if (!hasBuildMenuOverride) {
-                menus.unshift({
+                if (opts.menus === undefined)
+                    opts.menus = [];
+
+                opts.menus.unshift({
                     name: "Build",
                     submenus: [
                         {
                             name: "Run main",
                             async onClick() {
                                 /** @type {Awaited<ReturnType<typeof result["compile"]>>} */
-                                let compiled;
-                                try {
-                                    compiled = await result.compile();
-                                } catch (err) {
-                                    alert(String(err) + "\n" + err.diagnostic);
-                                    return;
-                                }
+                                const compiled = await result.compile();
                                 compiled.functions.main();
                             },
                         },
@@ -1450,10 +1462,12 @@ export async function Ide(canvasElem, opts) {
                 });
             }
 
-            bindMenus(menus);
+            bindMenus(opts.menus);
 
+            /** @type {any} */
+            const optsForWasm = { ...opts };
             let nextUserFuncHandle = 0;
-            for (const userFuncKey in opts.userFuncs) {
+            for (const userFuncKey in optsForWasm.userFuncs) {
                 userFuncs.set(nextUserFuncHandle, {
                     name: userFuncKey,
                     func: {

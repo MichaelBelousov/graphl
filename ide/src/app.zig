@@ -23,8 +23,6 @@ const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 const MAX_FUNC_NAME = 256;
 
 // FIXME: these need to have the App instance as an argument
-extern fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void;
-extern fn onExportCompiled(ptr: ?[*]const u8, len: usize) void;
 extern fn onRequestLoadSource() void;
 extern fn onClickReportIssue() void;
 
@@ -226,11 +224,25 @@ fn combineGraphsText(
     return bytes;
 }
 
-fn exportCurrentSource(self: *@This()) !void {
+// FIXME: take a diagnostic
+pub fn compileToWasm(self: *@This()) ![]const u8 {
+    var graphlt_mod = try combineGraphs(self);
+    defer graphlt_mod.deinit();
+
+    var comp_diag = graphl.compiler.Diagnostic.init();
+    const wasm = graphl.compiler.compile(gpa, &graphlt_mod, &self.user_funcs, &comp_diag) catch |err| {
+        // TODO: return the diagnostic
+        std.log.err("Compile error:\n {}", .{comp_diag});
+        return err;
+    };
+    defer gpa.free(wasm);
+    return wasm;
+}
+
+pub fn compileToGraphlt(self: *@This()) ![]const u8 {
     var bytes = try combineGraphsText(self);
     defer bytes.deinit();
-
-    onExportCurrentSource(bytes.items.ptr, bytes.items.len);
+    return try bytes.toOwnedSlice();
 }
 
 fn setCurrentGraphByIndex(self: *@This(), index: u16) !void {

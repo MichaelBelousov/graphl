@@ -1,7 +1,16 @@
-// if in node make sure to use --loader=node-zigar
-import * as zig from "./zig/js.zig";
 
-let zigInited = false;
+// load compiler wasm lazily since not all users need it (e.g. the IDE)
+
+/** @type {undefined | Promise<import("./zig/js.zig")>} */
+let _zigPromise = undefined;
+
+const getZig = () => {
+    return _zigPromise ??= import("./zig/js.zig").then((zig) => {
+        zig.init();
+        return zig;
+    });
+};
+
 
 export type GraphlType =
     | {
@@ -596,11 +605,7 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
     const userFuncDescsJson = JSON.stringify(userFuncDescs);
 
     // if in node make sure to use --loader=node-zigar
-    //const zig = await import("./zig/js.zig");
-    if (!zigInited) {
-        zig.init();
-        zigInited = true;
-    }
+    const zig = await getZig();
 
     let compiledWasm;
     const diagnostic = new zig.Diagnostic({});
