@@ -1,3 +1,8 @@
+// if in node make sure to use --loader=node-zigar
+import * as zig from "./zig/js.zig";
+
+let zigInited = false;
+
 export type GraphlType =
     | {
       name: string;
@@ -408,7 +413,6 @@ function makeCallUserFunc(
 }
 
 export interface UserFuncDesc<F extends (...args: any[]) => any>{
-    name: string;
     inputs?: UserFuncInput[],
     outputs?: UserFuncOutput[],
     impl?: F,
@@ -464,7 +468,8 @@ interface GraphlMeta {
 function parseGraphlMeta(wasmBuffer: ArrayBufferLike): GraphlMeta {
     const wasmView = new DataView(wasmBuffer);
 
-    // HACK: just parse for custom sections manually, it can't be that hard!
+    // HACK: just parse for custom sections manually, it's not that hard!
+    // SEE: https://danielmangum.com/posts/every-byte-wasm-module/
     // FIXME: fix the types here
     const graphlMetaTokenIndex = indexOfSubArray(wasmView, new DataView(new Uint8Array(Buffer.from("63a7f259-5c6b-4206-8927-8102dc9ad34d", "latin1")).buffer));
 
@@ -577,9 +582,10 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
             {
                 id: i,
                 node: {
-                    name: v.name,
+                    name: k,
                     //hidden: false,
                     //kind: "func",
+                    // FIXME: the type is wrong here, input.type is a string
                     inputs: v.inputs?.map((inp, j) => ({ name: `p${j}`, type: inp.type.name })) ?? [],
                     outputs: v.outputs?.map((out, j) => ({ name: `p${j}`, type: out.type.name })) ?? [],
                     tags: ["host"],
@@ -590,7 +596,12 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
     const userFuncDescsJson = JSON.stringify(userFuncDescs);
 
     // if in node make sure to use --loader=node-zigar
-    const zig = await import("./zig/js.zig");
+    //const zig = await import("./zig/js.zig");
+    if (!zigInited) {
+        zig.init();
+        zigInited = true;
+    }
+
     let compiledWasm;
     const diagnostic = new zig.Diagnostic({});
     try {
@@ -599,7 +610,7 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
             (await import("node:fs")).writeFileSync("/tmp/jssdk-compiler-test.wasm", compiledWasm)
     } catch (err: any) {
         // FIXME: add zigar types
-        throw new Error(diagnostic.error.string);
+        throw new Error(diagnostic.error.string || err.message);
     }
     return instantiateProgramFromWasmBuffer(compiledWasm.buffer, hostEnv);
 }

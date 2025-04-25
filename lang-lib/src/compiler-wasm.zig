@@ -493,7 +493,7 @@ const BinaryenHelper = struct {
     }
 };
 
-fn constructor() callconv(.C) void {
+pub export fn _binaryen_helper_constructor() callconv(.C) void {
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.i32_, byn.c.BinaryenTypeInt32()) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.i64_, byn.c.BinaryenTypeInt64()) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.u32_, byn.c.BinaryenTypeInt32()) catch unreachable;
@@ -530,7 +530,7 @@ fn constructor() callconv(.C) void {
 }
 
 // FIXME: idk if this works in wasm, maybe do it in tests only?
-export const _compiler_init_array: [1]*const fn () callconv(.C) void linksection(".init_array") = .{&constructor};
+export const _compiler_init_array: [1]*const fn () callconv(.C) void linksection(".init_array") = .{&_binaryen_helper_constructor};
 
 const Compilation = struct {
     // FIXME: consider making this an owned instance, why is it a pointer?

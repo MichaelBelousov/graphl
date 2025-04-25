@@ -2,6 +2,11 @@ pub const Diagnostic = struct {
     @"error": []const u8 = "",
 };
 
+// FIXME: work around this with wasm lib entry point?
+pub fn init() void {
+    if (builtin.cpu.arch.isWasm()) graphl._wasm_init();
+}
+
 pub fn compileSource(
     a: std.mem.Allocator,
     file_name: []const u8,
@@ -135,4 +140,5 @@ const jsonStrToGraphlType: std.StaticStringMap(graphl.Type) = _: {
 
 
 const std = @import("std");
+const builtin = @import("builtin");
 const graphl = @import("graphl");

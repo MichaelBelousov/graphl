@@ -26,6 +26,7 @@ pub const Sexp = @import("./sexp.zig").Sexp;
 pub const ModuleContext = @import("./sexp.zig").ModuleContext;
 pub const syms = @import("./sexp.zig").syms;
 pub const SexpParser = @import("./sexp_parser.zig").Parser;
+pub const intern_pool = @import("./InternPool.zig");
 
 // FIXME: use @deprecated
 pub const compiler = if (build_opts.disable_compiler) 
@@ -40,6 +41,18 @@ pub const std_options: std.Options = .{
 pub const testing = struct {
     pub const expectWasmOutput = compiler.expectWasmOutput;
 };
+
+pub fn _wasm_init() callconv(.C) void {
+    intern_pool._intern_pool_constructor();
+    if (!build_opts.disable_compiler) 
+        compiler._binaryen_helper_constructor();
+}
+
+comptime {
+    if (builtin.cpu.arch.isWasm()) {
+        @export(&_wasm_init, .{ .name = "_wasm_init" });
+    }
+}
 
 test {
     _ = @import("binaryen");

@@ -1968,7 +1968,6 @@ pub fn addParamOrResult(
 
         (try self.current_graph.param_getters.addOne(gpa)).* = param_get_slot;
 
-        std.log.info("adding getter node: {s} for {s}", .{param_get_slot.name, @tagName(kind)});
         _ = self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot)) catch unreachable;
 
         const param_set_slot = try gpa.create(helpers.BasicMutNodeDesc);
@@ -1999,7 +1998,6 @@ pub fn addParamOrResult(
 
         (try self.current_graph.param_setters.addOne(gpa)).* = param_set_slot;
 
-        std.log.info("adding setter node: {s} for {s}", .{param_set_slot.name, @tagName(kind)});
         _ = self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot)) catch unreachable;
     }
 

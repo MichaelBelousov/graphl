@@ -94,7 +94,7 @@ fn addSourceSymbol(self: *InternPool, symbol: [:0]const u8) void {
 // TODO: only one pool can exist per process?
 pub var pool: InternPool = .{};
 
-fn constructor() callconv(.C) void {
+pub export fn _intern_pool_constructor() callconv(.C) void {
     const syms = @import("./sexp.zig").syms;
     const sym_decls = @typeInfo(syms).@"struct".decls;
     inline for (sym_decls) |sym_decl| {
@@ -108,7 +108,7 @@ fn constructor() callconv(.C) void {
 }
 
 // FIXME: does this work in wasm?
-export const _pool_init_array: [1]*const fn () callconv(.C) void linksection(".init_array") = .{&constructor};
+export const _pool_init_array: [1]*const fn () callconv(.C) void linksection(".init_array") = .{&_intern_pool_constructor};
 
 test "smoke" {
     const hello1 = "hello";

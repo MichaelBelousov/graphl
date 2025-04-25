@@ -1,6 +1,7 @@
 {
   "name": "@graphl/compiler-js",
-  "module": "./dist/esm/index.js",
+  "module": "./index.mts",
+  "//module": "rollup'd output is weird",
   "main": "./dist/cjs/index.js",
   "browser": "TODO UMD",
   "types": "dist/types/index.d.mts",

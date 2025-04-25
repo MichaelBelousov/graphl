@@ -1377,7 +1377,18 @@ export async function Ide(canvasElem, opts) {
     const result = {
         async compile() {
             const source = await this.compileGraph();
-            return compileGraphltSourceAndInstantiateProgram(source, opts.userFuncs);
+
+            // FIXME: consolidate the types?
+            const hostEnv = Object.fromEntries(Object.entries(opts.userFuncs ?? {}).map(([k, v]) => [
+                k,
+                {
+                    ...v,
+                    inputs: v.inputs?.map(inp => GraphlTypes[inp.type]),
+                    outputs: v.outputs?.map(out => GraphlTypes[out.type]),
+                }
+            ]));
+
+            return compileGraphltSourceAndInstantiateProgram(source, hostEnv);
         },
         async compileGraph() {
             const len = ideWasm.instance.exports.exportCurrentCompiled();
@@ -1409,14 +1420,16 @@ export async function Ide(canvasElem, opts) {
                 }
             }
 
+            const menus = [...opts.menus ?? []];
+
+            /** @type {any} */
+            const optsForWasm = { ...opts, menus, userFuncs: {} };
+
             // FIXME: standardize this for all lang sdks
-            const hasBuildMenuOverride = opts.menus?.find(m => m.name === "Build");
+            const hasBuildMenuOverride = menus?.find(m => m.name === "Build");
 
             if (!hasBuildMenuOverride) {
-                if (opts.menus === undefined)
-                    opts.menus = [];
-
-                opts.menus.unshift({
+                menus.unshift({
                     name: "Build",
                     submenus: [
                         {
@@ -1424,7 +1437,9 @@ export async function Ide(canvasElem, opts) {
                             async onClick() {
                                 /** @type {Awaited<ReturnType<typeof result["compile"]>>} */
                                 let compiled;
-                                try { compiled = await result.compile(); } catch (err) {
+                                try {
+                                    compiled = await result.compile();
+                                } catch (err) {
                                     alert(String(err) + "\n" + err.diagnostic);
                                     return;
                                 }
@@ -1435,12 +1450,10 @@ export async function Ide(canvasElem, opts) {
                 });
             }
 
-            bindMenus(opts.menus);
+            bindMenus(menus);
 
-            /** @type {any} */
-            const optsForWasm = { ...opts };
             let nextUserFuncHandle = 0;
-            for (const userFuncKey in optsForWasm.userFuncs) {
+            for (const userFuncKey in opts.userFuncs) {
                 userFuncs.set(nextUserFuncHandle, {
                     name: userFuncKey,
                     func: {

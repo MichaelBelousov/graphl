@@ -16,3 +16,6 @@ export declare function compileSource(
   } | undefined,
 ): any; // FIXME: use zigar types?
 
+
+export declare function init(): void;
+

@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@bjorn3/browser_wasi_shim": "^0.4.1",
+    "@graphl/compiler-js": "workspace:*",
     "@playwright/test": "^1.30.0",
     "@types/lodash.debounce": "^4.0.9",
     "@types/react": "^18.3.11",
@@ -37,7 +38,6 @@
     "@vitejs/plugin-react": "^3.0.1",
     "chai": "^4.3.7",
     "esbuild": "^0.24.0",
-    "@graphl/compiler-js": "workspace:*",
     "jsdom": "^21.1.0",
     "jsdom-global": "^3.0.2",
     "lodash.debounce": "^4.0.8",
@@ -47,6 +47,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "rollup-plugin-visualizer": "^5.9.0",
+    "rollup-plugin-zigar": "^0.14.0",
     "ts-node": "^10.9.1",
     "typescript": "5.0.0-beta",
     "vite": "^4.0.4",
