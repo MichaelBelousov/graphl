@@ -229,6 +229,10 @@ pub fn compileToWasm(self: *@This()) ![]const u8 {
     var graphlt_mod = try combineGraphs(self);
     defer graphlt_mod.deinit();
 
+    if (builtin.mode == .Debug) {
+        std.log.info("compiled graphlt:\n{s}", .{ graphlt_mod });
+    }
+
     var comp_diag = graphl.compiler.Diagnostic.init();
     const wasm = graphl.compiler.compile(gpa, &graphlt_mod, &self.user_funcs, &comp_diag) catch |err| {
         // TODO: return the diagnostic

@@ -42,18 +42,6 @@ pub const testing = struct {
     pub const expectWasmOutput = compiler.expectWasmOutput;
 };
 
-pub fn _wasm_init() callconv(.C) void {
-    intern_pool._intern_pool_constructor();
-    if (!build_opts.disable_compiler) 
-        compiler._binaryen_helper_constructor();
-}
-
-comptime {
-    if (builtin.cpu.arch.isWasm()) {
-        @export(&_wasm_init, .{ .name = "_wasm_init" });
-    }
-}
-
 test {
     _ = @import("binaryen");
     // FIXME:

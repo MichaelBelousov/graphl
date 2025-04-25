@@ -74,7 +74,7 @@ pub fn build(b: *std.Build) void {
 
     exe.import_symbols = true;
     exe.rdynamic = true; // https://github.com/ziglang/zig/issues/14139
-    exe.entry = .disabled;
+    exe.entry = .disabled; // FIXME: handled by wasi polyfill it seems?
 
     exe.root_module.addImport("dvui", dvui_web_dep.module("dvui_web"));
     exe.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));

@@ -1420,11 +1420,10 @@ export async function Ide(canvasElem, opts) {
         .then((wasmResult) => {
             ideWasm = wasmResult
             const we = wasmResult.instance.exports;
+            wasi.start(wasmResult.instance);
+
             dvui.setInstance(wasmResult.instance);
             dvui.setCanvas(canvasElem);
-
-            we._intern_pool_constructor();
-            we._binaryen_helper_constructor();
 
             let nextMenuClickHandle = 0;
             /** @param {import("./WebBackend.d.ts").MenuOption[] | undefined} menus */
