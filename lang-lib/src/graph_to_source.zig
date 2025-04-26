@@ -545,8 +545,8 @@ pub const GraphBuilder = struct {
         start.inputs[pin_index] = .{ .value = value };
     }
 
+    // FIXME: rename from "compile"
     // FIXME: emit move name to the graph
-    /// NOTE: the outer module is a sexp list
     pub fn compile(self: *@This(), in_alloc: std.mem.Allocator, name: []const u8, mod_ctx: *ModuleContext, diagnostic: ?*Diagnostics) !void {
         try self.branch_joiner_map.ensureTotalCapacity(in_alloc, self.branch_count);
         try self.is_join_set.resize(in_alloc, self.nodes.map.count(), false);

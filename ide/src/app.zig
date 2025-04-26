@@ -181,8 +181,19 @@ pub fn combineGraphs(
     // for incremental compilation... the graph should take a separate allocator for
     // such memory, or use its own system allocator
     // FIXME: figure out exact capacity translation
-    var mod_ctx = try ModuleContext.init(gpa);
+    var mod_ctx = try ModuleContext.initCapacity(gpa, 128); // check node and user func count
     errdefer mod_ctx.deinit();
+
+    {
+        var maybe_cursor = self.user_funcs.first;
+        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
+            const import_idx = try mod_ctx.addToRoot(try .emptyListCapacity(mod_ctx.alloc(), 3));
+            _ = try mod_ctx.addAndAppendToList(import_idx, graphl.syms.import);
+            _ = try mod_ctx.addAndAppendToList(import_idx, .symbol(cursor.data.node.name));
+            const path = try std.fmt.allocPrint(gpa, "host/{s}", .{cursor.data.node.name});
+            _ = try mod_ctx.addAndAppendToList(import_idx, Sexp{.value = .{ .ownedString = path } });
+        }
+    }
 
     var maybe_cursor = self.graphs.first;
     while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
@@ -202,25 +213,8 @@ fn combineGraphsText(
     self: *@This(),
 ) !std.ArrayList(u8) {
     var bytes = std.ArrayList(u8).init(gpa);
-
-    var maybe_cursor = self.graphs.first;
-    while (maybe_cursor) |cursor| : ({
-        if (cursor.next != null)
-            try bytes.append('\n');
-        maybe_cursor = cursor.next;
-    }) {
-        var mod_ctx = try ModuleContext.init(gpa);
-        defer mod_ctx.deinit();
-
-        var diagnostic = graphl.GraphBuilder.Diagnostics.init();
-        cursor.data.graphl_graph.compile(gpa, cursor.data.name, &mod_ctx, &diagnostic) catch |e| {
-            std.log.err("diagnostic: {}\n", .{diagnostic.contextualize(&cursor.data.graphl_graph)});
-            return e;
-        };
-
-        _ = try mod_ctx.getRoot().write(&mod_ctx, bytes.writer(), .{});
-    }
-
+    const mod_ctx = try self.combineGraphs();
+    _ = try bytes.writer().print("{}", .{mod_ctx});
     return bytes;
 }
 
