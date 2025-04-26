@@ -493,7 +493,8 @@ const BinaryenHelper = struct {
     }
 };
 
-pub export fn _binaryen_helper_constructor() callconv(.C) void {
+// export callconv(.C) 
+pub fn _binaryen_helper_constructor() callconv(.C) void {
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.i32_, byn.c.BinaryenTypeInt32()) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.i64_, byn.c.BinaryenTypeInt64()) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.u32_, byn.c.BinaryenTypeInt32()) catch unreachable;
@@ -517,6 +518,14 @@ pub export fn _binaryen_helper_constructor() callconv(.C) void {
     const i8_array_heap = built_heap_types[0];
     const i8_array = byn.c.BinaryenTypeFromHeapType(i8_array_heap, false);
 
+    std.debug.assert(
+        byn.c.BinaryenHeapTypeIsArray(i8_array_heap)
+    );
+    std.debug.assert(
+        !byn.c.BinaryenTypeIsNullable(i8_array)
+    );
+    //std.debug.print("is_struct={}, is_array={}, is_basic={}", .{is_struct, is_array, is_basic});
+
     // TODO: do what hoot does and compile to stringref but downpass it to i8-array
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.code, i8_array) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.symbol, i8_array) catch unreachable;
@@ -529,7 +538,12 @@ pub export fn _binaryen_helper_constructor() callconv(.C) void {
     BinaryenHelper.heap_type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.string, i8_array_heap) catch unreachable;
 }
 
-// FIXME: idk if this works in wasm, maybe do it in tests only?
+//var binaryenHelperConstructorOnce = std.once(_binaryen_helper_constructor);
+
+// FIXME: some heap types' infos seem to be mutated after creating a module, in some environments,
+// so for now this will be invoked on first creation of a module... perhaps it should even be per-module...
+// this doesn't seem to make that much sense though
+// TODO: test this more
 export const _compiler_init_array: [1]*const fn () callconv(.C) void linksection(".init_array") = .{&_binaryen_helper_constructor};
 
 const Compilation = struct {
@@ -618,6 +632,8 @@ const Compilation = struct {
             },
             .file_byn_index = undefined,
         };
+
+        //binaryenHelperConstructorOnce.call();
 
         byn.c.BinaryenSetDebugInfo(true);
 

@@ -218,13 +218,80 @@ describe("js sdk", () => {
          * @returns {string}
          */
         impl(elemId, code) {
-          return JSON.stringify(eval(code) ?? null);
+          //return JSON.stringify(eval(code) ?? null);
         }
       },
     });
 
     assert.strictEqual(program.functions.main(), 0);
     assert.strictEqual(program.functions.processInstance(0n, {x: 0, y: 0, z: 0}, {x: 1, y: 1, z: 1}), "my_export");
+    assert(called);
+  });
+
+  it.only("imports 2", async () => {
+    let called = false;
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+        (import JavaScript-Eval "host/JavaScript-Eval")
+        (import ModelCenter "host/ModelCenter")
+        (import FROM "host/FROM")
+        (import WHERE "host/WHERE")
+        (import SELECT "host/SELECT")
+        (import Confetti "host/Confetti")
+        (typeof (main)
+                i32)
+        (define (main)
+                (begin (ModelCenter)
+                       (Confetti 100)
+                       (return 0)))
+    `, {
+      Confetti: {
+        name: "Confetti",
+        inputs: [{ type: GraphlTypes.i32 }],
+        outputs: [],
+        impl(param: number) {
+          console.log(param);
+          called = true;
+        }
+      },
+      "JavaScript-Eval": {
+        inputs: [
+          { name: "elementId", type: GraphlTypes.u64 },
+          { name: "code", type: GraphlTypes.string },
+        ],
+        outputs: [{ name: "JSON result", type: GraphlTypes.string }],
+        tags: ["text"],
+        /**
+         * @param {bigint} elemId
+         * @param {string} code
+         * @returns {string}
+         */
+        impl(elemId, code) {}
+      },
+      "ModelCenter": {
+        inputs: [],
+        outputs: [{ name: "", type: GraphlTypes.vec3 }],
+        impl() { return { x: 1, y: 2, z: 3 }; },
+      },
+      "FROM": {
+        inputs: [],
+        outputs: [],
+        impl() {},
+      },
+      "WHERE": {
+        inputs: [],
+        outputs: [],
+        impl() {},
+      },
+      "SELECT": {
+        inputs: [],
+        outputs: [],
+        impl() {},
+      },
+      // (import testme "host/testme")
+      // (import ECSQL-exec "host/ECSQL-exec")
+    });
+
+    assert.strictEqual(program.functions.main(), 0);
     assert(called);
   });
 });

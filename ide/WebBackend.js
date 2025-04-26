@@ -1398,20 +1398,28 @@ export async function Ide(canvasElem, opts) {
     // FIXME: use the new js sdk instead
     const result = {
         async exportGraphlt() {
-            const resultPromise = setupSliceReturn();
-            ideWasm.instance.exports.compileToGraphlt();
-            const result = await resultPromise;
-            const content = utf8decoder.decode(result);
-            return content;
+            try {
+                const resultPromise = setupSliceReturn();
+                ideWasm.instance.exports.compileToGraphlt();
+                const result = await resultPromise;
+                const content = utf8decoder.decode(result);
+                return content;
+            } catch {
+                onReceiveSliceCb = undefined;
+            }
         },
         async exportWasm() {
-            const resultPromise = setupSliceReturn();
-            ideWasm.instance.exports.compileToWasm();
-            const result = await resultPromise;
-            return result;
+            try {
+                const resultPromise = setupSliceReturn();
+                ideWasm.instance.exports.compileToWasm();
+                const result = await resultPromise;
+                return result;
+            } catch {
+                onReceiveSliceCb = undefined;
+            }
         },
         async compile() {
-            const wasm = this.exportWasm();
+            const wasm = await this.exportWasm();
             return instantiateProgramFromWasmBuffer(wasm, opts.userFuncs);
         },
     };
