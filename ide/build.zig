@@ -55,8 +55,8 @@ pub fn build(b: *std.Build) void {
         .single_threaded = true,
     });
 
-    exe.initial_memory = 512 * 1024 * 1024; // 512MB
-    exe.max_memory = 1 * 1024 * 1024 * 1024; // 1GB
+    //exe.initial_memory = 512 * 1024 * 1024; // 512MB
+    //exe.max_memory = 1 * 1024 * 1024 * 1024; // 1GB
     const ide_module = b.addModule("ide_dvui", .{
         .root_source_file = switch (target.result.os.tag) {
             .wasi => b.path("src/web-app.zig"),

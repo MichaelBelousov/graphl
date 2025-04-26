@@ -35,7 +35,9 @@ var gpa_instance = std.heap.GeneralPurposeAllocator(if (builtin.mode == .Debug) 
 } else .{}){};
 
 pub const gpa = if (builtin.cpu.arch.isWasm())
-    std.heap.wasm_allocator
+    // NOTE: use c_allocator because we have deps using libc 
+    std.heap.c_allocator
+    //std.heap.wasm_allocator
 else
     gpa_instance.allocator();
 
@@ -233,7 +235,6 @@ pub fn compileToWasm(self: *@This()) ![]const u8 {
         std.log.err("Compile error:\n {}", .{comp_diag});
         return err;
     };
-    defer gpa.free(wasm);
     return wasm;
 }
 

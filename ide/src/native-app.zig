@@ -35,8 +35,6 @@ pub fn frame() !void {
     try app.frame();
 }
 
-var transfer_slice: []const u8 = undefined; 
-
 export fn onReceiveSlice(ptr: ?[*]const u8, len: usize) void {
     _ = ptr;
     _ = len;

@@ -546,6 +546,9 @@ pub fn _binaryen_helper_constructor() callconv(.C) void {
 // TODO: test this more
 export const _compiler_init_array: [1]*const fn () callconv(.C) void linksection(".init_array") = .{&_binaryen_helper_constructor};
 
+// FIXME: temp
+extern fn debugger() void;
+
 const Compilation = struct {
     // FIXME: consider making this an owned instance, why is it a pointer?
     /// will be edited during compilation as functions are discovered
@@ -619,13 +622,16 @@ const Compilation = struct {
         maybe_user_funcs: ?*const std.SinglyLinkedList(UserFunc),
         in_diag: *Diagnostic,
     ) !@This() {
+        debugger();
+        const mod = byn.Module.init();
+
         var result = @This(){
             .graphlt_module = graphlt_module,
             ._sexp_compiled = undefined,
             .diag = in_diag,
             .arena = std.heap.ArenaAllocator.init(alloc),
             .env = env,
-            .module = byn.Module.init(),
+            .module = mod,
             .user_context = .{
                 .funcs = maybe_user_funcs orelse &empty_user_funcs,
                 .func_map = undefined,

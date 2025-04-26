@@ -6,6 +6,7 @@ const RaylibBackend = dvui.backend;
 
 const dvui = @import("dvui");
 
+const graphl = @import("graphl_core");
 const app = @import("./native-app.zig");
 
 const c = RaylibBackend.c;
@@ -47,6 +48,23 @@ pub fn main() !void {
 
     try app.init(.{
         .transfer_buffer = &transfer_buffer,
+        .user_funcs = &.{
+            .{
+                .id = 0,
+                .node = .{
+                    .name = "JavaScript-Eval",
+                    .inputs = try gpa.dupe(graphl.Pin, &.{
+                        .{ .name = "", .kind = .{ .primitive = .exec } },
+                        .{ .name = "elementId", .kind = .{ .primitive = .{ .value = graphl.primitive_types.u64_ } } },
+                        .{ .name = "code", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
+                    }),
+                    .outputs = try gpa.dupe(graphl.Pin, &.{
+                        .{ .name = "", .kind = .{ .primitive = .exec } },
+                        .{ .name = "json", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
+                    }),
+                },
+            }
+        },
         .menus = &.{
             .{
                 .name = "Build",
@@ -55,12 +73,16 @@ pub fn main() !void {
                         .name = "compile",
                         .on_click = &(struct { pub fn impl(_: ?*anyopaque, _: ?*anyopaque) void {
                             const graphlt = app.app.compileToGraphlt() catch |e| {
-                                std.debug.print("compilation failed with '{}'", .{e});
+                                std.debug.print("graphlt compilation failed with '{}'", .{e});
                                 return;
                             };
                             defer gpa.free(graphlt);
                             std.debug.print("graphlt:\n{s}\n", .{graphlt});
-                            //const wasm = try app.compileToWasm();
+                            const wasm = app.app.compileToWasm() catch |e| {
+                                std.debug.print("wasm compilation failed with '{}'", .{e});
+                                return;
+                            };
+                            defer gpa.free(wasm);
                         } }.impl),
                     },
                 },

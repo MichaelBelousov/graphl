@@ -1299,11 +1299,9 @@ function assert(cond, errMessage = "Assertion failed") {
     if (!cond) throw Error(errMessage);
 }
 
-const MAX_FUNC_NAME = 256;
 const WASM_PAGE_SIZE = 64 * 1024;
-const INIT_BUFFER_SZ = WASM_PAGE_SIZE;
+const INIT_BUFFER_SZ = 8192;
 
-// FIXME: replace this with the new JS SDK
 /**
  * @template {Record<string, Function>} T
  * @param {HTMLCanvasElement} canvasElem
@@ -1343,6 +1341,9 @@ export async function Ide(canvasElem, opts) {
         wasi_snapshot_preview1: wasi.wasiImport,
         dvui: dvui.imports, 
         env: {
+            breakpoint() {
+                debugger;
+            },
             main() {},
             //wasm_opt_transfer: sharedWasmMem,
             // FIXME: remove
@@ -1363,9 +1364,9 @@ export async function Ide(canvasElem, opts) {
                 uploadFile({ type: "text" }).then((file) => {
                     const len = file.content.length;
                     const ptr = ideWasm.instance.exports.transfer_buffer;
-                    const transferBuffer = () => new Uint8Array(ideWasm.instance.exports.memory.buffer, ptr, len);
+                    const buffer = () => new Uint8Array(ideWasm.instance.exports.memory.buffer, ptr, len);
                     {
-                        const write = utf8encoder.encodeInto(file.content, transferBuffer());
+                        const write = utf8encoder.encodeInto(file.content, buffer());
                         assert(write.written === len, `failed to write file to transfer buffer`);
                     }
                     return ideWasm.instance.exports.onReceiveLoadedSource(ptr, len)
@@ -1447,21 +1448,29 @@ export async function Ide(canvasElem, opts) {
                 }
             }
 
+            const menus = [...opts.menus ?? []];
+
+            /** @type {any} */
+            const optsForWasm = { ...opts, menus, userFuncs: {} };
+
             // FIXME: standardize this for all lang sdks
-            const hasBuildMenuOverride = opts.menus?.find(m => m.name === "Build");
+            const hasBuildMenuOverride = menus?.find(m => m.name === "Build");
 
             if (!hasBuildMenuOverride) {
-                if (opts.menus === undefined)
-                    opts.menus = [];
-
-                opts.menus.unshift({
+                menus.unshift({
                     name: "Build",
                     submenus: [
                         {
                             name: "Run main",
                             async onClick() {
                                 /** @type {Awaited<ReturnType<typeof result["compile"]>>} */
-                                const compiled = await result.compile();
+                                let compiled;
+                                try {
+                                    compiled = await result.compile();
+                                } catch (err) {
+                                    alert(String(err) + "\n" + err.diagnostic);
+                                    return;
+                                }
                                 compiled.functions.main();
                             },
                         },
@@ -1469,12 +1478,10 @@ export async function Ide(canvasElem, opts) {
                 });
             }
 
-            bindMenus(opts.menus);
+            bindMenus(menus);
 
-            /** @type {any} */
-            const optsForWasm = { ...opts };
             let nextUserFuncHandle = 0;
-            for (const userFuncKey in optsForWasm.userFuncs) {
+            for (const userFuncKey in opts.userFuncs) {
                 userFuncs.set(nextUserFuncHandle, {
                     name: userFuncKey,
                     func: {
