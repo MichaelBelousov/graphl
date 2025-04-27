@@ -40,6 +40,10 @@ export fn onReceiveSlice(ptr: ?[*]const u8, len: usize) void {
     _ = len;
 }
 
+export fn breakpoint() void {
+    //@breakpoint();
+}
+
 pub fn compileToGraphlt() !void {
     const src = try app.compileToGraphlt();
 
@@ -127,6 +131,4 @@ fn _onRequestLoadSource() !void {
 // FIXME:
 //const window_icon_png = @embedFile("zig-favicon.png");
 
-// FIXME: merge with app allocator!
-var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
-const gpa = gpa_instance.allocator();
+pub const gpa = App.gpa;

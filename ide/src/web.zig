@@ -29,11 +29,6 @@ pub const std_options: std.Options = .{
     .logFn = dvui.App.logFn,
 };
 
-// // var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
-// // const gpa = gpa_instance.allocator();
-// //pub const gpa = app.gpa;
-// pub const gpa = std.heap.wasm_allocator;
-
 fn app_init(win: *dvui.Window) void {
     app.init() catch |e| {
         std.log.err("App failed to init ({!})", .{e});

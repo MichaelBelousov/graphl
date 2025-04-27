@@ -14,9 +14,7 @@ const c = RaylibBackend.c;
 // FIXME:
 //const window_icon_png = @embedFile("zig-favicon.png");
 
-// FIXME: merge with app allocator!
-var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
-const gpa = gpa_instance.allocator();
+const gpa = app.gpa;
 
 var show_dialog_outside_frame: bool = false;
 
@@ -26,8 +24,6 @@ var scale_val: f32 = 1.0;
 var transfer_buffer = std.mem.zeroes([std.heap.page_size_min]u8);
 
 pub fn main() !void {
-    defer _ = gpa_instance.deinit();
-
     // FIXME: mac keybindings?
 
     // init Raylib backend (creates OS window)

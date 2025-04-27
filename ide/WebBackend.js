@@ -1300,6 +1300,7 @@ function assert(cond, errMessage = "Assertion failed") {
 }
 
 const WASM_PAGE_SIZE = 64 * 1024;
+// FIXME: this is exported from the wasm, get it from that
 const INIT_BUFFER_SZ = 8192;
 
 /**
@@ -1522,6 +1523,7 @@ export async function Ide(canvasElem, opts) {
 
 
             const json_ptr = we.transfer_buffer;
+            // FIXME: use bytes written instead
             const json_len = optsJson.length;
 
             if (!we.setInitOpts(json_ptr, json_len)) {
