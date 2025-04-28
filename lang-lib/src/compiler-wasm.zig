@@ -1284,7 +1284,7 @@ const Compilation = struct {
                 }
             }
 
-            const name = try std.fmt.allocPrint(self.arena.allocator(), "__graphl_write_struct_{s}_fields", .{graphl_type.name});
+            const name = try std.fmt.allocPrintZ(self.arena.allocator(), "__graphl_write_struct_{s}_fields", .{graphl_type.name});
 
             const func = byn.c.BinaryenAddFunction(
                 self.module.c(),
@@ -1369,7 +1369,7 @@ const Compilation = struct {
             impl.appendAssumeCapacity(byn.c.BinaryenUnreachable(self.module.c()));
 
             // FIXME: use a buf, pretty sure binaryen just copies this, no point bloating the arena
-            const name = try std.fmt.allocPrint(self.arena.allocator(), "__graphl_write_struct_{s}_array", .{graphl_type.name});
+            const name = try std.fmt.allocPrintZ(self.arena.allocator(), "__graphl_write_struct_{s}_array", .{graphl_type.name});
 
             const func = byn.c.BinaryenAddFunction(
                 self.module.c(),
@@ -1445,7 +1445,7 @@ const Compilation = struct {
                 }
             }
 
-            const name = try std.fmt.allocPrint(self.arena.allocator(), "__graphl_read_struct_{s}_fields", .{graphl_type.name});
+            const name = try std.fmt.allocPrintZ(self.arena.allocator(), "__graphl_read_struct_{s}_fields", .{graphl_type.name});
 
             const func = byn.c.BinaryenAddFunction(
                 self.module.c(),
