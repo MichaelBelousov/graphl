@@ -259,9 +259,14 @@ function graphlStructValToJsVal(
 
     const arraySlotQueue = [] as { obj: any, fieldName: string }[];
 
-    const result: any = {
-        [graphlNativeValSym]: graphlVal,
-    };
+    const result: any = {};
+
+    Object.defineProperty(result, graphlNativeValSym, {
+        value: graphlVal,
+        enumerable: false,
+        writable: false,
+        configurable: false,
+    });
 
     function graphlStructMemToJsVal(subStructType: GraphlType, offset: number, result: any = {}) {
         assert(subStructType.kind === "struct");

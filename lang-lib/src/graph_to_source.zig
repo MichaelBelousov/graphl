@@ -837,7 +837,7 @@ pub const GraphBuilder = struct {
             pub fn getNextLabel(self: *@This(), alloc: std.mem.Allocator, node_id: NodeId, sexp_idx: u32) ![:0]const u8 {
                 // FIXME: generate name from sexp, and recommend people explicitly specify labels
                 _ = sexp_idx;
-                const label = try std.fmt.allocPrintZ(alloc, "#!__label{}", .{self.label_counter});
+                const label = try std.fmt.allocPrintZ(alloc, "__label{}", .{self.label_counter});
                 try self.node_labels.putNoClobber(node_id, label);
                 self.label_counter += 1;
                 return label;
