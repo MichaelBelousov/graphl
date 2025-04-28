@@ -91,12 +91,23 @@ function typeFromTypeArray(name: string, types: GraphlType[]): GraphlType {
     };
 }
 
+// FIXME: use keyof GraphlTypes?
+type GraphlTypeKey = "string" | "vec3" | "i32" | "u64";
+
 export interface UserFuncInput {
-    type: GraphlType;
+    type: GraphlType | GraphlTypeKey;
+}
+
+function inputToType(input: UserFuncInput): GraphlType {
+    return typeof input.type === "string" ? (GraphlTypes as any)[input.type] : input.type;
 }
 
 export interface UserFuncOutput {
-    type: GraphlType;
+    type: GraphlType | GraphlTypeKey;
+}
+
+function outputToType(output: UserFuncOutput): GraphlType {
+    return typeof output.type === "string" ? (GraphlTypes as any)[output.type] : output.type;
 }
 
 function jsValToGraphlPrimitiveVal(
@@ -403,16 +414,25 @@ function makeCallUserFunc(
     wasm: WasmInstance,
     userFuncs: UserFuncCollection
 ): [string, Function] {
-    const key = ["callUserFunc", ...inputs.map(i => i.type.name), "R", ...outputs.map(o => o.type.name)].join("_");
+    const key = [
+        "callUserFunc",
+        ...inputs.map(i => typeof i.type === "string" ? i.type : i.type.name),
+        "R",
+        ...outputs.map(o => typeof o.type === "string" ? o.type : o.type.name),
+    ].join("_");
 
     return [
         key,
         (funcId: number, ...abiParams: any[]) => {
             const userFunc = userFuncs.get(funcId);
             assert(userFunc, `No user function with id ${funcId}, this is a bug`);
-            const jsParams = abiParams.map((p, i) => graphlValToJsVal(p, inputs[i].type, wasm));
+            const jsParams = abiParams.map((p, i) => graphlValToJsVal(
+                p,
+                inputToType(inputs[i]),
+                wasm,
+            ));
             const jsRes = userFunc.call(undefined, ...jsParams);
-            const returnType = typeFromTypeArray(key, outputs.map(t => t.type));
+            const returnType = typeFromTypeArray(key, outputs.map(outputToType));
             return graphlValToJsVal(jsRes, returnType, wasm);
         }
     ];
@@ -564,11 +584,15 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
             .filter(([_key, graphlFunc]) => typeof graphlFunc === "function")
             .map(([key, graphlFunc]) => [key, (...args: any[]) => {
                 const fnInfo = functionMap.get(key)!;
-                const graphlArgs = args.map((arg, i) => jsValToGraphlVal(arg, fnInfo.inputs[i].type, wasmExports));
+                const graphlArgs = args.map((arg, i) => jsValToGraphlVal(
+                    arg,
+                    inputToType(fnInfo.inputs[i]),
+                    wasmExports
+                ));
                 const graphlRes = (graphlFunc as Function)(...graphlArgs);
                 if (fnInfo.outputs.length === 0) return undefined;
-                if (fnInfo.outputs.length === 1) return graphlValToJsVal(graphlRes, fnInfo.outputs[0].type, wasmExports);
-                const returnType = typeFromTypeArray(key, fnInfo.outputs.map(t => t.type));
+                if (fnInfo.outputs.length === 1) return graphlValToJsVal(graphlRes, outputToType(fnInfo.outputs[0]), wasmExports);
+                const returnType = typeFromTypeArray(key, fnInfo.outputs.map(outputToType));
                 return graphlValToJsVal(graphlRes, returnType, wasmExports);
             }])
         ) as any,
@@ -590,8 +614,8 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
                     //hidden: false,
                     //kind: "func",
                     // FIXME: the type is wrong here, input.type is a string
-                    inputs: v.inputs?.map((inp, j) => ({ name: `p${j}`, type: inp.type.name })) ?? [],
-                    outputs: v.outputs?.map((out, j) => ({ name: `p${j}`, type: out.type.name })) ?? [],
+                    inputs: v.inputs?.map((inp, j) => ({ name: `p${j}`, type: inputToType(inp).name })) ?? [],
+                    outputs: v.outputs?.map((out, j) => ({ name: `p${j}`, type: outputToType(out).name })) ?? [],
                     tags: ["host"],
                 },
             }

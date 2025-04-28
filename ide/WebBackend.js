@@ -1477,7 +1477,9 @@ export async function Ide(canvasElem, opts) {
                                     alert(String(err) + "\n" + err.diagnostic);
                                     return;
                                 }
-                                compiled.functions.main();
+                                const mainResult = compiled.functions.main();
+                                console.log("Result:", mainResult);
+                                alert(`Result:\n${mainResult}`);
                             },
                         },
                     ],
