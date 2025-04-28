@@ -7,6 +7,7 @@ const json = std.json;
 
 const JsonIntArrayHashMap = @import("./json_int_map.zig").IntArrayHashMap;
 
+const ModuleContext = @import("./sexp.zig").ModuleContext;
 const Sexp = @import("./sexp.zig").Sexp;
 const syms = @import("./sexp.zig").syms;
 const primitive_type_syms = @import("./sexp.zig").primitive_type_syms;
@@ -36,6 +37,8 @@ const JsonNode = @import("./json_format.zig").JsonNode;
 const Import = @import("./json_format.zig").Import;
 const GraphDoc = @import("./json_format.zig").GraphDoc;
 const debug_print = @import("./debug_print.zig").debug_print;
+
+const pool = &@import("./InternPool.zig").pool;
 
 pub const ImportBinding = struct {
     binding: []const u8,
@@ -542,43 +545,44 @@ pub const GraphBuilder = struct {
         start.inputs[pin_index] = .{ .value = value };
     }
 
+    // FIXME: rename from "compile"
     // FIXME: emit move name to the graph
-    /// NOTE: the outer module is a sexp list
-    pub fn compile(self: *@This(), alloc: std.mem.Allocator, name: []const u8, diagnostic: ?*Diagnostics) !Sexp {
-        try self.branch_joiner_map.ensureTotalCapacity(alloc, self.branch_count);
-        try self.is_join_set.resize(alloc, self.nodes.map.count(), false);
+    pub fn compile(self: *@This(), in_alloc: std.mem.Allocator, name: []const u8, mod_ctx: *ModuleContext, diagnostic: ?*Diagnostics) !void {
+        try self.branch_joiner_map.ensureTotalCapacity(in_alloc, self.branch_count);
+        try self.is_join_set.resize(in_alloc, self.nodes.map.count(), false);
 
         // FIXME: this causes a crash in non-debug builds
-        var analysis_arena = std.heap.ArenaAllocator.init(alloc);
-        try self.analyzeNodes(alloc);
+        var analysis_arena = std.heap.ArenaAllocator.init(in_alloc);
+        try self.analyzeNodes(in_alloc);
         analysis_arena.deinit();
 
-        var body = try self.rootToSexp(alloc, diagnostic);
-        // FIXME: doesn't this invalidate the moved slice below? e.g. this only works cuz there are no owned strings?
-        defer body.deinit(alloc);
-        std.debug.assert(body.value == .list);
+        try mod_ctx.arena.ensureUnusedCapacity(mod_ctx.alloc(), 1 + self.nodes.map.count());
+        try mod_ctx.getRoot().value.module.ensureUnusedCapacity(mod_ctx.alloc(), 2);
 
-        var module = Sexp{ .value = .{ .module = std.ArrayList(Sexp).init(alloc) } };
-        try module.value.module.ensureTotalCapacityPrecise(2);
-        const type_def = module.value.module.addOneAssumeCapacity();
-        const func_def = module.value.module.addOneAssumeCapacity();
+        var body = try self.rootToSexp(in_alloc, mod_ctx, diagnostic);
+        std.debug.assert(body.value == .list);
+        defer body.value.list.clearAndFree(in_alloc);
+
+        const type_def_idx = try mod_ctx.addToRoot(.empty_list);
 
         const params = self.entry_node_basic_desc.outputs[1..];
 
         {
-            type_def.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) }, .comment = "comment!" };
-            try type_def.value.list.ensureTotalCapacityPrecise(3);
-            type_def.value.list.addOneAssumeCapacity().* = syms.typeof;
-            const param_bindings = type_def.value.list.addOneAssumeCapacity();
-            const result_type = type_def.value.list.addOneAssumeCapacity();
+            try mod_ctx.get(type_def_idx).value.list.ensureTotalCapacityPrecise(mod_ctx.alloc(), 3);
+            _ = try mod_ctx.addAndAppendToList(type_def_idx, syms.typeof);
 
-            param_bindings.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-            try param_bindings.value.list.ensureTotalCapacityPrecise(1 + params.len);
-            // FIXME: dupe this?
-            param_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
+            const param_bindings_idx = try mod_ctx.add(.empty_list);
+            const result_type_idx = try mod_ctx.add(undefined);
+            mod_ctx.get(type_def_idx).value.list.appendAssumeCapacity(param_bindings_idx);
+            mod_ctx.get(type_def_idx).value.list.appendAssumeCapacity(result_type_idx);
+
+            try mod_ctx.get(param_bindings_idx).value.list.ensureTotalCapacityPrecise(mod_ctx.alloc(), 1 + params.len);
+            const name_idx = try mod_ctx.add(.symbol(name));
+            mod_ctx.get(param_bindings_idx).value.list.appendAssumeCapacity(name_idx);
             for (params) |param| {
                 std.debug.assert(param.asPrimitivePin() == .value);
-                param_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param.asPrimitivePin().value.name } };
+                const param_binding_idx = try mod_ctx.add(.symbol(param.asPrimitivePin().value.name));
+                mod_ctx.get(param_bindings_idx).value.list.appendAssumeCapacity(param_binding_idx);
             }
 
             if (self.result_node_basic_desc.inputs.len < 1) return error.InvalidResultNode;
@@ -590,61 +594,59 @@ pub const GraphBuilder = struct {
                 if (self.result_node_basic_desc.inputs[1].kind != .primitive) return error.InvalidResultNode;
                 if (self.result_node_basic_desc.inputs[1].kind.primitive != .value) return error.InvalidResultNode;
 
-                // FIXME: share symbols for primitives!
-                result_type.* = Sexp{ .value = .{ .symbol = self.result_node_basic_desc.inputs[1].kind.primitive.value.name } };
+                mod_ctx.get(result_type_idx).* = .symbol(self.result_node_basic_desc.inputs[1].kind.primitive.value.name);
             }
         }
+
+        const func_def_idx = try mod_ctx.addToRoot(.empty_list);
 
         {
-            func_def.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-            try func_def.value.list.ensureTotalCapacityPrecise(3);
-            func_def.value.list.addOneAssumeCapacity().* = syms.define;
-            const func_bindings = func_def.value.list.addOneAssumeCapacity();
-            const body_begin = func_def.value.list.addOneAssumeCapacity();
+            mod_ctx.get(func_def_idx).* = .empty_list;
+            try mod_ctx.get(func_def_idx).value.list.ensureTotalCapacityPrecise(mod_ctx.alloc(), 3);
+            _ = try mod_ctx.addAndAppendToList(func_def_idx, syms.define);
+            const func_bindings_idx = try mod_ctx.add(try .emptyListCapacity(mod_ctx.alloc(), 1 + params.len));
+            const body_begin_idx = try mod_ctx.add(.empty_list);
+            mod_ctx.get(func_def_idx).value.list.appendAssumeCapacity(func_bindings_idx);
+            mod_ctx.get(func_def_idx).value.list.appendAssumeCapacity(body_begin_idx);
 
-            body_begin.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
             // 1 for "begin", then local defs, then 1 for body
-            try body_begin.value.list.ensureTotalCapacityPrecise(1 + 2 * self.locals.items.len + body.value.list.items.len + 1);
-            body_begin.value.list.addOneAssumeCapacity().* = syms.begin;
+            try mod_ctx.get(body_begin_idx).value.list.ensureTotalCapacityPrecise(mod_ctx.alloc(), 1 + 2 * self.locals.items.len + body.value.list.items.len + 1);
+            _ = try mod_ctx.addAndAppendToList(body_begin_idx, syms.begin);
             for (self.locals.items) |local| {
-                const local_type = body_begin.value.list.addOneAssumeCapacity();
-                local_type.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try local_type.value.list.ensureTotalCapacityPrecise(3);
-                local_type.value.list.addOneAssumeCapacity().* = syms.typeof;
-                local_type.value.list.addOneAssumeCapacity().* = Sexp{
-                    .value = .{ .symbol = local.name },
+                const local_type_idx = try mod_ctx.add(.empty_list);
+                mod_ctx.get(body_begin_idx).value.list.appendAssumeCapacity(local_type_idx);
+                try mod_ctx.get(local_type_idx).value.list.ensureTotalCapacityPrecise(mod_ctx.alloc(), 3);
+                _ = try mod_ctx.addAndAppendToList(local_type_idx, syms.typeof);
+                _ = try mod_ctx.addAndAppendToList(local_type_idx, Sexp{
+                    .value = .{ .symbol = pool.getSymbol(local.name) },
                     .comment = local.comment,
-                };
-                local_type.value.list.addOneAssumeCapacity().* = Sexp{
-                    .value = .{ .symbol = local.type_.name },
+                });
+                _ = try mod_ctx.addAndAppendToList(local_type_idx, Sexp{
+                    .value = .{ .symbol = pool.getSymbol(local.type_.name) },
                     .comment = local.comment,
-                };
+                });
 
-                const local_def = body_begin.value.list.addOneAssumeCapacity();
-                local_def.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                try local_def.value.list.ensureTotalCapacityPrecise(if (local.default != null) 3 else 2);
-                local_def.value.list.addOneAssumeCapacity().* = syms.define;
-                local_def.value.list.addOneAssumeCapacity().* = Sexp{
-                    .value = .{ .symbol = local.name },
+                const local_def_idx = try mod_ctx.add(try .emptyListCapacity(mod_ctx.alloc(), if (local.default != null) 3 else 2));
+                mod_ctx.get(body_begin_idx).value.list.appendAssumeCapacity(local_def_idx);
+
+                _ = try mod_ctx.addAndAppendToList(local_def_idx, syms.define);
+                _ = try mod_ctx.addAndAppendToList(local_def_idx, Sexp{
+                    .value = .{ .symbol = pool.getSymbol(local.name) },
                     .comment = local.comment,
-                };
+                });
                 if (local.default) |default|
-                    local_def.value.list.addOneAssumeCapacity().* = default;
+                    _ = try mod_ctx.addAndAppendToList(local_def_idx, default);
             }
-            body_begin.value.list.appendSliceAssumeCapacity(body.value.list.items);
-            body.value.list.clearAndFree();
+            // FIXME: why not to owned slice?
+            mod_ctx.get(body_begin_idx).value.list.appendSliceAssumeCapacity(body.value.list.items);
 
             // FIXME: also emit imports and definitions!
-            func_bindings.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-            try func_bindings.value.list.ensureTotalCapacityPrecise(1 + params.len);
             // FIXME: dupe this?
-            func_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
+            _ = try mod_ctx.addAndAppendToList(func_bindings_idx, .symbol(name));
             for (params) |param| {
-                func_bindings.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = param.name } };
+                _ = try mod_ctx.addAndAppendToList(func_bindings_idx, .symbol(param.name));
             }
         }
-
-        return module;
     }
 
     const NodeAnalysisResult = struct {
@@ -798,18 +800,19 @@ pub const GraphBuilder = struct {
     const ToSexp = struct {
         graph: *const GraphBuilder,
         diagnostics: *Diagnostics,
+        mod_ctx: *ModuleContext,
 
         const NodeData = packed struct {
             visited: u1,
             depth: u32, // TODO: u31
         };
 
-        pub const Block = std.ArrayList(Sexp);
+        pub const Block = std.ArrayListUnmanaged(u32);
 
         const Context = struct {
             node_data: *std.MultiArrayList(NodeData),
             label_counter: u32 = 1,
-            node_labels: *std.AutoHashMap(NodeId, []const u8),
+            node_labels: *std.AutoHashMap(NodeId, [:0]const u8),
 
             pub fn init(
                 alloc: std.mem.Allocator,
@@ -817,7 +820,7 @@ pub const GraphBuilder = struct {
                     node_count: usize,
                     node_data: *std.MultiArrayList(NodeData),
                     // TODO: could create a perfect hash map for the node set upfront...
-                    node_labels: *std.AutoHashMap(NodeId, []const u8),
+                    node_labels: *std.AutoHashMap(NodeId, [:0]const u8),
                 },
             ) !@This() {
                 var self = @This(){
@@ -834,10 +837,10 @@ pub const GraphBuilder = struct {
                 return self;
             }
 
-            pub fn getNextLabel(self: *@This(), alloc: std.mem.Allocator, node_id: NodeId, sexp: *const Sexp) ![]const u8 {
+            pub fn getNextLabel(self: *@This(), alloc: std.mem.Allocator, node_id: NodeId, sexp_idx: u32) ![:0]const u8 {
                 // FIXME: generate name from sexp, and recommend people explicitly specify labels
-                _ = sexp;
-                const label = try std.fmt.allocPrint(alloc, "#!__label{}", .{self.label_counter});
+                _ = sexp_idx;
+                const label = try std.fmt.allocPrintZ(alloc, "#!__label{}", .{self.label_counter});
                 try self.node_labels.putNoClobber(node_id, label);
                 self.label_counter += 1;
                 return label;
@@ -861,16 +864,13 @@ pub const GraphBuilder = struct {
         };
 
         pub fn toSexp(self: @This(), alloc: std.mem.Allocator, node_id: NodeId) !Sexp {
-            var block = Block.init(alloc);
-            defer {
-                for (block.items) |member| member.deinit(alloc);
-                block.deinit();
-            }
+            var block: Block = .empty;
+            defer block.deinit(alloc);
 
             var node_data = std.MultiArrayList(NodeData){};
             defer node_data.deinit(alloc);
 
-            var node_labels = std.AutoHashMap(NodeId, []const u8).init(alloc);
+            var node_labels = std.AutoHashMap(NodeId, [:0]const u8).init(alloc);
             defer node_labels.deinit();
 
             var ctx = try Context.init(alloc, .{
@@ -884,7 +884,7 @@ pub const GraphBuilder = struct {
             };
 
             try self.onNode(alloc, node_id, state, &ctx);
-            return Sexp{ .value = .{ .list = std.ArrayList(Sexp).fromOwnedSlice(alloc, try state.block.toOwnedSlice()) } };
+            return Sexp{ .value = .{ .list = std.ArrayListUnmanaged(u32).fromOwnedSlice(try state.block.toOwnedSlice(alloc)) } };
         }
 
         const Error = error{
@@ -920,49 +920,47 @@ pub const GraphBuilder = struct {
         pub fn onBranchNode(self: @This(), alloc: std.mem.Allocator, node: *const IndexedNode, state: State, context: *Context) !void {
             std.debug.assert(node.desc().isSimpleBranch());
 
-            var consequence_sexp: Sexp = undefined;
-            var alternative_sexp: Sexp = undefined;
+            var consequence_sexp: u32 = undefined;
+            var alternative_sexp: u32 = undefined;
 
             // FIXME: nodes with these constraints should be specialized!
             // TODO: (nodes should also be SoA and EoA'd)
             if (node.outputs[0].getExecOutput()) |consequence| {
-                var block = Block.init(alloc);
+                var block: Block = .empty;
                 // FIXME: why not take state depth?
                 const consequence_state = State{
                     .block = &block,
                 };
                 // FIXME: only add `begin` if it's multiple expressions
-                (try consequence_state.block.addOne()).* = syms.begin;
+                try consequence_state.block.append(self.mod_ctx.alloc(), try self.mod_ctx.add(syms.begin));
                 try self.onNode(alloc, consequence.target, consequence_state, context);
-                consequence_sexp = Sexp{ .value = .{ .list = block } };
+                consequence_sexp = try self.mod_ctx.add(Sexp{ .value = .{ .list = block } });
             }
 
             if (node.outputs[1].getExecOutput()) |alternative| {
-                var block = Block.init(alloc);
+                var block: Block = .empty;
                 const alternative_state = State{
                     .block = &block,
                 };
                 // FIXME: only add `begin` if it's multiple expressions
-                (try alternative_state.block.addOne()).* = syms.begin;
+                try alternative_state.block.append(self.mod_ctx.alloc(), try self.mod_ctx.add(syms.begin));
                 try self.onNode(alloc, alternative.target, alternative_state, context);
-                alternative_sexp = Sexp{ .value = .{ .list = block } };
+                alternative_sexp = try self.mod_ctx.add(Sexp{ .value = .{ .list = block } });
             }
 
-            var branch_sexp = try state.block.addOne();
-            errdefer branch_sexp.deinit(alloc);
-
-            branch_sexp.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
+            const branch_sexp_idx = try self.mod_ctx.add(.empty_list);
+            try state.block.append(self.mod_ctx.alloc(), branch_sexp_idx);
 
             // (if
-            (try branch_sexp.value.list.addOne()).* = Sexp{ .value = .{ .symbol = node.desc().name() } };
+            _ = try self.mod_ctx.addAndAppendToList(branch_sexp_idx, .symbol(node.desc().name()));
 
             // condition
             const condition_sexp = try self.nodeInputTreeToSexp(alloc, node.inputs[1], state, context, false);
-            (try branch_sexp.value.list.addOne()).* = condition_sexp;
+            try self.mod_ctx.get(branch_sexp_idx).value.list.append(self.mod_ctx.alloc(), condition_sexp);
             // consequence
-            (try branch_sexp.value.list.addOne()).* = consequence_sexp;
+            try self.mod_ctx.get(branch_sexp_idx).value.list.append(self.mod_ctx.alloc(), consequence_sexp);
             // alternative
-            (try branch_sexp.value.list.addOne()).* = alternative_sexp;
+            try self.mod_ctx.get(branch_sexp_idx).value.list.append(self.mod_ctx.alloc(), alternative_sexp);
 
             // FIXME: remove this double hash map fetch
             if (self.graph.branch_joiner_map.get(node.id)) |join| {
@@ -980,32 +978,29 @@ pub const GraphBuilder = struct {
                 else => node._desc.name(),
             };
 
-            // FIXME/HACK: use a linked list cuz this shit is cray cray
-            // pointer can be invalidated by array mutation so we need to keep it somehow...
-            try state.block.append(Sexp{ .value = .{ .int = @intCast(@intFromPtr(node)) } });
+            const destination_idx = try self.mod_ctx.add(undefined);
+            try state.block.append(alloc, destination_idx);
 
             // FIXME: doesn't work for variadics
-            const sexp = switch (node.desc().kind) {
+            switch (node.desc().kind) {
                 // HACK skip the get
-                .get => Sexp{ .value = .{ .symbol = name } },
+                .get => _ = try self.mod_ctx.add(Sexp{ .value = .{ .symbol = name } }),
                 .entry => std.debug.panic("onFunctionCallNode should ignore entry nodes", .{}),
-                .set, .func, .return_ => _: {
-                    var list_sexp = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                    const list = &list_sexp.value.list;
-
-                    try list.ensureTotalCapacityPrecise(1 + node.inputs.len - 1);
-                    try list.append(Sexp{ .value = .{ .symbol = name } });
+                .set, .func, .return_ => {
+                    const list_idx = destination_idx;
+                    self.mod_ctx.get(list_idx).* = try Sexp.emptyListCapacity(self.mod_ctx.alloc(), 1 + node.inputs.len - 1);
+                    _ = try self.mod_ctx.addAndAppendToList(list_idx, .symbol(name));
 
                     for (node.inputs[1..], node.desc().getInputs()[1..]) |input, input_desc| {
                         std.debug.assert(input_desc.kind == .primitive and input_desc.kind.primitive == .value);
-                        const input_tree = try self.nodeInputTreeToSexp(
+                        const input_tree_idx = try self.nodeInputTreeToSexp(
                             alloc,
                             input,
                             state,
                             context,
                             input_desc.asPrimitivePin().value == helpers.primitive_types.code,
                         );
-                        try list.append(input_tree);
+                        try self.mod_ctx.get(list_idx).value.list.append(self.mod_ctx.alloc(), input_tree_idx);
                     }
 
                     // TODO: impure functions should always have an optional next_node at first output
@@ -1020,7 +1015,7 @@ pub const GraphBuilder = struct {
                     }
 
                     if (needs_label) {
-                        list_sexp.label = try context.getNextLabel(alloc, node.id, &list_sexp);
+                        self.mod_ctx.get(list_idx).label = try context.getNextLabel(alloc, node.id, list_idx);
                     }
 
                     if (next_node == null and node.desc().kind != .return_) {
@@ -1033,20 +1028,7 @@ pub const GraphBuilder = struct {
                     //return @call(debug_tail_call, onNode, .{ self, alloc, node.outputs[0].?.link.target, context });
                     if (next_node) |next_id|
                         try self.onNode(alloc, next_id, state, context);
-
-                    break :_ list_sexp;
                 },
-            };
-
-            {
-                var i = state.block.items.len;
-                while (i > 0) : (i -= 1) {
-                    const item = &state.block.items[i - 1];
-                    if (item.value == .int and item.value.int == @as(i64, @intCast(@intFromPtr(node)))) {
-                        item.* = sexp;
-                        break;
-                    }
-                }
             }
         }
 
@@ -1058,7 +1040,7 @@ pub const GraphBuilder = struct {
             context: *Context,
             // FIXME/HACK: gross implementation...
             is_macro: bool,
-        ) !Sexp {
+        ) !u32 {
             switch (in_link) {
                 .link => |link| {
                     const source_id = link.target;
@@ -1072,10 +1054,12 @@ pub const GraphBuilder = struct {
                     };
 
                     if (!is_pure) if (context.node_labels.getPtr(source_id)) |label| {
-                        return Sexp{ .value = .{ .symbol = label.*[2..] } };
+                        // FIXME:
+                        //return try self.mod_ctx.add(.symbol(try std.fmt.allocPrintZ(try_stack_alloc, "#!{s}", .{label})));
+                        return try self.mod_ctx.add(Sexp{ .value = .{ .symbol = label.*[2..] } });
                     };
 
-                    var sexp = _: {
+                    const sexp_idx = _: {
                         // FIXME: this should be handled better!
                         // HACK: skip the get_/set_ prefix
                         const name = switch (source_node.desc().kind) {
@@ -1084,16 +1068,14 @@ pub const GraphBuilder = struct {
                         };
 
                         switch (source_node._desc.kind) {
-                            .get => break :_ Sexp{ .value = .{ .symbol = name } },
+                            .get => break :_ try self.mod_ctx.add(.symbol(name)),
                             .entry => {
-                                break :_ Sexp{ .value = .{ .symbol = source_node.desc().getOutputs()[link.pin_index].name } };
+                                break :_ try self.mod_ctx.add(.symbol(source_node.desc().getOutputs()[link.pin_index].name));
                             },
                             .set, .func, .return_ => {
-                                var result = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-
-                                try result.value.list.ensureTotalCapacityPrecise(source_node.inputs.len + 1);
-
-                                result.value.list.addOneAssumeCapacity().* = Sexp{ .value = .{ .symbol = name } };
+                                const result_idx = try self.mod_ctx.add(try .emptyListCapacity(self.mod_ctx.alloc(), source_node.inputs.len + 1));
+                                const result = self.mod_ctx.get(result_idx);
+                                result.value.list.appendAssumeCapacity(try self.mod_ctx.add(.symbol(name)));
 
                                 // HACK, skip control flow inputs for function calls (currently math is marked as a function but
                                 // should be marked as pure)
@@ -1102,52 +1084,53 @@ pub const GraphBuilder = struct {
 
                                 // skip the control flow input
                                 for (inputs) |input| {
-                                    result.value.list.addOneAssumeCapacity().* = try self.nodeInputTreeToSexp(alloc, input, state, context, is_macro);
+                                    result.value.list.appendAssumeCapacity(try self.nodeInputTreeToSexp(alloc, input, state, context, is_macro));
                                 }
 
-                                break :_ result;
+                                break :_ result_idx;
                             },
                         }
                     };
 
                     if (is_pure) {
                         // FIXME: memoize already translated sections!
-                        return sexp;
+                        return sexp_idx;
                     } else {
-                        const label = try context.getNextLabel(alloc, source_id, &sexp);
+                        const label = try context.getNextLabel(alloc, source_id, sexp_idx);
+                        const sexp = self.mod_ctx.get(sexp_idx);
                         sexp.label = label;
                         // FIXME: horrible performance! maybe a linked list would be better?
-                        state.block.insert(0, sexp) catch unreachable;
+                        state.block.insert(alloc, 0, sexp_idx) catch unreachable;
 
-                        // HACK
-                        return Sexp{ .value = .{ .symbol = label[2..] } };
+                        var try_stack_alloc = std.heap.stackFallback(256, alloc);
+                        return try self.mod_ctx.add(.symbol(try std.fmt.allocPrintZ(try_stack_alloc.get(), "#!{s}", .{label})));
                     }
                 },
                 // FIXME: move to own func for Value=>Sexp?, or just make Value==Sexp now...
                 .value => |v| switch (v) {
-                    .int => |u| return Sexp{ .value = .{ .int = u } },
-                    .float => |u| return Sexp{ .value = .{ .float = u } },
-                    .string => |u| return Sexp{ .value = .{ .borrowedString = u } },
-                    .bool => |u| return Sexp{ .value = .{ .bool = u } },
-                    .null => return Sexp{ .value = .void },
-                    .symbol => |u| return Sexp{ .value = .{ .symbol = u } },
+                    .int => |u| return try self.mod_ctx.add(.int(u)),
+                    .float => |u| return try self.mod_ctx.add(Sexp{ .value = .{ .float = u } }),
+                    .string => |u| return try self.mod_ctx.add(Sexp{ .value = .{ .borrowedString = u } }),
+                    .bool => |u| return try self.mod_ctx.add(Sexp{ .value = .{ .bool = u } }),
+                    .null => return try self.mod_ctx.add(Sexp{ .value = .void }),
+                    .symbol => |u| return try self.mod_ctx.add(.symbol(u)),
                 },
             }
         }
     };
 
-    fn rootToSexp(self: *@This(), alloc: std.mem.Allocator, diagnostics: ?*Diagnostics) !Sexp {
+    fn rootToSexp(self: *@This(), alloc: std.mem.Allocator, mod_ctx: *ModuleContext, diagnostics: ?*Diagnostics) !Sexp {
         if (self.entry_id == null) {
             return error.NoEntryOrNotYetSet;
         }
 
         std.debug.assert(self.entry().?.desc().getOutputs()[0].isExec());
 
-        const first_link = self.entry().?.outputs[0].getExecOutput() orelse return Sexp.newList(alloc);
+        const first_link = self.entry().?.outputs[0].getExecOutput() orelse return Sexp.emptyList();
         const after_entry_id = first_link.target;
         var if_empty_diag = Diagnostics.init();
         const diag = if (diagnostics) |d| d else &if_empty_diag;
-        return (ToSexp{ .graph = self, .diagnostics = diag }).toSexp(alloc, after_entry_id);
+        return (ToSexp{ .mod_ctx = mod_ctx, .graph = self, .diagnostics = diag }).toSexp(alloc, after_entry_id);
     }
 };
 
@@ -1388,7 +1371,7 @@ test "empty graph twice" {
         // TODO: print floating point explicitly
     , text.items);
 
-    const compiler = @import("./compiler-wat.zig");
+    const compiler = @import("./compiler-wasm.zig");
     var compile_diag = compiler.Diagnostic.init();
     defer std.debug.print("compilation error: {}", .{compile_diag});
     const compile_result = try compiler.compile(a, &second_sexp, &env, null, &compile_diag);

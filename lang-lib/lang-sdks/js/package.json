@@ -1,0 +1,34 @@
+{
+  "name": "@graphl/compiler-js",
+  "module": "./index.mts",
+  "//module": "rollup'd output is weird",
+  "main": "./dist/cjs/index.js",
+  "browser": "TODO UMD",
+  "types": "dist/types/index.d.mts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "rollup -c",
+    "build-debug": "NODE_ENV=development rollup -c",
+    "build-types": "tsc -p ./tsconfig.json",
+    "dev": "rollup -c -w",
+    "test": "bun test ./test/e2e.test.ts",
+    "test-node": "node --loader=node-zigar --test-only --experimental-transform-types ./test/e2e.test.ts",
+    "test-debug": "node --inspect-brk --loader=node-zigar --test-only --experimental-transform-types ./test/e2e.test.ts",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "bun-zigar": "^0.14.0",
+    "node-zigar": "^0.14.0",
+    "rollup": "^4.40.0",
+    "rollup-plugin-typescript": "^1.0.1",
+    "rollup-plugin-zigar": "^0.14.0",
+    "typescript": "^5",
+    "vite": "^6.3.2",
+    "vite-plugin-inspect": "^11.0.1"
+  },
+  "files": [
+    "dist"
+  ]
+}

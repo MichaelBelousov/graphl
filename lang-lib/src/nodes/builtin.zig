@@ -2,31 +2,168 @@
 
 const std = @import("std");
 const Sexp = @import("../sexp.zig").Sexp;
-const intrinsics = @import("../intrinsics.zig");
+const Vec3 = @import("../intrinsics/vec3/Vec3.zig");
+const binaryen = @import("binaryen");
 
 const failing_allocator = std.testing.failing_allocator;
 
 pub const FuncType = struct {
-    param_names: []const []const u8 = &.{},
+    param_names: []const [:0]const u8 = &.{},
     param_types: []const Type = &.{},
-    local_names: []const []const u8 = &.{},
+    local_names: []const [:0]const u8 = &.{},
     local_types: []const Type = &.{},
-    result_names: []const []const u8 = &.{},
+    result_names: []const [:0]const u8 = &.{},
     result_types: []const Type = &.{},
 };
 
-pub const TypeInfo = struct {
-    name: []const u8,
-    field_names: []const []const u8 = &.{},
+// FIXME: recursive types not supported
+pub const StructType = struct {
+    field_names: []const [:0]const u8 = &.{},
     // should structs allow constrained generic fields?
     field_types: []const Type = &.{},
-    // FIXME: use a union
-    func_type: ?FuncType = null,
-    /// the wasm primitive associated with this type, if it is a primitive
-    wasm_type: ?[]const u8 = null,
-    // TODO: this should only exist on the compound-type variant of a union
-    /// if this is a compound type, its (cached?) size on the stack
-    size: ?u32 = null,
+    // I feel like 32-bits is too many
+    field_offsets: []const u32 = &.{},
+    // FIXME: why have a size when the outer Type value will have one?
+    size: u32,
+
+    // FIXME: this is binaryen specific!
+    /// total amount of array fields if you recursively descend through all fields
+    flat_array_count: u16,
+    /// total amount of primitive fields if you recursively descend through all fields
+    flat_primitive_slot_count: u16,
+
+    pub fn initFromTypeList(alloc: std.mem.Allocator, arg: struct {
+        field_names: []const [:0]const u8 = &.{},
+        field_types: []const Type = &.{},
+    }) !@This() {
+        const field_offsets = try alloc.alloc(u32, arg.field_names.len);
+        var offset: u32 = 0;
+        var flat_primitive_slot_count: u16 = 0;
+        var flat_array_count: u16 = 0;
+
+        for (arg.field_types, field_offsets) |field_type, *field_offset| {
+            field_offset.* = offset;
+            offset += field_type.size;
+            switch (field_type.subtype) {
+                .@"struct" => |substruct_type| {
+                    flat_primitive_slot_count += substruct_type.flat_primitive_slot_count;
+                    flat_array_count += substruct_type.flat_array_count;
+                },
+                .primitive => {
+                    if (field_type == primitive_types.string) {
+                        flat_array_count += 1;
+                    } else {
+                        flat_primitive_slot_count += 1;
+                    }
+                },
+                else => @panic("unimplemented"),
+            }
+        }
+        const total_size = offset;
+        return @This(){
+            .field_names = arg.field_names,
+            .field_types = arg.field_types,
+            .field_offsets = field_offsets,
+            .size = total_size,
+            .flat_primitive_slot_count = flat_primitive_slot_count,
+            .flat_array_count = flat_array_count,
+        };
+    }
+};
+
+pub const ArrayType = struct {
+    type: Type,
+    // TODO: add optional static size?
+};
+
+// could use a u32 index into a type store (might be faster on 64-bit platforms)
+pub const TypeInfo = struct {
+    name: [:0]const u8,
+    // FIXME: use a union?
+    subtype: union(enum) {
+        primitive: void,
+        // TODO: figure out how this differs from "Node"
+        func: *const NodeDesc,
+        @"struct": StructType,
+        array: ArrayType,
+    } = .primitive,
+    /// size in bytes of the type
+    size: u32,
+
+    pub const SubfieldInfo = struct {
+        name: [:0]const u8,
+        type: Type,
+        offset: u32,
+    };
+
+    // NOTE: I am probably getting ahead of myself implementing recursive fields
+    pub fn recursiveSubfieldIterator(self: *const @This(), a: std.mem.Allocator) SubfieldIter {
+        std.debug.assert(self.subtype == .@"struct");
+        var result = SubfieldIter{
+            .stack = @FieldType(SubfieldIter, "stack"){},
+            ._alloc = a,
+        };
+        // FIXME: why doesn't SegmentedList support appendAssumeCapacity?
+        result.stack.len = 1;
+        result.stack.uncheckedAt(0).* = .{
+            .type = self,
+            .depth = std.math.maxInt(@FieldType(SubfieldIter.StackEntry, "depth")),
+        };
+        result.moveToNextPrimitive();
+        return result;
+    }
+
+    // FIXME: store visited type list to detect loops
+    // FIXME: add tests for this
+    pub const SubfieldIter = struct {
+        _alloc: std.mem.Allocator,
+        _total_offset: u32 = 0,
+        // TODO: support deeper structs
+        stack: std.SegmentedList(StackEntry, 8),
+
+        const StackEntry = struct { type: Type, depth: u16 };
+
+        pub fn next(self: *@This()) ?SubfieldInfo {
+            if (self.stack.count() == 0) {
+                return null;
+            }
+
+            const top = self.stack.uncheckedAt(self.stack.count() - 1);
+            const result = SubfieldInfo{
+                .name = top.type.subtype.@"struct".field_names[top.depth],
+                .type = top.type.subtype.@"struct".field_types[top.depth],
+                .offset = self._total_offset,
+            };
+            // FIXME: hack
+            self._total_offset += if (result.type == primitive_types.string) 0 else result.type.size;
+            self.moveToNextPrimitive();
+            return result;
+        }
+
+        fn moveToNextPrimitive(self: *@This()) void {
+            std.debug.assert(self.stack.count() > 0);
+            const start_top: *StackEntry = self.stack.uncheckedAt(self.stack.count() - 1);
+            start_top.depth +%= 1; // FIXME this could bite me, infinite loop if struct > max(u16)
+
+            while (self.stack.count() > 0) {
+                const top: *StackEntry = self.stack.uncheckedAt(self.stack.count() - 1);
+                if (top.depth >= top.type.subtype.@"struct".field_types.len) {
+                    _ = self.stack.pop() orelse unreachable;
+                    continue;
+                    // FIXME generalize this or move this code to wasm compiler
+                }
+
+                const curr_field_type = top.type.subtype.@"struct".field_types[top.depth];
+                if (curr_field_type.subtype == .primitive) {
+                    return;
+                } else if (curr_field_type.subtype == .@"struct") {
+                    self.stack.append(self._alloc, .{ .type = curr_field_type, .depth = 0 }) catch unreachable;
+                } else {
+                    top.depth += 1;
+                }
+            }
+        }
+    };
 };
 
 pub const Type = *const TypeInfo;
@@ -38,18 +175,19 @@ pub const PrimitivePin = union(enum) {
 
 pub const exec = Pin{ .name = "Exec", .kind = .{ .primitive = .exec } };
 
-// FIXME: replace with or convert to sexp?
+// this is basically a pared-down version of Sexp
 pub const Value = union(enum) {
     int: i64,
     float: f64,
     string: []const u8,
     bool: bool,
+    // FIXME: rename to "void" to match sexp
     null: void,
     symbol: []const u8,
 };
 
 pub const Pin = struct {
-    name: []const u8,
+    name: [:0]const u8,
     kind: union(enum) {
         primitive: PrimitivePin,
         variadic: PrimitivePin,
@@ -80,6 +218,8 @@ pub const NodeDesc = struct {
     hidden: bool = false,
 
     kind: NodeDescKind = .func,
+    // TODO: consider adding a type wrapping ourselves
+    //type: Type,
 
     tags: []const []const u8 = &.{},
     context: *const anyopaque,
@@ -90,9 +230,9 @@ pub const NodeDesc = struct {
     _getInputs: *const fn (*const NodeDesc) []const Pin,
     _getOutputs: *const fn (*const NodeDesc) []const Pin,
     /// name is relative to the env it is stored in
-    _getName: *const fn (*const NodeDesc) []const u8,
+    _getName: *const fn (*const NodeDesc) [:0]const u8,
 
-    pub fn name(self: *const @This()) []const u8 {
+    pub fn name(self: *const @This()) [:0]const u8 {
         return self._getName(self);
     }
 
@@ -129,19 +269,13 @@ pub const NodeDesc = struct {
     }
 
     const FlowType = enum {
-        functionCall,
+        routine,
         pure,
         simpleBranch,
     };
 
-    // FIXME: pre-calculate this at construction (or cache it?)
-    pub fn isSimpleBranch(self: *const @This()) bool {
+    pub inline fn isSimpleBranch(self: *const @This()) bool {
         const is_branch = self == &builtin_nodes.@"if";
-        if (is_branch) {
-            std.debug.assert(self.getOutputs().len == 2);
-            std.debug.assert(self.getOutputs()[0].isExec());
-            std.debug.assert(self.getOutputs()[1].isExec());
-        }
         return is_branch;
     }
 
@@ -156,7 +290,7 @@ pub const Point = struct {
 };
 
 pub const Binding = struct {
-    name: []u8,
+    name: [:0]u8,
     type_: Type,
     comment: ?[]u8 = null,
     default: ?Sexp = null,
@@ -303,45 +437,57 @@ pub const GraphTypes = struct {
     };
 };
 
-// place holder during analysis
-pub const empty_type: Type = &TypeInfo{ .name = "EMPTY_TYPE" };
+// place holder during analysis // FIXME: rename to unresolved_type
+pub const empty_type: Type = &TypeInfo{ .name = "EMPTY_TYPE", .size = 0 };
 
 // FIXME: consider renaming to "builtin_types"
 pub const primitive_types = struct {
     // nums
-    pub const i32_: Type = &TypeInfo{ .name = "i32", .wasm_type = "i32" };
-    pub const i64_: Type = &TypeInfo{ .name = "i64", .wasm_type = "i64" };
-    pub const u32_: Type = &TypeInfo{ .name = "u32", .wasm_type = "i32" };
-    pub const u64_: Type = &TypeInfo{ .name = "u64", .wasm_type = "i64" };
-    pub const f32_: Type = &TypeInfo{ .name = "f32", .wasm_type = "f32" };
-    pub const f64_ = &TypeInfo{ .name = "f64", .wasm_type = "f64" };
+    pub const i32_: Type = &TypeInfo{ .name = "i32", .size = 4 };
+    pub const i64_: Type = &TypeInfo{ .name = "i64", .size = 8 };
+    pub const u32_: Type = &TypeInfo{ .name = "u32", .size = 4 };
+    pub const u64_: Type = &TypeInfo{ .name = "u64", .size = 8 };
+    pub const f32_: Type = &TypeInfo{ .name = "f32", .size = 4 };
+    pub const f64_ = &TypeInfo{ .name = "f64", .size = 8 };
 
-    pub const byte: Type = &TypeInfo{ .name = "byte", .wasm_type = "u8" };
-    // FIXME: should I change this to u8?
-    pub const bool_: Type = &TypeInfo{ .name = "bool", .wasm_type = "i32" };
-    pub const char_: Type = &TypeInfo{ .name = "char", .wasm_type = "u32" };
-    pub const symbol: Type = &TypeInfo{ .name = "symbol", .wasm_type = "i32" };
-    pub const @"void": Type = &TypeInfo{ .name = "void" };
+    // FIXME: size of 4 for now, but is packed in arrays
+    pub const byte: Type = &TypeInfo{ .name = "byte", .size = 4 };
+    // FIXME: size of 4 for now, but is packed in arrays
+    pub const bool_: Type = &TypeInfo{ .name = "bool", .size = 4 };
+    // FIXME: size of 4 for now, but is packed in arrays
+    pub const char_: Type = &TypeInfo{ .name = "char", .size = 4 };
+    pub const symbol: Type = &TypeInfo{ .name = "symbol", .size = 4 };
+    // FIXME: consolidate with empty type
+    pub const @"void": Type = &TypeInfo{ .name = "void", .size = 0 };
 
     // FIXME: consider moving this to live in compound_types
     pub const string: Type = &TypeInfo{
         .name = "string",
-        .wasm_type = "i32",
-        .size = @sizeOf(intrinsics.GrapplString),
+        // FIXME: size is host-dependent, so should not be here tbh...
+        .size = 0,
     };
 
     pub const vec3: Type = &TypeInfo{
         .name = "vec3",
-        .wasm_type = "i32",
-        .size = @sizeOf(intrinsics.GrapplVec3),
+        .size = @sizeOf(Vec3),
+        .subtype = .{ .@"struct" = .{
+            .field_names = &.{ "x", "y", "z" },
+            .field_types = &.{ primitive_types.f64_, primitive_types.f64_, primitive_types.f64_ },
+            .field_offsets = &.{ 0, 8, 16 },
+            .size = 24,
+            .flat_array_count = 0,
+            .flat_primitive_slot_count = 3,
+        } },
     };
 
-    pub const rgba: Type = &TypeInfo{ .name = "rgba", .wasm_type = "u32" };
+    pub const rgba: Type = &TypeInfo{ .name = "rgba", .size = 4 };
 
     // FIXME: replace when we think out the macro system
     pub const code: Type = &TypeInfo{
         .name = "code",
-        .wasm_type = "i32", // this is a stand in for "string"
+        // FIXME: figure out what the size is of heap types
+        // in wasm-gc
+        .size = @sizeOf(usize),
     };
 
     // pub const vec3: Type = &TypeInfo{
@@ -414,7 +560,7 @@ pub const compound_builtin_types = struct {
 // }
 
 pub const BasicNodeDesc = struct {
-    name: []const u8,
+    name: [:0]const u8,
     hidden: bool = false,
     // FIXME: remove in favor of nodes directly referencing whether they are a getter/setter
     kind: NodeDescKind = .func,
@@ -438,7 +584,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
             return desc.outputs;
         }
 
-        pub fn getName(node: *const NodeDesc) []const u8 {
+        pub fn getName(node: *const NodeDesc) [:0]const u8 {
             const desc: *const BasicNodeDesc = @alignCast(@ptrCast(node.context));
             return desc.name;
         }
@@ -455,7 +601,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
 }
 
 pub const BasicMutNodeDesc = struct {
-    name: []const u8,
+    name: [:0]const u8,
     hidden: bool = false,
     kind: NodeDescKind = .func,
     inputs: []Pin = &.{},
@@ -477,7 +623,7 @@ pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
             return desc.outputs;
         }
 
-        pub fn getName(node: *const NodeDesc) []const u8 {
+        pub fn getName(node: *const NodeDesc) [:0]const u8 {
             const desc: *const BasicMutNodeDesc = @alignCast(@ptrCast(node.context));
             return desc.name;
         }
@@ -493,62 +639,6 @@ pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
     };
 }
 
-pub const VarNodes = struct {
-    get: NodeDesc,
-    set: NodeDesc,
-
-    fn init(
-        alloc: std.mem.Allocator,
-        var_name: []const u8,
-        var_type: Type,
-    ) !VarNodes {
-        // FIXME: test and plug non-comptime alloc leaks
-        comptime var getter_outputs_slot: [if (@inComptime()) 1 else 0]Pin = undefined;
-        const _getter_outputs = if (@inComptime()) &getter_outputs_slot else try alloc.alloc(Pin, 1);
-        _getter_outputs[0] = Pin{ .name = "value", .kind = .{ .primitive = .{ .value = var_type } } };
-        const getter_outputs_slot_sealed = getter_outputs_slot;
-        const getter_outputs = if (@inComptime()) &getter_outputs_slot_sealed else _getter_outputs;
-
-        const getter_name: []const u8 = if (@inComptime())
-            std.fmt.comptimePrint("#GET#{s}", .{var_name})
-        else
-            try std.fmt.allocPrint(alloc, "#GET#{s}", .{var_name});
-
-        // FIXME: is there a better way to do this?
-        comptime var setter_inputs_slot: [if (@inComptime()) 2 else 0]Pin = undefined;
-        const _setter_inputs = if (@inComptime()) &setter_inputs_slot else try alloc.alloc(Pin, 2);
-        _setter_inputs[0] = Pin{ .name = "initiate", .kind = .{ .primitive = .exec } };
-        _setter_inputs[1] = Pin{ .name = "new value", .kind = .{ .primitive = .{ .value = var_type } } };
-        const setter_inputs_slot_sealed = setter_inputs_slot;
-        const setter_inputs = if (@inComptime()) &setter_inputs_slot_sealed else _setter_inputs;
-
-        comptime var setter_outputs_slot: [if (@inComptime()) 2 else 0]Pin = undefined;
-        const _setter_outputs = if (@inComptime()) &setter_outputs_slot else try alloc.alloc(Pin, 2);
-        _setter_outputs[0] = Pin{ .name = "continue", .kind = .{ .primitive = .exec } };
-        _setter_outputs[1] = Pin{ .name = "value", .kind = .{ .primitive = .{ .value = var_type } } };
-        const setter_outputs_slot_sealed = setter_outputs_slot;
-        const setter_outputs = if (@inComptime()) &setter_outputs_slot_sealed else _setter_outputs;
-
-        const setter_name: []const u8 =
-            if (@inComptime())
-            std.fmt.comptimePrint("#SET#{s}", .{var_name})
-        else
-            try std.fmt.allocPrint(alloc, "#SET#{s}", .{var_name});
-
-        return VarNodes{
-            .get = basicNode(&.{
-                .name = getter_name,
-                .outputs = getter_outputs,
-            }),
-            .set = basicNode(&.{
-                .name = setter_name,
-                .inputs = setter_inputs,
-                .outputs = setter_outputs,
-            }),
-        };
-    }
-};
-
 pub const BreakNodeContext = struct {
     struct_type: Type,
     out_pins: []const Pin,
@@ -558,61 +648,10 @@ pub const BreakNodeContext = struct {
     }
 };
 
-pub fn makeBreakNodeForStruct(alloc: std.mem.Allocator, in_struct_type: Type) !NodeDesc {
-    var out_pins_slot: [if (@inComptime()) in_struct_type.field_types.len else 0]Pin = undefined;
-
-    const out_pins = if (@inComptime()) &out_pins_slot else try alloc.alloc(Pin, in_struct_type.field_types.len);
-
-    for (in_struct_type.field_types, out_pins) |field_type, *out_pin| {
-        out_pin.* = Pin{ .name = "FIXME", .kind = .{ .primitive = .{ .value = field_type } } };
-    }
-
-    const done_pins_slot = out_pins_slot;
-
-    const done_out_pins = if (@inComptime()) &done_pins_slot else out_pins;
-
-    const name = if (@inComptime())
-        std.fmt.comptimePrint("break_{s}", .{in_struct_type.name})
-    else
-        std.fmt.allocPrint(alloc, "break_{s}", .{in_struct_type.name});
-
-    const context: *const BreakNodeContext =
-        if (@inComptime()) &BreakNodeContext{
-        .struct_type = in_struct_type,
-        .out_pins = done_out_pins,
-    } else try alloc.create(BreakNodeContext{
-        .struct_type = in_struct_type,
-        .out_pins = out_pins,
-    });
-
-    const NodeImpl = struct {
-        const Self = @This();
-
-        pub fn getInputs(node: NodeDesc) []const Pin {
-            const ctx: *const BreakNodeContext = @ptrCast(node.context);
-            return &.{
-                Pin{ .name = "struct", .kind = .{ .primitive = .{ .value = ctx.struct_type } } },
-            };
-        }
-
-        pub fn getOutputs(node: NodeDesc) []const Pin {
-            const ctx: *const BreakNodeContext = @ptrCast(node.context);
-            return ctx.out_pins;
-        }
-    };
-
-    return NodeDesc{
-        .name = name,
-        .context = context,
-        ._getInputs = NodeImpl.getInputs,
-        ._getOutputs = NodeImpl.getOutputs,
-    };
-}
-
 pub const builtin_nodes = struct {
     // FIXME: replace with real macro system that isn't JSON hack
     pub const json_quote: NodeDesc = basicNode(&.{
-        .name = "quote",
+        .name = "quote", // FIXME: rename this or remove it
         .inputs = &.{
             Pin{ .name = "code", .kind = .{ .primitive = .{ .value = primitive_types.code } } },
         },
@@ -1073,18 +1112,6 @@ pub const temp_ue = struct {
     };
 
     pub const nodes = struct {
-        // TODO: replace with live vars
-        // const capsule_component = VarNodes.init(
-        //     failing_allocator,
-        //     "capsule-component",
-        //     types.scene_component,
-        // ) catch unreachable;
-        // const current_spawn_point = VarNodes.init(failing_allocator, "current-spawn-point", types.scene_component) catch unreachable;
-        // const drone_state = VarNodes.init(failing_allocator, "drone-state", types.scene_component) catch unreachable;
-        // const mesh = VarNodes.init(failing_allocator, "mesh", types.scene_component) catch unreachable;
-        // const over_time = VarNodes.init(failing_allocator, "over-time", types.scene_component) catch unreachable;
-        // const speed = VarNodes.init(failing_allocator, "speed", primitive_types.f32_) catch unreachable;
-
         // pub const custom_tick_call: NodeDesc = basicNode(&.{
         //     .name = "CustomTickCall",
         //     .inputs = &.{
@@ -1271,12 +1298,17 @@ test "node types" {
 pub const Env = struct {
     parentEnv: ?*const Env = null,
 
+    // TODO: use symbols/interning maybe for type names?
+    // FIXME: store struct types separately
+    _struct_types: std.StringHashMapUnmanaged(StructType) = .{},
     _types: std.StringHashMapUnmanaged(Type) = .{},
+    // FIXME: actually separate each of those possibilities!
     // could be macro, function, operator
     _nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
     // TODO: use this!
-    _nodes_by_tag: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(*const NodeDesc)) = .{},
+    _nodes_by_tag: std.StringHashMapUnmanaged(std.ArrayListUnmanaged(*const NodeDesc)) = .{},
 
+    // TODO: consider using SegmentedLists of each type (SoE)
     created_types: std.SinglyLinkedList(TypeInfo) = .{},
     created_nodes: std.SinglyLinkedList(NodeDesc) = .{},
 

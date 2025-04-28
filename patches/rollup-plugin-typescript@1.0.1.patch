@@ -1,0 +1,40 @@
+diff --git a/dist/rollup-plugin-typescript.cjs.js b/dist/rollup-plugin-typescript.cjs.js
+index ca4f74c8aa99d30a169fbe4186eac323d0aa7c72..fe15baa329294122b264ea6428c17dca9dfa275c 100644
+--- a/dist/rollup-plugin-typescript.cjs.js
++++ b/dist/rollup-plugin-typescript.cjs.js
+@@ -86,7 +86,8 @@ var resolveHost = {
+ 		} catch ( err ) {
+ 			return false;
+ 		}
+-	}
++	},
++  readFile: () => {},
+ };
+ 
+ var TSLIB_ID = '\0tslib';
+diff --git a/dist/rollup-plugin-typescript.es.js b/dist/rollup-plugin-typescript.es.js
+index bdffe91f4183021ba0468c4d49da3f99107e94d4..9503d8195fcc677bc740e3cbc2c2aaeddf9f6b1e 100644
+--- a/dist/rollup-plugin-typescript.es.js
++++ b/dist/rollup-plugin-typescript.es.js
+@@ -83,7 +83,8 @@ var resolveHost = {
+ 		} catch ( err ) {
+ 			return false;
+ 		}
+-	}
++	},
++  readFile: () => {},
+ };
+ 
+ var TSLIB_ID = '\0tslib';
+diff --git a/src/resolveHost.js b/src/resolveHost.js
+index 92a1b451c91e4ea764f67e47a11319238ce28a77..98c582d3f504099cd70a01d7fc8d484b322e8a2f 100644
+--- a/src/resolveHost.js
++++ b/src/resolveHost.js
+@@ -14,5 +14,6 @@ export default {
+ 		} catch ( err ) {
+ 			return false;
+ 		}
+-	}
++	},
++  readFile: () => {},
+ };

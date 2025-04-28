@@ -1,0 +1,13 @@
+--- /home/mike/opensource/zig-0.14.0/zig-linux-x86_64-0.14.0/lib/libc/wasi/libc-bottom-half/crt/crt1-command.c.bak	2025-04-27 23:50:16.930169518 -0400
++++ /home/mike/opensource/zig-0.14.0/zig-linux-x86_64-0.14.0/lib/libc/wasi/libc-bottom-half/crt/crt1-command.c	2025-04-27 23:50:35.273791149 -0400
+@@ -43,7 +43,9 @@
+     int r = __main_void();
+ 
+     // Call atexit functions, destructors, stdio cleanup, etc.
+-    __wasm_call_dtors();
++    // MIKE CHANGE START
++    //__wasm_call_dtors();
++    // MIKE CHANGE END
+ 
+     // If main exited successfully, just return, otherwise call
+     // `__wasi_proc_exit`.

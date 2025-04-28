@@ -12,58 +12,52 @@ const entypo = @import("dvui").entypo;
 const Rect = dvui.Rect;
 const dvui_extra = @import("./dvui-extra.zig");
 
-const grappl = @import("grappl_core");
-const compiler = grappl.compiler;
-const SexpParser = @import("grappl_core").SexpParser;
-const Sexp = @import("grappl_core").Sexp;
-const helpers = @import("grappl_core").helpers;
+const graphl = @import("graphl_core");
+const compiler = graphl.compiler;
+const SexpParser = @import("graphl_core").SexpParser;
+const Sexp = @import("graphl_core").Sexp;
+const ModuleContext = @import("graphl_core").ModuleContext;
+const helpers = @import("graphl_core").helpers;
 const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 
 const MAX_FUNC_NAME = 256;
 
 // FIXME: these need to have the App instance as an argument
-extern fn onExportCurrentSource(ptr: ?[*]const u8, len: usize) void;
-extern fn onExportCompiled(ptr: ?[*]const u8, len: usize) void;
 extern fn onRequestLoadSource() void;
 extern fn onClickReportIssue() void;
-extern fn runCurrentWat(ptr: ?[*]const u8, len: usize) void;
 
-//const gpa = gpa_instance.allocator();
-var gpa_instance = std.heap.GeneralPurposeAllocator(.{
-    //.retain_metadata = true,
-    //.never_unmap = true,
-    //.verbose_log = true,
-}){};
+// // FIXME: should use the new std.heap.SmpAllocator in release mode off wasm
+// //const gpa = gpa_instance.allocator();
+// var gpa_instance = if (builtin.mode == .Debug) std.heap.GeneralPurposeAllocator(.{
+//     .retain_metadata = true,
+//     .never_unmap = true,
+//     //.verbose_log = true,
+// }){} else std.heap.c_allocator;
 
-pub const gpa = if (builtin.cpu.arch.isWasm())
-    std.heap.wasm_allocator
-else
-    gpa_instance.allocator();
+// FIXME: add a frame arena
+// FIXME: use raw_c_allocator for frame arena
+pub const gpa = std.heap.c_allocator;
 
 pub const Graph = struct {
     index: u16,
 
-    name: []u8,
+    name: [:0]u8,
 
-    call_basic_desc: grappl.helpers.BasicMutNodeDesc,
-    call_desc: *grappl.NodeDesc,
+    call_basic_desc: graphl.helpers.BasicMutNodeDesc,
+    call_desc: *graphl.NodeDesc,
 
     // FIXME: singly-linked list?
-    param_getters: std.ArrayListUnmanaged(*grappl.helpers.BasicMutNodeDesc) = .{},
-    param_setters: std.ArrayListUnmanaged(*grappl.helpers.BasicMutNodeDesc) = .{},
+    param_getters: std.ArrayListUnmanaged(*graphl.helpers.BasicMutNodeDesc) = .{},
+    param_setters: std.ArrayListUnmanaged(*graphl.helpers.BasicMutNodeDesc) = .{},
 
-    grappl_graph: grappl.GraphBuilder,
+    graphl_graph: graphl.GraphBuilder,
     // FIXME: merge with visual graph
     visual_graph: VisualGraph,
 
-    // FIXME: why is this separate from self.grappl_graph.env
-    env: grappl.Env,
+    // FIXME: why is this separate from self.graphl_graph.env
+    env: graphl.Env,
     app: *App,
     fixed_signature: bool = false,
-
-    pub fn env(self: @This()) *const grappl.Env {
-        return self.grappl_graph.env;
-    }
 
     /// NOTE: copies passed in name
     pub fn init(app: *App, index: u16, in_name: []const u8, opts: InitOpts) !@This() {
@@ -86,16 +80,16 @@ pub const Graph = struct {
     ) !void {
         self.env = app.shared_env.spawn();
 
-        const grappl_graph = try grappl.GraphBuilder.init(gpa, &self.env);
+        const graphl_graph = try graphl.GraphBuilder.init(gpa, &self.env);
 
-        const name_copy = try gpa.dupe(u8, in_name);
+        const name_copy = try gpa.dupeZ(u8, in_name);
 
         // NOTE: does this only work because of return value optimization?
         self.* = @This(){
             .app = app,
             .name = name_copy,
             .index = index,
-            .grappl_graph = grappl_graph,
+            .graphl_graph = graphl_graph,
             .visual_graph = undefined,
             .env = self.env,
             .call_basic_desc = undefined,
@@ -105,8 +99,8 @@ pub const Graph = struct {
 
         self.call_basic_desc = helpers.BasicMutNodeDesc{
             .name = name_copy,
-            .inputs = grappl_graph.entry_node_basic_desc.outputs,
-            .outputs = grappl_graph.result_node_basic_desc.inputs,
+            .inputs = graphl_graph.entry_node_basic_desc.outputs,
+            .outputs = graphl_graph.result_node_basic_desc.inputs,
         };
 
         // FIXME: remove node on err
@@ -115,9 +109,9 @@ pub const Graph = struct {
             helpers.basicMutableNode(&self.call_basic_desc),
         );
 
-        self.visual_graph = VisualGraph{ .graph = &self.grappl_graph };
+        self.visual_graph = VisualGraph{ .graph = &self.graphl_graph };
 
-        std.debug.assert(self.grappl_graph.nodes.map.getPtr(0).?.id == self.grappl_graph.entry_id);
+        std.debug.assert(self.graphl_graph.nodes.map.getPtr(0).?.id == self.graphl_graph.entry_id);
 
         try self.visual_graph.node_data.put(gpa, 0, .{
             .position = dvui.Point{ .x = 200, .y = 200 },
@@ -147,60 +141,70 @@ pub const Graph = struct {
         self.param_setters.deinit(gpa);
 
         self.visual_graph.deinit(gpa);
-        self.grappl_graph.deinit(gpa);
+        self.graphl_graph.deinit(gpa);
         gpa.free(self.name);
         self.env.deinit(gpa);
     }
 
-    pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?grappl.NodeId, diag: ?*grappl.GraphBuilder.Diagnostic, pos: dvui.Point) !grappl.NodeId {
+    pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?graphl.NodeId, diag: ?*graphl.GraphBuilder.Diagnostic, pos: dvui.Point) !graphl.NodeId {
         return self.visual_graph.addNode(alloc, kind, is_entry, force_node_id, diag, pos);
     }
 
-    pub fn removeNode(self: *@This(), node_id: grappl.NodeId) !bool {
+    pub fn removeNode(self: *@This(), node_id: graphl.NodeId) !bool {
         return self.visual_graph.removeNode(node_id);
     }
 
-    pub fn addEdge(self: *@This(), a: std.mem.Allocator, start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
+    pub fn addEdge(self: *@This(), a: std.mem.Allocator, start_id: graphl.NodeId, start_index: u16, end_id: graphl.NodeId, end_index: u16, end_subindex: u16) !void {
         return self.visual_graph.addEdge(a, start_id, start_index, end_id, end_index, end_subindex);
     }
 
-    pub fn removeEdge(self: *@This(), start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
+    pub fn removeEdge(self: *@This(), start_id: graphl.NodeId, start_index: u16, end_id: graphl.NodeId, end_index: u16, end_subindex: u16) !void {
         return self.visual_graph.removeEdge(start_id, start_index, end_id, end_index, end_subindex);
     }
 
-    pub fn addLiteralInput(self: @This(), node_id: grappl.NodeId, pin_index: u16, subpin_index: u16, value: grappl.Value) !void {
+    pub fn addLiteralInput(self: @This(), node_id: graphl.NodeId, pin_index: u16, subpin_index: u16, value: graphl.Value) !void {
         return self.visual_graph.addLiteralInput(node_id, pin_index, subpin_index, value);
     }
 
-    pub fn removeOutputLinks(self: *@This(), node_id: grappl.NodeId, output_index: u16) !void {
-        return self.grappl_graph.removeOutputLinks(node_id, output_index);
+    pub fn removeOutputLinks(self: *@This(), node_id: graphl.NodeId, output_index: u16) !void {
+        return self.graphl_graph.removeOutputLinks(node_id, output_index);
     }
 };
 
 /// uses gpa, deinit the result with gpa
 pub fn combineGraphs(
     self: *const @This(),
-) !Sexp {
+) !ModuleContext {
     // FIXME: use an arena!
-    // not currently possible because grappl_graph.compile allocates permanent memory
+    // not currently possible because graphl_graph.compile allocates permanent memory
     // for incremental compilation... the graph should take a separate allocator for
     // such memory, or use its own system allocator
-    var result = Sexp.newModule(gpa);
-    try result.value.module.ensureTotalCapacity(@intCast(self.next_graph_index * 2));
+    // FIXME: figure out exact capacity translation
+    var mod_ctx = try ModuleContext.initCapacity(gpa, 128); // check node and user func count
+    errdefer mod_ctx.deinit();
+
+    {
+        var maybe_cursor = self.user_funcs.first;
+        while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
+            const import_idx = try mod_ctx.addToRoot(try .emptyListCapacity(mod_ctx.alloc(), 3));
+            _ = try mod_ctx.addAndAppendToList(import_idx, graphl.syms.import);
+            _ = try mod_ctx.addAndAppendToList(import_idx, .symbol(cursor.data.node.name));
+            const path = try std.fmt.allocPrint(gpa, "host/{s}", .{cursor.data.node.name});
+            _ = try mod_ctx.addAndAppendToList(import_idx, Sexp{.value = .{ .ownedString = path } });
+        }
+    }
 
     var maybe_cursor = self.graphs.first;
     while (maybe_cursor) |cursor| : (maybe_cursor = cursor.next) {
-        var diagnostic = grappl.GraphBuilder.Diagnostics.init();
-        var graph_sexp = cursor.data.grappl_graph.compile(gpa, cursor.data.name, &diagnostic) catch |e| {
-            std.log.err("diagnostic: {}\n", .{diagnostic.contextualize(&cursor.data.grappl_graph)});
+        var diagnostic = graphl.GraphBuilder.Diagnostics.init();
+        // FIXME: this should not be called compile!
+        cursor.data.graphl_graph.compile(gpa, cursor.data.name, &mod_ctx, &diagnostic) catch |e| {
+            std.log.err("diagnostic: {}\n", .{diagnostic.contextualize(&cursor.data.graphl_graph)});
             return e;
         };
-        defer graph_sexp.value.module.clearAndFree();
-        std.debug.assert(graph_sexp.value == .module);
-        try result.value.module.appendSlice(graph_sexp.value.module.items);
     }
 
-    return result;
+    return mod_ctx;
 }
 
 // TODO: take an allocator once compiling allocation is fixed
@@ -208,31 +212,33 @@ fn combineGraphsText(
     self: *@This(),
 ) !std.ArrayList(u8) {
     var bytes = std.ArrayList(u8).init(gpa);
-
-    var maybe_cursor = self.graphs.first;
-    while (maybe_cursor) |cursor| : ({
-        if (cursor.next != null)
-            try bytes.append('\n');
-        maybe_cursor = cursor.next;
-    }) {
-        var diagnostic = grappl.GraphBuilder.Diagnostics.init();
-        const sexp = cursor.data.grappl_graph.compile(gpa, cursor.data.name, &diagnostic) catch |e| {
-            std.log.err("diagnostic: {}\n", .{diagnostic.contextualize(&cursor.data.grappl_graph)});
-            return e;
-        };
-        defer sexp.deinit(gpa);
-
-        _ = try sexp.write(bytes.writer(), .{});
-    }
-
+    const mod_ctx = try self.combineGraphs();
+    _ = try bytes.writer().print("{}", .{mod_ctx});
     return bytes;
 }
 
-fn exportCurrentSource(self: *@This()) !void {
+// FIXME: take a diagnostic
+pub fn compileToWasm(self: *@This()) ![]const u8 {
+    var graphlt_mod = try combineGraphs(self);
+    defer graphlt_mod.deinit();
+
+    if (builtin.mode == .Debug) {
+        std.log.info("compiled graphlt:\n{s}", .{ graphlt_mod });
+    }
+
+    var comp_diag = graphl.compiler.Diagnostic.init();
+    const wasm = graphl.compiler.compile(gpa, &graphlt_mod, &self.user_funcs, &comp_diag) catch |err| {
+        // TODO: return the diagnostic
+        std.log.err("Compile error:\n {}", .{comp_diag});
+        return err;
+    };
+    return wasm;
+}
+
+pub fn compileToGraphlt(self: *@This()) ![]const u8 {
     var bytes = try combineGraphsText(self);
     defer bytes.deinit();
-
-    onExportCurrentSource(bytes.items.ptr, bytes.items.len);
+    return try bytes.toOwnedSlice();
 }
 
 fn setCurrentGraphByIndex(self: *@This(), index: u16) !void {
@@ -288,7 +294,7 @@ pub fn addGraph(
 }
 
 // FIXME: should this be undefined?
-shared_env: grappl.Env = undefined,
+shared_env: graphl.Env = undefined,
 
 context_menu_widget_id: ?u32 = null,
 node_menu_filter: ?Socket = null,
@@ -312,7 +318,7 @@ next_graph_index: u16 = 0,
 //pub var user_funcs = UserFuncList{};
 //var next_user_func: usize = 0;
 
-init_opts: InitOptions = .{},
+init_opts: InitOptions,
 user_funcs: UserFuncList = .{},
 
 pub const UserFuncList = std.SinglyLinkedList(compiler.UserFunc);
@@ -326,7 +332,9 @@ pub const MenuOption = struct {
 
 pub const InitOptions = struct {
     menus: []const MenuOption = &.{},
+    // FIXME: use the transfer buffer for results
     result_buffer: ?[]u8 = null,
+    transfer_buffer: []u8,
     context: ?*anyopaque = null,
     graphs: ?GraphsInitState = null,
     user_funcs: []const compiler.UserFunc = &.{},
@@ -372,8 +380,8 @@ pub const GraphInitState = struct {
     fixed_signature: bool = false,
     // FIXME: why make this an ArrayList if it's basically immutable?
     nodes: std.ArrayListUnmanaged(App.NodeInitState) = .{},
-    parameters: []const grappl.Pin,
-    results: []const grappl.Pin,
+    parameters: []const graphl.Pin,
+    results: []const graphl.Pin,
 };
 
 pub const GraphsInitState = std.StringHashMapUnmanaged(GraphInitState);
@@ -392,7 +400,7 @@ pub const UserFuncTypes = enum(u32) {
 pub fn init(self: *@This(), in_opts: InitOptions) !void {
     self.* = .{
         .init_opts = in_opts,
-        .shared_env = try grappl.Env.initDefault(gpa),
+        .shared_env = try graphl.Env.initDefault(gpa),
         .user_funcs = UserFuncList{},
     };
 
@@ -413,8 +421,8 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
             const graph = try addGraph(self, graph_name.*, true, .{ .fixed_signature = graph_desc.fixed_signature });
             for (graph_desc.parameters) |param| {
                 try self.addParamOrResult(
-                    graph.grappl_graph.entry_node,
-                    graph.grappl_graph.entry_node_basic_desc,
+                    graph.graphl_graph.entry_node,
+                    graph.graphl_graph.entry_node_basic_desc,
                     .params,
                     // TODO: leak?
                     try gpa.dupe(u8, param.name),
@@ -423,8 +431,8 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
             }
             for (graph_desc.results) |result| {
                 try self.addParamOrResult(
-                    graph.grappl_graph.result_node,
-                    graph.grappl_graph.result_node_basic_desc,
+                    graph.graphl_graph.result_node,
+                    graph.graphl_graph.result_node_basic_desc,
                     .results,
                     // TODO: leak?
                     try gpa.dupe(u8, result.name),
@@ -432,7 +440,7 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
                 );
             }
             for (graph_desc.nodes.items) |node_desc| {
-                const node_id: grappl.NodeId = @intCast(node_desc.id);
+                const node_id: graphl.NodeId = @intCast(node_desc.id);
                 _ = try graph.addNode(gpa, node_desc.type_, false, node_id, null, .{});
                 if (node_desc.position) |pos| {
                     const node = graph.visual_graph.node_data.getPtr(node_id) orelse unreachable;
@@ -471,48 +479,20 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
     }
 }
 
-pub fn runCurrentGraphs(self: *const @This()) !void {
-    const sexp = try combineGraphs(self);
-    defer sexp.deinit(gpa);
+pub fn exportCurrentCompiled(self: *const @This()) !usize {
+    var mod = combineGraphs(self) catch |err| {
+        std.log.err("error '{!}' combining graphs", .{err});
+        return err;
+    };
+    defer mod.deinit();
 
+    var fbs = std.io.fixedBufferStream(self.init_opts.transfer_buffer);
+    _ = try mod.getRoot().write(&mod, fbs.writer(), .{});
     if (builtin.mode == .Debug) {
-        var bytes = std.ArrayList(u8).init(gpa);
-        defer bytes.deinit();
-        _ = try sexp.write(bytes.writer(), .{});
-        std.log.info("graph '{s}':\n{s}", .{ self.current_graph.name, bytes.items });
+        std.log.info("graph '{s}':\n{s}", .{ self.current_graph.name, fbs.getWritten() });
     }
 
-    var diagnostic = compiler.Diagnostic.init();
-
-    if (compiler.compile(gpa, &sexp, &self.shared_env, &self.user_funcs, &diagnostic)) |module| {
-        std.log.info("compile_result:\n{s}", .{module});
-        runCurrentWat(module.ptr, module.len);
-        gpa.free(module);
-    } else |err| {
-        std.log.err("compile_error={any}", .{err});
-    }
-}
-
-pub fn exportCurrentCompiled(self: *const @This()) !void {
-    const sexp = try combineGraphs(self);
-    defer sexp.deinit(gpa);
-
-    if (builtin.mode == .Debug) {
-        var bytes = std.ArrayList(u8).init(gpa);
-        defer bytes.deinit();
-        _ = try sexp.write(bytes.writer(), .{});
-        std.log.info("graph '{s}':\n{s}", .{ self.current_graph.name, bytes.items });
-    }
-
-    var diagnostic = compiler.Diagnostic.init();
-
-    if (compiler.compile(gpa, &sexp, &self.shared_env, &self.user_funcs, &diagnostic)) |module| {
-        std.log.info("compile_result:\n{s}", .{module});
-        onExportCompiled(module.ptr, module.len);
-        gpa.free(module);
-    } else |err| {
-        std.log.err("compile_error={any}", .{err});
-    }
+    return fbs.getWritten().len;
 }
 
 fn deinitGraphs(self: *@This()) void {
@@ -543,16 +523,16 @@ pub fn deinit(self: *@This()) void {
 const SocketType = enum(u1) { input, output };
 
 const Socket = struct {
-    node_id: grappl.NodeId,
+    node_id: graphl.NodeId,
     kind: SocketType,
     index: u16,
 };
 
 pub const NodeAdder = struct {
     pub fn validSocketIndex(
-        node_desc: *const grappl.NodeDesc,
+        node_desc: *const graphl.NodeDesc,
         create_from_socket: Socket,
-        create_from_type: grappl.PrimitivePin,
+        create_from_type: graphl.PrimitivePin,
     ) !?u16 {
         var valid_socket_index: ?u16 = null;
 
@@ -568,7 +548,7 @@ pub const NodeAdder = struct {
             if (std.meta.eql(pin_desc.asPrimitivePin(), create_from_type)
             //
             or std.meta.eql(pin_desc.asPrimitivePin(), helpers.PrimitivePin{ .value = helpers.primitive_types.code })
-            //
+                //
             ) {
                 valid_socket_index = @intCast(j);
                 break;
@@ -605,7 +585,7 @@ pub const NodeAdder = struct {
 
 fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from: ?Socket) !void {
     // TODO: handle defocus event
-    var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(pt), .{});
+    var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(pt) }, .{});
     defer fw.deinit();
 
     const search_input = _: {
@@ -619,8 +599,8 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
         break :_ text_result.getText();
     };
 
-    const maybe_create_from_type: ?grappl.PrimitivePin = if (maybe_create_from) |create_from| _: {
-        const node = self.current_graph.grappl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
+    const maybe_create_from_type: ?graphl.PrimitivePin = if (maybe_create_from) |create_from| _: {
+        const node = self.current_graph.graphl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
         const pins = switch (create_from.kind) {
             .output => node.desc().getOutputs(),
             .input => node.desc().getInputs(),
@@ -628,14 +608,14 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
         const pin_type = pins[create_from.index].asPrimitivePin();
 
         // don't filter on a type if we're creating from a code socket, that can take anything
-        if (std.meta.eql(pin_type, grappl.PrimitivePin{ .value = grappl.primitive_types.code }))
+        if (std.meta.eql(pin_type, graphl.PrimitivePin{ .value = graphl.primitive_types.code }))
             break :_ null;
 
         break :_ pin_type;
     } else null;
 
     const bindings_infos = &.{
-        .{ .data = &self.current_graph.grappl_graph.locals, .display = "Locals" },
+        .{ .data = &self.current_graph.graphl_graph.locals, .display = "Locals" },
     };
 
     inline for (bindings_infos, 0..) |bindings_info, i| {
@@ -645,13 +625,13 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
         if (bindings.items.len > 0) {
             if (maybe_create_from == null or maybe_create_from.?.kind == .input) {
                 if (try dvui.menuItemLabel(@src(), "Get " ++ bindings_info.display ++ " >", .{ .submenu = true }, .{ .expand = .horizontal, .id_extra = i })) |r| {
-                    var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
+                    var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{});
                     defer subfw.deinit();
 
                     for (bindings.items, 0..) |binding, j| {
                         const id_extra = (j << 8) | i;
 
-                        if (maybe_create_from_type != null and !std.meta.eql(maybe_create_from_type.?, grappl.PrimitivePin{ .value = binding.type_ })) {
+                        if (maybe_create_from_type != null and !std.meta.eql(maybe_create_from_type.?, graphl.PrimitivePin{ .value = binding.type_ })) {
                             continue;
                         }
 
@@ -664,7 +644,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
                         const label = try std.fmt.bufPrint(&buf, "Get {s}", .{binding.name});
 
                         if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = id_extra }) != null) {
-                            const getter_name = try std.fmt.bufPrint(&buf, "get_{s}", .{binding.name});
+                            const getter_name = try std.fmt.bufPrint(&buf, "{s}", .{binding.name});
                             _ = try NodeAdder.addNode(self, getter_name, maybe_create_from, pt_in_graph, 0);
                             subfw.close();
                         }
@@ -673,7 +653,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
             }
 
             if (try dvui.menuItemLabel(@src(), "Set " ++ bindings_info.display ++ " >", .{ .submenu = true }, .{ .expand = .horizontal, .id_extra = i })) |r| {
-                var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
+                var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{});
                 defer subfw.deinit();
 
                 for (bindings.items, 0..) |binding, j| {
@@ -709,13 +689,13 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
         }
     }
 
-    if (self.current_graph.grappl_graph.entry_node_basic_desc.outputs.len > 1) {
+    if (self.current_graph.graphl_graph.entry_node_basic_desc.outputs.len > 1) {
         if (maybe_create_from == null or maybe_create_from.?.kind == .input) {
             if (try dvui.menuItemLabel(@src(), "Get Params >", .{ .submenu = true }, .{ .expand = .horizontal })) |r| {
-                var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
+                var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{});
                 defer subfw.deinit();
 
-                for (self.current_graph.grappl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
+                for (self.current_graph.graphl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
                     std.debug.assert(binding.asPrimitivePin() == .value);
                     if (maybe_create_from_type != null and !std.meta.eql(maybe_create_from_type.?, binding.asPrimitivePin())) {
                         continue;
@@ -731,7 +711,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
 
                     if (try dvui.menuItemLabel(@src(), label, .{}, .{ .expand = .horizontal, .id_extra = j }) != null) {
                         var buf: [MAX_FUNC_NAME]u8 = undefined;
-                        const name = try std.fmt.bufPrint(&buf, "get_{s}", .{binding.name});
+                        const name = try std.fmt.bufPrint(&buf, "{s}", .{binding.name});
                         _ = try NodeAdder.addNode(self, name, maybe_create_from, pt_in_graph, 0);
                         subfw.close();
                     }
@@ -740,10 +720,10 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
         }
 
         if (try dvui.menuItemLabel(@src(), "Set Params >", .{ .submenu = true }, .{ .expand = .horizontal })) |r| {
-            var subfw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }), .{});
+            var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{});
             defer subfw.deinit();
 
-            for (self.current_graph.grappl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
+            for (self.current_graph.graphl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
                 var buf: [MAX_FUNC_NAME]u8 = undefined;
                 const name = try std.fmt.bufPrint(&buf, "set_{s}", .{binding.name});
                 const node_desc = self.current_graph.env.getNode(name) orelse unreachable;
@@ -863,8 +843,6 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
     defer socket_positions.deinit(gpa);
 
     const mouse_pt = dvui.currentWindow().mouse_pt;
-    //var mouse_pt2 = graph_area.scroll.data().contentRectScale().pointFromScreen(dvui.currentWindow().mouse_pt);
-    //mouse_pt2 = mouse_pt.plus(ScrollData.origin).plus(ScrollData.scroll_info.viewport.topLeft());
 
     var mbbox: ?Rect = null;
 
@@ -873,7 +851,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
 
     // place nodes
     {
-        var node_iter = self.current_graph.grappl_graph.nodes.map.iterator();
+        var node_iter = self.current_graph.graphl_graph.nodes.map.iterator();
         while (node_iter.next()) |entry| {
             // TODO: don't iterate over unneeded keys
             //const node_id = entry.key_ptr.*;
@@ -890,7 +868,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
 
     // place edges
     {
-        var node_iter = self.current_graph.grappl_graph.nodes.map.iterator();
+        var node_iter = self.current_graph.graphl_graph.nodes.map.iterator();
         while (node_iter.next()) |entry| {
             const node_id = entry.key_ptr.*;
             const node = entry.value_ptr;
@@ -922,11 +900,12 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
                 };
 
                 // FIXME: dedup with below edge drawing
-                try dvui.pathAddPoint(source_pos);
-                try dvui.pathAddPoint(target_pos);
                 const stroke_color = dvui.Color{ .r = 0xaa, .g = 0xaa, .b = 0xaa, .a = 0xee };
                 // TODO: need to handle deletion...
-                try dvui.pathStroke(false, 3.0, .none, stroke_color);
+                try dvui.pathStroke(&.{
+                    source_pos,
+                    target_pos,
+                }, 3.0, stroke_color, .{ .endcap_style = .none });
             }
         }
     }
@@ -942,10 +921,11 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
             const drag_start = self.edge_drag_start.?.pt;
             const drag_end = mouse_pt;
             // FIXME: dedup with above edge drawing
-            try dvui.pathAddPoint(drag_start);
-            try dvui.pathAddPoint(drag_end);
             const stroke_color = dvui.Color{ .r = 0xaa, .g = 0xaa, .b = 0xaa, .a = 0x88 };
-            try dvui.pathStroke(false, 3.0, .none, stroke_color);
+            try dvui.pathStroke(&.{
+                drag_start,
+                drag_end,
+            }, 3.0, stroke_color, .{ .endcap_style = .none });
         }
 
         const drag_state_changed = (self.prev_drag_state == null) != (maybe_drag_offset == null);
@@ -954,7 +934,9 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
 
         if (stopped_dragging) {
             if (self.edge_drag_end) |end| {
-                const edge = if (end.kind == .input) .{
+                const EdgeInfo = struct { source: Socket, target: Socket };
+
+                const edge: EdgeInfo = if (end.kind == .input) .{
                     .source = self.edge_drag_start.?.socket,
                     .target = end,
                 } else .{
@@ -1009,7 +991,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
             .mouse => |me| {
                 if (me.action == .press and me.button.pointer()) {
                     e.handled = true;
-                    dvui.captureMouse(graph_area.scroll.data().id);
+                    dvui.captureMouse(graph_area.scroll.data());
                     dvui.dragPreStart(me.p, .{});
                 } else if (me.action == .release and me.button.pointer()) {
                     if (dvui.captured(graph_area.scroll.data().id)) {
@@ -1034,7 +1016,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
                 } else if (me.action == .wheel_y) {
                     e.handled = true;
                     const base: f32 = 1.005;
-                    const zs = @exp(@log(base) * me.data.wheel_y);
+                    const zs = @exp(@log(base) * me.action.wheel_y);
                     if (zs != 1.0) {
                         zoom *= zs;
                         zoomP = me.p;
@@ -1160,8 +1142,8 @@ fn rectContainsMouse(r: Rect) bool {
 }
 
 // FIXME: can do better than this
-var colors = std.AutoHashMap(grappl.Type, dvui.Color).init(gpa);
-fn colorForType(t: grappl.Type) !dvui.Color {
+var colors = std.AutoHashMap(graphl.Type, dvui.Color).init(gpa);
+fn colorForType(t: graphl.Type) !dvui.Color {
     if (colors.get(t)) |color| {
         return color;
     } else {
@@ -1228,12 +1210,11 @@ const exec_color = dvui.Color{ .r = 0x55, .g = 0x55, .b = 0x55, .a = 0xff };
 // TODO: remove need for id, it should be inside the node itself
 fn renderNode(
     self: *@This(),
-    node: *grappl.Node,
+    node: *graphl.Node,
     socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Point),
     graph_area: *dvui.ScrollAreaWidget,
     dataRectScale: dvui.RectScale,
 ) !Rect {
-    std.log.info("node={s}, tags.len={}", .{ node._desc.name(), node._desc.tags.len });
     const root_id_extra: usize = @intCast(node.id);
 
     // FIXME:  this is temp, go back to auto graph formatting
@@ -1278,8 +1259,8 @@ fn renderNode(
     // FIXME: maybe remove node.kind since we need a desc anyway?
     switch (node.desc().kind) {
         .func, .entry, .return_ => try dvui.label(@src(), "{s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
-        .get => try dvui.label(@src(), "Get {s}", .{node.desc().name()[4..]}, .{ .font_style = .title_3 }),
-        .set => try dvui.label(@src(), "Set {s}", .{node.desc().name()[4..]}, .{ .font_style = .title_3 }),
+        .get => try dvui.label(@src(), "Get {s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
+        .set => try dvui.label(@src(), "Set {s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
     }
 
     // switch (node.kind) {
@@ -1317,231 +1298,244 @@ fn renderNode(
             };
 
             const socket_point: dvui.Point = if (
-            //
-            input_desc.kind.primitive == .exec
-            //
-            or input_desc.kind.primitive.value == helpers.primitive_types.code
-            //
-            ) _: {
-                var icon_res = try dvui_extra.buttonIconResult(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
-                const socket_center = considerSocketForHover(self, &icon_res, socket);
-                if (icon_res.clicked) {
-                    // FIXME: add an "input" reset
-                    input.* = .{ .value = .{ .float = 0.0 } };
-                }
-
-                break :_ socket_center;
-            } else _: {
-                // FIXME: make non interactable/hoverable
-
-                var icon_res = try dvui_extra.buttonIconResult(@src(), "circle", entypo.circle, .{}, icon_opts);
-                const socket_center = considerSocketForHover(self, &icon_res, socket);
-                if (icon_res.clicked) {
-                    input.* = .{ .value = .{ .int = 0 } };
-                }
-
-                // FIXME: report compiler bug
-                // } else switch (i.kind.primitive.value) {
-                //     grappl.primitive_types.i32_ => {
-                if (input.* != .link) {
-                    // FIXME: return early on handling...
-                    // TODO: handle all possible types using switch or something
-                    var handled = false;
-
-                    // FIXME: hack!
-                    // const is_text_field = input_desc.kind.primitive.value == grappl.primitive_types.string
-                    // //
-                    // and node._desc.tags.len > 0
-                    // //
-                    // and std.mem.eql(u8, node._desc.tags[0], "text");
-
-                    // FIXME: hack! should do some pin metadata instead
-                    const is_text_field = input_desc.kind.primitive.value == grappl.primitive_types.string
+                //
+                input_desc.kind.primitive == .exec
+                //
+                or input_desc.kind.primitive.value == helpers.primitive_types.code
                     //
-                    and std.mem.eql(u8, node._desc.name(), "JavaScript-Eval");
+                ) _: {
+                    var icon_res = try dvui_extra.buttonIconResult(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
+                    const socket_center = considerSocketForHover(self, &icon_res, socket);
+                    if (icon_res.clicked) {
+                        // FIXME: add an "input" reset
+                        input.* = .{ .value = .{ .float = 0.0 } };
+                    }
 
-                    if (is_text_field) {
+                    break :_ socket_center;
+                } else _: {
+                    // FIXME: make non interactable/hoverable
+
+                    var icon_res = try dvui_extra.buttonIconResult(@src(), "circle", entypo.circle, .{}, icon_opts);
+                    const socket_center = considerSocketForHover(self, &icon_res, socket);
+                    if (icon_res.clicked) {
+                        input.* = .{ .value = .{ .int = 0 } };
+                    }
+
+                    // FIXME: report compiler bug
+                    // } else switch (i.kind.primitive.value) {
+                    //     graphl.primitive_types.i32_ => {
+                    if (input.* != .link) {
+                        // TODO: handle all possible types using exhaustive switch or something
+
+                        // FIXME: hack!
+                        // const is_text_field = input_desc.kind.primitive.value == graphl.primitive_types.string
+                        // //
+                        // and node._desc.tags.len > 0
+                        // //
+                        // and std.mem.eql(u8, node._desc.tags[0], "text");
+
+                        // FIXME: hack! should do some pin metadata instead
+                        const is_text_field = input_desc.kind.primitive.value == graphl.primitive_types.string
+                            //
+                        and std.mem.eql(u8, node._desc.name(), "JavaScript-Eval");
+
                         const empty = "";
-                        if (input.* != .value or input.value != .string) {
-                            input.* = .{ .value = .{ .string = empty } };
-                        }
 
-                        const text_result = try dvui.textEntry(
-                            @src(),
-                            .{
-                                .text = .{ .internal = .{} },
-                                .multiline = true,
-                                .break_lines = true,
-                            },
-                            .{ .id_extra = j, .min_size_content = .{ .h = 60, .w = 160 } },
-                        );
-                        defer text_result.deinit();
-                        if (dvui.firstFrame(text_result.data().id)) {
-                            text_result.textTyped(input.value.string, false);
-                        }
-                        // TODO: don't dupe this memory! use a dynamic buffer instead
-                        if (text_result.text_changed) {
-                            if (input.value.string.ptr != empty.ptr)
-                                gpa.free(input.value.string);
-                            input.value.string = try gpa.dupe(u8, text_result.getText());
-                        }
-
-                        handled = true;
-                        continue;
-                    }
-
-                    inline for (.{ i32, i64, u32, u64, f32, f64 }) |T| {
-                        const primitive_type = @field(grappl.primitive_types, @typeName(T) ++ "_");
-                        if (input_desc.kind.primitive.value == primitive_type) {
-                            var value: T = undefined;
-                            // FIXME: why even do this if we're about to overwrite it
-                            // with the entry info?
-                            if (input.* == .value) {
-                                switch (input.value) {
-                                    .float => |v| {
-                                        value = if (@typeInfo(T) == .Int)
-                                            @intFromFloat(v)
-                                        else
-                                            @floatCast(v);
-                                    },
-                                    .int => |v| {
-                                        value = if (@typeInfo(T) == .Int)
-                                            @intCast(v)
-                                        else
-                                            @floatFromInt(v);
-                                    },
-                                    else => value = 0,
-                                }
+                        if (is_text_field) {
+                            if (input.* != .value or input.value != .string) {
+                                input.* = .{ .value = .{ .string = empty } };
                             }
 
-                            const entry = try dvui.textEntryNumber(@src(), T, .{ .value = &value }, .{ .max_size_content = .{ .w = 30 }, .id_extra = j });
-
-                            if (entry.value == .Valid) {
-                                switch (@typeInfo(T)) {
-                                    .Int => {
-                                        input.* = .{ .value = .{ .int = @intCast(entry.value.Valid) } };
-                                    },
-                                    .Float => {
-                                        input.* = .{ .value = .{ .float = @floatCast(entry.value.Valid) } };
-                                    },
-                                    inline else => std.debug.panic("unhandled input type='{s}'", .{@tagName(input.value)}),
-                                }
-                            }
-
-                            handled = true;
-                        }
-                    }
-
-                    if (input_desc.kind.primitive.value == grappl.primitive_types.bool_ and input.* == .value) {
-                        //node.inputs[j] = .{.literal}
-                        if (input.* != .value or input.value != .bool) {
-                            input.* = .{ .value = .{ .bool = false } };
-                        }
-
-                        _ = try dvui.checkbox(@src(), &input.value.bool, null, .{ .id_extra = j });
-                        handled = true;
-                    }
-
-                    if (input_desc.kind.primitive.value == grappl.primitive_types.symbol and input.* == .value) {
-                        if (self.current_graph.grappl_graph.locals.items.len > 0) {
-                            //node.inputs[j] = .{.literal}
-                            if (input.* != .value or input.value != .symbol) {
-                                input.* = .{ .value = .{ .symbol = "" } };
-                            }
-
-                            // TODO: use stack buffer with reasonable max options?
-                            const local_options: [][]const u8 = try gpa.alloc([]const u8, self.current_graph.grappl_graph.locals.items.len);
-                            defer gpa.free(local_options);
-
-                            var local_choice: usize = 0;
-
-                            for (self.current_graph.grappl_graph.locals.items, local_options, 0..) |local, *local_opt, k| {
-                                local_opt.* = local.name;
-                                // FIXME: symbol interning
-                                if (std.mem.eql(u8, local.name, input.value.symbol)) {
-                                    local_choice = k;
-                                }
-                            }
-
-                            const opt_clicked = try dvui.dropdown(@src(), local_options, &local_choice, .{ .id_extra = j });
-                            if (opt_clicked) {
-                                input.value = .{ .symbol = self.current_graph.grappl_graph.locals.items[local_choice].name };
-                            }
-                        } else {
-                            try dvui.label(@src(), "No locals", .{}, .{ .id_extra = j });
-                        }
-                        handled = true;
-                    }
-
-                    inline for (.{
-                        .{
-                            .type = grappl.primitive_types.string,
-                            .tag = .string,
-                        },
-                        .{
-                            .type = grappl.primitive_types.symbol,
-                            .tag = .symbol,
-                        },
-                    }, 0..) |info, k| {
-                        const id_extra = (j << 1) | k;
-                        if (input_desc.kind.primitive.value == info.type and input.* == .value) {
-                            const empty = "";
-                            if (input.* != .value or input.value != info.tag) {
-                                input.* = .{ .value = @unionInit(grappl.Value, @tagName(info.tag), empty) };
-                            }
-
-                            const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{} } }, .{ .id_extra = id_extra });
+                            const text_result = try dvui.textEntry(
+                                @src(),
+                                .{
+                                    .text = .{ .internal = .{} },
+                                    .multiline = true,
+                                    .break_lines = true,
+                                },
+                                .{ .id_extra = j, .min_size_content = .{ .h = 60, .w = 160 } },
+                            );
                             defer text_result.deinit();
                             if (dvui.firstFrame(text_result.data().id)) {
-                                text_result.textTyped(@field(input.value, @tagName(info.tag)), false);
+                                text_result.textTyped(input.value.string, false);
                             }
                             // TODO: don't dupe this memory! use a dynamic buffer instead
                             if (text_result.text_changed) {
-                                if (@field(input.value, @tagName(info.tag)).ptr != empty.ptr)
-                                    gpa.free(@field(input.value, @tagName(info.tag)));
-                                @field(input.value, @tagName(info.tag)) = try gpa.dupe(u8, text_result.getText());
+                                if (input.value.string.ptr != empty.ptr)
+                                    gpa.free(input.value.string);
+                                input.value.string = try gpa.dupe(u8, text_result.getText());
                             }
 
-                            handled = true;
-                        }
-                    }
-
-                    if (input_desc.kind.primitive.value == grappl.primitive_types.char_ and input.* == .value) {
-                        const empty_str = "";
-                        if (input.* != .value or input.value != .string) {
-                            input.* = .{ .value = .{ .string = empty_str } };
+                            break :_ socket_center;
                         }
 
-                        const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{ .limit = 1 } } }, .{ .id_extra = j });
-                        defer text_result.deinit();
-                        // TODO: don't dupe this memory! use a dynamic buffer instead
-                        if (text_result.text_changed) {
-                            if (input.value.string.ptr != empty_str.ptr)
-                                gpa.free(input.value.string);
-                            input.value.string = try gpa.dupe(u8, text_result.getText());
+                        inline for (.{ i32, i64, u32, u64, f32, f64 }) |T| {
+                            const primitive_type = @field(graphl.primitive_types, @typeName(T) ++ "_");
+                            if (input_desc.kind.primitive.value == primitive_type) {
+                                var value: T = undefined;
+                                // FIXME: why even do this if we're about to overwrite it
+                                // with the entry info?
+                                if (input.* == .value) {
+                                    switch (input.value) {
+                                        .float => |v| {
+                                            value = if (@typeInfo(T) == .int)
+                                                @intFromFloat(v)
+                                            else
+                                                @floatCast(v);
+                                        },
+                                        .int => |v| {
+                                            value = if (@typeInfo(T) == .int)
+                                                @intCast(v)
+                                            else
+                                                @floatFromInt(v);
+                                        },
+                                        else => value = 0,
+                                    }
+                                }
+
+                                const entry = try dvui.textEntryNumber(@src(), T, .{ .value = &value }, .{ .min_size_content = .{ .w = 80 }, .max_size_content = .{ .w = 80 }, .id_extra = j, });
+
+                                if (entry.value == .Valid) {
+                                    switch (@typeInfo(T)) {
+                                        .int => {
+                                            input.* = .{ .value = .{ .int = @intCast(entry.value.Valid) } };
+                                        },
+                                        .float => {
+                                            input.* = .{ .value = .{ .float = @floatCast(entry.value.Valid) } };
+                                        },
+                                        inline else => std.debug.panic("unhandled input type='{s}'", .{@tagName(input.value)}),
+                                    }
+                                }
+
+                                break :_ socket_center;
+                            }
                         }
 
-                        handled = true;
-                    }
+                        if (input_desc.kind.primitive.value == graphl.primitive_types.bool_ and input.* == .value) {
+                            //node.inputs[j] = .{.literal}
+                            if (input.* != .value or input.value != .bool) {
+                                input.* = .{ .value = .{ .bool = false } };
+                            }
 
-                    // FIXME: add a color picker?
-                    if (input_desc.kind.primitive.value == grappl.primitive_types.rgba) {
-                        handled = true;
-                    }
-                    if (input_desc.kind.primitive.value == grappl.primitive_types.vec3) {
-                        handled = true;
-                    }
+                            _ = try dvui.checkbox(@src(), &input.value.bool, null, .{ .id_extra = j });
 
-                    if (!handled) {
+                            break :_ socket_center;
+                        }
+
+                        if (input_desc.kind.primitive.value == graphl.primitive_types.symbol and input.* == .value) {
+                            if (self.current_graph.graphl_graph.locals.items.len > 0) {
+                                //node.inputs[j] = .{.literal}
+                                if (input.* != .value or input.value != .symbol) {
+                                    input.* = .{ .value = .{ .symbol = "" } };
+                                }
+
+                                // TODO: use stack buffer with reasonable max options?
+                                const local_options: [][]const u8 = try gpa.alloc([]const u8, self.current_graph.graphl_graph.locals.items.len);
+                                defer gpa.free(local_options);
+
+                                var local_choice: usize = 0;
+
+                                for (self.current_graph.graphl_graph.locals.items, local_options, 0..) |local, *local_opt, k| {
+                                    local_opt.* = local.name;
+                                    // FIXME: symbol interning
+                                    if (std.mem.eql(u8, local.name, input.value.symbol)) {
+                                        local_choice = k;
+                                    }
+                                }
+
+                                const opt_clicked = try dvui.dropdown(@src(), local_options, &local_choice, .{ .id_extra = j });
+                                if (opt_clicked) {
+                                    input.value = .{ .symbol = self.current_graph.graphl_graph.locals.items[local_choice].name };
+                                }
+                            } else {
+                                try dvui.label(@src(), "No locals", .{}, .{ .id_extra = j });
+                            }
+
+                            break :_ socket_center;
+                        }
+
+                        if (input_desc.kind.primitive.value == graphl.primitive_types.string and input.* == .value) {
+                            if (input.* != .value or input.value != .string) {
+                                input.* = .{ .value = .{ .string = empty} };
+                            }
+
+                            const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = j });
+                            defer text_entry.deinit();
+
+                            if (dvui.firstFrame(text_entry.data().id)) {
+                                text_entry.textTyped(input.value.string, false);
+                            }
+
+                            // TODO: don't dupe this memory! use a dynamic buffer instead
+                            if (text_entry.text_changed) {
+                                if (input.value.string.ptr != empty.ptr)
+                                    gpa.free(input.value.string);
+
+                                input.value.string = try gpa.dupe(u8, text_entry.getText());
+                            }
+
+                            break :_ socket_center;
+                        }
+
+                        if (input_desc.kind.primitive.value == graphl.primitive_types.symbol and input.* == .value) {
+                            if (input.* != .value or input.value != .symbol) {
+                                input.* = .{ .value = .{ .symbol = empty} };
+                            }
+
+                            const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = j });
+                            defer text_entry.deinit();
+
+                            if (dvui.firstFrame(text_entry.data().id)) {
+                                text_entry.textTyped(input.value.symbol, false);
+                            }
+
+                            // TODO: don't dupe this memory! use a dynamic buffer instead
+                            if (text_entry.text_changed) {
+                                if (input.value.symbol.ptr != empty.ptr)
+                                    gpa.free(input.value.symbol);
+
+                                input.value.symbol = try gpa.dupe(u8, text_entry.getText());
+                            }
+
+                            break :_ socket_center;
+                        }
+
+                        if (input_desc.kind.primitive.value == graphl.primitive_types.char_ and input.* == .value) {
+                            const empty_str = "";
+                            if (input.* != .value or input.value != .string) {
+                                input.* = .{ .value = .{ .string = empty_str } };
+                            }
+
+                            const text_result = try dvui.textEntry(@src(), .{ .text = .{ .internal = .{ .limit = 1 } } }, .{ .id_extra = j });
+                            defer text_result.deinit();
+                            // TODO: don't dupe this memory! use a dynamic buffer instead
+                            if (text_result.text_changed) {
+                                if (input.value.string.ptr != empty_str.ptr)
+                                    gpa.free(input.value.string);
+                                input.value.string = try gpa.dupe(u8, text_result.getText());
+                            }
+
+                            break :_ socket_center;
+                        }
+
+                        // FIXME: add a color picker?
+                        if (input_desc.kind.primitive.value == graphl.primitive_types.rgba) {
+                            break :_ socket_center;
+                        }
+
+                        if (input_desc.kind.primitive.value == graphl.primitive_types.vec3) {
+                            break :_ socket_center;
+                        }
+
                         try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .id_extra = j });
                     }
-                }
 
-                break :_ socket_center;
-            };
+                    break :_ socket_center;
+                };
 
             try socket_positions.put(gpa, socket, socket_point);
 
+            // FIXME: this doesn't render?
             _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .font_style = .heading, .id_extra = j });
         }
     }
@@ -1612,7 +1606,7 @@ fn renderNode(
                 .mouse => |me| {
                     if (me.action == .press and me.button.pointer()) {
                         e.handled = true;
-                        dvui.captureMouse(box.data().id);
+                        dvui.captureMouse(box.data());
                         const offset = me.p.diff(box.data().rectScale().r.topLeft()); // pixel offset from box corner
                         dvui.dragPreStart(me.p, .{ .offset = offset });
                         dvui.cursorSet(.hand);
@@ -1656,7 +1650,7 @@ fn renderNode(
     {
         const ctext = try dvui.context(@src(), .{ .rect = result }, .{ .expand = .both });
         if (ctext.activePoint()) |cp| {
-            var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(cp), .{});
+            var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(cp) }, .{});
             defer fw.deinit();
             if (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal })) |_| {
                 if (self.current_graph.removeNode(node.id)) |removed| {
@@ -1682,14 +1676,14 @@ const ScrollData = struct {
 
 pub const VisualGraph = struct {
     pub const NodeData = struct {
-        // TODO: remove grappl.Node.position
+        // TODO: remove graphl.Node.position
         position: dvui.Point,
         position_override: ?dvui.Point = null,
     };
 
-    graph: *grappl.GraphBuilder,
+    graph: *graphl.GraphBuilder,
     // NOTE: should I use an array list?
-    node_data: std.AutoHashMapUnmanaged(grappl.NodeId, NodeData) = .{},
+    node_data: std.AutoHashMapUnmanaged(graphl.NodeId, NodeData) = .{},
     /// graph bounding box
     graph_bb: dvui.Rect = min_graph_bb,
 
@@ -1699,7 +1693,7 @@ pub const VisualGraph = struct {
         self.node_data.deinit(alloc);
     }
 
-    pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?grappl.NodeId, diag: ?*grappl.GraphBuilder.Diagnostic, pos: dvui.Point) !grappl.NodeId {
+    pub fn addNode(self: *@This(), alloc: std.mem.Allocator, kind: []const u8, is_entry: bool, force_node_id: ?graphl.NodeId, diag: ?*graphl.GraphBuilder.Diagnostic, pos: dvui.Point) !graphl.NodeId {
         // HACK
         const result = try self.graph.addNode(alloc, kind, is_entry, force_node_id, diag);
 
@@ -1715,14 +1709,14 @@ pub const VisualGraph = struct {
         return result;
     }
 
-    pub fn removeNode(self: *@This(), node_id: grappl.NodeId) !bool {
+    pub fn removeNode(self: *@This(), node_id: graphl.NodeId) !bool {
         if (node_id != self.graph.entry_id) {
             _ = self.node_data.remove(node_id);
         }
         return self.graph.removeNode(node_id);
     }
 
-    pub fn addEdge(self: *@This(), a: std.mem.Allocator, start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
+    pub fn addEdge(self: *@This(), a: std.mem.Allocator, start_id: graphl.NodeId, start_index: u16, end_id: graphl.NodeId, end_index: u16, end_subindex: u16) !void {
         const result = try self.graph.addEdge(a, start_id, start_index, end_id, end_index, end_subindex);
         // FIXME: (note that if edge did any "replacing", that also needs to be restored!)
         // errdefer self.graph.removeEdge(result);
@@ -1731,7 +1725,7 @@ pub const VisualGraph = struct {
         return result;
     }
 
-    pub fn removeEdge(self: *@This(), start_id: grappl.NodeId, start_index: u16, end_id: grappl.NodeId, end_index: u16, end_subindex: u16) !void {
+    pub fn removeEdge(self: *@This(), start_id: graphl.NodeId, start_index: u16, end_id: graphl.NodeId, end_index: u16, end_subindex: u16) !void {
         const result = try self.graph.removeEdge(start_id, start_index, end_id, end_index, end_subindex);
         // FIXME: (note that if edge did any "replacing", that also needs to be restored!)
         // errdefer self.graph.removeEdge(result);
@@ -1740,7 +1734,7 @@ pub const VisualGraph = struct {
         return result;
     }
 
-    pub fn addLiteralInput(self: @This(), node_id: grappl.NodeId, pin_index: u16, subpin_index: u16, value: grappl.Value) !void {
+    pub fn addLiteralInput(self: @This(), node_id: graphl.NodeId, pin_index: u16, subpin_index: u16, value: graphl.Value) !void {
         return self.graph.addLiteralInput(node_id, pin_index, subpin_index, value);
     }
 
@@ -1754,7 +1748,7 @@ pub const VisualGraph = struct {
         const arena_alloc = arena.allocator();
 
         const Cell = struct {
-            node: *const grappl.Node,
+            node: *const graphl.Node,
             pos: struct {
                 x: i32,
                 y: i32,
@@ -1762,7 +1756,7 @@ pub const VisualGraph = struct {
         };
 
         // grid is a list of columns, each their own list
-        //var grid = std.SegmentedList(std.SegmentedList(*grappl.Node, 8), 256){};
+        //var grid = std.SegmentedList(std.SegmentedList(*graphl.Node, 8), 256){};
         const Col = std.DoublyLinkedList(Cell);
         const Grid = std.DoublyLinkedList(Col);
 
@@ -1800,7 +1794,7 @@ pub const VisualGraph = struct {
                         const links = switch (socket_type) {
                             .input => switch (maybe_socket) {
                                 .link => |v| _: {
-                                    var link = std.SegmentedList(grappl.Link, 2){};
+                                    var link = std.SegmentedList(graphl.Link, 2){};
                                     // TODO: pass failing allocator
                                     link.append(alloc, v) catch unreachable;
                                     break :_ link;
@@ -1930,16 +1924,16 @@ pub const VisualGraph = struct {
 pub fn addParamOrResult(
     self: *@This(),
     /// graph entry if param, graph return if result
-    /// const node_desc = if (kind == .params) graph.grappl_graph.entry_node else graph.grappl_graph.result_node;
+    /// const node_desc = if (kind == .params) graph.graphl_graph.entry_node else graph.graphl_graph.result_node;
     node_desc: *const helpers.NodeDesc,
     /// graph entry if param, graph return if result
-    /// const node_basic_desc = if (kind == .params) graph.grappl_graph.entry_node_basic_desc else graph.grappl_graph.result_node_basic_desc;
+    /// const node_basic_desc = if (kind == .params) graph.graphl_graph.entry_node_basic_desc else graph.graphl_graph.result_node_basic_desc;
     node_basic_desc: *helpers.BasicMutNodeDesc,
     comptime kind: enum { params, results },
     // chooses one for you if null
     name: ?[]const u8,
     /// defaults to i32
-    type_: ?grappl.Type,
+    type_: ?graphl.Type,
 ) !void {
     const pin_dir = comptime if (kind == .params) "outputs" else "inputs";
     const opposite_dir = comptime if (kind == .params) "inputs" else "outputs";
@@ -1949,17 +1943,17 @@ pub fn addParamOrResult(
     @field(node_basic_desc, pin_dir) = pin_descs;
     @field(self.current_graph.call_basic_desc, opposite_dir) = pin_descs;
 
-    const new_name = if (name) |n| try gpa.dupe(u8, n) else _: {
+    const new_name = if (name) |n| try gpa.dupeZ(u8, n) else _: {
         var name_suffix = pin_descs.len - 1;
 
         while (true) : (name_suffix += 1) {
             var buf: [MAX_FUNC_NAME]u8 = undefined;
 
-            const getter_name_attempt = try std.fmt.bufPrint(&buf, "get_a{}", .{name_suffix});
+            const getter_name_attempt = try std.fmt.bufPrintZ(&buf, "a{}", .{name_suffix});
             if (self.current_graph.env._nodes.contains(getter_name_attempt))
                 continue;
 
-            const setter_name_attempt = try std.fmt.bufPrint(&buf, "set_a{}", .{name_suffix});
+            const setter_name_attempt = try std.fmt.bufPrintZ(&buf, "set_a{}", .{name_suffix});
             if (self.current_graph.env._nodes.contains(setter_name_attempt))
                 continue;
 
@@ -1967,21 +1961,21 @@ pub fn addParamOrResult(
             break;
         }
 
-        break :_ try std.fmt.allocPrint(gpa, "a{}", .{name_suffix});
+        break :_ try std.fmt.allocPrintZ(gpa, "a{}", .{name_suffix});
     };
 
     pin_descs[pin_descs.len - 1] = .{
         .name = new_name,
         // i32 is default param for now
         .kind = .{ .primitive = .{
-            .value = type_ orelse grappl.primitive_types.i32_,
+            .value = type_ orelse graphl.primitive_types.i32_,
         } },
     };
 
     if (kind == .params) {
         const param_get_slot = try gpa.create(helpers.BasicMutNodeDesc);
         param_get_slot.* = .{
-            .name = try std.fmt.allocPrint(gpa, "get_{s}", .{new_name}),
+            .name = try std.fmt.allocPrintZ(gpa, "{s}", .{new_name}),
             .kind = .get,
             .inputs = &.{},
             .outputs = try gpa.alloc(helpers.Pin, 1),
@@ -1989,7 +1983,7 @@ pub fn addParamOrResult(
 
         param_get_slot.outputs[0] = .{
             .name = new_name,
-            .kind = .{ .primitive = .{ .value = type_ orelse grappl.primitive_types.i32_ } },
+            .kind = .{ .primitive = .{ .value = type_ orelse graphl.primitive_types.i32_ } },
         };
 
         (try self.current_graph.param_getters.addOne(gpa)).* = param_get_slot;
@@ -1998,7 +1992,7 @@ pub fn addParamOrResult(
 
         const param_set_slot = try gpa.create(helpers.BasicMutNodeDesc);
         param_set_slot.* = .{
-            .name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name}),
+            .name = try std.fmt.allocPrintZ(gpa, "set_{s}", .{new_name}),
             .kind = .set,
             .inputs = try gpa.alloc(helpers.Pin, 2),
             .outputs = try gpa.alloc(helpers.Pin, 2),
@@ -2010,7 +2004,7 @@ pub fn addParamOrResult(
         };
         param_set_slot.inputs[1] = .{
             .name = new_name,
-            .kind = .{ .primitive = .{ .value = type_ orelse grappl.primitive_types.i32_ } },
+            .kind = .{ .primitive = .{ .value = type_ orelse graphl.primitive_types.i32_ } },
         };
 
         param_set_slot.outputs[0] = .{
@@ -2019,7 +2013,7 @@ pub fn addParamOrResult(
         };
         param_set_slot.outputs[1] = .{
             .name = new_name,
-            .kind = .{ .primitive = .{ .value = type_ orelse grappl.primitive_types.i32_ } },
+            .kind = .{ .primitive = .{ .value = type_ orelse graphl.primitive_types.i32_ } },
         };
 
         (try self.current_graph.param_setters.addOne(gpa)).* = param_set_slot;
@@ -2033,7 +2027,7 @@ pub fn addParamOrResult(
         // FIXME: we can avoid a linear scan!
         var next = self.graphs.first;
         while (next) |current| : (next = current.next) {
-            for (current.data.grappl_graph.nodes.map.values()) |*node| {
+            for (current.data.graphl_graph.nodes.map.values()) |*node| {
                 if (node.desc() == node_desc) {
                     const old_pins = @field(node, pin_dir);
                     @field(node, pin_dir) = try gpa.realloc(old_pins, old_pins.len + 1);
@@ -2044,7 +2038,7 @@ pub fn addParamOrResult(
                         },
                         .results => {
                             pins[pins.len - 1] = .{
-                                .value = grappl.Value{ .int = 0 },
+                                .value = graphl.Value{ .int = 0 },
                             };
                         },
                     }
@@ -2058,7 +2052,7 @@ pub fn addParamOrResult(
                         .params => {
                             // TODO: each pin should have its own reset method?
                             pins[pins.len - 1] = .{
-                                .value = grappl.Value{ .int = 0 },
+                                .value = graphl.Value{ .int = 0 },
                             };
                         },
                         .results => {
@@ -2076,11 +2070,11 @@ pub fn addParamOrResult(
 pub fn addParamToCurrentGraph(
     self: *@This(),
     name: []const u8,
-    type_: grappl.Type,
+    type_: graphl.Type,
 ) !void {
     return self.addParamOrResult(
-        self.current_graph.grappl_graph.entry_node,
-        self.current_graph.grappl_graph.entry_node_basic_desc,
+        self.current_graph.graphl_graph.entry_node,
+        self.current_graph.graphl_graph.entry_node_basic_desc,
         .params,
         name,
         type_,
@@ -2101,33 +2095,10 @@ pub fn frame(self: *@This()) !void {
         var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .expand = .horizontal });
         defer m.deinit();
 
-        if (try dvui.menuItemLabel(@src(), "File", .{ .submenu = true }, .{ .expand = .none })) |r| {
-            var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
-            defer fw.deinit();
-
-            if (try dvui.menuItemLabel(@src(), "Save", .{}, .{ .expand = .horizontal })) |_| {
-                try exportCurrentSource(self);
-            }
-
-            if (try dvui.menuItemLabel(@src(), "Open", .{}, .{ .expand = .horizontal })) |_| {
-                onRequestLoadSource();
-            }
-
-            if (try dvui.menuItemLabel(@src(), "Export Wasm", .{}, .{ .expand = .horizontal })) |_| {
-                try exportCurrentCompiled(self);
-            }
-        }
-
-        if (self.init_opts.allow_running or builtin.mode == .Debug) {
-            if (try dvui.menuItemLabel(@src(), "Go", .{ .submenu = true }, .{ .expand = .none })) |r| {
-                var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
+        if (builtin.mode == .Debug) {
+            if (try dvui.menuItemLabel(@src(), "DevMode", .{ .submenu = true }, .{ .expand = .none })) |r| {
+                var fw = try dvui.floatingMenu(@src(), .{ .from = dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }) }, .{});
                 defer fw.deinit();
-
-                if (self.init_opts.allow_running) {
-                    if (try dvui.menuItemLabel(@src(), "Run (F5)", .{}, .{ .expand = .horizontal })) |_| {
-                        try runCurrentGraphs(self);
-                    }
-                }
 
                 if (builtin.mode == .Debug) {
                     if (try dvui.menuItemLabel(@src(), "Debug DVUI", .{}, .{ .expand = .horizontal })) |_| {
@@ -2138,10 +2109,10 @@ pub fn frame(self: *@This()) !void {
         }
 
         if (try dvui.menuItemLabel(@src(), "Help", .{ .submenu = true }, .{ .expand = .none })) |r| {
-            var fw = try dvui.floatingMenu(@src(), dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{});
+            var fw = try dvui.floatingMenu(@src(), .{ .from = dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }) }, .{});
             defer fw.deinit();
             if (try dvui.menuItemLabel(@src(), "Graphl Guide", .{}, .{ .expand = .horizontal })) |_| {
-                try dvui.dialog(@src(), .{
+                try dvui.dialog(@src(), .{}, .{
                     .modal = true,
                     .title = "Guide",
                     .max_size = .{ .w = 600, .h = 600 },
@@ -2183,7 +2154,7 @@ pub fn frame(self: *@This()) !void {
                             on_click(app_ctx, menu.on_click_ctx);
                         }
 
-                        var fw = try dvui.floatingMenu(@src(), Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }), .{ .id_extra = id });
+                        var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }) }, .{ .id_extra = id });
                         defer fw.deinit();
                         try recurseMenus(menu.submenus, in_counter, app_ctx);
                     }
@@ -2242,7 +2213,8 @@ pub fn frame(self: *@This()) !void {
                 if (entry_state.text_changed) {
                     const old_name = cursor.data.name;
                     defer gpa.free(old_name);
-                    const new_name = try gpa.dupe(u8, entry_state.getText());
+                    // FIXME: ask dvui to allow specifying null termination
+                    const new_name = try gpa.dupeZ(u8, entry_state.getText());
                     cursor.data.name = new_name;
                     cursor.data.call_basic_desc.name = new_name;
                     std.debug.assert(self.shared_env._nodes.remove(old_name));
@@ -2285,9 +2257,9 @@ pub fn frame(self: *@This()) !void {
         defer gpa.free(type_options);
 
         const bindings_infos = &.{
-            //.{ .binding_group = &current_graph.grappl_graph.imports, .name = "Imports" },
-            .{ .data = &self.current_graph.grappl_graph.locals, .name = "Locals", .type = .locals },
-            //.{ .data = &current_graph.grappl_graph.params, .name = "Parameters", .type = .params },
+            //.{ .binding_group = &current_graph.graphl_graph.imports, .name = "Imports" },
+            .{ .data = &self.current_graph.graphl_graph.locals, .name = "Locals", .type = .locals },
+            //.{ .data = &current_graph.graphl_graph.params, .name = "Parameters", .type = .params },
         };
 
         inline for (bindings_infos, 0..) |bindings_info, i| {
@@ -2302,13 +2274,12 @@ pub fn frame(self: *@This()) !void {
                     var name_buf: [MAX_FUNC_NAME]u8 = undefined;
 
                     // FIXME: obviously this could be faster by keeping track of state
-                    const name = try gpa.dupe(u8, for (0..10_000) |j| {
-                        const getter_name = try std.fmt.bufPrint(&name_buf, "get_new{}", .{j});
+                    const name = try gpa.dupeZ(u8, for (0..10_000) |j| {
+                        const getter_name = try std.fmt.bufPrint(&name_buf, "new{}", .{j});
                         // FIXME: use contains
                         if (self.current_graph.env.getNode(getter_name) != null)
                             continue;
-                        const name = try std.fmt.bufPrint(&name_buf, "new{}", .{j});
-                        break name;
+                        break getter_name;
                     } else {
                         return error.MaxItersFindingFreeBindingName;
                     });
@@ -2316,7 +2287,7 @@ pub fn frame(self: *@This()) !void {
                     errdefer gpa.free(name);
 
                     // default binding type
-                    const new_type = grappl.primitive_types.f64_;
+                    const new_type = graphl.primitive_types.f64_;
 
                     const getter_inputs = [_]helpers.Pin{};
 
@@ -2349,9 +2320,9 @@ pub fn frame(self: *@This()) !void {
                         },
                     };
 
-                    const node_descs = try gpa.alloc(grappl.helpers.BasicMutNodeDesc, 2);
-                    node_descs[0] = grappl.helpers.BasicMutNodeDesc{
-                        .name = try std.fmt.allocPrint(gpa, "get_{s}", .{name}),
+                    const node_descs = try gpa.alloc(graphl.helpers.BasicMutNodeDesc, 2);
+                    node_descs[0] = graphl.helpers.BasicMutNodeDesc{
+                        .name = try std.fmt.allocPrintZ(gpa, "{s}", .{name}),
                         .kind = .get,
                         .inputs = try gpa.dupe(helpers.Pin, &getter_inputs),
                         .outputs = try gpa.dupe(helpers.Pin, &getter_outputs),
@@ -2359,9 +2330,9 @@ pub fn frame(self: *@This()) !void {
                     errdefer gpa.free(node_descs[0].name);
                     errdefer gpa.free(node_descs[0].inputs);
                     errdefer gpa.free(node_descs[0].outputs);
-                    node_descs[1] = grappl.helpers.BasicMutNodeDesc{
+                    node_descs[1] = graphl.helpers.BasicMutNodeDesc{
                         // FIXME: leaks
-                        .name = try std.fmt.allocPrint(gpa, "set_{s}", .{name}),
+                        .name = try std.fmt.allocPrintZ(gpa, "set_{s}", .{name}),
                         .kind = .set,
                         .inputs = try gpa.dupe(helpers.Pin, &setter_inputs),
                         .outputs = try gpa.dupe(helpers.Pin, &setter_outputs),
@@ -2398,18 +2369,18 @@ pub fn frame(self: *@This()) !void {
 
                 const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = id_extra });
                 if (text_entry.text_changed) {
-                    const new_name = try gpa.dupe(u8, text_entry.getText());
+                    const new_name = try gpa.dupeZ(u8, text_entry.getText());
                     binding.name = new_name;
                     if (binding.extra) |extra| {
-                        const nodes: *[2]grappl.helpers.BasicMutNodeDesc = @alignCast(@ptrCast(extra));
+                        const nodes: *[2]graphl.helpers.BasicMutNodeDesc = @alignCast(@ptrCast(extra));
                         const get_node = &nodes[0];
                         const set_node = &nodes[1];
                         // TODO: REPORT ME... allocator doesn't seem to return right slice len
                         // when freeing right before resetting?
                         const old_get_node_name = get_node.name;
-                        get_node.name = try std.fmt.allocPrint(gpa, "get_{s}", .{new_name});
+                        get_node.name = try std.fmt.allocPrintZ(gpa, "{s}", .{new_name});
                         const old_set_node_name = set_node.name;
-                        set_node.name = try std.fmt.allocPrint(gpa, "set_{s}", .{new_name});
+                        set_node.name = try std.fmt.allocPrintZ(gpa, "set_{s}", .{new_name});
                         // FIXME: should be able to use removeByPtr here to avoid look up?
                         std.debug.assert(self.current_graph.env._nodes.remove(old_get_node_name));
                         std.debug.assert(self.current_graph.env._nodes.remove(old_set_node_name));
@@ -2426,7 +2397,7 @@ pub fn frame(self: *@This()) !void {
                 }
                 text_entry.deinit();
 
-                var type_choice: grappl.Type = undefined;
+                var type_choice: graphl.Type = undefined;
                 var type_choice_index: usize = undefined;
                 {
                     // FIXME: this is slow to run every frame!
@@ -2445,9 +2416,9 @@ pub fn frame(self: *@This()) !void {
                 const option_clicked = try dvui.dropdown(@src(), type_options, &type_choice_index, .{ .id_extra = j, .color_text = .{ .color = try colorForType(type_choice) } });
                 if (option_clicked) {
                     const selected_name = type_options[type_choice_index];
-                    binding.type_ = self.current_graph.grappl_graph.env.getType(selected_name) orelse unreachable;
+                    binding.type_ = self.current_graph.graphl_graph.env.getType(selected_name) orelse unreachable;
                     if (binding.extra) |extra| {
-                        const nodes: *[2]grappl.helpers.BasicMutNodeDesc = @alignCast(@ptrCast(extra));
+                        const nodes: *[2]graphl.helpers.BasicMutNodeDesc = @alignCast(@ptrCast(extra));
                         const get_node = &nodes[0];
                         get_node.outputs[0].kind.primitive.value = binding.type_;
                         const set_node = &nodes[1];
@@ -2459,20 +2430,19 @@ pub fn frame(self: *@This()) !void {
         }
 
         const params_results_bindings = &.{
-            // FIXME: uncomment to allow editing results
-            // .{
-            //     .node_desc = current_graph.grappl_graph.result_node,
-            //     .node_basic_desc = current_graph.grappl_graph.result_node_basic_desc,
-            //     .name = "Results",
-            //     .pin_dir = "inputs",
-            //     .type = .results,
-            // },
             .{
-                .node_desc = self.current_graph.grappl_graph.entry_node,
-                .node_basic_desc = self.current_graph.grappl_graph.entry_node_basic_desc,
+                .node_desc = self.current_graph.graphl_graph.entry_node,
+                .node_basic_desc = self.current_graph.graphl_graph.entry_node_basic_desc,
                 .name = "Parameters",
                 .pin_dir = "outputs",
                 .type = .params,
+            },
+            .{
+                .node_desc = self.current_graph.graphl_graph.result_node,
+                .node_basic_desc = self.current_graph.graphl_graph.result_node_basic_desc,
+                .name = "Results",
+                .pin_dir = "inputs",
+                .type = .results,
             },
         };
 
@@ -2499,30 +2469,35 @@ pub fn frame(self: *@This()) !void {
 
                 const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = id_extra });
                 if (text_entry.text_changed) {
-                    var buf: [MAX_FUNC_NAME]u8 = undefined;
+                    if (info.type == .params) {
+                        var buf: [MAX_FUNC_NAME]u8 = undefined;
 
-                    const old_get_name = try std.fmt.bufPrint(&buf, "get_{s}", .{pin_desc.name});
-                    std.debug.assert(self.current_graph.env._nodes.remove(old_get_name));
-                    const old_set_name = try std.fmt.bufPrint(&buf, "set_{s}", .{pin_desc.name});
-                    std.debug.assert(self.current_graph.env._nodes.remove(old_set_name));
+                        const old_get_name = try std.fmt.bufPrint(&buf, "{s}", .{pin_desc.name});
+                        std.debug.assert(self.current_graph.env._nodes.remove(old_get_name));
+                        const old_set_name = try std.fmt.bufPrint(&buf, "set_{s}", .{pin_desc.name});
+                        std.debug.assert(self.current_graph.env._nodes.remove(old_set_name));
+                    }
 
                     gpa.free(pin_desc.name);
-                    pin_desc.name = try gpa.dupe(u8, text_entry.getText());
+                    pin_desc.name = try gpa.dupeZ(u8, text_entry.getText());
 
-                    const param_get_slot = self.current_graph.param_getters.items[j - 1];
-                    gpa.free(param_get_slot.name);
-                    param_get_slot.name = try std.fmt.allocPrint(gpa, "get_{s}", .{pin_desc.name});
-                    param_get_slot.outputs[0].name = pin_desc.name;
+                    if (info.type == .params) {
+                        const param_get_slot = self.current_graph.param_getters.items[j - 1];
+                        gpa.free(param_get_slot.name);
+                        param_get_slot.name = try std.fmt.allocPrintZ(gpa, "{s}", .{pin_desc.name});
+                        param_get_slot.outputs[0].name = pin_desc.name;
 
-                    const param_set_slot = self.current_graph.param_setters.items[j - 1];
-                    gpa.free(param_set_slot.name);
-                    param_set_slot.name = try std.fmt.allocPrint(gpa, "set_{s}", .{pin_desc.name});
-                    param_set_slot.inputs[1].name = pin_desc.name;
-                    param_set_slot.outputs[1].name = pin_desc.name;
+                        const param_set_slot = self.current_graph.param_setters.items[j - 1];
+                        gpa.free(param_set_slot.name);
+                        param_set_slot.name = try std.fmt.allocPrintZ(gpa, "set_{s}", .{pin_desc.name});
+                        param_set_slot.inputs[1].name = pin_desc.name;
+                        param_set_slot.outputs[1].name = pin_desc.name;
 
-                    _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot));
-                    _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot));
+                        _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_get_slot));
+                        _ = try self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot));
+                    }
                 }
+
                 // must occur after text_changed check or this operation will set it
                 if (dvui.firstFrame(text_entry.data().id)) {
                     text_entry.textTyped(pin_desc.name, false);
@@ -2541,7 +2516,7 @@ pub fn frame(self: *@This()) !void {
                     });
                 } else {
                     // FIXME: this is slow to run every frame!
-                    var type_choice: grappl.Type = undefined;
+                    var type_choice: graphl.Type = undefined;
                     var type_choice_index: usize = undefined;
                     {
                         // FIXME: assumes iterator is ordered when not mutated
@@ -2566,7 +2541,7 @@ pub fn frame(self: *@This()) !void {
                     });
                     if (option_clicked) {
                         const selected_name = type_options[type_choice_index];
-                        const type_ = self.current_graph.grappl_graph.env.getType(selected_name) orelse unreachable;
+                        const type_ = self.current_graph.graphl_graph.env.getType(selected_name) orelse unreachable;
                         pin_desc.kind.primitive = .{ .value = type_ };
                         if (info.type == .params) {
                             self.current_graph.param_getters.items[j - 1].outputs[0].kind.primitive.value = type_;
@@ -2597,15 +2572,6 @@ pub fn frame(self: *@This()) !void {
     }
 
     try renderGraph(self, hbox);
-
-    // FIXME: this doesn't work
-    // left over global events
-    for (dvui.events()) |*e| {
-        if (!e.handled and e.evt == .key and e.evt.key.code == .f5) {
-            e.handled = true;
-            try runCurrentGraphs(self);
-        }
-    }
 }
 
 test {

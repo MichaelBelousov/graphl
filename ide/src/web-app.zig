@@ -1,6 +1,8 @@
-// FIXME: avoid globals until the consumer level
-var app: App = .{};
-var init_opts: App.InitOptions = .{};
+// FIXME: avoid globals/module-level-state until the consumer level
+var app: App = undefined;
+var init_opts: App.InitOptions = .{
+    .transfer_buffer = transfer_buffer[0..],
+};
 
 pub const MenuOptionJson = struct {
     name: []const u8,
@@ -30,8 +32,9 @@ pub const GraphInitStateJson = struct {
 
 pub const GraphsInitStateJson = std.json.ArrayHashMap(GraphInitStateJson);
 
+// FIXME: copied by compiler js sdk, should move up and share
 pub const PinJson = struct {
-    name: []const u8,
+    name: [:0]const u8,
     type: []const u8,
 
     pub fn promote(self: @This()) !helpers.Pin {
@@ -46,7 +49,7 @@ pub const PinJson = struct {
 };
 
 pub const BasicMutNodeDescJson = struct {
-    name: []const u8,
+    name: [:0]const u8,
     hidden: bool = false,
     kind: helpers.NodeDescKind = .func,
     inputs: []PinJson = &.{},
@@ -97,37 +100,11 @@ pub fn frame() !void {
     try app.frame();
 }
 
-// NOTE: check if this is bad
-const graphl_init_buffer: [std.wasm.page_size]u8 = _: {
-    var result = std.mem.zeroes([std.wasm.page_size]u8);
-    result[0] = '\x1B';
-    result[1] = '\x2D';
-    result[std.wasm.page_size - 2] = '\x3E';
-    result[std.wasm.page_size - 1] = '\x4F';
-    break :_ result;
-};
-
-export const graphl_init_start: [*]const u8 = switch (builtin.mode) {
-    //.Debug => &graphl_init_buffer[0],
-    else => @ptrCast(&graphl_init_buffer[0]),
-};
-
-// fuck it just ship this crap, WTF: REPORT ME HACK FIXME
-const init_buff_offset: isize = switch (builtin.mode) {
-    .Debug => 0,
-    else => 0,
-};
-
-const graphl_real_init_buff: *const [std.wasm.page_size]u8 = @ptrCast(graphl_init_start + init_buff_offset);
-
-// TODO: also a result size global
+// FIXME: just use the transfer buffer again
 export var result_buffer = std.mem.zeroes([4096]u8);
-
-export fn _runCurrentGraphs() void {
-    app.runCurrentGraphs() catch |e| {
-        std.log.err("Error running: {}", .{e});
-    };
-}
+// FIXME: using a large transfer buffer seems to maybe cause some issues?
+export var transfer_buffer: [8192]u8 = @splat(0xaa);
+export const transfer_buffer_len: usize = transfer_buffer.len;
 
 export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
     const src = (in_ptr orelse return)[0..len];
@@ -138,12 +115,27 @@ export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
     };
 }
 
+extern fn onReceiveSlice(ptr: ?[*]const u8, len: usize) void;
+
 /// returns null if failure
-export fn exportCurrentCompiled() void {
-    app.exportCurrentCompiled() catch |err| {
-        std.log.err("sourceToGraph error: {}", .{err});
+export fn compileToWasm() void {
+    const wasm = app.compileToWasm() catch |e| {
+        std.log.err("compileToWasm error {}", .{e});
         return;
     };
+    defer gpa.free(wasm);
+
+    onReceiveSlice(wasm.ptr, wasm.len);
+}
+
+export fn compileToGraphlt() void {
+    const graphlt = app.compileToGraphlt() catch |e| {
+        std.log.err("compileToGraphlt error {}", .{e});
+        return;
+    };
+    defer gpa.free(graphlt);
+
+    onReceiveSlice(graphlt.ptr, graphlt.len);
 }
 
 export fn setInitOpts(json_ptr: ?[*]const u8, json_len: usize) bool {
@@ -231,9 +223,17 @@ fn _setInitOpts(in_json: []const u8) !void {
                         const key = input_json_entry.key_ptr.*;
                         switch (input_json_entry.value_ptr.*) {
                             inline .string, .symbol => |v, tag| {
-                                try inputs.put(gpa, key, @unionInit(App.InputInitState, @tagName(tag), try gpa.dupe(u8, v)));
+                                try inputs.put(
+                                    gpa,
+                                    key,
+                                    @unionInit(App.InputInitState, @tagName(tag), try gpa.dupeZ(u8, v)),
+                                );
                             },
-                            inline else => |v, tag| try inputs.put(gpa, key, @unionInit(App.InputInitState, @tagName(tag), v)),
+                            inline else => |v, tag| try inputs.put(
+                                gpa,
+                                key,
+                                @unionInit(App.InputInitState, @tagName(tag), v),
+                            ),
                         }
                     }
 
@@ -319,6 +319,7 @@ fn _setInitOpts(in_json: []const u8) !void {
 
     init_opts = .{
         .result_buffer = &result_buffer,
+        .transfer_buffer = &transfer_buffer,
         .menus = menus,
         .graphs = graphs,
         .user_funcs = user_funcs,
@@ -342,10 +343,10 @@ fn _setInitOpts(in_json: []const u8) !void {
 }
 
 const gpa = App.gpa;
-const graphl = @import("grappl_core");
+const graphl = @import("graphl_core");
 // FIXME: move to util package
-const IntArrayHashMap = @import("grappl_core").IntArrayHashMap;
-const helpers = @import("grappl_core").helpers;
+const IntArrayHashMap = @import("graphl_core").IntArrayHashMap;
+const helpers = @import("graphl_core").helpers;
 const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 
 const App = @import("./app.zig");

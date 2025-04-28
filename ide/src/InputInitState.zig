@@ -6,7 +6,7 @@ pub const InputInitState = union(enum) {
     float: f64,
     bool: bool,
     string: []const u8,
-    symbol: []const u8,
+    symbol: [:0]const u8,
 
     pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, opts: std.json.ParseOptions) !@This() {
         if (.object_begin != try source.next()) return error.UnexpectedToken;
@@ -31,7 +31,7 @@ pub const InputInitState = union(enum) {
                     } else if (std.mem.eql(u8, k, "string")) {
                         value = .{ .string = try std.json.innerParse([]const u8, allocator, source, opts) };
                     } else if (std.mem.eql(u8, k, "symbol")) {
-                        value = .{ .symbol = try std.json.innerParse([]const u8, allocator, source, opts) };
+                        value = .{ .symbol = try std.json.innerParse([:0]const u8, allocator, source, opts) };
                     } else {
                         return error.UnexpectedToken;
                     }

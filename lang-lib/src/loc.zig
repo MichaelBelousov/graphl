@@ -1,8 +1,10 @@
 const std = @import("std");
 
 pub const Loc = struct {
+    // TODO: create a loc without a source reference
     /// url or file path or "unknown"
     source_ref: []const u8 = "unknown",
+    // TODO: use u32
     /// 1-indexed
     line: usize = 1,
     /// 1-indexed
@@ -23,14 +25,14 @@ pub const Loc = struct {
     pub fn containing_line(self: @This(), source: []const u8) ![]const u8 {
         const line_start =
             if (self.index == 0) 0 else if (find_backwards(source, '\n', self.index - 1)) |i|
-            i + 1
-        else
-            0;
+                i + 1
+            else
+                0;
         const line_end = std.mem.sliceTo(source[self.index..], '\n').len + self.index;
         return source[line_start..line_end];
     }
 
-    pub fn increment(self: *@This(), c: u8) void {
+    pub fn incrementByChar(self: *@This(), c: u8) void {
         switch (c) {
             '\n' => {
                 self.line += 1;
@@ -41,6 +43,13 @@ pub const Loc = struct {
                 self.index += 1;
                 self.col += 1;
             },
+        }
+    }
+
+    pub fn increment(self: *@This(), src: []const u8) void {
+        if (self.index < src.len) {
+            const c = src[self.index];
+            return self.incrementByChar(c);
         }
     }
 

@@ -5,10 +5,8 @@ const std = @import("std");
 const RaylibBackend = dvui.backend;
 
 const dvui = @import("dvui");
-comptime {
-    std.debug.assert(dvui.backend_kind == .raylib);
-}
 
+const graphl = @import("graphl_core");
 const app = @import("./native-app.zig");
 
 const c = RaylibBackend.c;
@@ -16,18 +14,16 @@ const c = RaylibBackend.c;
 // FIXME:
 //const window_icon_png = @embedFile("zig-favicon.png");
 
-// FIXME: merge with app allocator!
-var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
-const gpa = gpa_instance.allocator();
+const gpa = app.gpa;
 
 var show_dialog_outside_frame: bool = false;
 
 const vsync = true;
 var scale_val: f32 = 1.0;
 
-pub fn main() !void {
-    defer _ = gpa_instance.deinit();
+var transfer_buffer = std.mem.zeroes([std.heap.page_size_min]u8);
 
+pub fn main() !void {
     // FIXME: mac keybindings?
 
     // init Raylib backend (creates OS window)
@@ -46,7 +42,49 @@ pub fn main() !void {
     var win = try dvui.Window.init(@src(), gpa, backend.backend(), .{});
     defer win.deinit();
 
-    try app.init(.{});
+    try app.init(.{
+        .transfer_buffer = &transfer_buffer,
+        .user_funcs = &.{
+            .{
+                .id = 0,
+                .node = .{
+                    .name = "JavaScript-Eval",
+                    .inputs = try gpa.dupe(graphl.Pin, &.{
+                        .{ .name = "", .kind = .{ .primitive = .exec } },
+                        .{ .name = "elementId", .kind = .{ .primitive = .{ .value = graphl.primitive_types.u64_ } } },
+                        .{ .name = "code", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
+                    }),
+                    .outputs = try gpa.dupe(graphl.Pin, &.{
+                        .{ .name = "", .kind = .{ .primitive = .exec } },
+                        .{ .name = "json", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
+                    }),
+                },
+            }
+        },
+        .menus = &.{
+            .{
+                .name = "Build",
+                .submenus = &.{
+                    .{
+                        .name = "compile",
+                        .on_click = &(struct { pub fn impl(_: ?*anyopaque, _: ?*anyopaque) void {
+                            const graphlt = app.app.compileToGraphlt() catch |e| {
+                                std.debug.print("graphlt compilation failed with '{}'", .{e});
+                                return;
+                            };
+                            defer gpa.free(graphlt);
+                            std.debug.print("graphlt:\n{s}\n", .{graphlt});
+                            const wasm = app.app.compileToWasm() catch |e| {
+                                std.debug.print("wasm compilation failed with '{}'", .{e});
+                                return;
+                            };
+                            defer gpa.free(wasm);
+                        } }.impl),
+                    },
+                },
+            },
+        },
+    });
     defer app.deinit();
 
     // small fonts look bad on the web, so bump the default theme up
@@ -88,7 +126,7 @@ pub fn main() !void {
         // Example of how to show a dialog from another thread (outside of win.begin/win.end)
         if (show_dialog_outside_frame) {
             show_dialog_outside_frame = false;
-            try dvui.dialog(@src(), .{ .window = &win, .modal = false, .title = "Dialog from Outside", .message = "This is a non modal dialog that was created outside win.begin()/win.end(), usually from another thread." });
+            try dvui.dialog(@src(), .{}, .{ .window = &win, .modal = false, .title = "Dialog from Outside", .message = "This is a non modal dialog that was created outside win.begin()/win.end(), usually from another thread." });
         }
     }
 }

@@ -2,6 +2,7 @@ import react from "@vitejs/plugin-react";
 import rollupVisualizer from "rollup-plugin-visualizer";
 import viteInspect from "vite-plugin-inspect";
 import { defineConfig, loadEnv } from "vite";
+import zigar from "rollup-plugin-zigar";
 
 export default defineConfig(async ({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ""));
@@ -14,6 +15,9 @@ export default defineConfig(async ({ mode }) => {
     },
     plugins: [
       react(),
+      zigar({
+        topLevelAwait: true,
+      }),
       ...(mode === "development" ? [viteInspect({ build: true })] : []),
     ],
     css: {

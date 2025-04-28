@@ -1,0 +1,13 @@
+{
+  "name": "graphl-workspace",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "./lang-lib/lang-sdks/js",
+    "./ide"
+  ],
+  "patchedDependencies": {
+    "rollup-plugin-typescript@1.0.1": "patches/rollup-plugin-typescript@1.0.1.patch",
+    "zigar-runtime@0.14.0": "patches/zigar-runtime@0.14.0.patch"
+  }
+}

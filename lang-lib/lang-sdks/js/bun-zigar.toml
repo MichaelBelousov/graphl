@@ -1,0 +1,12 @@
+optimize = "ReleaseSmall"
+
+[sourceFiles]
+"lib/js.zigar" = "zig/js.zig"
+
+[[targets]]
+arch = "x64"
+platform = "linux"
+
+[[targets]]
+arch = "x64"
+platform = "win32"
