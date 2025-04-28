@@ -26,21 +26,17 @@ const MAX_FUNC_NAME = 256;
 extern fn onRequestLoadSource() void;
 extern fn onClickReportIssue() void;
 
-// FIXME: should use the new std.heap.SmpAllocator in release mode off wasm
-//const gpa = gpa_instance.allocator();
-var gpa_instance = if (builtin.mode == .Debug) std.heap.GeneralPurposeAllocator(.{
-    .retain_metadata = true,
-    .never_unmap = true,
-    //.verbose_log = true,
-}){} else std.heap.c_allocator;
+// // FIXME: should use the new std.heap.SmpAllocator in release mode off wasm
+// //const gpa = gpa_instance.allocator();
+// var gpa_instance = if (builtin.mode == .Debug) std.heap.GeneralPurposeAllocator(.{
+//     .retain_metadata = true,
+//     .never_unmap = true,
+//     //.verbose_log = true,
+// }){} else std.heap.c_allocator;
 
-pub const gpa = if (builtin.cpu.arch.isWasm())
-    // NOTE: use c_allocator because we have deps using libc 
-    std.heap.raw_c_allocator
-    //std.heap.wasm_allocator
-else
-    //gpa_instance.allocator();
-    std.heap.raw_c_allocator;
+// FIXME: add a frame arena
+// FIXME: use raw_c_allocator for frame arena
+pub const gpa = std.heap.c_allocator;
 
 pub const Graph = struct {
     index: u16,

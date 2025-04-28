@@ -43,6 +43,10 @@ pub fn build(b: *std.Build) void {
         //.disable_compiler = true,
     });
 
+    // NOTE: must apply the ./wasi-libc.patch to your zig installation,
+    // to prevent destructors from running after the main function.
+    // Otherwise subsequent calls to the library will fail due to destroyed globals
+    // in etc binaryen
     const exe = b.addExecutable(.{
         .name = "dvui-frontend",
         .root_source_file = b.path("src/web.zig"),

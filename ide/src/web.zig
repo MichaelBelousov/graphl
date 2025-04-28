@@ -13,7 +13,6 @@ const dvui = @import("dvui");
 
 const app = @import("./web-app.zig");
 
-
 pub const dvui_app: dvui.App = .{ .initFn = app_init, .frameFn = app_frame, .deinitFn = app_deinit,
     .config = .{ .options = .{
         .size = .{ .w = 100, .h = 100 },

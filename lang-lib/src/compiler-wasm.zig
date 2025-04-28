@@ -518,14 +518,6 @@ pub fn _binaryen_helper_constructor() callconv(.C) void {
     const i8_array_heap = built_heap_types[0];
     const i8_array = byn.c.BinaryenTypeFromHeapType(i8_array_heap, false);
 
-    std.debug.assert(
-        byn.c.BinaryenHeapTypeIsArray(i8_array_heap)
-    );
-    std.debug.assert(
-        !byn.c.BinaryenTypeIsNullable(i8_array)
-    );
-    //std.debug.print("is_struct={}, is_array={}, is_basic={}", .{is_struct, is_array, is_basic});
-
     // TODO: do what hoot does and compile to stringref but downpass it to i8-array
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.code, i8_array) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.symbol, i8_array) catch unreachable;
@@ -547,7 +539,7 @@ pub fn _binaryen_helper_constructor() callconv(.C) void {
 export const _compiler_init_array: [1]*const fn () callconv(.C) void linksection(".init_array") = .{&_binaryen_helper_constructor};
 
 // FIXME: temp
-extern fn debugger() void;
+extern fn breakpoint() void;
 
 const Compilation = struct {
     // FIXME: consider making this an owned instance, why is it a pointer?
@@ -622,7 +614,7 @@ const Compilation = struct {
         maybe_user_funcs: ?*const std.SinglyLinkedList(UserFunc),
         in_diag: *Diagnostic,
     ) !@This() {
-        debugger();
+        breakpoint();
         const mod = byn.Module.init();
 
         var result = @This(){

@@ -14,6 +14,7 @@ pub fn build(b: *std.Build) void {
         //.relooper_debug = optimize == .Debug,
         .single_threaded = true, // TODO: make not true off the web target
     });
+
     //const bytebox_dep = b.dependency("bytebox", .{});
 
     const web_target_query = std.Target.Query{
