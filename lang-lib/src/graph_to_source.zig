@@ -572,7 +572,7 @@ pub const GraphBuilder = struct {
             _ = try mod_ctx.addAndAppendToList(type_def_idx, syms.typeof);
 
             const param_bindings_idx = try mod_ctx.add(.empty_list);
-            const result_type_idx = try mod_ctx.add(undefined);
+            const result_type_idx = try mod_ctx.add(try .emptyListCapacity(mod_ctx.alloc(), self.result_node_basic_desc.inputs.len - 1));
             mod_ctx.get(type_def_idx).value.list.appendAssumeCapacity(param_bindings_idx);
             mod_ctx.get(type_def_idx).value.list.appendAssumeCapacity(result_type_idx);
 
@@ -586,15 +586,12 @@ pub const GraphBuilder = struct {
             }
 
             if (self.result_node_basic_desc.inputs.len < 1) return error.InvalidResultNode;
-            const no_result_outputs = self.result_node_basic_desc.inputs.len == 1;
-            if (no_result_outputs) {
-                // FIXME: share symbols for primitives!
-                return error.NoResultsUnimplemented;
-            } else {
-                if (self.result_node_basic_desc.inputs[1].kind != .primitive) return error.InvalidResultNode;
-                if (self.result_node_basic_desc.inputs[1].kind.primitive != .value) return error.InvalidResultNode;
 
-                mod_ctx.get(result_type_idx).* = .symbol(self.result_node_basic_desc.inputs[1].kind.primitive.value.name);
+            if (self.result_node_basic_desc.inputs[1].kind != .primitive) return error.InvalidResultNode;
+            if (self.result_node_basic_desc.inputs[1].kind.primitive != .value) return error.InvalidResultNode;
+
+            for (self.result_node_basic_desc.inputs[1..]) |res_input| {
+                _ = try mod_ctx.addAndAppendToList(result_type_idx, .symbol(res_input.kind.primitive.value.name));
             }
         }
 
@@ -1152,7 +1149,7 @@ const GraphToSourceErr = union(enum(u16)) {
 
     pub fn from(err: error{OutOfMemory}) GraphToSourceErr {
         return switch (err) {
-            error.OutOfMemory => GraphToSourceErr{ .OutOfMemory = {} },
+            error.OutOfMemory => .OutOfMemory,
         };
     }
 
