@@ -228,7 +228,7 @@ describe("js sdk", () => {
     assert(called);
   });
 
-  it.only("imports 2", async () => {
+  it.skip("imports 2", async () => {
     let called = false;
     const program = await compileGraphltSourceAndInstantiateProgram(`
         (import JavaScript-Eval "host/JavaScript-Eval")

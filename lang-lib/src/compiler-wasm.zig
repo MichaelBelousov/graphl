@@ -538,9 +538,6 @@ pub fn _binaryen_helper_constructor() callconv(.C) void {
 // TODO: test this more
 export const _compiler_init_array: [1]*const fn () callconv(.C) void linksection(".init_array") = .{&_binaryen_helper_constructor};
 
-// FIXME: temp
-extern fn breakpoint() void;
-
 const Compilation = struct {
     // FIXME: consider making this an owned instance, why is it a pointer?
     /// will be edited during compilation as functions are discovered
@@ -614,7 +611,6 @@ const Compilation = struct {
         maybe_user_funcs: ?*const std.SinglyLinkedList(UserFunc),
         in_diag: *Diagnostic,
     ) !@This() {
-        breakpoint();
         const mod = byn.Module.init();
 
         var result = @This(){

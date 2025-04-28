@@ -1380,7 +1380,10 @@ export async function Ide(canvasElem, opts) {
              */
             onReceiveSlice(ptr, len) {
                 const mem = new Uint8Array(ideWasm.instance.exports.memory.buffer, ptr, len);
-                onReceiveSliceCb?.(mem);
+                const copy = new ArrayBuffer(mem.byteLength);
+                const result = new Uint8Array(copy);
+                result.set(mem);
+                onReceiveSliceCb?.(result);
             },
 
             onClickReportIssue() {
@@ -1406,8 +1409,9 @@ export async function Ide(canvasElem, opts) {
                 const result = await resultPromise;
                 const content = utf8decoder.decode(result);
                 return content;
-            } catch {
+            } catch (err) {
                 onReceiveSliceCb = undefined;
+                throw err;
             }
         },
         async exportWasm() {
@@ -1416,13 +1420,14 @@ export async function Ide(canvasElem, opts) {
                 ideWasm.instance.exports.compileToWasm();
                 const result = await resultPromise;
                 return result;
-            } catch {
+            } catch (err) {
                 onReceiveSliceCb = undefined;
+                throw err;
             }
         },
         async compile() {
             const wasm = await this.exportWasm();
-            return instantiateProgramFromWasmBuffer(wasm, opts.userFuncs);
+            return instantiateProgramFromWasmBuffer(wasm.buffer, opts.userFuncs);
         },
     };
 

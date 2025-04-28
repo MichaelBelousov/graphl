@@ -477,11 +477,9 @@ function parseGraphlMeta(wasmBuffer: ArrayBufferLike): GraphlMeta {
     // HACK: just parse for custom sections manually, it's not that hard!
     // SEE: https://danielmangum.com/posts/every-byte-wasm-module/
     // FIXME: fix the types here
-    const graphlMetaTokenIndex = indexOfSubArray(wasmView, new DataView(new Uint8Array(Buffer.from("63a7f259-5c6b-4206-8927-8102dc9ad34d", "latin1")).buffer));
+    const graphlMetaStart = indexOfSubArray(wasmView, new DataView(new TextEncoder().encode('{"token":"63a7f259-5c6b-4206-8927-8102dc9ad34d').buffer)) + 1;
+    assert(graphlMetaStart !== -1, "graphl meta token not found");
 
-    assert(graphlMetaTokenIndex !== -1, "graphl meta token not found");
-
-    const graphlMetaStart = graphlMetaTokenIndex - '{"token":"'.length + 1;
     let parenCount = 1;
     for (let i = graphlMetaStart + 1; i < wasmBuffer.byteLength; ++i) {
         // TODO: handle string literals, for now not parsing actual JSON
