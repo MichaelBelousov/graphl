@@ -1,14 +1,21 @@
 // TODO: type check with this file isn't working
 
-import { GraphlType, GraphlProgram } from "@graphl/compiler-js";
+import { GraphlProgram } from "@graphl/compiler-js";
 
 /** @see {./src/web-app.zig} */
 
-export declare class Ide<Funcs extends Record<string, (...args: any[]) => any>> {
-  public constructor(canvas: HTMLCanvasElement, opts?: Ide.Options)
-  public compile(): Promise<GraphlProgram<Funcs>>;
-  public compileGraph(): Promise<string>;
+type AnyFuncs = Record<string, (...args: any[]) => any>;
+
+export declare interface Ide<Funcs extends AnyFuncs> {
+  compile(): Promise<GraphlProgram<Funcs>>;
+  exportWasm(): Promise<Uint8Array>;
+  exportGraphlt(): Promise<string>;
 }
+
+export declare function Ide<Funcs extends AnyFuncs>(
+  canvas: HTMLCanvasElement,
+  opts?: Ide.Options
+): Promise<Ide<Funcs>>;
 
 export declare type PrimitiveType =
   | "u64"

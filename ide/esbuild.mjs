@@ -21,5 +21,4 @@ await esbuild.build({
 
 await Promise.all([
   fs.promises.copyFile(path.join(import.meta.dirname, "./WebBackend.d.ts"), `./${distFolder}/graphl-ide-web.d.ts`),
-  fs.promises.copyFile(path.join(import.meta.dirname, "./zig-out/bin/wasm-opt.wasm"), `./${distFolder}/wasm-opt.wasm`),
 ]);

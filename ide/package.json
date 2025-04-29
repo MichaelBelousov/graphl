@@ -20,13 +20,13 @@
   },
   "scripts": {
     "build": "zig build -Doptimize=ReleaseSmall && NODE_ENV=production ./esbuild.mjs",
-    "build:debug": "zig build && NODE_ENV=development ./esbuild.mjs",
-    "build:demo": "zig build && vite build -c ./vite.demo.config.ts --mode production",
+    "build-debug": "zig build && NODE_ENV=development ./esbuild.mjs",
+    "build-demo": "zig build && vite build -c ./vite.demo.config.ts --mode production",
     "preview": "vite preview",
     "dev": "vite --port 3001 -c ./vite.demo.config.ts",
-    "dev:zig": "git ls-files | entr -rc zig build",
+    "dev-zig": "git ls-files | entr -rc zig build",
     "test": "mocha --config ./.mocharc.js tests/unit/**/*.test.ts",
-    "test:e2e": "playwright test tests/e2e"
+    "test-e2e": "playwright test tests/e2e"
   },
   "devDependencies": {
     "@bjorn3/browser_wasi_shim": "^0.4.1",

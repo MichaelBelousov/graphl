@@ -862,6 +862,14 @@ class Dvui {
             return;
         }
 
+        canvas.style.userSelect = "none";
+        canvas.style["user-drag"] = "none";
+        //-webkit-user-drag: none;
+        //-moz-user-select: none;
+        //-webkit-user-select: none;
+        //-ms-user-select: none;
+
+
         this.gl = canvas.getContext("webgl2", { alpha: true });
         if (this.gl === null) {
             this.gl = canvas.getContext("webgl", { alpha: true });
@@ -1304,13 +1312,13 @@ const WASM_PAGE_SIZE = 64 * 1024;
 const INIT_BUFFER_SZ = 8192;
 
 /**
- * @template {Record<string, Function>} T
+ * @template {Record<string, (..._: any[]) => any>} T
  * @param {HTMLCanvasElement} canvasElem
  * @param {import("./WebBackend.js").Ide.Options} opts
  * @returns{Promise<import("./WebBackend.js").Ide<T>>}
  */
 export async function Ide(canvasElem, opts) {
-    /** @type {Map<number, { name: string, func: Required<Pick<import("./WebBackend").BasicMutNodeDescJson, "impl" | "inputs" | "outputs">> }>} */
+    /** @type {Map<number, { name: string, func: Required<Pick<import("./WebBackend.js").BasicMutNodeDescJson, "impl" | "inputs" | "outputs">> }>} */
     const userFuncs = new Map();
 
     /** @type {Map<number, (() => void) | undefined>} */
