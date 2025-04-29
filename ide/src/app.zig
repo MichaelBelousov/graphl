@@ -2175,7 +2175,17 @@ pub fn frame(self: *@This()) !void {
     defer hbox.deinit();
 
     if (self.init_opts.preferences.definitionsPanel.visible) {
-        var defines_box = try dvui.box(@src(), .vertical, .{ .expand = .vertical, .background = true });
+        var defines_box = try dvui.scrollArea(
+            @src(),
+            .{
+                .horizontal_bar = .hide,
+                .vertical_bar = .auto,
+            },
+            .{
+                .expand = .vertical,
+                .background = true,
+            },
+        );
         defer defines_box.deinit();
 
         {
