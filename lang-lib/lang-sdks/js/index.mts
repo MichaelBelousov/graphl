@@ -95,6 +95,7 @@ function typeFromTypeArray(name: string, types: GraphlType[]): GraphlType {
 type GraphlTypeKey = "string" | "vec3" | "i32" | "u64";
 
 export interface UserFuncInput {
+    name?: string;
     type: GraphlType | GraphlTypeKey;
 }
 
@@ -103,6 +104,7 @@ function inputToType(input: UserFuncInput): GraphlType {
 }
 
 export interface UserFuncOutput {
+    name?: string;
     type: GraphlType | GraphlTypeKey;
 }
 

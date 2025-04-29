@@ -1,11 +1,10 @@
 {
   "name": "@graphl/compiler-js",
-  "//module": "./index.mts",
   "module": "./dist/esm/index.js",
   "main": "./dist/cjs/index.js",
-  "browser": "TODO UMD",
+  "browser": "// TODO UMD",
   "types": "dist/types/index.d.mts",
-  "type": "module",
+  "//type": "// FIXME: make this whichever you want?",
   "private": true,
   "scripts": {
     "build": "rollup -c && bun run build-types",
