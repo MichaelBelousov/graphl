@@ -8,7 +8,10 @@ const getZig = () => {
     return _zigPromise ??= (async () => {
         // @ts-ignore
         await import("node-zigar/cjs");
-        const imported = await import("./zig/js.zig");
+        const imported =
+            (globalThis as any)._GRAPHL_JS_NATIVE
+            ? await import("./js.zigar")
+            : await import("./zig/js.zig");
         // @ts-ignore
         await imported.__zigar.init();
         return imported;

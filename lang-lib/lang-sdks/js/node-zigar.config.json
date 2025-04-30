@@ -1,0 +1,16 @@
+{
+  "optimize": "ReleaseFast",
+  "sourceFiles": {
+    "./dist/native-cjs/js.zigar": "./zig/js.zig"
+  },
+  "targets": [
+    {
+      "platform": "linux",
+      "arch": "x64"
+    },
+    {
+      "platform": "win32",
+      "arch": "x64"
+    }
+  ]
+}

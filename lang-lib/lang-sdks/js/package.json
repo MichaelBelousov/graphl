@@ -1,5 +1,10 @@
 {
   "name": "@graphl/compiler-js",
+  "exports": {
+    "native-backend": "./dist/native-cjs/index.js",
+    "wasm-backend": "./dist/esm/index.js",
+    "dev": "./index.mts"
+  },
   "module": "./dist/esm/index.js",
   "main": "./dist/cjs/index.js",
   "browser": "// TODO UMD",
@@ -7,9 +12,10 @@
   "//type": "// FIXME: make this whichever you want?",
   "private": true,
   "scripts": {
-    "build": "rollup -c && bun run build-types",
+    "build": "rollup -c && bun run build-types && bun run build-native",
     "build-debug": "NODE_ENV=development rollup -c && bun run build-types",
     "build-types": "tsc -p ./tsconfig.json",
+    "build-native": "node ./native-build.mjs",
     "dev": "rollup -c -w",
     "test": "bun test ./test/e2e.test.ts",
     "test-node": "node --loader=node-zigar --test-only --experimental-transform-types ./test/e2e.test.ts",
@@ -19,6 +25,7 @@
   "devDependencies": {
     "@types/bun": "latest",
     "bun-zigar": "^0.14.0",
+    "esbuild": "^0.25.3",
     "rollup": "^4.40.0",
     "rollup-plugin-typescript": "^1.0.1",
     "rollup-plugin-zigar": "^0.14.0",
