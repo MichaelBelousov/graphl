@@ -1258,7 +1258,6 @@ const Compilation = struct {
                 var i: u32 = 0;
                 var field_index: u32 = 0;
                 while (field_iter.next()) |field_info| : (field_index += 1) {
-                    std.debug.print("i={},. field={s}({s})\n", .{i, field_info.name, field_info.type.name});
                     const field_expr = &field_exprs[i];
                     // FIXME: add like BinaryenHelper.isHeapType?
                     // actually, just write a 0 for strings in case in the future

@@ -115,6 +115,11 @@ export declare namespace Ide {
       },
       topbar?: {
         visible?: boolean,
+        /**
+         * if true, do not include the "Build" menu with its run options.
+         * overridden to true if "allowRunning" is set to false
+         */
+        noDefaultMenus?: boolean;
       },
       definitionsPanel?:  {
         /** where to place the side panel */

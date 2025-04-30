@@ -1486,16 +1486,14 @@ export async function Ide(canvasElem, opts) {
                 },
             ];
 
-            const menus = [...opts.menus ?? defaultMenus];
+            const menus = [...opts.menus ?? []];
 
             /** @type {any} */
             const optsForWasm = { ...opts, menus, userFuncs: {} };
 
-            // FIXME: standardize this for all languages
-            // const hasBuildMenuOverride = menus?.find(m => m.name === "Build");
-            // if (!hasBuildMenuOverride) {
-            //     menus.unshift();
-            // }
+            if (!opts.preferences?.topbar?.noDefaultMenus && opts.allowRunning !== false) {
+                menus.unshift(...defaultMenus);
+            }
 
             bindMenus(menus);
 

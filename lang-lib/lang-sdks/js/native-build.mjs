@@ -55,9 +55,9 @@ async function main() {
       }),
     ]);
   } finally {
-    try {
+    //try {
       await fs.promises.rename("./node-zigar.config.json", "./node-zigar.config.template.json");
-    } catch {}
+    //} catch {}
   }
 }
 

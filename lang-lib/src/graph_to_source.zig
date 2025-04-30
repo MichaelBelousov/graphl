@@ -36,7 +36,6 @@ const JsonNodeInput = @import("./json_format.zig").JsonNodeInput;
 const JsonNode = @import("./json_format.zig").JsonNode;
 const Import = @import("./json_format.zig").Import;
 const GraphDoc = @import("./json_format.zig").GraphDoc;
-const debug_print = @import("./debug_print.zig").debug_print;
 
 const pool = &@import("./InternPool.zig").pool;
 
@@ -1051,9 +1050,12 @@ pub const GraphBuilder = struct {
                     };
 
                     if (!is_pure) if (context.node_labels.getPtr(source_id)) |label| {
-                        // FIXME:
-                        //return try self.mod_ctx.add(.symbol(try std.fmt.allocPrintZ(try_stack_alloc, "#!{s}", .{label})));
-                        return try self.mod_ctx.add(Sexp{ .value = .{ .symbol = label.*[2..] } });
+                        // TODO: can't remember if this is a forced arena
+                        var try_stack_alloc_heap = std.heap.stackFallback(256, alloc);
+                        const try_stack_alloc = try_stack_alloc_heap.get();
+                        const label_sym = try std.fmt.allocPrintZ(try_stack_alloc, "#!{s}", .{label.*});
+                        defer try_stack_alloc.free(label_sym);
+                        return try self.mod_ctx.add(.symbol(label_sym));
                     };
 
                     const sexp_idx = _: {
@@ -1099,8 +1101,11 @@ pub const GraphBuilder = struct {
                         // FIXME: horrible performance! maybe a linked list would be better?
                         state.block.insert(alloc, 0, sexp_idx) catch unreachable;
 
-                        var try_stack_alloc = std.heap.stackFallback(256, alloc);
-                        return try self.mod_ctx.add(.symbol(try std.fmt.allocPrintZ(try_stack_alloc.get(), "#!{s}", .{label})));
+                        var try_stack_alloc_heap = std.heap.stackFallback(256, alloc);
+                        const try_stack_alloc = try_stack_alloc_heap.get();
+                        const label_sym = try std.fmt.allocPrintZ(try_stack_alloc, "#!{s}", .{label});
+                        defer try_stack_alloc.free(label_sym);
+                        return try self.mod_ctx.add(.symbol(label_sym));
                     }
                 },
                 // FIXME: move to own func for Value=>Sexp?, or just make Value==Sexp now...
