@@ -294,4 +294,34 @@ describe("js sdk", () => {
     assert.strictEqual(program.functions.main(), 0);
     assert(called);
   });
+
+  it("complicated return and label", async () => {
+    let called = false;
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (import NoClusterId "host/NoClusterId")
+      (typeof (processInstance u64 u64 vec3 vec3)
+              (string u64 string))
+      (define (processInstance ElementId GeometrySourceId Origin Rotation)
+              (begin 
+                     <!__label1
+                     (NoClusterId)
+                     (return "imodel"
+                            #!__label1
+                             "/ITwinUnrealWorkshop/M_combinedMesh.M_combinedMesh")))
+    `, {
+      NoClusterId: {
+        outputs: [{ type: GraphlTypes.u64 }],
+        impl() {
+          called = true;
+          return 2n;
+        }
+      },
+    });
+    assert.partialDeepStrictEqual(
+        program.functions.processInstance(10n, 10n, {x: 0, y: 0, z: 0}, {x: 1, y: 1, z: 1}),
+        { 0: "imodel", 1: 2n, 2: "/ITwinUnrealWorkshop/M_combinedMesh.M_combinedMesh" },
+    );
+    assert(called);
+  });
+
 });

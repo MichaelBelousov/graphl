@@ -61,7 +61,7 @@ export namespace GraphlTypes {
     export const string: GraphlType = {
         name: "string",
         kind: "primitive",
-        size: 4, // FIXME: true only for wasm32
+        size: 0,
     };
 
     // TODO: generate these from graphl, possibly even parse them out

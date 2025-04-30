@@ -1253,12 +1253,16 @@ const Compilation = struct {
                 defer field_iter_arena.deinit();
                 var field_iter = graphl_type.recursiveSubfieldIterator(field_iter_arena.allocator());
 
+                const field_exprs = impl[prologue.len .. prologue.len + prim_field_count];
+                // FIXME: gosh this is confusing
                 var i: u32 = 0;
-                for (
-                    impl[prologue.len .. prologue.len + prim_field_count],
-                ) |*field_expr| {
-                    const field_info = field_iter.next() orelse unreachable;
-                    // FIXME: add like BinaryenHelper.isHeapType
+                var field_index: u32 = 0;
+                while (field_iter.next()) |field_info| : (field_index += 1) {
+                    std.debug.print("i={},. field={s}({s})\n", .{i, field_info.name, field_info.type.name});
+                    const field_expr = &field_exprs[i];
+                    // FIXME: add like BinaryenHelper.isHeapType?
+                    // actually, just write a 0 for strings in case in the future
+                    // I write them to the same page
                     if (field_info.type == primitive_types.string) continue;
 
                     const field_byn_type = try self.getBynType(field_info.type);
@@ -1275,7 +1279,7 @@ const Compilation = struct {
                         )),
                         byn.c.BinaryenStructGet(
                             self.module.c(),
-                            i,
+                            field_index,
                             byn.c.BinaryenLocalGet(self.module.c(), vars.param_struct_ref, struct_byn_type),
                             field_byn_type,
                             false,
@@ -1283,7 +1287,10 @@ const Compilation = struct {
                         field_byn_type,
                         main_mem_name,
                     );
+
                     i += 1;
+                    if (i >= field_exprs.len)
+                        break;
                 }
             }
 
@@ -3138,9 +3145,11 @@ const Compilation = struct {
             @intCast(graphl_meta_custom_data_json.len),
         );
 
-        if (opts.optimize != .none) {
+        _ = opts;
+        //if (opts.optimize != .none) {
+            // FIXME: should at least optimize out extraneous branching?
             byn.c.BinaryenModuleOptimize(self.module.c());
-        }
+        //}
 
         if (!byn._BinaryenModuleValidateWithOpts(
             self.module.c(),
