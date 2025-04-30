@@ -34,6 +34,7 @@ async function main() {
     path.join(dirname, "../../lib/node_modules/@bentley"),
     { recursive: true }
   );
+  await fs.promises.rename("./node-zigar.config.template.json", "./node-zigar.config.json");
   await Promise.all([
     new Promise((resolve, reject) => {
       child_process.spawn(
@@ -51,6 +52,7 @@ async function main() {
       );
     }),
   ]);
+  await fs.promises.rename("./node-zigar.config.json", "./node-zigar.config.template.json");
 }
 
 void main();
