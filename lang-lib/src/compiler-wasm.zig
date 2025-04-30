@@ -862,7 +862,11 @@ const Compilation = struct {
         const item_name = path[first_slash + 1 ..];
 
         const user_func = self.user_context.func_map.get(item_name) orelse {
-            std.log.warn("No such host function: '{s}'", .{item_name});
+            // log.warn("No such host function: '{s}'", .{item_name});
+            // FIXME: why log no work sometimes?
+            if (builtin.os.tag != .wasi) {
+                std.debug.print("No such host function: '{s}'", .{item_name});
+            }
             return error.NoSuchHostFunc;
         };
 
