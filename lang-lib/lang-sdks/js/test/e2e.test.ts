@@ -348,7 +348,7 @@ describe("js sdk", () => {
     );
   });
 
-  it.only("graph label after", async () => {
+  it("graph label after", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (import NoClusterId "host/NoClusterId")
       (typeof (processInstance u64 u64 vec3 vec3)
