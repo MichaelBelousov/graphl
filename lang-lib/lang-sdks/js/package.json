@@ -19,13 +19,15 @@
   "devDependencies": {
     "@types/bun": "latest",
     "bun-zigar": "^0.14.0",
-    "node-zigar": "^0.14.0",
     "rollup": "^4.40.0",
     "rollup-plugin-typescript": "^1.0.1",
     "rollup-plugin-zigar": "^0.14.0",
     "typescript": "^5",
     "vite": "^6.3.2",
     "vite-plugin-inspect": "^11.0.1"
+  },
+  "dependencies": {
+    "node-zigar": "^0.14.0"
   },
   "files": [
     "dist"

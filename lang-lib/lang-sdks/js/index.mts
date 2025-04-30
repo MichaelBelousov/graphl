@@ -5,7 +5,14 @@
 let _zigPromise = undefined;
 
 const getZig = () => {
-    return _zigPromise ??= import("./zig/js.zig");
+    return _zigPromise ??= (async () => {
+        // @ts-ignore
+        await import("node-zigar/cjs");
+        const imported = await import("./zig/js.zig");
+        // @ts-ignore
+        await imported.__zigar.init();
+        return imported;
+    })();
 };
 
 
