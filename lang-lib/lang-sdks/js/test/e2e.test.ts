@@ -324,4 +324,50 @@ describe("js sdk", () => {
     assert(called);
   });
 
+  it("graph label before", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (import NoClusterId "host/NoClusterId")
+      (typeof (processInstance u64 u64 vec3 vec3)
+              (string u64 string))
+      (define (processInstance ElementId GeometrySourceId Origin Rotation)
+              (begin 
+                     <!__label1
+                     (NoClusterId)
+                     (return "imodel" #!__label1 "/ITwinUnrealWorkshop/M_combinedMesh.M_combinedMesh")))
+    `, {
+      NoClusterId: {
+        outputs: [{ type: GraphlTypes.u64 }],
+        impl() {
+          return 3n;
+        }
+      },
+    });
+    assert.partialDeepStrictEqual(
+        program.functions.processInstance(10n, 10n, {x: 0, y: 0, z: 0}, {x: 1, y: 1, z: 1}),
+        { 0: "imodel", 1: 3n, 2: "/ITwinUnrealWorkshop/M_combinedMesh.M_combinedMesh" },
+    );
+  });
+
+  it.only("graph label after", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (import NoClusterId "host/NoClusterId")
+      (typeof (processInstance u64 u64 vec3 vec3)
+              (string u64 string))
+      (define (processInstance ElementId GeometrySourceId Origin Rotation)
+              (begin 
+                     (NoClusterId) <!__label1
+                     (return "imodel" #!__label1 "/ITwinUnrealWorkshop/M_combinedMesh.M_combinedMesh")))
+    `, {
+      NoClusterId: {
+        outputs: [{ type: GraphlTypes.u64 }],
+        impl() {
+          return 3n;
+        }
+      },
+    });
+    assert.partialDeepStrictEqual(
+        program.functions.processInstance(10n, 10n, {x: 0, y: 0, z: 0}, {x: 1, y: 1, z: 1}),
+        { 0: "imodel", 1: 3n, 2: "/ITwinUnrealWorkshop/M_combinedMesh.M_combinedMesh" },
+    );
+  });
 });
