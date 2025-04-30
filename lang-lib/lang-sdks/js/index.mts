@@ -10,7 +10,7 @@ const getZig = () => {
         await import("node-zigar/cjs");
         const imported =
             (globalThis as any)._GRAPHL_JS_NATIVE
-            ? await import("./js.zigar")
+            ? require("./js.zigar") // FIXME: I think I need require here... so maybe assert we're in node
             : await import("./zig/js.zig");
         // @ts-ignore
         await imported.__zigar.init();

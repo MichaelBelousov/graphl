@@ -18,6 +18,9 @@
         "types": "./dist/types/index.d.mts",
         "default": "./dist/esm/index.js"
       }
+    },
+    "./raw": {
+      "default": "./index.mts"
     }
   },
   "module": "./dist/esm/index.js",

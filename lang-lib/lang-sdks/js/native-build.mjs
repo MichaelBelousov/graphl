@@ -34,25 +34,31 @@ async function main() {
     path.join(dirname, "../../lib/node_modules/@bentley"),
     { recursive: true }
   );
+
   await fs.promises.rename("./node-zigar.config.template.json", "./node-zigar.config.json");
-  await Promise.all([
-    new Promise((resolve, reject) => {
-      child_process.spawn(
-        path.join(dirname, "../../node_modules/.bin/node-zigar"),
-        ["build"],
-        {
-          shell: true,
-          cwd: path.join(dirname, "zig"),
-          stdio: ["inherit", "inherit", "inherit"],
-        },
-        (err) => {
-          if (err) reject(err);
-          else resolve();
-        }
-      );
-    }),
-  ]);
-  await fs.promises.rename("./node-zigar.config.json", "./node-zigar.config.template.json");
+  try {
+    await Promise.all([
+      new Promise((resolve, reject) => {
+        child_process.spawn(
+          path.join(dirname, "../../node_modules/.bin/node-zigar"),
+          ["build"],
+          {
+            shell: true,
+            cwd: path.join(dirname, "zig"),
+            stdio: ["inherit", "inherit", "inherit"],
+          },
+          (err) => {
+            if (err) reject(err);
+            else resolve();
+          }
+        );
+      }),
+    ]);
+  } finally {
+    try {
+      await fs.promises.rename("./node-zigar.config.json", "./node-zigar.config.template.json");
+    } catch {}
+  }
 }
 
 void main();
