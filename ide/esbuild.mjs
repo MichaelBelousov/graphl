@@ -11,9 +11,14 @@ await esbuild.build({
   entryNames: "[dir]/graphl-ide-web.es",
   format: "esm",
   bundle: true,
-  external: ["react"],
+  external: [
+    "react", // FIXME: do I even use this?
+    "node-zigar", // FIXME try to remove this
+    // zigar `nodeCompat: true` uses these node packages as externals
+    "fs/promises",
+    "url",
+  ],
   loader: {
-    //".wasm": "file",
     ".wasm": "copy",
   },
   outdir:distFolder,

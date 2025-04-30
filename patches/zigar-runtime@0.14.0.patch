@@ -1,27 +1,29 @@
+diff --git a/node_modules/zigar-runtime/.bun-tag-2980258cb468c23d b/.bun-tag-2980258cb468c23d
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/dist/features/module-loading.js b/dist/features/module-loading.js
-index 82655b699395e5a556d34447b8ddbceb27a6fd65..69287312a98c251435a49f7b69d2b99b2bce44e2 100644
+index 82655b699395e5a556d34447b8ddbceb27a6fd65..206037994c7350181b409ee4d0a1b3ddc4c72924 100644
 --- a/dist/features/module-loading.js
 +++ b/dist/features/module-loading.js
-@@ -115,7 +115,10 @@ var moduleLoading = mixin({
+@@ -115,7 +115,9 @@ var moduleLoading = mixin({
          tableInitial,
          multithreaded,
        } = this.options = options;
--      const res = await source;
 +      // MIKE CHANGE START
-+      const res = await source;
-+      console.log("mike source", source);
+       const res = await source;
 +      // MIKE CHANGE END
        const suffix = (res[Symbol.toStringTag] === 'Response') ? 'Streaming' : '';
        const w = WebAssembly;
        const f = w['compile' + suffix];
-@@ -145,7 +148,10 @@ var moduleLoading = mixin({
+@@ -145,7 +147,11 @@ var moduleLoading = mixin({
          shared: multithreaded,
        });
        this.initialTableLength = tableInitial;
 -      return new w.Instance(executable, exports);
 +      // MIKE CHANGE START
 +      //return new w.Instance(executable, exports);
-+      return WebAssembly.instantiateStreaming(fetch(res.url), exports).then(w => w.instance); // gross, but don't wanna refactor
++      const isResp = res[Symbol.toStringTag] === 'Response';
++      return w['instantiate' + suffix](isResp ? fetch(res.url) : res, exports).then(w => w.instance); // gross, but don't wanna refactor
 +      // MIKE CHANGE END
      },
      loadModule(source, options) {

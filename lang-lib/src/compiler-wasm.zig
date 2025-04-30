@@ -493,8 +493,7 @@ const BinaryenHelper = struct {
     }
 };
 
-// export callconv(.C) 
-pub fn _binaryen_helper_constructor() callconv(.C) void {
+pub export fn _binaryen_helper_constructor() callconv(.C) void {
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.i32_, byn.c.BinaryenTypeInt32()) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.i64_, byn.c.BinaryenTypeInt64()) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.u32_, byn.c.BinaryenTypeInt32()) catch unreachable;

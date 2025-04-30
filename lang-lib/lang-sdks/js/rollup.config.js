@@ -29,6 +29,7 @@ export default [
       zigar({
         optimize,
         //embedWASM: true, // fetch wasm by default
+        nodeCompat: true,
       }),
       typescript({
         include: "**/*.(|m)ts(|x)",
@@ -49,6 +50,7 @@ export default [
         optimize,
         //embedWASM: true, // fetch wasm by default
         topLevelAwait: false,
+        nodeCompat: true,
       }),
       typescript({
         include: "**/*.(|m)ts(|x)",
