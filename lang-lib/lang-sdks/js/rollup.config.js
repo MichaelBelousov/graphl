@@ -1,6 +1,7 @@
 // FIXME: remove
 import typescript from "rollup-plugin-typescript";
 import zigar from "rollup-plugin-zigar";
+import define from "rollup-plugin-define";
 import pkgJson from "./package.json" with { type: "json" };
 
 const optimize = process.env.NODE_ENV === "development" ? "Debug" : "ReleaseSmall";
@@ -26,6 +27,11 @@ export default [
   {
     input: "./index.mts",
     plugins: [
+      define({
+        replacements: {
+          "globalThis._GRAPHL_JS_NATIVE": JSON.stringify(false),
+        },
+      }),
       zigar({
         optimize,
         //embedWASM: true, // fetch wasm by default

@@ -45,6 +45,7 @@
     "bun-zigar": "^0.14.0",
     "esbuild": "^0.25.3",
     "rollup": "^4.40.0",
+    "rollup-plugin-define": "^1.0.1",
     "rollup-plugin-typescript": "^1.0.1",
     "rollup-plugin-zigar": "^0.14.0",
     "typescript": "^5",

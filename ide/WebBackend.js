@@ -1,7 +1,7 @@
 import { WASI, File, OpenFile, ConsoleStdout, PreopenDirectory } from '@bjorn3/browser_wasi_shim';
 import frontendWasmUrl from './zig-out/bin/dvui-frontend.wasm?url';
 import { downloadFile, uploadFile } from './localFileManip';
-import { GraphlTypes, instantiateProgramFromWasmBuffer } from "@graphl/compiler-js";
+import { GraphlTypes, instantiateProgramFromWasmBuffer } from "@graphl/compiler-js/wasm-backend";
 
 /**
  * @param {number} ms Number of milliseconds to sleep
