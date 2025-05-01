@@ -617,10 +617,10 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
     };
 }
 
-export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Record<string, (...args: any[]) => any>>(
-    source: string,
-    hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
-): Promise<GraphlProgram<Funcs>> {
+export async function compileGraphltSource(
+  source: string,
+  hostEnv: Record<string, UserFuncDesc<any>> = {},
+): Promise<Uint8Array> {
     const userFuncDescs = Object.fromEntries(
         Object.entries(hostEnv).map(([k, v], i) => [
             k,
@@ -654,5 +654,14 @@ export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Re
         const diagStr = diagnostic.error.string;
         throw new Error(diagStr === "" || diagStr === "Not an error" ? err.message : diagStr);
     }
+
+    return compiledWasm;
+}
+
+export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Record<string, (...args: any[]) => any>>(
+    source: string,
+    hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
+): Promise<GraphlProgram<Funcs>> {
+    const compiledWasm = await compileGraphltSource(source, hostEnv);
     return instantiateProgramFromWasmBuffer(compiledWasm.buffer, hostEnv);
 }
