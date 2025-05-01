@@ -9,12 +9,17 @@ pub fn build(b: *std.Build) void {
     const host_type = if (cfg.is_wasm) "wasm" else "napi";
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    std.debug.print("target={}, optimize={}\n", .{target, optimize});
+
     const lib = b.addSharedLibrary(.{
         .name = cfg.module_name,
         .root_source_file = .{ .cwd_relative = cfg.zigar_src_path ++ "stub-" ++ host_type ++ ".zig" },
         .target = target,
         .optimize = optimize,
         .single_threaded = !cfg.multithreaded,
+        // FIXME: this doesn't seem to work ever?
+        .strip = false,
     });
 
     const zigar = b.createModule(.{

@@ -55,6 +55,7 @@ async function main() {
       }),
     ]);
   } finally {
+    // FIXME: why doesn't this work? it's annoying
     //try {
       await fs.promises.rename("./node-zigar.config.json", "./node-zigar.config.template.json");
     //} catch {}

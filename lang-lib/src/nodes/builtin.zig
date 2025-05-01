@@ -1303,10 +1303,12 @@ pub const Env = struct {
     _struct_types: std.StringHashMapUnmanaged(StructType) = .{},
     _types: std.StringHashMapUnmanaged(Type) = .{},
     // FIXME: actually separate each of those possibilities!
-    // could be macro, function, operator
+    // could be macro, function, operator, should be in a separate array
     _nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
+    // FIXME: auto tag by type...
     // TODO: use this!
-    _nodes_by_tag: std.StringHashMapUnmanaged(std.ArrayListUnmanaged(*const NodeDesc)) = .{},
+    _nodes_by_tag: std.StringHashMapUnmanaged(std.AutoHashMapUnmanaged(*const NodeDesc, void)) = .{},
+    _nodes_by_type: std.AutoHashMapUnmanaged(Type, std.AutoHashMapUnmanaged(*const NodeDesc, void)) = .{},
 
     // TODO: consider using SegmentedLists of each type (SoE)
     created_types: std.SinglyLinkedList(TypeInfo) = .{},
@@ -1450,6 +1452,38 @@ pub const Env = struct {
         };
         self.created_nodes.prepend(slot);
         result.value_ptr.* = &slot.data;
+
+        for (node_desc.tags) |tag| {
+            const tag_set_res = try self._nodes_by_tag.getOrPut(a, tag);
+            if (!tag_set_res.found_existing) {
+                tag_set_res.value_ptr.* = .{};
+            }
+            const tag_set = tag_set_res.value_ptr;
+            try tag_set.putNoClobber(a, &slot.data, {});
+        }
+
+        for (node_desc.getInputs()) |input| {
+            if (input.asPrimitivePin() != .value)
+                continue;
+            const pin_type = input.asPrimitivePin().value;
+            const type_set_res = try self._nodes_by_type.getOrPut(a, pin_type);
+            if (!type_set_res.found_existing)
+                type_set_res.value_ptr.* = .{};
+            const type_set = type_set_res.value_ptr;
+            try type_set.put(a, &slot.data, {});
+        }
+
+        for (node_desc.getOutputs()) |output| {
+            if (output.asPrimitivePin() != .value)
+                continue;
+            const pin_type = output.asPrimitivePin().value;
+            const type_set_res = try self._nodes_by_type.getOrPut(a, pin_type);
+            if (!type_set_res.found_existing)
+                type_set_res.value_ptr.* = .{};
+            const type_set = type_set_res.value_ptr;
+            try type_set.put(a, &slot.data, {});
+        }
+
         return &slot.data;
     }
 };
