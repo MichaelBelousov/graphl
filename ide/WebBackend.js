@@ -1042,6 +1042,12 @@ class Dvui {
             // if the canvas changed size, adjust the backing buffer
             const w = this.gl.canvas.clientWidth;
             const h = this.gl.canvas.clientHeight;
+            //
+            // FIXME: report this to DVUI team
+            if (w === 0 || h === 0) {
+                return;
+            }
+
             const scale = window.devicePixelRatio;
             //console.log("wxh " + w + "x" + h + " scale " + scale);
             this.gl.canvas.width = Math.round(w * scale);
@@ -1437,6 +1443,8 @@ export async function Ide(canvasElem, opts) {
             const wasm = await this.exportWasm();
             return instantiateProgramFromWasmBuffer(wasm.buffer, opts.userFuncs);
         },
+
+        _dvui: dvui,
     };
 
     WebAssembly.instantiateStreaming(fetch(frontendWasmUrl), imports)
