@@ -588,16 +588,45 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
     var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(pt) }, .{});
     defer fw.deinit();
 
-    const search_input = _: {
-        const text_result = try dvui.textEntry(@src(), .{}, .{});
-        defer text_result.deinit();
-        // FIXME: this is very lax...
-        if (dvui.firstFrame(text_result.data().id)) {
-            dvui.focusWidget(text_result.data().id, null, null);
+    const has_type_event = _: {
+        for (dvui.events()) |*e| {
+            switch (e.evt) {
+                .key => |ke| {
+                    if (ke.action == .down
+                        //
+                        and ke.code != .tab
+                        //
+                        and ke.code != .enter
+                        //
+                        and ke.code != .left_shift and ke.code != .right_shift
+                        //
+                        and ke.code != .up and ke.code != .down and ke.code != .left and ke.code != .right
+                    ) {
+                        break :_ true;
+                    }
+                },
+                else => {},
+            }
         }
-        // TODO: don't dupe this memory! use a dynamic buffer instead
-        break :_ text_result.getText();
+        break :_ false;
     };
+
+    const search_widget = try dvui.textEntry(@src(), .{}, .{});
+    const search_widget_id = search_widget.data().id;
+
+    const menu_opt_had_focus = dvui.dataGet(null, search_widget_id, "_menu_opt_had_focus", bool) orelse false;
+
+    if (dvui.firstFrame(search_widget.data().id)) {
+        dvui.focusWidget(search_widget_id, null, null);
+    } else if (menu_opt_had_focus and has_type_event) {
+        dvui.focusWidget(search_widget_id, null, 0);
+    }
+
+    const search_input = search_widget.getText();
+    search_widget.deinit();
+    
+
+    const last_focus_id = dvui.lastFocusedIdInFrame();
 
     const maybe_create_from_type: ?graphl.PrimitivePin = if (maybe_create_from) |create_from| _: {
         const node = self.current_graph.graphl_graph.nodes.map.get(create_from.node_id) orelse unreachable;
@@ -839,6 +868,10 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
             }
         }
     }
+
+    const menu_opt_has_focus = last_focus_id != dvui.lastFocusedIdInFrame();
+
+    dvui.dataSet(null, search_widget_id, "_menu_opt_had_focus", menu_opt_has_focus);
 }
 
 fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {

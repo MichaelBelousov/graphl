@@ -22,7 +22,8 @@
         //     .hash = "dvui-0.2.0-AQFJmRSOygDqdfLgLTVsPQEJWwVU_zyash87RHBZrqXe",
         // },
         .dvui = .{
-            .path = "../../dvui",
+            .url = "https://github.com/david-vanderson/dvui/archive/312366ef2d61e41bed8dc7d79e54e857ef2b819f.zip",
+            .hash = "dvui-0.2.0-AQFJmW8RzQBNLezgNHEx8XBh5veLH3ibtDAYcrSEG_UX",
         },
         .graphl = .{
             .path = "../lang-lib",
