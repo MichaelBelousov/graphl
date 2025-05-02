@@ -614,6 +614,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
         break :_ pin_type;
     } else null;
 
+    // FIXME: eww
     const bindings_infos = &.{
         .{ .data = &self.current_graph.graphl_graph.locals, .display = "Locals" },
     };
@@ -753,38 +754,89 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
 
     {
         // FIXME: replace with node iterator
-        var node_iter = self.current_graph.env.nodeIterator();
         var i: u32 = 0;
-        while (node_iter.next()) |node_desc| {
-            const node_name = node_desc.name();
+        var type_iter = self.current_graph.env.typeIterator();
+        while (type_iter.next()) |type_| : (i += 1) {
+            var type_node_iter = self.current_graph.env.nodeByTypeIterator(type_) orelse continue;
+            
+            // FIXME: deduplicate work with next loop
+            const type_has_entry = _: {
+                var j: u32 = 0;
+                while (type_node_iter.next()) |node_desc_ptr| : (j += 1) {
+                    const node_desc = node_desc_ptr.*;
+                    const node_name = node_desc.name();
 
-            switch (node_desc.kind) {
-                .func, .return_, .entry => {},
-                .get, .set => continue, // handled separately above
-            }
+                    switch (node_desc.kind) {
+                        .func, .return_, .entry => {},
+                        .get, .set => continue, // handled separately above
+                    }
 
-            // TODO: add an "always" ... or better type resolution/promotion actually
-            if (node_desc.hidden)
+                    // TODO: add an "always" ... or better type resolution/promotion actually
+                    if (node_desc.hidden)
+                        continue;
+
+                    if (maybe_create_from_type) |create_from_type| {
+                        const valid_socket_index = try NodeAdder.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
+                        if (valid_socket_index == null)
+                            continue;
+                    }
+
+                    if (search_input.len != 0) {
+                        const matches_search = std.ascii.indexOfIgnoreCase(node_name, search_input) != null;
+                        if (!matches_search) continue;
+                    }
+
+                    break :_ true;
+                }
+
+                break :_ false;
+            };
+
+            if (!type_has_entry)
                 continue;
 
-            var valid_socket_index: ?u16 = null;
+            type_node_iter = self.current_graph.env.nodeByTypeIterator(type_) orelse unreachable;
 
-            if (maybe_create_from_type) |create_from_type| {
-                valid_socket_index = try NodeAdder.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
-                if (valid_socket_index == null)
-                    continue;
-            }
+            var buf: [128]u8 = undefined;
+            const label = try std.fmt.bufPrint(&buf, "{s} >", .{type_.name});
 
-            if (search_input.len != 0) {
-                const matches_search = std.ascii.indexOfIgnoreCase(node_name, search_input) != null;
-                if (!matches_search) continue;
-            }
+            if (try dvui.menuItemLabel(@src(), label, .{ .submenu = true }, .{ .expand = .horizontal, .id_extra = i })) |r| {
+                var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{ .id_extra = i});
+                defer subfw.deinit();
 
-            if ((try dvui.menuItemLabel(@src(), node_name, .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
-                _ = try NodeAdder.addNode(self, node_name, maybe_create_from, pt_in_graph, valid_socket_index);
-                fw.close();
+                var j: u32 = 0;
+                while (type_node_iter.next()) |node_desc_ptr| : (j += 1) {
+                    const node_desc = node_desc_ptr.*;
+                    const node_name = node_desc.name();
+
+                    switch (node_desc.kind) {
+                        .func, .return_, .entry => {},
+                        .get, .set => continue, // handled separately above
+                    }
+
+                    // TODO: add an "always" ... or better type resolution/promotion actually
+                    if (node_desc.hidden)
+                        continue;
+
+                    var valid_socket_index: ?u16 = null;
+
+                    if (maybe_create_from_type) |create_from_type| {
+                        valid_socket_index = try NodeAdder.validSocketIndex(node_desc, maybe_create_from.?, create_from_type);
+                        if (valid_socket_index == null)
+                            continue;
+                    }
+
+                    if (search_input.len != 0) {
+                        const matches_search = std.ascii.indexOfIgnoreCase(node_name, search_input) != null;
+                        if (!matches_search) continue;
+                    }
+
+                    if ((try dvui.menuItemLabel(@src(), node_name, .{}, .{ .expand = .horizontal, .id_extra = j })) != null) {
+                        _ = try NodeAdder.addNode(self, node_name, maybe_create_from, pt_in_graph, valid_socket_index);
+                        fw.close();
+                    }
+                }
             }
-            i += 1;
         }
     }
 }

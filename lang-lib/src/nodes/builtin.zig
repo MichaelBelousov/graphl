@@ -1307,16 +1307,21 @@ pub const Env = struct {
     _nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
 
     // TODO: scoped tags
-    /// the root env owns the pointer, descendents just shares it
-    _nodes_by_tag: *std.StringHashMapUnmanaged(std.AutoHashMapUnmanaged(*const NodeDesc, void)),
-    /// the root env owns the pointer, descendents just shares it
-    _nodes_by_type: *std.AutoHashMapUnmanaged(Type, std.AutoHashMapUnmanaged(*const NodeDesc, void)),
-    /// the root env owns the pointer, descendents just shares it
-    _tag_set: *std.SegmentedList([]const u8, 64),
+    /// the root env owns the pointer, descendents just share it
+    _nodes_by_tag: *TagNodesMap,
+    /// the root env owns the pointer, descendents just share it
+    _nodes_by_type: *TypeNodesMap,
+    /// the root env owns the pointer, descendents just share it
+    _tag_set: *TagSet,
 
     // TODO: consider using SegmentedLists of each type (SoE)
     created_types: std.SinglyLinkedList(TypeInfo) = .{},
     created_nodes: std.SinglyLinkedList(NodeDesc) = .{},
+
+    const TagSet = std.SegmentedList([]const u8, 64);
+    const NodeSet = std.AutoHashMapUnmanaged(*const NodeDesc, void);
+    const TypeNodesMap = std.AutoHashMapUnmanaged(Type, NodeSet);
+    const TagNodesMap = std.StringHashMapUnmanaged(NodeSet);
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         if (self.parentEnv == null) {
@@ -1342,9 +1347,9 @@ pub const Env = struct {
 
     pub fn initDefault(alloc: std.mem.Allocator) !@This() {
         var env = @This(){
-            ._nodes_by_tag = try alloc.create(std.StringHashMapUnmanaged(std.AutoHashMapUnmanaged(*const NodeDesc, void))),
-            ._nodes_by_type = try alloc.create(std.AutoHashMapUnmanaged(Type, std.AutoHashMapUnmanaged(*const NodeDesc, void))),
-            ._tag_set = try alloc.create(std.SegmentedList([]const u8, 64)),
+            ._nodes_by_tag = try alloc.create(TagNodesMap),
+            ._nodes_by_type = try alloc.create(TypeNodesMap),
+            ._tag_set = try alloc.create(TagSet),
         };
         env._nodes_by_tag.* = .{};
         env._nodes_by_type.* = .{};
@@ -1368,6 +1373,7 @@ pub const Env = struct {
             inline for (nodes_decls) |n| {
                 const node = @field(nodes, n.name);
                 try env._nodes.put(alloc, node.name(), &@field(nodes, n.name));
+                try env.registerNode(alloc, &@field(nodes, n.name));
             }
         }
 
@@ -1412,28 +1418,9 @@ pub const Env = struct {
         return result;
     }
 
-    // FIXME: bring this back but also remove duplicate tags from parents
-    // pub const TagIterator = struct {
-    //     parentEnv: ?*const Env,
-    //     iter: @FieldType(Env, "_nodes_by_tag").KeyIterator,
-
-    //     pub fn next(self: *@This()) ?*const NodeDesc {
-    //         var val = self.iter.next();
-    //         while (val == null and self.parentEnv != null) {
-    //             self.iter = self.parentEnv.?._nodes_by_tag.keyIterator();
-    //             self.parentEnv = self.parentEnv.?.parentEnv;
-    //             val = self.iter.next();
-    //         }
-    //         return if (val) |v| v.* else null;
-    //     }
-    // };
-
-    // pub fn tagIterator(self: *@This()) TagIterator {
-    //     return .{
-    //         .parentEnv = self.parentEnv,
-    //         .iter = self._nodes_by_tag.valueIterator(),
-    //     };
-    // }
+    pub fn tagIterator(self: *@This()) TagSet.ConstIterator {
+        return self._tag_set.constIterator();
+    }
 
     pub const NodeIterator = struct {
         parentEnv: ?*const Env,
@@ -1450,34 +1437,21 @@ pub const Env = struct {
         }
     };
 
-    // pub fn nodeByTagIterator(self: *@This(), tag: []const u8) NodeIterator {
-    //     const tag_set = self._nodes_by_tag.getPtr(tag).?.valueIterator();
-    //     return NodeIterator{
-    //         .parentEnv = self.parentEnv,
-    //         .iter = self._nodes.valueIterator(),
-    //     };
-    // }
-
-    // pub const NodeByTagIterator = struct {
-    //     parentEnv: ?*const Env,
-    //     iter: std.StringHashMapUnmanaged(*const NodeDesc).ValueIterator,
-
-    //     pub fn next(self: *@This()) ?*const NodeDesc {
-    //         var val = self.iter.next();
-    //         while (val == null and self.parentEnv != null) {
-    //             self.iter = self.parentEnv.?._nodes.valueIterator();
-    //             self.parentEnv = self.parentEnv.?.parentEnv;
-    //             val = self.iter.next();
-    //         }
-    //         return if (val) |v| v.* else null;
-    //     }
-    // };
-
     pub fn nodeIterator(self: *@This()) NodeIterator {
         return NodeIterator{
             .parentEnv = self.parentEnv,
             .iter = self._nodes.valueIterator(),
         };
+    }
+
+    /// NOTE: this only currently only works at the most descendent env
+    pub fn nodeByTagIterator(self: *@This(), tag: []const u8) ?NodeSet.KeyIterator {
+        return if (self._nodes_by_tag.getPtr(tag)) |node_set| node_set.keyIterator() else null;
+    }
+
+    /// NOTE: this only currently only works at the most descendent env
+    pub fn nodeByTypeIterator(self: *@This(), type_: Type) ?NodeSet.KeyIterator {
+        return if (self._nodes_by_type.getPtr(type_)) |node_set| node_set.keyIterator() else null;
     }
 
     // FIXME: use interning for name!
@@ -1518,13 +1492,19 @@ pub const Env = struct {
         self.created_nodes.prepend(slot);
         result.value_ptr.* = &slot.data;
 
+        try self.registerNode(a, &slot.data);
+
+        return &slot.data;
+    }
+
+    pub fn registerNode(self: *@This(), a: std.mem.Allocator, node_desc: *const NodeDesc) !void {
         for (node_desc.tags) |tag| {
             const tag_set_res = try self._nodes_by_tag.getOrPut(a, tag);
             if (!tag_set_res.found_existing) {
                 tag_set_res.value_ptr.* = .{};
             }
             const tag_set = tag_set_res.value_ptr;
-            try tag_set.putNoClobber(a, &slot.data, {});
+            try tag_set.putNoClobber(a, node_desc, {});
         }
 
         for (node_desc.getInputs()) |input| {
@@ -1535,7 +1515,7 @@ pub const Env = struct {
             if (!type_set_res.found_existing)
                 type_set_res.value_ptr.* = .{};
             const type_set = type_set_res.value_ptr;
-            try type_set.put(a, &slot.data, {});
+            try type_set.put(a, node_desc, {});
         }
 
         for (node_desc.getOutputs()) |output| {
@@ -1546,11 +1526,10 @@ pub const Env = struct {
             if (!type_set_res.found_existing)
                 type_set_res.value_ptr.* = .{};
             const type_set = type_set_res.value_ptr;
-            try type_set.put(a, &slot.data, {});
+            try type_set.put(a, node_desc, {});
         }
-
-        return &slot.data;
     }
+
 };
 
 test "env" {
