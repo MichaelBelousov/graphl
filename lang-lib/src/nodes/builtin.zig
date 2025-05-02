@@ -1305,16 +1305,25 @@ pub const Env = struct {
     // FIXME: actually separate each of those possibilities!
     // could be macro, function, operator, should be in a separate array
     _nodes: std.StringHashMapUnmanaged(*const NodeDesc) = .{},
-    // FIXME: auto tag by type...
-    // TODO: use this!
-    _nodes_by_tag: std.StringHashMapUnmanaged(std.AutoHashMapUnmanaged(*const NodeDesc, void)) = .{},
-    _nodes_by_type: std.AutoHashMapUnmanaged(Type, std.AutoHashMapUnmanaged(*const NodeDesc, void)) = .{},
+
+    // TODO: scoped tags
+    /// the root env owns the pointer, descendents just shares it
+    _nodes_by_tag: *std.StringHashMapUnmanaged(std.AutoHashMapUnmanaged(*const NodeDesc, void)),
+    /// the root env owns the pointer, descendents just shares it
+    _nodes_by_type: *std.AutoHashMapUnmanaged(Type, std.AutoHashMapUnmanaged(*const NodeDesc, void)),
+    /// the root env owns the pointer, descendents just shares it
+    _tag_set: *std.SegmentedList([]const u8, 64),
 
     // TODO: consider using SegmentedLists of each type (SoE)
     created_types: std.SinglyLinkedList(TypeInfo) = .{},
     created_nodes: std.SinglyLinkedList(NodeDesc) = .{},
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+        if (self.parentEnv == null) {
+            alloc.destroy(self._nodes_by_tag);
+            alloc.destroy(self._nodes_by_type);
+            alloc.destroy(self._tag_set);
+        }
         self._types.clearAndFree(alloc);
         self._nodes.clearAndFree(alloc);
         while (self.created_nodes.popFirst()) |popped| alloc.destroy(popped);
@@ -1325,11 +1334,21 @@ pub const Env = struct {
     pub fn spawn(self: *const @This()) @This() {
         return @This(){
             .parentEnv = self,
+            ._nodes_by_tag = self._nodes_by_tag,
+            ._nodes_by_type = self._nodes_by_type,
+            ._tag_set = self._tag_set,
         };
     }
 
     pub fn initDefault(alloc: std.mem.Allocator) !@This() {
-        var env = @This(){};
+        var env = @This(){
+            ._nodes_by_tag = try alloc.create(std.StringHashMapUnmanaged(std.AutoHashMapUnmanaged(*const NodeDesc, void))),
+            ._nodes_by_type = try alloc.create(std.AutoHashMapUnmanaged(Type, std.AutoHashMapUnmanaged(*const NodeDesc, void))),
+            ._tag_set = try alloc.create(std.SegmentedList([]const u8, 64)),
+        };
+        env._nodes_by_tag.* = .{};
+        env._nodes_by_type.* = .{};
+        env._tag_set.* = .{};
 
         inline for (&.{ primitive_types, temp_ue.types }) |types| {
             //const types_decls = comptime std.meta.declList(types, TypeInfo);
@@ -1393,6 +1412,29 @@ pub const Env = struct {
         return result;
     }
 
+    // FIXME: bring this back but also remove duplicate tags from parents
+    // pub const TagIterator = struct {
+    //     parentEnv: ?*const Env,
+    //     iter: @FieldType(Env, "_nodes_by_tag").KeyIterator,
+
+    //     pub fn next(self: *@This()) ?*const NodeDesc {
+    //         var val = self.iter.next();
+    //         while (val == null and self.parentEnv != null) {
+    //             self.iter = self.parentEnv.?._nodes_by_tag.keyIterator();
+    //             self.parentEnv = self.parentEnv.?.parentEnv;
+    //             val = self.iter.next();
+    //         }
+    //         return if (val) |v| v.* else null;
+    //     }
+    // };
+
+    // pub fn tagIterator(self: *@This()) TagIterator {
+    //     return .{
+    //         .parentEnv = self.parentEnv,
+    //         .iter = self._nodes_by_tag.valueIterator(),
+    //     };
+    // }
+
     pub const NodeIterator = struct {
         parentEnv: ?*const Env,
         iter: std.StringHashMapUnmanaged(*const NodeDesc).ValueIterator,
@@ -1407,6 +1449,29 @@ pub const Env = struct {
             return if (val) |v| v.* else null;
         }
     };
+
+    // pub fn nodeByTagIterator(self: *@This(), tag: []const u8) NodeIterator {
+    //     const tag_set = self._nodes_by_tag.getPtr(tag).?.valueIterator();
+    //     return NodeIterator{
+    //         .parentEnv = self.parentEnv,
+    //         .iter = self._nodes.valueIterator(),
+    //     };
+    // }
+
+    // pub const NodeByTagIterator = struct {
+    //     parentEnv: ?*const Env,
+    //     iter: std.StringHashMapUnmanaged(*const NodeDesc).ValueIterator,
+
+    //     pub fn next(self: *@This()) ?*const NodeDesc {
+    //         var val = self.iter.next();
+    //         while (val == null and self.parentEnv != null) {
+    //             self.iter = self.parentEnv.?._nodes.valueIterator();
+    //             self.parentEnv = self.parentEnv.?.parentEnv;
+    //             val = self.iter.next();
+    //         }
+    //         return if (val) |v| v.* else null;
+    //     }
+    // };
 
     pub fn nodeIterator(self: *@This()) NodeIterator {
         return NodeIterator{
