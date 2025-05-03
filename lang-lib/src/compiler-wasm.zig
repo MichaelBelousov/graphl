@@ -2771,13 +2771,11 @@ const Compilation = struct {
             while (next) |user_func| : (next = user_func.next) {
                 const name = user_func.data.node.name;
 
-                // FIXME: skip the first exec input
-                std.debug.assert(user_func.data.node.inputs[0].kind.primitive == .exec);
-                const params = user_func.data.node.inputs[1..];
+                const is_pure = user_func.data.node.inputs.len == 0 or user_func.data.node.inputs[0].kind.primitive != .exec;
+                const val_pin_start: usize = if (is_pure) 0 else 1;
 
-                // FIXME: skip the first exec output
-                std.debug.assert(user_func.data.node.outputs[0].kind.primitive == .exec);
-                const results = user_func.data.node.outputs[1..];
+                const params = user_func.data.node.inputs[val_pin_start..];
+                const results = user_func.data.node.outputs[val_pin_start..];
 
                 const def = UserFuncDef{
                     .params = try self.arena.allocator().alloc(Type, params.len),
@@ -3208,12 +3206,15 @@ const Compilation = struct {
         {
             var user_func_iter = self.user_context.func_map.iterator();
             while (user_func_iter.next()) |entry| {
-                const inputs = try self.arena.allocator().alloc([]const u8, entry.value_ptr.*.node.inputs.len - 1);
-                for (inputs, entry.value_ptr.*.node.inputs[1..]) |*i, param| {
+                const is_pure = entry.value_ptr.*.node.inputs.len == 0 or entry.value_ptr.*.node.inputs[0].kind.primitive != .exec;
+                const val_pin_start: usize = if (is_pure) 0 else 1;
+
+                const inputs = try self.arena.allocator().alloc([]const u8, entry.value_ptr.*.node.inputs.len - val_pin_start);
+                for (inputs, entry.value_ptr.*.node.inputs[val_pin_start..]) |*i, param| {
                     i.* = param.kind.primitive.value.name;
                 }
-                const outputs = try self.arena.allocator().alloc([]const u8, entry.value_ptr.*.node.outputs.len - 1);
-                for (outputs, entry.value_ptr.*.node.outputs[1..]) |*i, result| {
+                const outputs = try self.arena.allocator().alloc([]const u8, entry.value_ptr.*.node.outputs.len - val_pin_start);
+                for (outputs, entry.value_ptr.*.node.outputs[val_pin_start..]) |*i, result| {
                     i.* = result.kind.primitive.value.name;
                 }
 

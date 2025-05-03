@@ -1520,9 +1520,15 @@ export async function Ide(canvasElem, opts) {
                     node: {
                         ...opts.userFuncs?.[userFuncKey],
                         name: userFuncKey,
-                        // FIXME: allow pure nodes
-                        inputs: [{ name: "in", type: "exec" }, ...opts.userFuncs?.[userFuncKey].inputs ?? []],
-                        outputs: [{ name: "out", type: "exec" }, ...opts.userFuncs?.[userFuncKey].outputs ?? []],
+                        kind: "func",
+                        inputs: [
+                            ...opts.userFuncs?.[userFuncKey].kind !== "pure" ? [{ name: "", type: "exec" }] : [],
+                            ...opts.userFuncs?.[userFuncKey].inputs ?? [],
+                        ],
+                        outputs: [
+                            ...opts.userFuncs?.[userFuncKey].kind !== "pure" ? [{ name: "", type: "exec" }] : [],
+                            ...opts.userFuncs?.[userFuncKey].outputs ?? [],
+                        ],
                     },
                 };
                 delete optsForWasm.userFuncs[userFuncKey].node.impl;

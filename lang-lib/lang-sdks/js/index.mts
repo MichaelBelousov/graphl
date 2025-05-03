@@ -460,6 +460,7 @@ export interface UserFuncDesc<F extends (...args: any[]) => any>{
     inputs?: UserFuncInput[],
     outputs?: UserFuncOutput[],
     impl?: F,
+    kind?: "func" | "pure",
 }
 
 export interface GraphlProgram<Funcs extends Record<string, (...args: any[]) => any>> {
@@ -630,7 +631,7 @@ export async function compileGraphltSource(
                 node: {
                     name: k,
                     //hidden: false,
-                    //kind: "func",
+                    kind: v.kind,
                     // FIXME: the type is wrong here, input.type is a string
                     inputs: v.inputs?.map((inp, j) => ({ name: `p${j}`, type: inputToType(inp).name })) ?? [],
                     outputs: v.outputs?.map((out, j) => ({ name: `p${j}`, type: outputToType(out).name })) ?? [],

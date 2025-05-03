@@ -76,7 +76,12 @@ export declare interface PinJson {
 export declare interface BasicMutNodeDescJson {
   //name?: string; // derived from outer object
   hidden?: boolean;
-  kind?: "func",
+  /**
+   * "func" means it requires control flow and has in and out exec pins
+   * "pure" means it has no exec pins and should not have side effects
+   * @default "func"
+   */
+  kind?: "func" | "pure",
   inputs?: PinJson[];
   outputs?: PinJson[];
   tags?: string[];

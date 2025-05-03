@@ -51,7 +51,7 @@ pub const PinJson = struct {
 pub const BasicMutNodeDescJson = struct {
     name: [:0]const u8,
     hidden: bool = false,
-    kind: helpers.NodeDescKind = .func,
+    kind: enum { func, pure } = .func,
     inputs: []PinJson = &.{},
     outputs: []PinJson = &.{},
     tags: []const []const u8 = &.{},
@@ -298,7 +298,11 @@ fn _setInitOpts(in_json: []const u8) !void {
                         .hidden = entry.value_ptr.node.hidden,
                         .inputs = inputs,
                         .outputs = outputs,
-                        .kind = entry.value_ptr.node.kind,
+                        // FIXME: have a better interface
+                        .kind = switch (entry.value_ptr.node.kind) {
+                            .func => .func,
+                            .pure => .func,
+                        },
                     },
                 };
             }

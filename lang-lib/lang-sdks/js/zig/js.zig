@@ -59,18 +59,27 @@ fn _compileSource(
         while (entry_iter.next()) |entry| {
             const new_node = try a.create(std.SinglyLinkedList(graphl.compiler.UserFunc).Node);
 
-            const inputs = try a.alloc(graphl.helpers.Pin, entry.value_ptr.node.inputs.len + 1);
-            inputs[0] = graphl.helpers.Pin{ .name = "", .kind = .{ .primitive = .exec } };
+            const exec_pins: usize = switch (entry.value_ptr.node.kind) {
+                .pure => 0,
+                .func => 1,
+            };
+
+            const inputs = try a.alloc(graphl.helpers.Pin, entry.value_ptr.node.inputs.len + exec_pins);
+            if (exec_pins == 1) {
+                inputs[0] = graphl.helpers.Pin{ .name = "", .kind = .{ .primitive = .exec } };
+            }
             errdefer a.free(inputs);
-            for (entry.value_ptr.node.inputs, inputs[1..]) |input_json, *input| {
+            for (entry.value_ptr.node.inputs, inputs[exec_pins..]) |input_json, *input| {
                 input.* = try input_json.promote();
             }
 
-            const outputs = try a.alloc(graphl.helpers.Pin, entry.value_ptr.node.outputs.len + 1);
-            outputs[0] = graphl.helpers.Pin{ .name = "", .kind = .{ .primitive = .exec } };
+            const outputs = try a.alloc(graphl.helpers.Pin, entry.value_ptr.node.outputs.len + exec_pins);
+            if (exec_pins == 1) {
+                outputs[0] = graphl.helpers.Pin{ .name = "", .kind = .{ .primitive = .exec } };
+            }
             // FIXME: this errdefer doesn't free in all loop iterations!
             errdefer a.free(outputs);
-            for (entry.value_ptr.node.outputs, outputs[1..]) |output_json, *output| {
+            for (entry.value_ptr.node.outputs, outputs[exec_pins..]) |output_json, *output| {
                 output.* = try output_json.promote();
             }
 
@@ -83,7 +92,11 @@ fn _compileSource(
                         .hidden = entry.value_ptr.node.hidden,
                         .inputs = inputs,
                         .outputs = outputs,
-                        .kind = entry.value_ptr.node.kind,
+                        // FIXME: gross
+                        .kind = switch (entry.value_ptr.node.kind) {
+                            .func => .func,
+                            .pure => .func,
+                        },
                     },
                 },
             };
@@ -120,7 +133,8 @@ pub const PinJson = struct {
 pub const BasicMutNodeDescJson = struct {
     name: [:0]const u8,
     hidden: bool = false,
-    kind: graphl.helpers.NodeDescKind = .func,
+    //kind: graphl.helpers.NodeDescKind = .func,
+    kind: enum { func, pure } = .func,
     inputs: []PinJson = &.{},
     outputs: []PinJson = &.{},
     tags: []const []const u8 = &.{},
