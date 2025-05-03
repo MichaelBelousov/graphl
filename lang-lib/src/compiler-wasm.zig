@@ -1353,7 +1353,7 @@ const Compilation = struct {
                             self.module.c(),
                             byn.c.BinaryenCall(
                                 self.module.c(),
-                                "__graphl_host_copy",
+                                "__graphl_write_array",
                                 @constCast(&[_]byn.c.BinaryenExpressionRef{
                                     byn.c.BinaryenStructGet(
                                         self.module.c(),
@@ -2881,10 +2881,9 @@ const Compilation = struct {
         if (self.used_features.string) {
             const str_byn_type = try self.getBynType(primitive_types.string);
 
-            // FIXME: gross, maybe go back to reading/linking my own compiled wat? I don't think
-            // the types would line up though...
+            // FIXME: can I make a DSL for this? or does binaryen already support something like that?
             std.debug.assert(self.module.addFunction(
-                "__graphl_host_copy",
+                "__graphl_write_array",
                 @enumFromInt(byn.c.BinaryenTypeCreate(@constCast(&[_]byn.c.BinaryenType{
                     str_byn_type, // array/string ref (;0;)
                     @intFromEnum(byn.Type.i32), // starting offset (;1;)
@@ -3052,7 +3051,107 @@ const Compilation = struct {
                 ),
             ) != null);
 
-            std.debug.assert(byn.c.BinaryenAddFunctionExport(self.module.c(), "__graphl_host_copy", "__graphl_host_copy") != null);
+            std.debug.assert(self.module.addFunction(
+                "__graphl_read_array",
+                @enumFromInt(byn.c.BinaryenTypeCreate(@constCast(&[_]byn.c.BinaryenType{
+                    str_byn_type, // array/string ref (;0;)
+                    @intFromEnum(byn.Type.i32), // starting offset (;1;)
+                    @intFromEnum(byn.Type.i32), // $length (;2;)
+                }), 3)),
+                byn.Type.none,
+                &.{
+                    // NOTE: relying upon the fact that this is initialized to 0
+                    .i32, // $index (;3;)
+                },
+                // (loop $loop ...
+                @ptrCast(byn.c.BinaryenLoop(
+                    self.module.c(),
+                    "loop",
+                    byn.c.BinaryenBlock(
+                        self.module.c(),
+                        null,
+                        @constCast(&[_]byn.c.BinaryenExpressionRef{
+                            // (br_if $loop
+                            //   (i32.ge_u
+                            //     (local.get $index)
+                            //     (local.get $length)))
+                            byn.c.BinaryenBreak(
+                                self.module.c(),
+                                "loop",
+                                @ptrCast(byn.Expression.binaryOp(
+                                    self.module,
+                                    byn.Expression.Op.geUInt32(),
+                                    @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 3, @intFromEnum(byn.Type.i32))),
+                                    @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 2, @intFromEnum(byn.Type.i32))),
+                                )),
+                                null,
+                            ),
+                            // (array.set TYPE
+                            //     (i32.load type
+                            //         (local.get $arr)
+                            //         (local.get mem_start+$offset+$index)))
+                            byn.c.BinaryenArraySet(
+                                self.module.c(),
+                                byn.c.BinaryenLocalGet(self.module.c(), 0, str_byn_type),
+                                byn.c.BinaryenBinary(
+                                    self.module.c(),
+                                    byn.c.BinaryenAddInt32(),
+                                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(mem_start)),
+                                    byn.c.BinaryenBinary(
+                                        self.module.c(),
+                                        byn.c.BinaryenAddInt32(),
+                                        byn.c.BinaryenLocalGet(self.module.c(), 1, @intFromEnum(byn.Type.i32)),
+                                        byn.c.BinaryenLocalGet(self.module.c(), 3, @intFromEnum(byn.Type.i32)),
+                                    ),
+                                ),
+                                byn.c.BinaryenLoad(
+                                    self.module.c(),
+                                    1,
+                                    false,
+                                    0,
+                                    1, // TODO: alignment
+                                    @intFromEnum(byn.Type.i32),
+                                    byn.c.BinaryenLocalGet(self.module.c(), 3, @intFromEnum(byn.Type.i32)),
+                                    main_mem_name,
+                                ),
+                            ),
+                            // (local.set $index
+                            //   (i32.add
+                            //     (local.get $index)
+                            //     (i32.const 1)))
+                            byn.c.BinaryenLocalSet(
+                                self.module.c(),
+                                3,
+                                @ptrCast(byn.Expression.binaryOp(
+                                    self.module,
+                                    byn.Expression.Op.addInt32(),
+                                    @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 3, @intFromEnum(byn.Type.i32))),
+                                    @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(1))),
+                                )),
+                            ),
+                        }),
+                        3,
+                        byn.c.BinaryenTypeAuto(),
+                    ),
+                )),
+            ) != null);
+
+            std.debug.assert(self.module.addFunction(
+                "__graphl_create_array_string",
+                @enumFromInt(byn.c.BinaryenTypeCreate(@constCast(&[_]byn.c.BinaryenType{
+                    @intFromEnum(byn.Type.i32), // length (;0;)
+                }), 1)),
+                @enumFromInt(str_byn_type), // returns created array
+                &.{},
+                @ptrCast(byn.c.BinaryenArrayNew(
+                    self.module.c(),
+                    try self.getBynHeapType(primitive_types.string),
+                    byn.c.BinaryenLocalGet(self.module.c(), 0, byn.c.BinaryenTypeInt32()),
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                )),
+            ) != null);
+
+            std.debug.assert(byn.c.BinaryenAddFunctionExport(self.module.c(), "__graphl_write_array", "__graphl_write_array") != null);
         }
 
         //FIXME: remove this
@@ -3792,7 +3891,7 @@ test "vec3 ref" {
         \\  (global $__gstkp (;0;) (mut i32) i32.const 5120)
         \\  (export "memory" (memory 0))
         \\  (export "processInstance" (func $processInstance))
-        \\  (export "__graphl_host_copy" (func $__graphl_host_copy))
+        \\  (export "__graphl_write_array" (func $__graphl_write_array))
         \\  (func $ModelCenter (;1;) (type 1) (param i32)
         \\    i32.const 0
         \\    local.get 0
@@ -3862,7 +3961,7 @@ test "vec3 ref" {
         \\    end
         \\    unreachable
         \\  )
-        \\  (func $__graphl_host_copy (;3;) (type 4) (param (ref null 0) i32) (result i32)
+        \\  (func $__graphl_write_array (;3;) (type 4) (param (ref null 0) i32) (result i32)
         \\    (local i32 i32)
         \\    local.get 1
         \\    local.set 3

@@ -124,6 +124,21 @@ describe("js sdk", () => {
     assert.strictEqual(takeResult, 5.6789);
   });
 
+  it.only("pass string", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (typeof (first string) string)
+      (define (first s) s)
+      (typeof (second string) string)
+      (define (second s) (return s))
+    `);
+
+    const param = "test-me";
+    const firstResult = program.functions.first(param);
+    assert.strictEqual(firstResult, param);
+    const secondResult = program.functions.take(firstResult);
+    assert.strictEqual(secondResult, param);
+  });
+
   it("vec3 param", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (import Confetti "host/Confetti")

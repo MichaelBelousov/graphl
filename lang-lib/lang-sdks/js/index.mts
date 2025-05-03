@@ -139,7 +139,7 @@ function jsValToGraphlPrimitiveVal(
         while (offset < fullData.byteLength) {
             const chunk = fullData.slice(offset, offset + TRANSFER_BUF_LEN)
             getTransferBufUint8Array(wasm).set(chunk);
-            wasm.exports.__graphl_read_array(graphlString, offset);
+            wasm.exports.__graphl_read_array(graphlString, offset, chunk.byteLength);
             offset += TRANSFER_BUF_LEN;
         }
 
@@ -384,9 +384,10 @@ type WasmInstance = WebAssembly.Instance & {
     exports: {
         memory: WebAssembly.Memory;
         __graphl_create_array_string(size: number): WasmHeapType;
-        __graphl_read_array(str: WasmHeapType, offset: number): void;
-        // FIXME: rename this to like read_array_page
-        __graphl_host_copy(str: WasmHeapType, offset: number): number;
+        // FIXME: rename to include _string
+        __graphl_read_array(str: WasmHeapType, offset: number, length: number): void;
+        // FIXME: rename to include _string
+        __graphl_write_array(str: WasmHeapType, offset: number): number;
         /**
          * writes the fields of a graphl struct into the transfer buffer
          * @returns the amount of arrays in the struct
