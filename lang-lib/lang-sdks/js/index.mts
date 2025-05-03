@@ -450,7 +450,7 @@ function makeCallUserFunc(
             ));
             const jsRes = userFunc.call(undefined, ...jsParams);
             const returnType = typeFromTypeArray(key, outputs.map(outputToType));
-            return graphlValToJsVal(jsRes, returnType, wasm);
+            return jsValToGraphlVal(jsRes, returnType, wasm);
         }
     ];
 }
