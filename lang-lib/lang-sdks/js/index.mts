@@ -235,7 +235,7 @@ function graphlPrimitiveValToJsVal(
         const chunks = [] as Uint8Array[];
 
         while (true) {
-            const bytesWrittenCount = wasm.exports.__graphl_host_copy(graphlVal, offset);
+            const bytesWrittenCount = wasm.exports.__graphl_write_array(graphlVal, offset);
             if (bytesWrittenCount === 0) break;
             offset += bytesWrittenCount;
             const chunk = new Uint8Array(wasm.exports.memory.buffer, TRANSFER_BUF_PTR, bytesWrittenCount);
@@ -415,7 +415,7 @@ type UserFuncCollection = Map<number, Function>;
 // calls of a userfunc from graphl looks like:
 // - graphl passes all inputs as arguments
 // - NOTE: could be faster if there are many struct params to just write all of them
-// - js must call "__graphl_write_struct_{s}_fields" and "__graphl_host_copy" to read
+// - js must call "__graphl_write_struct_{s}_fields" and "__graphl_write_array" to read
 //   struct and array params
 // - js prepares its return value
 // - js writes returns single primitives as a single return value

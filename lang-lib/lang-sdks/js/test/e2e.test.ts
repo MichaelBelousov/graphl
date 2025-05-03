@@ -124,10 +124,10 @@ describe("js sdk", () => {
     assert.strictEqual(takeResult, 5.6789);
   });
 
-  it.only("pass string", async () => {
+  it("pass string", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (first string) string)
-      (define (first s) s)
+      (define (first s) (return s))
       (typeof (second string) string)
       (define (second s) (return s))
     `);
@@ -135,7 +135,7 @@ describe("js sdk", () => {
     const param = "test-me";
     const firstResult = program.functions.first(param);
     assert.strictEqual(firstResult, param);
-    const secondResult = program.functions.take(firstResult);
+    const secondResult = program.functions.second(firstResult);
     assert.strictEqual(secondResult, param);
   });
 
