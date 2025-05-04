@@ -18,7 +18,6 @@ const getZig = () => {
     })();
 };
 
-
 export type GraphlType =
     | {
       name: string;
@@ -51,20 +50,11 @@ export namespace GraphlTypes {
     export const u32: GraphlType = { name: "u32", kind: "primitive", size: 4 };
     export const i64: GraphlType = { name: "i64", kind: "primitive", size: 8 };
     export const u64: GraphlType = { name: "u64", kind: "primitive", size: 8 };
+    export const bool: GraphlType = { name: "bool", kind: "primitive", size: 4 };
+    export const f64: GraphlType = { name: "f64", kind: "primitive", size: 8 };
+    export const string: GraphlType = { name: "string", kind: "primitive", size: 0 };
 
-    export const f64: GraphlType = {
-        name: "f64",
-        kind: "primitive",
-        size: 8,
-    };
-
-    export const string: GraphlType = {
-        name: "string",
-        kind: "primitive",
-        size: 0,
-    };
-
-    // TODO: generate these from graphl, possibly even parse them out
+    // TODO: parse structs out of graphl meta section
     // of graphl output
     export const vec3: GraphlType = {
         name: "vec3",
@@ -73,7 +63,7 @@ export namespace GraphlTypes {
         fieldNames: ["x", "y", "z"],
         fieldTypes: [f64, f64, f64],
         fieldOffsets: [0, 8, 16],
-    }
+    };
 };
 
 function assert(condition: any, message?: string): asserts condition {
@@ -123,7 +113,7 @@ function outputToType(output: UserFuncOutput): GraphlType {
 }
 
 function jsValToGraphlPrimitiveVal(
-    jsVal: number | bigint | string,
+    jsVal: number | bigint | string | boolean,
     graphlType: GraphlType,
     wasm: WasmInstance,
 ): bigint | number | WasmHeapType {
@@ -144,6 +134,8 @@ function jsValToGraphlPrimitiveVal(
         }
 
         return graphlString;
+    } else if (graphlType === GraphlTypes.bool) {
+        return jsVal ? 1 : 0;
     } else {
         return jsVal;
     }
@@ -255,6 +247,8 @@ function graphlPrimitiveValToJsVal(
         }
 
         return textDecoder.decode(fullData);
+    } else if (graphlType === GraphlTypes.bool) {
+        return graphlVal ? true : false;
     } else {
         return graphlVal
     }

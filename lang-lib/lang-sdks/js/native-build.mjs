@@ -35,6 +35,7 @@ async function main() {
     { recursive: true }
   );
 
+  if (process.env.SKIP_ZIGAR_BUILD) return;
   await fs.promises.rename("./node-zigar.config.template.json", "./node-zigar.config.json");
   try {
     await Promise.all([
