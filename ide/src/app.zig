@@ -1358,7 +1358,7 @@ fn renderNode(
     defer hbox.deinit();
 
     {
-        var inputs_vbox = try dvui.box(@src(), .vertical, .{});
+        var inputs_vbox = try dvui.box(@src(), .vertical, .{ .gravity_x = 0, .expand = .horizontal });
         defer inputs_vbox.deinit();
         for (node.desc().getInputs(), node.inputs, 0..) |*input_desc, *input, j| {
             var input_box = try dvui.box(@src(), .horizontal, .{ .id_extra = j });
@@ -1626,7 +1626,7 @@ fn renderNode(
     }
 
     {
-        var outputs_vbox = try dvui.box(@src(), .vertical, .{});
+        var outputs_vbox = try dvui.box(@src(), .vertical, .{ .gravity_x = 1, .expand = .horizontal });
         defer outputs_vbox.deinit();
         for (node.desc().getOutputs(), node.outputs, 0..) |output_desc, *output, j| {
             _ = output;

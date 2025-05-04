@@ -971,19 +971,6 @@ pub const builtin_nodes = struct {
         .tags = &.{"color"},
     });
 
-    // FIXME: TEMP FOR DEMO
-    pub const like: NodeDesc = basicNode(&.{
-        .name = "like",
-        .inputs = &.{
-            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
-            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
-        },
-        .outputs = &.{
-            Pin{ .name = "equal", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-        },
-        .tags = &.{"sql"},
-    });
-
     pub const string_indexof: NodeDesc = basicNode(&.{
         .name = "Index Of",
         .inputs = &.{
