@@ -92,7 +92,7 @@ function typeFromTypeArray(name: string, types: GraphlType[]): GraphlType {
 }
 
 // FIXME: use keyof GraphlTypes?
-type GraphlTypeKey = "string" | "vec3" | "i32" | "u64";
+type GraphlTypeKey = "string" | "vec3" | "i32" | "u64" | "bool" | "f64";
 
 export interface UserFuncInput {
     name?: string;

@@ -1897,31 +1897,35 @@ const Compilation = struct {
                                 return error.BuiltinWrongArity;
                             }
 
-                            var handled = false;
-
                             const lhs = &self._sexp_compiled[v.items[1]];
                             const rhs = &self._sexp_compiled[v.items[2]];
 
                             // FIXME: use a mapping to get the right type? e.g. a switch on type pointers would be nice
                             // but iirc that is broken
-                            inline for (&.{
-                                .{ primitive_types.i32_, "SInt32", false },
-                                .{ primitive_types.i64_, "SInt64", false },
-                                .{ primitive_types.u32_, "UInt32", false },
-                                .{ primitive_types.u64_, "UInt64", false },
-                                .{ primitive_types.f32_, "Float32", true },
-                                .{ primitive_types.f64_, "Float64", true },
-                            }) |type_info| {
-                                const graphl_type, const type_byn_name, const is_float = type_info;
-                                const float_type_but_int_op = @hasField(@TypeOf(builtin_op), "int_only") and is_float;
-                                if (!handled and !float_type_but_int_op) {
-                                    if (args_top_type == graphl_type) {
-                                        const signless = @hasField(@TypeOf(builtin_op), "signless");
-                                        const op_name = comptime if (signless and !is_float) builtin_op.wasm_name ++ type_byn_name[1..] else builtin_op.wasm_name ++ type_byn_name;
-                                        op = @field(byn.Expression.Op, op_name)();
-                                        handled = true;
+                            found_op: {
+                                    inline for (&.{
+                                    .{ primitive_types.bool_, "UInt32", false },
+                                    .{ primitive_types.i32_,  "SInt32", false },
+                                    .{ primitive_types.i64_,  "SInt64", false },
+                                    .{ primitive_types.u32_,  "UInt32", false },
+                                    .{ primitive_types.u64_,  "UInt64", false },
+                                    .{ primitive_types.f32_,  "Float32", true },
+                                    .{ primitive_types.f64_,  "Float64", true },
+                                }) |type_info| {
+                                    const graphl_type, const type_byn_name, const is_float = type_info;
+                                    const float_type_but_int_op = @hasField(@TypeOf(builtin_op), "int_only") and is_float;
+                                    if (!float_type_but_int_op) {
+                                        if (args_top_type == graphl_type) {
+                                            const signless = @hasField(@TypeOf(builtin_op), "signless");
+                                            const op_name = comptime if (signless and !is_float) builtin_op.wasm_name ++ type_byn_name[1..] else builtin_op.wasm_name ++ type_byn_name;
+                                            op = @field(byn.Expression.Op, op_name)();
+                                        }
                                     }
+                                    break :found_op;
                                 }
+
+                                log.err("unimplemented type resolution: '{s}' for code:\n{}\n", .{ slot.type.name, Sexp.printOneLine(self.graphlt_module, code_sexp_idx) });
+                                std.debug.panic("unimplemented type resolution: '{s}'", .{slot.type.name});
                             }
 
                             if (@hasField(@TypeOf(builtin_op), "result_type")) {
@@ -1949,12 +1953,6 @@ const Compilation = struct {
                                     ),
                                 ),
                             );
-
-                            // REPORT ME: try to prefer an else on the above for loop, currently couldn't get it to compile right
-                            if (!handled) {
-                                log.err("unimplemented type resolution: '{s}' for code:\n{}\n", .{ slot.type.name, code_sexp });
-                                std.debug.panic("unimplemented type resolution: '{s}'", .{slot.type.name});
-                            }
 
                             break :done;
                         }

@@ -87,10 +87,11 @@ describe("js sdk", () => {
     assert.partialDeepStrictEqual(program.functions.foo(), { 0: 5, 1: 10 });
   });
 
-  it.only("take return bool", async () => {
+  it("take return bool", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (foo bool) bool)
-      (define (foo c) (return (or c true)))
+      ;; FIXME: I hate this syntax, parse the symbol "true" instead
+      (define (foo c) (return (or c #t)))
     `);
     assert.partialDeepStrictEqual(program.functions.foo(false), true);
   });
