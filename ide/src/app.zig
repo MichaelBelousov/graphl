@@ -1478,7 +1478,7 @@ fn renderNode(
                                     }
                                 }
 
-                                const entry = try dvui.textEntryNumber(@src(), T, .{ .value = &value }, .{ .min_size_content = .{ .w = 80 }, .max_size_content = .{ .w = 80 }, .id_extra = j, });
+                                const entry = try dvui.textEntryNumber(@src(), T, .{ .value = &value }, .{ .min_size_content = .{ .w = 80, .h = 10 }, .max_size_content = .{ .w = 80, .h = 200 }, .id_extra = j, });
 
                                 if (entry.value == .Valid) {
                                     switch (@typeInfo(T)) {
