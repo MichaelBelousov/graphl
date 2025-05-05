@@ -40,7 +40,7 @@ async function main() {
   try {
     await Promise.all([
       new Promise((resolve, reject) => {
-        child_process.spawn(
+        const proc = child_process.spawn(
           path.join(dirname, "../../node_modules/.bin/node-zigar"),
           ["build"],
           {
@@ -48,18 +48,19 @@ async function main() {
             cwd: path.join(dirname, "zig"),
             stdio: ["inherit", "inherit", "inherit"],
           },
-          (err) => {
-            if (err) reject(err);
-            else resolve();
-          }
         );
+        proc.on("error", reject);
+        proc.on("exit", (code, signal) => {
+          if (code !== 0) reject(Error(`Nonzero code (${code})`));
+          if (signal) reject(Error(`Signal (${signal})`));
+          else resolve();
+        });
       }),
     ]);
   } finally {
-    // FIXME: why doesn't this work? it's annoying
-    //try {
+    try {
       await fs.promises.rename("./node-zigar.config.json", "./node-zigar.config.template.json");
-    //} catch {}
+    } catch {}
   }
 }
 
