@@ -643,8 +643,8 @@ export async function compileGraphltSource(
     const diagnostic = new zig.Diagnostic({});
     try {
         compiledWasm = zig.compileSource("unknown", source, userFuncDescsJson, diagnostic).typedArray;
-        if (process.env.DEBUG)
-            (await import("node:fs")).writeFileSync("/tmp/jssdk-compiler-test.wasm", compiledWasm)
+        if (process.env.ITUE_DEBUG_DUMP)
+            (await import("node:fs")).writeFileSync(process.env.ITUE_DEBUG_DUMP, compiledWasm)
     } catch (err: any) {
         // FIXME: add zigar types
         const diagStr = diagnostic.error.string;
