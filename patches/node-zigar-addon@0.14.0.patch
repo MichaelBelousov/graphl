@@ -1,0 +1,36 @@
+diff --git a/build.zig b/build.zig
+index f5f6a2dc3e47ec257d1d1de22b083df322b4f0b3..ef92ab1ff343101b5dcf49f4dcff6443524410ad 100644
+--- a/build.zig
++++ b/build.zig
+@@ -19,8 +19,6 @@ pub fn build(b: *std.Build) !void {
+     lib.addCSourceFile(.{ .file = b.path("./src/addon-node.c"), .flags = clang_flags });
+     lib.addCSourceFile(.{ .file = b.path("./src/addon.c"), .flags = clang_flags });
+     lib.addCSourceFile(.{ .file = b.path("./src/redirect.c"), .flags = clang_flags });
+-    // FIXME: mike change, previously only mac did this
+-    lib.linker_allow_shlib_undefined = true;
+     switch (os) {
+         .windows => {
+             lib.addCSourceFile(.{ .file = b.path("./src/win32-shim.c"), .flags = &.{} });
+@@ -31,6 +29,9 @@ pub fn build(b: *std.Build) !void {
+         },
+         else => {},
+     }
++    // FIXME: mike change, previously only mac did this
++    lib.linker_allow_shlib_undefined = true;
++
+     lib.linkLibC();
+     const wf = switch (@hasDecl(std.Build, "addUpdateSourceFiles")) {
+         true => b.addUpdateSourceFiles(),
+diff --git a/dist/index.cjs b/dist/index.cjs
+index aa64d0b037c6b863c84e89b26b1bd6cd88dbe6c3..f3bb4a9adc8059e6eadb89cb7e1039a5795341ae 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -41,7 +41,7 @@ async function buildAddon(addonDir, options) {
+   let changed = false;
+   if (recompile) {
+     //const args = [ 'build', `-Doptimize=ReleaseSmall`, `-Doutput=${outputPath}` ];
+-    const args = [ 'build', `-Doptimize=Debug`, `-Doutput=${outputPath}`, "--verbose" ];
++    const args = [ 'build', `-Doptimize=${process.env.MIKE_ZIGAR_ADDON_OPTIMIZE ?? "ReleaseSmall"}`, `-Doutput=${outputPath}`, "--verbose" ];
+     if (platform && arch) {
+       // translate from names used by Node to those used by Zig
+       const cpuArchs = {
