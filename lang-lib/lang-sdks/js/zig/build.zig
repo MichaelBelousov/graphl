@@ -61,7 +61,11 @@ pub fn build(b: *std.Build) void {
         true => b.addUpdateSourceFiles(),
         false => b.addWriteFiles(),
     };
+    const pdb_path = std.fmt.allocPrint(b.allocator, "{s}.pdb", .{cfg.output_path[0..cfg.output_path.len - 5]}) catch unreachable;
     wf.addCopyFileToSource(lib.getEmittedBin(), cfg.output_path);
+    if (target.result.os.tag == .windows) {
+        wf.addCopyFileToSource(lib.getEmittedPdb(), pdb_path);
+    }
     wf.step.dependOn(&lib.step);
     b.getInstallStep().dependOn(&wf.step);
 }

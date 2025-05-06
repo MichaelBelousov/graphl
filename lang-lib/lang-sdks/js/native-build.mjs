@@ -30,38 +30,41 @@ async function main() {
   }
 
   console.log("copying files and building zigar bundle in parallel...");
-  await fs.promises.mkdir(
-    path.join(dirname, "../../lib/node_modules/@bentley"),
-    { recursive: true }
-  );
-
-  if (process.env.SKIP_ZIGAR_BUILD) return;
-  await fs.promises.rename("./node-zigar.config.template.json", "./node-zigar.config.json");
-  try {
-    await Promise.all([
-      new Promise((resolve, reject) => {
-        const proc = child_process.spawn(
-          path.join(dirname, "../../node_modules/.bin/node-zigar"),
-          ["build"],
-          {
-            shell: true,
-            cwd: path.join(dirname, "zig"),
-            stdio: ["inherit", "inherit", "inherit"],
-          },
-        );
-        proc.on("error", reject);
-        proc.on("exit", (code, signal) => {
-          if (code !== 0) reject(Error(`Nonzero code (${code})`));
-          if (signal) reject(Error(`Signal (${signal})`));
-          else resolve();
-        });
-      }),
-    ]);
-  } finally {
+  if (!process.env.SKIP_ZIGAR_BUILD) {
     try {
-      await fs.promises.rename("./node-zigar.config.json", "./node-zigar.config.template.json");
+      await fs.promises.rename("./node-zigar.config.template.json", "./node-zigar.config.json");
     } catch {}
+
+    try {
+      await Promise.all([
+        new Promise((resolve, reject) => {
+          const proc = child_process.spawn(
+            path.join(dirname, "../../../node_modules/.bin/node-zigar"),
+            ["build"],
+            {
+              shell: true,
+              cwd: path.join(dirname, "zig"),
+              stdio: ["inherit", "inherit", "inherit"],
+            },
+          );
+          proc.on("error", reject);
+          proc.on("exit", (code, signal) => {
+            if (code !== 0) reject(Error(`Nonzero code (${code})`));
+            if (signal) reject(Error(`Signal (${signal})`));
+            else resolve();
+          });
+        }),
+      ]);
+    } finally {
+      try {
+        await fs.promises.rename("./node-zigar.config.json", "./node-zigar.config.template.json");
+      } catch {}
+    }
   }
+
+  // await fs.promises.cp(
+  //   "../../../node_modules/node-zigar-addon/.zig-cache/",
+  // );
 }
 
 void main();
