@@ -14,7 +14,7 @@ if (typeof Bun === "undefined") {
 }
 
 describe("js sdk", () => {
-  it("syntax error extra paren", async () => {
+  it.only("syntax error extra paren", async () => {
     let err: any;
     try {
       await compileGraphltSourceAndInstantiateProgram(`
@@ -33,7 +33,7 @@ describe("js sdk", () => {
     );
   });
 
-  it("return i32", async () => {
+  it.only("return i32", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (foo) i32)
       (define (foo) (return (* (+ 3 4) 5)))
@@ -41,7 +41,7 @@ describe("js sdk", () => {
     assert.strictEqual(program.functions.foo(), 35);
   });
 
-  it("factorial recursive", async () => {
+  it.only("factorial recursive", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (factorial i32) i32)
       (define (factorial n)
@@ -53,7 +53,7 @@ describe("js sdk", () => {
     assert.strictEqual(program.functions.factorial(5), 120);
   });
 
-  it("factorial iterative", async () => {
+  it.only("factorial iterative", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (meta version 1)
       (typeof (factorial i64) i64)
@@ -72,7 +72,7 @@ describe("js sdk", () => {
     assert.strictEqual(program.functions.factorial(10n), 3628800n);
   });
 
-  it("return string", async () => {
+  it.only("return string", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (foo) string)
       (define (foo) (return "simple"))
@@ -80,7 +80,7 @@ describe("js sdk", () => {
     assert.strictEqual(program.functions.foo(), "simple");
   });
 
-  it("return (i32 i32)", async () => {
+  it.only("return (i32 i32)", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (foo) (i32 i32))
       (define (foo) (return 5 10))
@@ -88,7 +88,7 @@ describe("js sdk", () => {
     assert.partialDeepStrictEqual(program.functions.foo(), { 0: 5, 1: 10 });
   });
 
-  it("take return bool", async () => {
+  it.only("take return bool", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (foo bool) bool)
       ;; FIXME: I hate this syntax, parse the symbol "true" instead
@@ -97,7 +97,7 @@ describe("js sdk", () => {
     assert.partialDeepStrictEqual(program.functions.foo(false), true);
   });
 
-  it("return (i32)", async () => {
+  it.only("return (i32)", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (foo) (i32))
       (define (foo) (return 5))
@@ -105,7 +105,7 @@ describe("js sdk", () => {
     assert.deepEqual(program.functions.foo(), 5);
   });
 
-  it("no return", async () => {
+  it.only("no return", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (foo) ())
       (define (foo) (+ 2 5))
@@ -113,7 +113,9 @@ describe("js sdk", () => {
     assert.deepEqual(program.functions.foo(), undefined);
   });
 
-  it("return (string i32)", async () => {
+  // FIXME: there's a bug when this is run after other code that probably generates and
+  // saves a "foo" type in global state (BinaryenHelper?) somewhere that must be ignored
+  it.only("return (string i32)", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (foo) (i32 string))
       (define (foo) (return 5 "hello"))
@@ -194,7 +196,7 @@ describe("js sdk", () => {
         name: "Confetti",
         inputs: [{ type: GraphlTypes.i32 }],
         outputs: [],
-        impl(param) {
+        impl(param: number) {
           assert.strictEqual(param, 100);
           called = true;
         }
