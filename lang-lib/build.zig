@@ -12,12 +12,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .target = target,
         //.relooper_debug = optimize == .Debug,
-        .single_threaded = true, // TODO: make not true off the web target
+        // FIXME: using single_threaded breaks native tests somehow
+        .single_threaded = target.result.cpu.arch.isWasm(),
     });
 
     //const bytebox_dep = b.dependency("bytebox", .{});
 
-    const web_target_query = std.Target.Query{
+    const intrinsics_target_query = std.Target.Query{
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
         // https://github.com/ziglang/zig/pull/16207
@@ -27,7 +28,7 @@ pub fn build(b: *std.Build) void {
             .bulk_memory,
         }),
     };
-    const web_target = b.resolveTargetQuery(web_target_query);
+    const intrinsics_target = b.resolveTargetQuery(intrinsics_target_query);
 
     // TODO: make this false in some cases
     const small_intrinsics = b.option(bool, "small_intrinsics", "build intrinsic functions with ReleaseSmall for smaller output") orelse true;
@@ -44,7 +45,7 @@ pub fn build(b: *std.Build) void {
         .vec3 = b.addExecutable(.{
             .name = "graphl_intrinsics_vec3",
             .root_source_file = b.path("./src/intrinsics/vec3/impl.zig"),
-            .target = web_target,
+            .target = intrinsics_target,
             .optimize = if (small_intrinsics) .ReleaseSmall else optimize,
             // the compiler must choose whether to strip or not
             .strip = false,
@@ -135,12 +136,12 @@ pub fn build(b: *std.Build) void {
         m.*.addAnonymousImport("graphl_intrinsics_vec3", .{
             .root_source_file = intrinsics.vec3.getEmittedBin(),
             .optimize = optimize,
-            .target = web_target,
+            .target = intrinsics_target,
         });
         m.*.addAnonymousImport("graphl_intrinsics_string", .{
             .root_source_file = intrinsics.string.bin,
             .optimize = optimize,
-            .target = web_target,
+            .target = intrinsics_target,
         });
     }
 
