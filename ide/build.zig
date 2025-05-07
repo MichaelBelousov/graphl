@@ -77,9 +77,9 @@ pub fn build(b: *std.Build) void {
     wasm.kind = .exe;
     wasm.import_symbols = true;
     wasm.rdynamic = true; // https://github.com/ziglang/zig/issues/14139
+    wasm.entry = .enabled;
     wasm.wasi_exec_model = .reactor;
     //wasm.entry = .{ .symbol_name = "_initialize" };
-    wasm.entry = .enabled;
 
     wasm.root_module.addImport("dvui", dvui_web_dep.module("dvui_web"));
     wasm.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
