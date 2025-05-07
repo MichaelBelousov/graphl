@@ -13,8 +13,18 @@ const getZig = () => {
             ? require("./js.zigar") // FIXME: I think I need require here... so maybe assert we're in node
             : await import("./zig/js.zig");
         const inNodeJs = typeof process !== "undefined";
-        // @ts-ignore
-        await imported.__zigar.init(inNodeJs ? require("node:wasi") : undefined);
+        if (inNodeJs) {
+            const { WASI } = require("node:wasi") as typeof import("node:wasi");
+            const wasi = new WASI({
+                version: "preview1",
+                env: {},
+                args: [],
+            });
+            // @ts-ignore
+            await imported.__zigar.init(wasi);
+        } else {
+            await imported.__zigar.init();
+        }
         return imported;
     })();
 };
