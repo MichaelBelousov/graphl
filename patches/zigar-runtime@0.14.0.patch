@@ -1,11 +1,5 @@
-diff --git a/node_modules/zigar-runtime/.bun-tag-2980258cb468c23d b/.bun-tag-2980258cb468c23d
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/node_modules/zigar-runtime/.bun-tag-a29ba644b7feb929 b/.bun-tag-a29ba644b7feb929
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/dist/features/module-loading.js b/dist/features/module-loading.js
-index 82655b699395e5a556d34447b8ddbceb27a6fd65..c283c7d36babcc36f8757862b9fc7b636fa87941 100644
+index 82655b699395e5a556d34447b8ddbceb27a6fd65..206037994c7350181b409ee4d0a1b3ddc4c72924 100644
 --- a/dist/features/module-loading.js
 +++ b/dist/features/module-loading.js
 @@ -115,7 +115,9 @@ var moduleLoading = mixin({
@@ -31,12 +25,3 @@ index 82655b699395e5a556d34447b8ddbceb27a6fd65..c283c7d36babcc36f8757862b9fc7b63
      },
      loadModule(source, options) {
        return this.initPromise = (async () => {
-@@ -161,6 +167,8 @@ var moduleLoading = mixin({
-             }
-           });
-           this.customWASI.initialize?.(instanceProxy);
-+        } else if (instance.exports._initialize) {
-+          instance.exports._initialize();
-         }
-         this.initialize();
-       })();
