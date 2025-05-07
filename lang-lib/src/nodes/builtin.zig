@@ -1312,6 +1312,17 @@ pub const Env = struct {
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         if (self.parentEnv == null) {
+            {
+                var nodes_by_tag_iter = self._nodes_by_tag.iterator();
+                while (nodes_by_tag_iter.next()) |node_list| node_list.value_ptr.*.deinit(alloc);
+                self._nodes_by_tag.clearAndFree(alloc);
+            }
+            {
+                var nodes_by_type_iter = self._nodes_by_type.iterator();
+                while (nodes_by_type_iter.next()) |node_list| node_list.value_ptr.*.deinit(alloc);
+                self._nodes_by_type.clearAndFree(alloc);
+            }
+            self._tag_set.clearAndFree(alloc);
             alloc.destroy(self._nodes_by_tag);
             alloc.destroy(self._nodes_by_type);
             alloc.destroy(self._tag_set);
