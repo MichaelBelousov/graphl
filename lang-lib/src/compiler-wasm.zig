@@ -1375,7 +1375,12 @@ const Compilation = struct {
                 }
             }
 
-            impl.appendAssumeCapacity(byn.c.BinaryenUnreachable(self.module.c()));
+            impl.appendAssumeCapacity(
+                byn.c.BinaryenReturn(
+                    self.module.c(),
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                ),
+            );
 
             // FIXME: use a buf, pretty sure binaryen just copies this, no point bloating the arena
             const name = try std.fmt.allocPrintZ(self.arena.allocator(), "__graphl_write_struct_{s}_array", .{graphl_type.name});
@@ -1886,7 +1891,6 @@ const Compilation = struct {
 
                     inline for (&binaryop_builtins) |builtin_op| {
                         if (func.value.symbol.ptr == builtin_op.sym.value.symbol.ptr) {
-                            var op: byn.Expression.Op = undefined;
 
                             if (v.items.len != 3) {
                                 self.diag.err = .{ .BuiltinWrongArity = .{
@@ -1902,7 +1906,7 @@ const Compilation = struct {
 
                             // FIXME: use a mapping to get the right type? e.g. a switch on type pointers would be nice
                             // but iirc that is broken
-                            found_op: {
+                            const op: byn.Expression.Op = _: {
                                     inline for (&.{
                                     .{ primitive_types.bool_, "UInt32", false },
                                     .{ primitive_types.i32_,  "SInt32", false },
@@ -1918,15 +1922,14 @@ const Compilation = struct {
                                         if (args_top_type == graphl_type) {
                                             const signless = @hasField(@TypeOf(builtin_op), "signless");
                                             const op_name = comptime if (signless and !is_float) builtin_op.wasm_name ++ type_byn_name[1..] else builtin_op.wasm_name ++ type_byn_name;
-                                            op = @field(byn.Expression.Op, op_name)();
+                                            break :_ @field(byn.Expression.Op, op_name)();
                                         }
                                     }
-                                    break :found_op;
                                 }
 
                                 log.err("unimplemented type resolution: '{s}' for code:\n{}\n", .{ slot.type.name, Sexp.printOneLine(self.graphlt_module, code_sexp_idx) });
                                 std.debug.panic("unimplemented type resolution: '{s}'", .{slot.type.name});
-                            }
+                            };
 
                             if (@hasField(@TypeOf(builtin_op), "result_type")) {
                                 slot.type = builtin_op.result_type;
@@ -3279,11 +3282,10 @@ const Compilation = struct {
             @intCast(graphl_meta_custom_data_json.len),
         );
 
-        _ = opts;
-        //if (opts.optimize != .none) {
+        if (opts.optimize != .none) {
             // FIXME: should at least optimize out extraneous branching?
             byn.c.BinaryenModuleOptimize(self.module.c());
-        //}
+        }
 
         if (!byn._BinaryenModuleValidateWithOpts(
             self.module.c(),
@@ -3327,8 +3329,11 @@ pub fn compile(
     defer unit.deinit();
 
     // FIXME: make optimize an option
+    // FIXME: currently some functions break without optimization because some block code
+    // I generate cannot be proven by binaryen to not be conditional
+    // (it's an unconditional block! stupid binaryen!)
     return unit.compileModule(graphlt_module, .{
-        .optimize = .none,
+        .optimize = .size,
     });
 }
 
@@ -3917,139 +3922,150 @@ test "vec3 ref" {
 
     const expected =
         \\(module
-        \\  (type (;0;) (array (mut i8)))
-        \\  (type (;1;) (func (param i32)))
-        \\  (type (;2;) (func (param i64 i32 i32) (result (ref null 0))))
-        \\  (type (;3;) (func (param i32 i32)))
-        \\  (type (;4;) (func (param (ref null 0) i32) (result i32)))
-        \\  (import "env" "callUserFunc_R_vec3" (func (;0;) (type 3)))
+        \\  (type (;0;) (struct (field (mut f64)) (field (mut f64)) (field (mut f64))))
+        \\  (type (;1;) (array (mut i8)))
+        \\  (type (;2;) (func (param (ref 0)) (result i32)))
+        \\  (type (;3;) (func (param (ref 0) i32 i32) (result i32)))
+        \\  (type (;4;) (func (result (ref 0))))
+        \\  (type (;5;) (func (param i64 (ref 0) (ref 0)) (result (ref 1))))
+        \\  (type (;6;) (func (param i32) (result (ref 0))))
+        \\  (type (;7;) (func (param (ref 1) i32) (result i32)))
+        \\  (type (;8;) (func (param (ref 1) i32 i32)))
+        \\  (type (;9;) (func (param i32) (result (ref 1))))
+        \\  (import "env" "callUserFunc_R_vec3" (func (;0;) (type 6)))
         \\  (memory (;0;) 1 256)
-        \\  (global $__gstkp (;0;) (mut i32) i32.const 5120)
         \\  (export "memory" (memory 0))
+        \\  (export "__graphl_write_struct_vec3_fields" (func $__graphl_write_struct_vec3_fields))
+        \\  (export "__graphl_write_struct_vec3_array" (func $__graphl_write_struct_vec3_array))
+        \\  (export "__graphl_read_struct_vec3_fields" (func $__graphl_read_struct_vec3_fields))
         \\  (export "processInstance" (func $processInstance))
         \\  (export "__graphl_write_array" (func $__graphl_write_array))
-        \\  (func $ModelCenter (;1;) (type 1) (param i32)
-        \\    i32.const 0
+        \\  (export "__graphl_read_array" (func $__graphl_read_array))
+        \\  (export "__graphl_create_array_string" (func $__graphl_create_array_string))
+        \\  (func $__graphl_write_struct_vec3_fields (;1;) (type 2) (param (ref 0)) (result i32)
+        \\    i32.const 1024
         \\    local.get 0
+        \\    struct.get 0 0
+        \\    f64.store align=4
+        \\    i32.const 1032
+        \\    local.get 0
+        \\    struct.get 0 1
+        \\    f64.store align=4
+        \\    i32.const 1040
+        \\    local.get 0
+        \\    struct.get 0 2
+        \\    f64.store align=4
+        \\    i32.const 0
+        \\  )
+        \\  (func $__graphl_write_struct_vec3_array (;2;) (type 3) (param (ref 0) i32 i32) (result i32)
+        \\    i32.const 0
+        \\  )
+        \\  (func $__graphl_read_struct_vec3_fields (;3;) (type 4) (result (ref 0))
+        \\    i32.const 1024
+        \\    f64.load align=4
+        \\    i32.const 1032
+        \\    f64.load align=4
+        \\    i32.const 1040
+        \\    f64.load align=4
+        \\    struct.new 0
+        \\  )
+        \\  (func $processInstance (;4;) (type 5) (param i64 (ref 0) (ref 0)) (result (ref 1))
+        \\    i32.const 0
         \\    call 0
+        \\    struct.get 0 1
+        \\    f64.const 0x1p+1 (;=2;)
+        \\    f64.gt
+        \\    if (result (ref 1)) ;; label = @1
+        \\      i32.const 0
+        \\      i32.const 9
+        \\      array.new_data 1 $s_5120
+        \\    else
+        \\      i32.const 0
+        \\      i32.const 7
+        \\      array.new_data 1 $s_5129
+        \\    end
         \\  )
-        \\  (func $processInstance (;2;) (type 2) (param i64 i32 i32) (result (ref null 0))
-        \\    (local (ref null 0) (ref null 0) (ref null 0) (ref null 0) (ref null 0) (ref null 0) (ref null 0) i32 i32 i32 i32 f64)
-        \\    block ;; label = @1
-        \\      block ;; label = @2
-        \\      end
-        \\      br 0 (;@1;)
-        \\    end
-        \\    block ;; label = @1
-        \\      block ;; label = @2
-        \\        global.get $__gstkp
-        \\        i32.const 0
-        \\        i32.add
-        \\        local.set 10
-        \\        global.get $__gstkp
-        \\        i32.const 0
-        \\        i32.add
-        \\        call $ModelCenter
-        \\      end
-        \\      br 0 (;@1;)
-        \\    end
-        \\    block ;; label = @1
-        \\      block ;; label = @2
-        \\        local.get 10
-        \\        local.set 12
-        \\        local.get 12
-        \\        i32.const 8
-        \\        i32.add
-        \\        f64.load align=4
-        \\        local.set 14
-        \\      end
-        \\      br 0 (;@1;)
-        \\    end
-        \\    block ;; label = @1
-        \\      block ;; label = @2
-        \\        i32.const 2
-        \\        local.set 13
-        \\        local.get 14
-        \\        local.get 13
-        \\        i64.extend_i32_s
-        \\        f32.convert_i64_s
-        \\        f64.promote_f32
-        \\        f64.gt
-        \\        local.set 11
-        \\      end
-        \\      local.get 11
-        \\      if ;; label = @2
-        \\        i32.const 0
-        \\        i32.const 9
-        \\        array.new_data 0 $s_5120
-        \\        local.set 7
-        \\        local.get 7
-        \\        return
-        \\      else
-        \\        i32.const 0
-        \\        i32.const 7
-        \\        array.new_data 0 $s_5129
-        \\        local.set 9
-        \\        local.get 9
-        \\        return
-        \\      end
-        \\      unreachable
-        \\    end
-        \\    unreachable
-        \\  )
-        \\  (func $__graphl_write_array (;3;) (type 4) (param (ref null 0) i32) (result i32)
+        \\  (func $__graphl_write_array (;5;) (type 7) (param (ref 1) i32) (result i32)
         \\    (local i32 i32)
-        \\    local.get 1
-        \\    local.set 3
         \\    local.get 0
         \\    array.len
-        \\    local.set 2
-        \\    local.get 3
-        \\    local.get 2
-        \\    i32.ge_u
+        \\    local.tee 3
+        \\    local.get 1
+        \\    local.tee 2
+        \\    i32.le_u
         \\    if ;; label = @1
         \\      i32.const 0
         \\      return
         \\    end
         \\    loop ;; label = @1
-        \\      i32.const 1024
-        \\      local.get 3
+        \\      local.get 2
         \\      local.get 1
         \\      i32.sub
+        \\      i32.const 1024
         \\      i32.add
         \\      local.get 0
-        \\      local.get 3
-        \\      array.get_u 0
+        \\      local.get 2
+        \\      array.get_u 1
         \\      i32.store align=1
-        \\      local.get 3
+        \\      local.get 2
         \\      i32.const 1
         \\      i32.add
-        \\      local.set 3
+        \\      local.tee 2
         \\      local.get 3
-        \\      local.get 2
         \\      i32.lt_u
         \\      br_if 0 (;@1;)
-        \\      local.get 3
-        \\      i32.const 4096
-        \\      i32.ge_u
-        \\      if ;; label = @2
-        \\        i32.const 4096
-        \\        return
-        \\      end
         \\    end
+        \\    local.get 2
+        \\    i32.const 4096
+        \\    i32.ge_u
+        \\    if ;; label = @1
+        \\      i32.const 4096
+        \\      return
+        \\    end
+        \\    local.get 2
         \\    i32.const 1024
-        \\    local.get 3
         \\    i32.add
         \\    i32.const 0
         \\    i32.store
-        \\    local.get 3
+        \\    local.get 2
         \\    local.get 1
         \\    i32.sub
-        \\    return
+        \\  )
+        \\  (func $__graphl_read_array (;6;) (type 8) (param (ref 1) i32 i32)
+        \\    (local i32 i32)
+        \\    local.get 2
+        \\    i32.const 0
+        \\    i32.gt_u
+        \\    if ;; label = @1
+        \\      loop ;; label = @2
+        \\        local.get 0
+        \\        local.get 1
+        \\        local.get 3
+        \\        i32.add
+        \\        local.tee 4
+        \\        local.get 4
+        \\        i32.const 1024
+        \\        i32.add
+        \\        i32.load8_u
+        \\        array.set 1
+        \\        local.get 3
+        \\        i32.const 1
+        \\        i32.add
+        \\        local.tee 3
+        \\        local.get 2
+        \\        i32.lt_u
+        \\        br_if 0 (;@2;)
+        \\      end
+        \\    end
+        \\  )
+        \\  (func $__graphl_create_array_string (;7;) (type 9) (param i32) (result (ref 1))
+        \\    local.get 0
+        \\    array.new_default 1
         \\  )
         \\  (data $s_5120 (;0;) "my_export")
         \\  (data $s_5129 (;1;) "EXPORT2")
         \\  (@custom "sourceMappingURL" (after data) "\07/script")
+        \\  (@custom "graphl_meta" (after data) "{\22token\22:\2263a7f259-5c6b-4206-8927-8102dc9ad34d\22,\22functions\22:[{\22name\22:\22processInstance\22,\22inputs\22:[\22u64\22,\22vec3\22,\22vec3\22],\22outputs\22:[\22string\22]}],\22types\22:[],\22host\22:{\22functions\22:[{\22name\22:\22ModelCenter\22,\22id\22:0,\22inputs\22:[],\22outputs\22:[\22vec3\22]}]}}")
         \\)
         \\
     ;
@@ -4076,7 +4092,7 @@ test "userfunc(u64, string)" {
             .name = "JavaScript-Eval",
             .inputs = try t.allocator.dupe(Pin, &.{
                 Pin{ .name = "", .kind = .{ .primitive = .exec } },
-                Pin{ .name = "elemId", .kind = .{ .primitive = .{ .value = primitive_types.u64 } } },
+                Pin{ .name = "elemId", .kind = .{ .primitive = .{ .value = primitive_types.u64_ } } },
                 Pin{ .name = "code", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
             }),
             .outputs = try t.allocator.dupe(Pin, &.{
