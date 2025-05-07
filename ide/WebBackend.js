@@ -1451,7 +1451,7 @@ export async function Ide(canvasElem, opts) {
         .then((wasmResult) => {
             ideWasm = wasmResult
             const we = wasmResult.instance.exports;
-            wasi.start(wasmResult.instance);
+            wasi.initialize(wasmResult.instance);
 
             dvui.setInstance(wasmResult.instance);
             dvui.setCanvas(canvasElem);

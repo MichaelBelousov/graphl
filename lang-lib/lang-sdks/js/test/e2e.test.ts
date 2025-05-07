@@ -2,7 +2,8 @@ let describe: import("bun:test").Describe;
 let it: import("bun:test").Test;
 import assert from "node:assert";
 
-import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../index.mts";
+//import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../index.mts";
+import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/cjs/index.js";
 
 if (typeof Bun === "undefined") {
   ({ describe, it } = (await import("node:test")) as any);

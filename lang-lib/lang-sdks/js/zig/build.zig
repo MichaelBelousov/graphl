@@ -44,7 +44,7 @@ pub fn build(b: *std.Build) void {
         // WASM needs to be compiled as exe
         lib.kind = .exe;
         lib.linkage = .static;
-        lib.entry = .disabled;
+        lib.entry = .{ .symbol_name = "_initialize" };
         lib.rdynamic = true;
         lib.wasi_exec_model = .reactor;
         lib.import_memory = true;

@@ -12,8 +12,9 @@ const getZig = () => {
             (globalThis as any)._GRAPHL_JS_NATIVE
             ? require("./js.zigar") // FIXME: I think I need require here... so maybe assert we're in node
             : await import("./zig/js.zig");
+        const inNodeJs = typeof process !== "undefined";
         // @ts-ignore
-        await imported.__zigar.init();
+        await imported.__zigar.init(inNodeJs ? require("node:wasi") : undefined);
         return imported;
     })();
 };

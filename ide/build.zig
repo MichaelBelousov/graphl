@@ -43,11 +43,7 @@ pub fn build(b: *std.Build) void {
         //.disable_compiler = true,
     });
 
-    // NOTE: must apply the ./wasi-libc.patch to your zig installation,
-    // to prevent destructors from running after the main function.
-    // Otherwise subsequent calls to the library will fail due to destroyed globals
-    // in etc binaryen
-    const exe = b.addExecutable(.{
+    const wasm = b.addSharedLibrary(.{
         .name = "dvui-frontend",
         .root_source_file = b.path("src/web.zig"),
         .target = web_target,
@@ -76,23 +72,26 @@ pub fn build(b: *std.Build) void {
     }
     ide_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
 
-    exe.linkLibC();
+    wasm.linkLibC();
 
-    exe.import_symbols = true;
-    exe.rdynamic = true; // https://github.com/ziglang/zig/issues/14139
-    exe.entry = .disabled; // FIXME: handled by wasi polyfill it seems?
+    wasm.kind = .exe;
+    wasm.import_symbols = true;
+    wasm.rdynamic = true; // https://github.com/ziglang/zig/issues/14139
+    wasm.wasi_exec_model = .reactor;
+    //wasm.entry = .{ .symbol_name = "_initialize" };
+    wasm.entry = .enabled;
 
-    exe.root_module.addImport("dvui", dvui_web_dep.module("dvui_web"));
-    exe.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
+    wasm.root_module.addImport("dvui", dvui_web_dep.module("dvui_web"));
+    wasm.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
-    const install_exe = b.addInstallArtifact(exe, .{
+    const install_wasm = b.addInstallArtifact(wasm, .{
         .dest_dir = .{ .override = .{ .custom = "bin" } },
     });
 
-    b.getInstallStep().dependOn(&install_exe.step);
+    b.getInstallStep().dependOn(&install_wasm.step);
 
     // FIXME: do I want this?
     // const cb = b.addExecutable(.{
@@ -111,7 +110,7 @@ pub fn build(b: *std.Build) void {
         const test_filter_opt = b.option([]const u8, "test_filter", "filter-for-tests");
         const test_filters = if (test_filter_opt) |test_filter| (&[_][]const u8{test_filter}) else &[_][]const u8{};
 
-        const exe_unit_tests = b.addTest(.{
+        const ide_unit_tests = b.addTest(.{
             .root_source_file = b.path("src/native.zig"),
             .target = target,
             .optimize = optimize,
@@ -120,14 +119,14 @@ pub fn build(b: *std.Build) void {
             .filters = test_filters,
         });
 
-        const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
+        const run_exe_unit_tests = b.addRunArtifact(ide_unit_tests);
 
-        exe_unit_tests.import_symbols = true;
-        exe_unit_tests.rdynamic = true; // https://github.com/ziglang/zig/issues/14139
-        exe_unit_tests.entry = .disabled;
+        ide_unit_tests.import_symbols = true;
+        ide_unit_tests.rdynamic = true; // https://github.com/ziglang/zig/issues/14139
+        ide_unit_tests.entry = .disabled;
 
-        exe_unit_tests.root_module.addImport("dvui", dvui_generic_dep.module("dvui_raylib"));
-        exe_unit_tests.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
+        ide_unit_tests.root_module.addImport("dvui", dvui_generic_dep.module("dvui_raylib"));
+        ide_unit_tests.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
 
         // Similar to creating the run step earlier, this exposes a `test` step to
         // the `zig build --help` menu, providing a way for the user to request
