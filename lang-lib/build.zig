@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
         // FIXME: using single_threaded breaks native tests somehow
         // FIXME: somehow the following check doesn't work
         //.single_threaded = target.result.cpu.arch.isWasm(),
-        .single_threaded = true
+        .single_threaded = true,
     });
 
     //const bytebox_dep = b.dependency("bytebox", .{});

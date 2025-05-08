@@ -88,6 +88,7 @@ pub const Diagnostic = struct {
         StructTooLarge: struct {
             type: Type,
         },
+        ParamCountConflict: u32,
     };
 
     const Code = error{
@@ -980,6 +981,12 @@ const Compilation = struct {
     fn finishCompileTypedFunc(self: *@This(), name: [:0]const u8, func_decl: DeferredFuncDeclInfo, func_type: DeferredFuncTypeInfo) !void {
         // NOTE: technically we can free the deferred function infos after this function
 
+        if (func_type.param_types.len != func_decl.param_names.len) {
+            // FIXME: this should have both define and typeof included
+            self.diag.err = .{ .ParamCountConflict = func_decl.define_body_idx };
+            return error.ParamCountConflict;
+        }
+
         // TODO: configure std.log.debug
         //std.log.debug("compile func: '{s}'\n", .{name});
         // now that we have func
@@ -993,6 +1000,7 @@ const Compilation = struct {
                 .outputs = try self.arena.allocator().alloc(Pin, func_type.result_types.len + 1),
             };
             slot.inputs[0] = Pin{ .name = "in", .kind = .{ .primitive = .exec } };
+
             for (slot.inputs[1..], func_decl.param_names, func_type.param_types) |*pin, pn, pt| {
                 pin.* = Pin{ .name = pn, .kind = .{ .primitive = .{ .value = pt } } };
             }
