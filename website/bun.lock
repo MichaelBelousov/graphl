@@ -9,6 +9,7 @@
         "@tsparticles/confetti": "^3.7.1",
         "@types/bun": "^1.1.14",
         "gatsby-plugin-google-gtag": "^5.14.0",
+        "gatsby-plugin-no-javascript-utils": "^0.13.1",
       },
       "devDependencies": {
         "@graphl/ide": "../../graph-lang-old/ide-prototype",
@@ -1580,6 +1581,8 @@
     "gatsby-plugin-image": ["gatsby-plugin-image@3.14.0", "", { "dependencies": { "@babel/code-frame": "^7.18.6", "@babel/parser": "^7.20.13", "@babel/runtime": "^7.20.13", "@babel/traverse": "^7.20.13", "babel-jsx-utils": "^1.1.0", "babel-plugin-remove-graphql-queries": "^5.14.0", "camelcase": "^6.3.0", "chokidar": "^3.5.3", "common-tags": "^1.8.2", "fs-extra": "^11.2.0", "gatsby-core-utils": "^4.14.0", "gatsby-plugin-utils": "^4.14.0", "objectFitPolyfill": "^2.3.5", "prop-types": "^15.8.1" }, "peerDependencies": { "@babel/core": "^7.12.3", "gatsby": "^5.0.0-next", "gatsby-plugin-sharp": "^5.0.0-next", "gatsby-source-filesystem": "^5.0.0-next", "react": "^18.0.0 || ^0.0.0", "react-dom": "^18.0.0 || ^0.0.0" }, "optionalPeers": ["gatsby-plugin-sharp", "gatsby-source-filesystem"] }, "sha512-sEHZUSb67yRu8YJSV/Otb3QboYma8YuePu88c2wyWFq4kK4Hgf1YsbQEWqj5ywg+ikRULbkR6TAtTpJ3waQGRg=="],
 
     "gatsby-plugin-manifest": ["gatsby-plugin-manifest@5.14.0", "", { "dependencies": { "@babel/runtime": "^7.20.13", "gatsby-core-utils": "^4.14.0", "gatsby-plugin-utils": "^4.14.0", "semver": "^7.5.3", "sharp": "^0.32.6" }, "peerDependencies": { "gatsby": "^5.0.0-next" } }, "sha512-ZJS+sCg8KIlXTEilInBt+kkPbGPOXX3wuRlOJiHwcou+uCmU/VZ4gif1DVazCseAbWtAdQxb3GkMlKTsGqtYiQ=="],
+
+    "gatsby-plugin-no-javascript-utils": ["gatsby-plugin-no-javascript-utils@0.13.1", "", { "peerDependencies": { "gatsby": "^2.0.0 || ^3.0.0 || ^4.0.0 || ^5.0.0" }, "optionalPeers": ["gatsby"] }, "sha512-hgB14aMgMMtkvHX5E9YTzT6xFX27kVRr9RzMOAcCYrsewmoQ17Wc4Mvu+/LA7+1UoXr9NhpGBnXmavOmeqiZ0Q=="],
 
     "gatsby-plugin-offline": ["gatsby-plugin-offline@6.14.0", "", { "dependencies": { "@babel/runtime": "^7.20.13", "cheerio": "1.0.0-rc.12", "gatsby-core-utils": "^4.14.0", "glob": "^7.2.3", "idb-keyval": "^3.2.0", "lodash": "^4.17.21", "workbox-build": "^4.3.1" }, "peerDependencies": { "gatsby": "^5.0.0-next", "react": "^18.0.0 || ^0.0.0", "react-dom": "^18.0.0 || ^0.0.0" } }, "sha512-uvQhwZ1HhPZoLJDYdZ+OTWsz/QRz3hNqF+QVhihPRZ9jjgXsPAqKGTgrWM0Btaf6DiNImz10PTo1/SRsp0UDgQ=="],
 

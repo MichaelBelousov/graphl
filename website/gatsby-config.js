@@ -4,6 +4,9 @@ const constants = require("./src/constants")
 
 /** @type {import("gatsby").GatsbyConfig} */
 module.exports = {
+  flags: {
+    DEV_SSR: true,
+  },
   siteMetadata: {
     title: constants.companyName,
     description: constants.flagshipProductName,
@@ -107,7 +110,7 @@ module.exports = {
               }));
             },
             output: "/rss.xml",
-            title: "Torakku dev blog RSS feed",
+            title: "Graphl dev blog RSS feed",
           }
         ],
       },
@@ -120,5 +123,12 @@ module.exports = {
         },
       },
     },
+    // {
+    //   resolve: `gatsby-plugin-no-javascript-utils`,
+    //   options: {
+    //     noScript: false,
+    //     removeHeadDataAttrs: true,
+    //   },
+    // }
   ],
 }
