@@ -10,11 +10,6 @@ import Modal from '../components/modal'
 
 let subscribeContainer: HTMLDivElement | undefined = undefined;
 
-if (typeof document !== "undefined") {
-  subscribeContainer = document.createElement("div");
-  document.body.append(subscribeContainer);
-}
-
 const Header = () => {
   const [subscribeOpen, setSubscribeOpen] = React.useState(false);
 
@@ -57,6 +52,14 @@ const Header = () => {
     }
   }, [subscribeOpen])
 
+
+  // FIXME: gross workaround for hydration being rejected because the rendered result isn't the same
+  React.useEffect(() => {
+    if (typeof document !== "undefined") {
+      subscribeContainer = document.getElementById("graphl-overlay") as HTMLDivElement;
+    }
+  }, []);
+
   // FIXME: place the links differently on mobile, keep them!
   return (
     <header style={{ borderBottom: "1px solid rgba(var(--body-rgb), 0.2)"}}>
@@ -69,8 +72,7 @@ const Header = () => {
           {logo}
         </div>
       )}
-      {
-      subscribeContainer && ReactDOM.createPortal(
+      {subscribeContainer && ReactDOM.createPortal(
         <Modal isOpen={subscribeOpen} setIsOpen={setSubscribeOpen}>
           <form
             className={styles.subscribeModalContent}

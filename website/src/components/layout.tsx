@@ -53,6 +53,7 @@ const Layout = ({
       </div>
       
       <Footer />
+      <div id="graphl-overlay" />
     </div>
   )
 }
