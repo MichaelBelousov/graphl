@@ -1515,6 +1515,22 @@ export async function Ide(canvasElem, opts) {
                         impl: opts.userFuncs?.[userFuncKey].impl ?? (() => {}),
                     },
                 });
+
+                // FIXME: remove this hack... the language just isn't designed for it yet...
+                for (const { pins, type } of [
+                    { pins: opts.userFuncs?.[userFuncKey].inputs ?? [], type: "input" },
+                    { pins: opts.userFuncs?.[userFuncKey].outputs ?? [], type: "output" },
+                ]) {
+                    pins.forEach((pin, i) => {
+                        if (!/^[^() \t\n]*$/.test(pin.name)) {
+                            throw Error([
+                                `Name '${pin.name}' cannot contain spaces or parentheses`,
+                                `(${type} ${i} of ${userFuncKey})`
+                            ].join('\n'))
+                        }
+                    });
+                }
+
                 optsForWasm.userFuncs[userFuncKey] = {
                     id: nextUserFuncHandle++,
                     node: {
