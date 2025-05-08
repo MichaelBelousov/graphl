@@ -384,6 +384,10 @@ pub const GraphBuilder = struct {
         return node_id;
     }
 
+    pub fn canRemoveNode(self: *@This(), id: NodeId) bool {
+        return id != self.entry_id;
+    }
+
     /// returns true if the node existed (and therefore was removed)
     pub fn removeNode(self: *@This(), id: NodeId) !bool {
         if (id == self.entry_id) return error.CantRemoveEntry;

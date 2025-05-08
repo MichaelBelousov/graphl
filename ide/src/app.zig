@@ -154,6 +154,10 @@ pub const Graph = struct {
         return self.visual_graph.removeNode(node_id);
     }
 
+    pub fn canRemoveNode(self: *@This(), node_id: graphl.NodeId) bool {
+        return self.visual_graph.canRemoveNode(node_id);
+    }
+
     pub fn addEdge(self: *@This(), a: std.mem.Allocator, start_id: graphl.NodeId, start_index: u16, end_id: graphl.NodeId, end_index: u16, end_subindex: u16) !void {
         return self.visual_graph.addEdge(a, start_id, start_index, end_id, end_index, end_subindex);
     }
@@ -380,6 +384,7 @@ pub const GraphInitState = struct {
     fixed_signature: bool = false,
     // FIXME: why make this an ArrayList if it's basically immutable?
     nodes: std.ArrayListUnmanaged(App.NodeInitState) = .{},
+    // FIXME: these pins can't have spaces in the names!
     parameters: []const graphl.Pin,
     results: []const graphl.Pin,
 };
@@ -1737,12 +1742,11 @@ fn renderNode(
         if (ctext.activePoint()) |cp| {
             var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(cp) }, .{});
             defer fw.deinit();
-            if (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal })) |_| {
+            if (self.current_graph.canRemoveNode(node.id) and (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal })) != null) {
                 if (self.current_graph.removeNode(node.id)) |removed| {
                     std.debug.assert(removed);
-                } else |err| switch (err) {
-                    error.CantRemoveEntry => {},
-                    else => return err,
+                } else |err| {
+                    return err;
                 }
             }
             // TODO: also add ability to change the type of the node?
@@ -1799,6 +1803,10 @@ pub const VisualGraph = struct {
             _ = self.node_data.remove(node_id);
         }
         return self.graph.removeNode(node_id);
+    }
+
+    pub fn canRemoveNode(self: *@This(), node_id: graphl.NodeId) bool {
+        return node_id != self.graph.entry_id;
     }
 
     pub fn addEdge(self: *@This(), a: std.mem.Allocator, start_id: graphl.NodeId, start_index: u16, end_id: graphl.NodeId, end_index: u16, end_subindex: u16) !void {
