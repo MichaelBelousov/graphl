@@ -1,1 +1,6 @@
+- carousel of users
+- video of Twin Sync Studio by Virtuart
+- better footer
+- update graphl
+- SOMETHING ELSE THAT I'M FORGETTING
 - lazy load/compress images
