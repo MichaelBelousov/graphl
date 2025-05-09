@@ -23,7 +23,8 @@ const ShinyLogo = (divProps: React.HTMLProps<HTMLDivElement>) => {
 const ShinyButton = (btnProps: React.HTMLProps<HTMLAnchorElement>) => {
   const {className, ...rest} = btnProps;
   return (
-    <a href="app" {...classNames(styles.logoAnimated, className)} {...rest}>
+    // FIXME: should I use a gatsby Link component?
+    <a href="/graphl-demo" {...classNames(styles.logoAnimated, className)} {...rest}>
       {btnProps.children}
     </a>
   );
@@ -437,7 +438,7 @@ const Homepage = () => {
       <div {...classNames(styles.blurbContainer, "center-down")}>
         <div className={styles.blurbBackground} />
         {/* TODO: wrap this in a component/function to make it readable */}
-        <div className={styles.bigText} style={{ fontSize: "2em", textAlign: "center" }}>
+        <div className={styles.bigText} style={{ fontSize: "2em", textAlign: "center", marginBottom: "0.5em" }}>
           <div style={{
             display: "flex",
             justifyContent: "center",
@@ -461,7 +462,6 @@ const Homepage = () => {
             alignItems: "center",
             fontSize: "2em",
             textDecoration: "none",
-            marginTop: "1em",
             height: "0.75em",
             paddingTop: "15px",
           }}

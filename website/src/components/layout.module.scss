@@ -95,9 +95,8 @@ hr {
   background-repeat: repeat;
   background-position-y: 8px;
   //background-attachment: fixed;
-  // FIXME:
-  //$headerHeight: 72px;
-  //$footerMaxHeight: 120px;
+  $headerHeight: 72px;
+  $footerMaxHeight: 120px;
   //min-height: calc(100vh - $headerHeight - $footerMaxHeight);
 }
 

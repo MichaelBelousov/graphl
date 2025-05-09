@@ -34,8 +34,7 @@ function SEO(props: SEO.Props) {
 
   const metaDescription = description || site.siteMetadata.description
 
-  const titleTemplate =
-    site.siteMetaData.title === title
+  const titleTemplate = site.siteMetadata.title === title
       ? '%s'
       : `%s | ${site.siteMetadata.title}`;
 

@@ -1,16 +1,8 @@
 import React from 'react'
 import Layout from '../components/layout'
-import * as styles from '../components/header.module.scss';
 import "../shared.css";
-import * as constants from "../constants";
-import { classNames } from '../react-utils';
-import { useIsMobileLike } from '../useIsMobileLike';
 
 const Homepage = () => {
-  const [emailInput, setEmailInput] = React.useState("");
-
-  const emailInputRef = React.useRef<HTMLInputElement>(null);
-
   // TODO: add blurbs to each canvas example
   return (
     <Layout pageTitle="Twin Sync Studio" pageDesc="The ultimate iTwin/Synchro->Unreal tool">
@@ -28,22 +20,13 @@ const Homepage = () => {
             give you some test files
           </li>
           <li><a href="https://youtu.be/Rlr3CetZ6dQ?si=hyuWOgPsTcqLzALI" target="_blank">Tutorial video</a></li>
-          <li>Only known to work in Unreal Engine versions 5.0.3 through 5.3.2,
+          <li>You cannot use the level sequence-based animation mode in Unreal Engine 5.4 or 5.5, as those versions contain
+            a bug in their Unreal importer.
             <br/>
-            later Unreal Engine versions have a bug in the level sequence importer, which I have already reported
+            Luckily, that is not the default animation mode so you can mostly ignore this.
           </li>
-          <li>If you are not on Unreal Engine version 5.3.2, you will need Visual Studio build tools installed to compile the plugin yourself</li>
-          <li>
-            Currently you can only combine everything or nothing. Combining everything may overrun UE's 2GB static mesh asset limit so that
-            may fail. Typically combining is more performant and runs better on older hardware, if you are under that 2GB limit. In the future
-            you will be able to choose which instances are combined/merged and which aren't, to prevent hitting that limit.
-          </li>
-          <li>Appearance profiles/color animation doesn't work unless you use the "combined" export, this will be fixed in future versions</li>
+          <li>If you are not on Unreal Engine version 5.3.2, you will need Visual Studio build tools installed to recompile the plugin yourself</li>
           <li>Submit your email below to get an access token and download link within 48 hours</li>
-          <li>
-            The demo is not yet code-signed, so Windows will warn you and you need to bypass that.
-            If you want to verify your download, the md5 hash of the installer is <code><pre>fbe73fbdd1a104948463a2f3aa92d8b4</pre></code>
-          </li>
           <li>There are known bugs! But submit any you find in the Graphl help menu or by email</li>
           <li>
             Your access token will permit you to install the demo on a maximum of one machine.

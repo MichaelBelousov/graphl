@@ -9,7 +9,7 @@ module.exports = {
   },
   siteMetadata: {
     title: constants.companyShortName,
-    description: constants.flagshipProductName,
+    description: `A visual programming software company`,
     author: constants.companyShortName,
     siteUrl: `https://graphl.tech`,
     image: `./src/images/GraphlAnimation.inline.svg`,

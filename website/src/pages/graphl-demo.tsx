@@ -2,7 +2,7 @@ import React from 'react'
 import "../shared.css";
 import * as graphl from "@graphl/ide";
 import SEO from '../components/seo';
-import "./app.css";
+import "./graphl-demo.css";
 import { confetti } from "@tsparticles/confetti";
 
 const customNodes: Record<string, graphl.JsFunctionBinding> = {
