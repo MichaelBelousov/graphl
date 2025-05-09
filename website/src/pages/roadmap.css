@@ -1,0 +1,31 @@
+.itue-roadmap {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  justify-content: center;
+  align-items: center;
+}
+
+.itue-roadmap-milestone {
+  border-radius: 24px;
+  background-color: var(--background);
+  border: 1px solid var(--body);
+  width: 360px;
+  padding: 24px;
+}
+
+.itue-roadmap-road-vert {
+  width: 6px;
+  background-color: var(--body);
+  height: 32px;
+}
+
+/* FIXME: move to separate page */
+
+.itue-page-twin-sync-studio > * > main > section {
+  margin-top: 1in;
+}
+
+.itue-page-twin-sync-studio > * > main > section > h2 {
+  margin-bottom: 0.25in;
+}
