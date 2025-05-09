@@ -68,8 +68,9 @@ const Header = () => {
           {logo} {links}
         </div>
       ) : (
-        <div className={"center"} style={{ paddingTop: "50px"}}>
+        <div className={"center"} style={{ padding: "12px", flexDirection: "column" }}>
           {logo}
+          {links}
         </div>
       )}
       {subscribeContainer && ReactDOM.createPortal(

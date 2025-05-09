@@ -45,7 +45,8 @@ const Homepage = () => {
 
       <p style={{ textAlign: "center" }}>
         Questions?
-        Reach out to Mike at <a href={`mailto:mike@graphl.tech`}>mike@graphl.tech</a>
+        <br />
+        Shoot us an <a href={`mailto:mike@graphl.tech`}>email</a>
       </p>
 
     </Layout>
