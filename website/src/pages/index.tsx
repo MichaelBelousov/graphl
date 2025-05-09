@@ -10,7 +10,7 @@ import { classNames } from '../react-utils';
 const Homepage = () => {
   return (
     <Layout pageTitle="Graphl Technologies" pageDesc="Graphl Technologies builds true visual programming for all">
-      <p style={{ textAlign: "center" }}>
+      <div style={{ textAlign: "center" }}>
         <div
           className={styles.bigText}
           style={{
@@ -27,7 +27,7 @@ const Homepage = () => {
           {constants.companyShortName}
         </div>
         is a provider of no-code solutions in generic and construction software.
-      </p>
+      </div>
 
       <p>
         As part of building domain solutions like <Link to="/twin-sync-studio">Twin Sync Studio</Link> for
