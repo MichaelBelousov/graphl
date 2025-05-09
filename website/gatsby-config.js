@@ -8,9 +8,9 @@ module.exports = {
     DEV_SSR: true,
   },
   siteMetadata: {
-    title: constants.companyName,
+    title: constants.companyShortName,
     description: constants.flagshipProductName,
-    author: constants.companyName,
+    author: constants.companyShortName,
     siteUrl: `https://graphl.tech`,
     image: `./src/images/GraphlAnimation.inline.svg`,
   },

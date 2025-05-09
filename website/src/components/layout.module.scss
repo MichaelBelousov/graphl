@@ -88,11 +88,17 @@ hr {
 }
 
 .layoutMiddle {
+  padding-left: 0.5in;
+  padding-right: 0.5in;
   padding-top: 0.5in;
   background-image: url("../images/grid-cross.png");
   background-repeat: repeat;
   background-position-y: 8px;
   //background-attachment: fixed;
+  // FIXME:
+  //$headerHeight: 72px;
+  //$footerMaxHeight: 120px;
+  //min-height: calc(100vh - $headerHeight - $footerMaxHeight);
 }
 
 .layoutContainer > :not(:last-child):not(:first-child) {

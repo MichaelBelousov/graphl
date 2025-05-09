@@ -17,18 +17,18 @@ const Header = () => {
     <div className={styles.left}>
       {/* FIXME: make svg logo */}
       <Link className={`${styles.navLink} ${styles.logo}`} to="/">
-        <Logo height="1.5em" width="1.5em" /> {constants.flagshipProductName}
+        <Logo height="1.5em" width="1.5em" /> {constants.companyShortName}
       </Link>
     </div>
   );
 
   const links = (
     <nav className={styles.right}>
-      <Link className={styles.navLink} to="/app">try it</Link>
-      <Link className={styles.navLink} to="/faqs">FAQs</Link>
+      <Link className={styles.navLink} to="/twin-sync-studio">Twin Sync Studio</Link>
+      <Link className={styles.navLink} to="/graphl-lang">Graphl</Link>
       {/* <Link className={styles.navLink} to="/apps">Apps</Link> */}
       {/* TODO: blog <Link className={styles.navLink} to="/blog/HowICameUpWithGraphl">blog</Link>*/}
-      <Link className={styles.navLink} to="/blog/docs">docs</Link>
+      {/* <Link className={styles.navLink} to="/blog/docs">docs</Link> */}
       <a
         {...classNames(styles.navLink, styles.subButton)}
         onClick={() => {

@@ -28,7 +28,7 @@ const Footer = () => (
         <Link replace={false} to="/blog/docs">docs</Link>
       </div>
     </div>
-    <span>&copy; {new Date().getFullYear()} {constants.companyName}</span>
+    <span>&copy; {new Date().getFullYear()} {constants.companyFullName}</span>
   </footer>
 );
 
@@ -38,10 +38,11 @@ const Layout = ({
   children,
 }: React.PropsWithChildren<LayoutProps>) => {
 
-  React.useLayoutEffect(() => {
-    // HACK! restore overflow handling after using app page
-    document.body.style.overflow = "initial";
-  }, []);
+  // FIXME: restore? fix?
+  // React.useLayoutEffect(() => {
+  //   // HACK! restore overflow handling after using app page
+  //   document.body.style.overflow = "initial";
+  // }, []);
 
   return (
     // NEXT: add links to footer
