@@ -80,9 +80,29 @@ fn funcSourceToGraph(
         }
     }
 
-    const result_type_name = mod.get(type_sexp.value.list.items[2]).value.symbol;
-    const result_type = env.getType(result_type_name) orelse unreachable;
-    graph.graphl_graph.result_node_basic_desc.inputs[1].kind.primitive.value = result_type;
+    const result_type = mod.get(type_sexp.value.list.items[2]);
+    const result_types_count: usize = switch (result_type.value) {
+        .list, .module => |v| v.items.len,
+        .symbol => 1,
+        else => return error.InvalidReturnTypeSyntax,
+    };
+    const result_types_idxs = switch (result_type.value) {
+        .list, .module => |v| v.items,
+        .symbol => &.{type_sexp.value.list.items[2]},
+        else => unreachable,
+    };
+
+    // FIXME: make the owner/lifetime of this easier to understand
+    graph.graphl_graph.result_node_basic_desc.inputs = try a.realloc(graph.graphl_graph.result_node_basic_desc.inputs, 1 + result_types_count);
+    for (
+        graph.graphl_graph.result_node_basic_desc.inputs[1..],
+        result_types_idxs,
+    ) |*input, result_type_idx| {
+        const result_subtype_name = mod.get(result_type_idx).value.symbol;
+        const result_subtype = env.getType(result_subtype_name) orelse unreachable;
+        // FIXME: for name slice into a preallocated list of number strings
+        input.* = .{ .name = "", .kind = .{ .primitive = .{ .value = result_subtype } } };
+    }
 
     const definition = mod.get(impl_sexp.value.list.items[2]);
     assert(definition.value.list.items.len >= 2);
@@ -233,6 +253,17 @@ fn sexpToGraphs(a: std.mem.Allocator, app: *App, mod_ctx: *const ModuleContext, 
     var maybe_prev_typeof: ?u32 = null;
     for (mod_ctx.getRoot().body().items) |top_level_idx| {
         const top_level = mod_ctx.get(top_level_idx);
+        if (top_level.body().items.len == 0)
+            return error.BadTopLevelForm;
+        const callee_idx = top_level.body().items[0];
+        const callee = mod_ctx.get(callee_idx);
+
+        if (callee.value.symbol.ptr == syms.import.value.symbol.ptr)
+            continue;
+
+        if (callee.value.symbol.ptr == syms.meta.value.symbol.ptr)
+            continue;
+
         assert(top_level.value == .list);
         assert(top_level.value.list.items.len == 3);
         if (maybe_prev_typeof) |prev_typeof| {
