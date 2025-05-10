@@ -948,6 +948,10 @@ export function Ide(canvasElem, opts) {
             // if the canvas changed size, adjust the backing buffer
             const w = gl.canvas.clientWidth;
             const h = gl.canvas.clientHeight;
+            if (w === 0 || h === 0) {
+                return;
+            }
+            
             const scale = window.devicePixelRatio;
             //console.log("wxh " + w + "x" + h + " scale " + scale);
             gl.canvas.width = Math.round(w * scale);
