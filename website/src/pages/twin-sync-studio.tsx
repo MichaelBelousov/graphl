@@ -9,6 +9,23 @@ const Homepage = () => {
     <Layout pageTitle="Twin Sync Studio" pageDesc="The ultimate iTwin/Synchro->Unreal tool" className="itue-page-twin-sync-studio">
       <h1 style={{ textAlign: "center" }}> Twin Sync Studio </h1>
 
+      <div className="center" style={{ flexDirection: "column" }}>
+        <iframe
+          width="720"
+          height="480"
+          src="https://www.youtube.com/embed/NqdFArBRI68?si=cUX3qFzpxGMpv-Db"
+          title="YouTube video player"
+          frameBorder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerPolicy="strict-origin-when-cross-origin"
+          allowFullScreen
+        />
+        <p>
+          Credits for the Video go to <a href="https://virtuart4d.com/">Virtuart4d</a>,
+          using Twin Sync Studio.
+        </p>
+      </div>
+
       <section>
         <h2 style={{ textAlign: "center" }}> Early Access Demo </h2>
 
@@ -16,12 +33,9 @@ const Homepage = () => {
           <a href="https://docs.google.com/forms/d/e/1FAIpQLSclHFJbbGW5nGmvV23oECXTfXuy12lmIgSoHbKx9RFLWToo7A/viewform">Request the demo</a>
         </div>
 
-        <br />
-        <hr />
-
         <p>
           <ul>
-            <li>Submit your email below to get an access token and download link within 48 hours</li>
+            <li>Submit your email at the link right above to get an access token and download link within 48 hours</li>
             <li>
               Your access token will permit you to install the demo on a maximum of one machine.
               Please respond to your first email if you have a reason to install the demo on another
@@ -34,16 +48,15 @@ const Homepage = () => {
             </li>
             <li><a href="https://www.youtube.com/playlist?list=PLsEXIlgQ46lsJEkd6glrD7HDPrcx95YbO" target="_blank">Tutorial videos</a></li>
             <li>
-              You cannot use the level sequence-based animation mode in Unreal Engine 5.4 or 5.5, as those versions contain
-              a bug in their Unreal importer.
+              You cannot use the level sequence-based animation mode in Unreal Engine 5.4 or 5.5, as those versions of Unreal contain
+              a bug in Datasmith.
               <br/>
-              Luckily, that is not the default animation mode so you can mostly ignore this
+              Luckily, that is not the default animation mode used by Twin Sync Studio, so you can probably ignore this
             </li>
             <li>If you are not on Unreal Engine version 5.3.2, you will need Visual Studio build tools installed to recompile the plugin yourself</li>
-            <li>There are known bugs! But submit any you find in the Graphl help menu or by email</li>
             <li>Follow <a href="https://www.linkedin.com/company/graphl-technologies/about">our LinkedIn page</a> for updates
             </li>
-            <li><a href="mailto:mike@graphl.tech">Contact us</a> for help</li>
+            <li><a href="mailto:mike@graphl.tech">Contact us</a> for help or if you run into any issues</li>
           </ul>
         </p>
 

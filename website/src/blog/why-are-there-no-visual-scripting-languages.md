@@ -13,6 +13,9 @@ Here is a sample of some different visual scripting systems, some you may have h
 - [Grasshopper](https://www.grasshopper3d.com/page/tutorials-1)
 - [unit](https://unit.software)
 - [nodezator](https://github.com/IndiePython/nodezator)
+- n8n
+- flyde
+- zapier
 - every no-code workflow engine ever
 
 And they don't suck, but honestly, I think some parts might suck... kinda.
