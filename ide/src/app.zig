@@ -34,8 +34,16 @@ extern fn onClickReportIssue() void;
 // }){} else std.heap.c_allocator;
 
 // FIXME: add a frame arena
-// FIXME: use raw_c_allocator for frame arena
+// FIXME: use raw_c_allocator for arenas!
 pub const gpa = std.heap.c_allocator;
+
+const SelectionSet = std.AutoHashMapUnmanaged(graphl.NodeId, void);
+
+// FIXME: would be cooler to copy selected nodes out to graphl
+pub fn nodesToJson(a: std.mem.Allocator, selection: *SelectionSet) []const u8 {
+    _ = a;
+    _ = selection;
+}
 
 pub const Graph = struct {
     index: u16,
@@ -54,7 +62,7 @@ pub const Graph = struct {
     visual_graph: VisualGraph,
 
     // TODO: make it possible to copy the selection as Sexp
-    selection: std.AutoHashMapUnmanaged(graphl.NodeId, void) = .empty,
+    selection: SelectionSet = .empty,
 
     // FIXME: why is this separate from self.graphl_graph.env
     env: graphl.Env,
