@@ -54,6 +54,8 @@ pub const Graph = struct {
     // FIXME: merge with visual graph
     visual_graph: VisualGraph,
 
+    selection: std.AutoHashMapUnmanaged(graphl.NodeId, void) = .empty,
+
     // FIXME: why is this separate from self.graphl_graph.env
     env: graphl.Env,
     app: *App,
@@ -1083,6 +1085,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
                     e.handled = true;
                     dvui.captureMouse(graph_area.scroll.data());
                     dvui.dragPreStart(me.p, .{});
+                    self.current_graph.selection.clearRetainingCapacity();
                 } else if (me.action == .release and me.button.pointer()) {
                     if (dvui.captured(graph_area.scroll.data().id)) {
                         e.handled = true;
@@ -1110,6 +1113,16 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
                     if (zs != 1.0) {
                         zoom *= zs;
                         zoomP = me.p;
+                    }
+                }
+            },
+            .key => |ke| {
+                if (ke.action == .up and ke.code == .delete) {
+                    var selected_iter = self.current_graph.selection.iterator();
+                    while (selected_iter.next()) |selected_single| {
+                        std.debug.assert(
+                            self.current_graph.removeNode(selected_single.key_ptr.*) catch continue
+                        );
                     }
                 }
             },
@@ -1322,6 +1335,8 @@ fn renderNode(
     }
     const position: *dvui.Point = &viz_data.position_override.?;
 
+    const is_selected = self.current_graph.selection.contains(node.id);
+
     const box = try dvui.box(
         @src(),
         .vertical,
@@ -1335,9 +1350,13 @@ fn renderNode(
             .margin = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
             .padding = .{ .h = 5, .w = 5, .x = 5, .y = 5 },
             .background = true,
-            .border = .{ .h = 1, .w = 1, .x = 1, .y = 1 },
+            .border = if (is_selected) .{ .h = 2, .w = 2, .x = 2, .y = 2 }
+                else .{ .h = 1, .w = 1, .x = 1, .y = 1 },
             .corner_radius = Rect.all(8),
-            .color_border = .{ .color = dvui.Color.black },
+            .color_border = .{
+                .color = if (is_selected) dvui.Color{ .r = 0x44, .g = 0x44, .b = 0xff }
+                    else dvui.Color.black,
+            },
             //.max_size_content = dvui.Size{ .w = 300, .h = 600 },
         },
     );
@@ -1700,19 +1719,18 @@ fn renderNode(
                         const offset = me.p.diff(box.data().rectScale().r.topLeft()); // pixel offset from box corner
                         dvui.dragPreStart(me.p, .{ .offset = offset });
                         dvui.cursorSet(.hand);
+                        if (!ctrl_down) {
+                            self.current_graph.selection.clearRetainingCapacity();
+                        }
+                        try self.current_graph.selection.put(gpa, node.id, {});
+                        //
                     } else if (me.action == .release and me.button.pointer()) {
-                        if (ctrl_down) {
-                            if (self.current_graph.removeNode(node.id)) |removed| {
-                                std.debug.assert(removed);
-                            } else |err| switch (err) {
-                                error.CantRemoveEntry => {},
-                                else => return err,
-                            }
-                        } else if (dvui.captured(box.data().id)) {
+                        if (dvui.captured(box.data().id)) {
                             e.handled = true;
                             dvui.captureMouse(null);
                             dvui.dragEnd();
                         }
+                        //
                     } else if (me.action == .motion) {
                         if (dvui.captured(box.data().id)) {
                             if (dvui.dragging(me.p)) |_| {
@@ -1739,19 +1757,31 @@ fn renderNode(
 
     {
         const ctext = try dvui.context(@src(), .{ .rect = result }, .{ .expand = .both });
+        defer ctext.deinit();
+
         if (ctext.activePoint()) |cp| {
             var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(cp) }, .{});
             defer fw.deinit();
-            if (self.current_graph.canRemoveNode(node.id) and (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal })) != null) {
+
+            if (self.current_graph.canRemoveNode(node.id) //
+            and (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal })) != null) {
                 if (self.current_graph.removeNode(node.id)) |removed| {
                     std.debug.assert(removed);
                 } else |err| {
                     return err;
                 }
             }
+
+            if (try dvui.menuItemLabel(@src(), "Delete nodes", .{}, .{ .expand = .horizontal }) != null) {
+                var selected_iter = self.current_graph.selection.iterator();
+                while (selected_iter.next()) |selected_single| {
+                    std.debug.assert(
+                        self.current_graph.removeNode(selected_single.key_ptr.*) catch continue
+                    );
+                }
+            }
             // TODO: also add ability to change the type of the node?
         }
-        defer ctext.deinit();
     }
 
     return result;
