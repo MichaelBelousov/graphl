@@ -54,6 +54,7 @@ pub const Graph = struct {
     // FIXME: merge with visual graph
     visual_graph: VisualGraph,
 
+    // TODO: make it possible to copy the selection as Sexp
     selection: std.AutoHashMapUnmanaged(graphl.NodeId, void) = .empty,
 
     // FIXME: why is this separate from self.graphl_graph.env
