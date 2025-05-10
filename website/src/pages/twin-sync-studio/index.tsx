@@ -1,21 +1,9 @@
 import React from 'react'
-import Layout from '../components/layout'
-import "../shared.css";
-import "./roadmap.css";
-import { classNames } from '../react-utils';
-
-const InPageLink = (props: { slug: string } & React.HTMLProps<HTMLAnchorElement> & React.PropsWithChildren<{}>) => {
-  return (
-    <a
-      {...props}
-      href={`#${props.slug}`}
-      id={props.slug}
-      {...classNames("in-page-link", props.className)}
-    >
-      {props.children}
-    </a>
-  );
-};
+import Layout from '../../components/layout'
+import "../../shared.css";
+// TODO: move roadmap into this dir
+import "../roadmap.css";
+import { InPageLink } from '../../components/InPageLink';
 
 const Homepage = () => {
   // TODO: add blurbs to each canvas example

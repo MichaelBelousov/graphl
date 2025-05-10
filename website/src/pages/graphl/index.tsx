@@ -1,11 +1,11 @@
 import React from 'react'
-import Layout from '../components/layout'
-import "../shared.css";
-import * as styles from "./index.module.scss";
-import * as constants from "../constants";
-import { classNames } from '../react-utils';
+import Layout from '../../components/layout'
+import "../../shared.css";
+import * as styles from "../index.module.scss";
+import * as constants from "../../constants";
+import { classNames } from '../../react-utils';
 import type * as Graphl from "@graphl/ide";
-import Logo from "../images/GraphlAnimation.inline.svg";
+import Logo from "../../images/GraphlAnimation.inline.svg";
 import { confetti } from '@tsparticles/confetti';
 
 // unbundled cuz stupid webpack
@@ -24,7 +24,7 @@ const ShinyButton = (btnProps: React.HTMLProps<HTMLAnchorElement>) => {
   const {className, ...rest} = btnProps;
   return (
     // FIXME: should I use a gatsby Link component?
-    <a href="/graphl-demo" {...classNames(styles.logoAnimated, className)} {...rest}>
+    <a href="/graphl/demo" {...classNames(styles.logoAnimated, className)} {...rest}>
       {btnProps.children}
     </a>
   );

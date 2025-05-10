@@ -1,8 +1,8 @@
 import React from 'react'
-import "../shared.css";
+import "../../shared.css";
 import * as graphl from "@graphl/ide";
-import SEO from '../components/seo';
-import "./graphl-demo.css";
+import SEO from '../../components/seo';
+import "./demo.css";
 import { confetti } from "@tsparticles/confetti";
 
 const customNodes: Record<string, graphl.JsFunctionBinding> = {

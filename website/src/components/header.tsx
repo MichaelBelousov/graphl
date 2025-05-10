@@ -25,7 +25,7 @@ const Header = () => {
   const links = (
     <nav className={styles.right}>
       <Link className={styles.navLink} to="/twin-sync-studio">Twin Sync Studio</Link>
-      <Link className={styles.navLink} to="/graphl-lang">Graphl</Link>
+      <Link className={styles.navLink} to="/graphl">Graphl</Link>
       {/* <Link className={styles.navLink} to="/apps">Apps</Link> */}
       {/* TODO: blog <Link className={styles.navLink} to="/blog/HowICameUpWithGraphl">blog</Link>*/}
       {/* <Link className={styles.navLink} to="/blog/docs">docs</Link> */}

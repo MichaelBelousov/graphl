@@ -5,7 +5,6 @@ import * as styles from "./index.module.scss";
 import { Link } from 'gatsby';
 import * as constants from "../constants";
 import Logo from "../images/GraphlAnimation.inline.svg";
-import { classNames } from '../react-utils';
 
 const Homepage = () => {
   return (
