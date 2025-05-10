@@ -70,3 +70,13 @@
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(256, 100, 10, 0.8);
 }
+
+.in-page-link,
+.in-page-link:visited {
+  text-decoration: none;
+  color: var(--body);
+}
+
+.in-page-link:hover {
+  text-decoration: underline;
+}

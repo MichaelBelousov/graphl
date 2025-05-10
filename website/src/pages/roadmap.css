@@ -24,6 +24,21 @@
   width: 6px;
   background-color: var(--body);
   height: 32px;
+  position: relative;
+}
+
+.itue-roadmap-road-vert::after {
+  content: "";
+  left: -9px;
+  position: absolute;
+  bottom: -4px;
+
+  width: 0; 
+  height: 0; 
+  border-left: 12px solid transparent;
+  border-right: 12px solid transparent;
+  
+  border-top: 12px solid var(--body);
 }
 
 /* FIXME: move to separate page */

@@ -2,6 +2,20 @@ import React from 'react'
 import Layout from '../components/layout'
 import "../shared.css";
 import "./roadmap.css";
+import { classNames } from '../react-utils';
+
+const InPageLink = (props: { slug: string } & React.HTMLProps<HTMLAnchorElement> & React.PropsWithChildren<{}>) => {
+  return (
+    <a
+      {...props}
+      href={`#${props.slug}`}
+      id={props.slug}
+      {...classNames("in-page-link", props.className)}
+    >
+      {props.children}
+    </a>
+  );
+};
 
 const Homepage = () => {
   // TODO: add blurbs to each canvas example
@@ -21,13 +35,13 @@ const Homepage = () => {
           allowFullScreen
         />
         <p>
-          Credits for the Video go to <a href="https://virtuart4d.com/">Virtuart4d</a>,
-          using Twin Sync Studio.
+          Video shown with permission from <a href="https://virtuart4d.com/">Virtuart4d</a>,
+          using Twin Sync Studio
         </p>
       </div>
 
       <section>
-        <h2 style={{ textAlign: "center" }}> Early Access Demo </h2>
+        <InPageLink slug="early-access-demo"><h2 style={{ textAlign: "center" }}> Early Access Demo </h2></InPageLink>
 
         <div style={{ textAlign: "center" }}>
           <a href="https://docs.google.com/forms/d/e/1FAIpQLSclHFJbbGW5nGmvV23oECXTfXuy12lmIgSoHbKx9RFLWToo7A/viewform">Request the demo</a>
@@ -63,13 +77,13 @@ const Homepage = () => {
       </section>
 
       <section>
-        <h2 style={{ textAlign: "center" }}> Roadmap </h2>
+        <InPageLink slug="roadmap"><h2 style={{ textAlign: "center" }}> Roadmap </h2></InPageLink>
 
         <div className="itue-roadmap">
           <div className="itue-roadmap-milestone">
             <h4>June 2025</h4>
             <ul>
-              <li>Pro version and support plan finalization</li>
+              <li>Pro version and support plan release</li>
               <li>Reusable automation scripts for filtering and material mapping</li>
             </ul>
           </div>
@@ -89,8 +103,8 @@ const Homepage = () => {
           <div className="itue-roadmap-milestone">
             <h4>2025 Q4</h4>
             <ul>
-              <li>Access model properties (iTwin, Synchro, source) in Unreal Engine</li>
-              <li>Access some Synchro schedule data</li>
+              <li>AI-driven script generation</li>
+              <li>Tools for working with huge models</li>
             </ul>
           </div>
         </div>
@@ -98,12 +112,14 @@ const Homepage = () => {
 
 
       <section>
-        <h2 style={{ textAlign: "center" }}> Pricing </h2>
+        <InPageLink slug="roadmap"><h2 style={{ textAlign: "center" }}> Pricing </h2></InPageLink>
 
         <p>
           A standard pricing model is being worked out and will be set and detailed here by July 2025.
           If you have any questions, please <a href="mailto:mike@graphl.tech">contact us</a>.
         </p>
+        <br/>
+        <br/>
       </section>
     </Layout>
   );
