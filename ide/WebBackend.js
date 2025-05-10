@@ -1375,17 +1375,8 @@ export async function Ide(canvasElem, opts) {
                 });
             },
 
+            // FIXME: remove
             onRequestLoadSource() {
-                uploadFile({ type: "text" }).then((file) => {
-                    const len = file.content.length;
-                    const ptr = ideWasm.instance.exports.transfer_buffer;
-                    const buffer = () => new Uint8Array(ideWasm.instance.exports.memory.buffer, ptr, len);
-                    {
-                        const write = utf8encoder.encodeInto(file.content, buffer());
-                        assert(write.written === len, `failed to write file to transfer buffer`);
-                    }
-                    return ideWasm.instance.exports.onReceiveLoadedSource(ptr, len)
-                });
             },
 
             /**
@@ -1471,6 +1462,48 @@ export async function Ide(canvasElem, opts) {
             }
 
             const defaultMenus = [
+                {
+                    name: "File",
+                    submenus: [
+                        {
+                            name: "Open",
+                            async onClick() {
+                                const file = await uploadFile({ type: "text" });
+                                const len = file.content.length;
+                                const ptr = ideWasm.instance.exports.transfer_buffer;
+                                // FIXME: bad memory limit, add an exported allocator interface
+                                const buffer = () => new Uint8Array(ideWasm.instance.exports.memory.buffer, ptr, len);
+                                {
+                                    const write = utf8encoder.encodeInto(file.content, buffer());
+                                    assert(write.written === len, `failed to write file to transfer buffer`);
+                                }
+                                return ideWasm.instance.exports.onReceiveLoadedSource(ptr, len)
+                            },
+                        },
+                        {
+                            name: "Save",
+                            async onClick() {
+                                /** @type {Awaited<ReturnType<typeof result["compile"]>>} */
+                                const graphlt = await result.exportGraphlt();
+                                downloadFile({
+                                    content: graphlt,
+                                    fileName: "project.gr",
+                                });
+                            },
+                        },
+                        {
+                            name: "Export to wasm",
+                            async onClick() {
+                                /** @type {Awaited<ReturnType<typeof result["compile"]>>} */
+                                const wasm = await result.exportWasm();
+                                downloadFile({
+                                    content: wasm,
+                                    fileName: "project.wasm",
+                                });
+                            },
+                        },
+                    ],
+                },
                 {
                     name: "Build",
                     submenus: [
