@@ -23,7 +23,6 @@ const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 const MAX_FUNC_NAME = 256;
 
 // FIXME: these need to have the App instance as an argument
-extern fn onRequestLoadSource() void;
 extern fn onClickReportIssue() void;
 
 // // FIXME: should use the new std.heap.SmpAllocator in release mode off wasm
