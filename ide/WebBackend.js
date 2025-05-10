@@ -1042,8 +1042,6 @@ class Dvui {
             // if the canvas changed size, adjust the backing buffer
             const w = this.gl.canvas.clientWidth;
             const h = this.gl.canvas.clientHeight;
-            //
-            // FIXME: report this to DVUI team
             if (w === 0 || h === 0) {
                 return;
             }
