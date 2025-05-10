@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title><![CDATA[Graphl dev blog RSS feed]]></title><description><![CDATA[A visual programming software company]]></description><link>https://graphl.tech</link><generator>GatsbyJS</generator><lastBuildDate>Fri, 09 May 2025 03:38:16 GMT</lastBuildDate><item><title><![CDATA[Why do visual scripting languages suck?]]></title><description><![CDATA[Why are there no very popular visual scripting languages? This is a trick question... there are plenty!
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title><![CDATA[Graphl dev blog RSS feed]]></title><description><![CDATA[A visual programming software company]]></description><link>https://graphl.tech</link><generator>GatsbyJS</generator><lastBuildDate>Sat, 10 May 2025 01:10:03 GMT</lastBuildDate><item><title><![CDATA[Why do visual scripting languages suck?]]></title><description><![CDATA[Why are there no very popular visual scripting languages? This is a trick question... there are plenty!
 Here is a sample of some different…]]></description><link>https://graphl.tech/blog/why-are-there-no-visual-scripting-languages/</link><guid isPermaLink="false">https://graphl.tech/blog/why-are-there-no-visual-scripting-languages/</guid><pubDate>Wed, 01 Jan 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Why are there no very popular visual scripting languages? This is a trick question... there are plenty!
 Here is a sample of some different visual scripting systems, some you may have heard of:&lt;/p&gt;
 &lt;ul&gt;
@@ -8,6 +8,9 @@ Here is a sample of some different visual scripting systems, some you may have h
 &lt;li&gt;&lt;a href=&quot;https://www.grasshopper3d.com/page/tutorials-1&quot;&gt;Grasshopper&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a href=&quot;https://unit.software&quot;&gt;unit&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a href=&quot;https://github.com/IndiePython/nodezator&quot;&gt;nodezator&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;n8n&lt;/li&gt;
+&lt;li&gt;flyde&lt;/li&gt;
+&lt;li&gt;zapier&lt;/li&gt;
 &lt;li&gt;every no-code workflow engine ever&lt;/li&gt;
 &lt;/ul&gt;
 &lt;p&gt;And they don&apos;t suck, but honestly, I think some parts might suck... kinda.
