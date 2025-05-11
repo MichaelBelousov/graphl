@@ -1,143 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title><![CDATA[Graphl dev blog RSS feed]]></title><description><![CDATA[A visual programming software company]]></description><link>https://graphl.tech</link><generator>GatsbyJS</generator><lastBuildDate>Sat, 10 May 2025 01:10:03 GMT</lastBuildDate><item><title><![CDATA[Why do visual scripting languages suck?]]></title><description><![CDATA[Why are there no very popular visual scripting languages? This is a trick question... there are plenty!
-Here is a sample of some different…]]></description><link>https://graphl.tech/blog/why-are-there-no-visual-scripting-languages/</link><guid isPermaLink="false">https://graphl.tech/blog/why-are-there-no-visual-scripting-languages/</guid><pubDate>Wed, 01 Jan 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Why are there no very popular visual scripting languages? This is a trick question... there are plenty!
-Here is a sample of some different visual scripting systems, some you may have heard of:&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;a href=&quot;https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/index.html&quot;&gt;Blender nodes&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;https://dev.epicgames.com/documentation/en-us/unreal-engine/introduction-to-blueprints-visual-scripting-in-unreal-engine&quot;&gt;Unreal Engine Blueprints&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;https://developers.google.com/blockly/&quot;&gt;Scratch/Google Blockly&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;https://www.grasshopper3d.com/page/tutorials-1&quot;&gt;Grasshopper&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;https://unit.software&quot;&gt;unit&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;https://github.com/IndiePython/nodezator&quot;&gt;nodezator&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;n8n&lt;/li&gt;
-&lt;li&gt;flyde&lt;/li&gt;
-&lt;li&gt;zapier&lt;/li&gt;
-&lt;li&gt;every no-code workflow engine ever&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;And they don&apos;t suck, but honestly, I think some parts might suck... kinda.
-Why is visual programming so much less popular than textual programming languages like JavaScript and Python, anyway?&lt;/p&gt;
-&lt;p&gt;Perhaps, a better question might be:&lt;/p&gt;
-&lt;!-- TODO: different font --&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;Why can you use languages like JavaScript or Python in websites, browser extensions, servers,
-microcontrollers, minecraft, Figma, etc... And yet you can only run Unreal Engine&apos;s Blueprint visual
-scripting language inside the Unreal Engine editor?&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;You can&apos;t even write your own blueprints and run them in an Unreal Engine-based game!
-(although a few mod systems with Epic&apos;s blessing seem to have a form of this).&lt;/p&gt;
-&lt;p&gt;The answer as far as I can tell is three-fold:&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;People don&apos;t design visual languages to be used at scale.
-They create them as a &lt;a href=&quot;https://en.wikipedia.org/wiki/Domain-specific_language&quot;&gt;Domain-Specific Language (DSL)&lt;/a&gt;
-for users that are less familiar with big code-based projects.&lt;/li&gt;
-&lt;li&gt;Visual scripting is usually implemented in a limited scope, with less resources,
-often with a simplistic interpreter since performance isn&apos;t a concern&lt;/li&gt;
-&lt;li&gt;Some visual scripts translate to a more common textual language (like JavaScript).
-&lt;a href=&quot;https://studio.retejs.org/&quot;&gt;Rete Studio&lt;/a&gt;) does this, and today they explicitly say it is in beta, recommending you
-&quot;&lt;em&gt;verify that the obtained graph is correctly converted into code that reflects the original code&quot;!&lt;/em&gt;&lt;a href=&quot;#footnote1&quot;&gt;&lt;super&gt;1&lt;/super&gt;&lt;/a&gt;.&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;I think the real problem is a social intertia one. The people building these things have been using textual
-languages since computers had too little memory for anything else, and don&apos;t plan on stopping. Very few people
-have considered building a visual language for anything serious. No one, as far I can tell, has even made
-a visual language that can be freely embedded in other hosts. Even if it &quot;works in any web site&quot;, you can&apos;t
-write a game engine or engineering application that scripts with it.&lt;/p&gt;
-&lt;p&gt;So instead people chasing serious visual scripting seem to go with option 3. I&apos;ve seen few attempts and little
-success with option 3. And on top of that, they&apos;re now converting to a complex language like JavaScript with its
-own complex semantics and often heavy-weight runtime dependency.&lt;/p&gt;
-&lt;h2&gt;Why is it hard to convert visual graphs to an existing language?&lt;/h2&gt;
-&lt;p&gt;How hard can it be to make a graph representation that converts to JavaScript or Python?
-I will leave a lot of the detail for a future post, but here is a summary:&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;it&apos;s tempting to base the visual graph on the language&apos;s AST, but ASTs are &lt;em&gt;Abstract Syntax TREES&lt;/em&gt;, they aren&apos;t graphs,
-and they don&apos;t represent control flow. Even simplifications of the AST tend to lack things that make visual programming
-attractive.&lt;/li&gt;
-&lt;li&gt;In a truly graph-like visual scripting language you can intuitively jump back to previous code sections,
-but the equivalent in programming languages &lt;em&gt;goto&lt;/em&gt; is &lt;a href=&quot;https://en.wikipedia.org/wiki/Considered_harmful&quot;&gt;considered harmful&lt;/a&gt;
-and doesn&apos;t truly exist in many languages, including Python and JavaScript.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;It&apos;s so hard that no one seems to have done it in any usable capacity. Take this small example:&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;What do you do with big, twice used expressions?
-&lt;ul&gt;
-&lt;li&gt;Store a variable? What do you name it? When do you initialize it?&lt;/li&gt;
-&lt;/ul&gt;
-&lt;/li&gt;
-&lt;li&gt;What do you do when control arbitrarily goes back to an earlier part of the graph?
-&lt;ul&gt;
-&lt;li&gt;You can&apos;t use &lt;code class=&quot;language-text&quot;&gt;goto&lt;/code&gt; in Python or JavaScript, you would need to build a state machine device&lt;/li&gt;
-&lt;/ul&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;So my theory is that the intertia of all these textual languages has prevented builders from
-investing in a visual language that can match them. Textual languages are the norm and people
-seem to think &quot;you can either learn to code or you can&apos;t code&quot;.&lt;/p&gt;
-&lt;p&gt;Then why do people keep building a brand new, limited-scope visual language,
-but then also adding Python bindings to their projects?&lt;/p&gt;
-&lt;p&gt;If only there were a visual language that could be embedded anywhere! (wink, wink).&lt;/p&gt;
-&lt;h2&gt;Can visual languages not suck?&lt;/h2&gt;
-&lt;p&gt;I think so! I think they almost all leave something to be desired compared to textual languages,
-but I think that&apos;s because most people implementing them haven&apos;t taken them seriously enough.&lt;/p&gt;
-&lt;p&gt;The visual graph is in many ways just a &lt;a href=&quot;https://en.wikipedia.org/wiki/Control-flow_graph&quot;&gt;Control Flow Graph&lt;/a&gt; for a compiler.
-You could easily make it performant, even compile it to native code such that it&apos;s lightning fast. You don&apos;t even have to
-write a parser (the easy part tbh).&lt;/p&gt;
-&lt;p&gt;Again, the hard part is that people keep trying to make a visual script that can convert to an existing programming language and back.
-We have a large group of text-editor trained
-people (programmers) who want to write their code in text (I am one of them), and we have a large(r) group of
-people who don&apos;t want the overhead of learning a 60 year-old paradigm of text input invented under the baggage of
-punch cards, teletype machines, and terminals.&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;They just want to click on an integer output and be able to search through the list of functions that apply to integers.&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;So if we can make a language that both kinds of people can edit, be it text, or visual, &lt;em&gt;and&lt;/em&gt; also make it embeddable,
-then I think we&apos;re getting close to the holy grail of visual scripting.&lt;/p&gt;
-&lt;h2&gt;The dream of the visual &lt;em&gt;and&lt;/em&gt; textual language&lt;/h2&gt;
-&lt;p&gt;I believe we can introduce a &lt;em&gt;new&lt;/em&gt; textual programming language which
-lets us save our programs textually to a sane, language-like format for text editing,
-and then load them back in a graph! We just need to extend existing languages with some new pieces to
-make it possible to represent graphs intuitively.&lt;/p&gt;
-&lt;p&gt;This will allow both traditional text-editor-using programmers and non-programmer low-code users to work together
-and customize or integrate their applications in ways that today is inhibited by that sociotechnical divide.&lt;/p&gt;
-&lt;p&gt;One fly in this ointment that I will discuss in a future post, is the problem of encoding graph node positions
-in the textual language, especially if there are people editing this code only via text. Yikes!
-I will definitely explain some approaches later.&lt;/p&gt;
-&lt;p&gt;If we can achieve this truly &lt;a href=&quot;https://en.wikipedia.org/wiki/Isomorphism&quot;&gt;isomorphic&lt;/a&gt; language though, I believe optimistically
-it can bring us closer to the dream of truly extensible applications!
-Today, 99% of browser users will never script a browser extension even if they have to work with a website daily where they need
-to click something 100 times to get their work done.
-There&apos;s just too much to learn to create something as simple as an &quot;open selected image in photoshop&quot; button.&lt;/p&gt;
-&lt;p&gt;I think the gap will be narrowed significantly if a new visual-first programming language can co-exist with the likes
-of Python and JavaScript. And if you&apos;re thinking about AI, I don&apos;t think it
-precludes the need for this kind of language.
-In fact, I think AI makes it even more useful&lt;super&gt;&lt;a href=&quot;#footnote3&quot;&gt;2&lt;/a&gt;&lt;/super&gt;
-as less technical people start writing ---and debugging--- more code.&lt;/p&gt;
-&lt;h2&gt;Graphl&lt;/h2&gt;
-&lt;p&gt;So all this is really so much fluff to introduce &lt;a href=&quot;https://graphl.tech&quot;&gt;graphl&lt;/a&gt;, what I am designing as
-an answer to these problems.&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;TODO: show how Graphl solves the above problems&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;By designing a language explicitly for textual and visual interpretation, and applying the lessons of
-modern software tooling, I believe we can introduce a newcomer to the scripting space that can bring
-coding to people never before.&lt;/p&gt;
-&lt;p&gt;I have seen visual scripting languages inspire smart but code-hating people (architects, game
-developers, engineers), and I want to break visual scripting from the chains of their hosts,
-and let people make applications extensible with an easy, reusable, standardized language.&lt;/p&gt;
-&lt;p&gt;If you feel the same way, please, &lt;a href=&quot;https://graphl.tech/app&quot;&gt;try Graphl&lt;/a&gt;, and reach out to me with
-how you might want to use it! I want it to be used for everything!&lt;/p&gt;
-&lt;hr /&gt;
-&lt;p&gt;Do you think I got something wrong? Please feel free to
-&lt;a href=&quot;mike@graphl.tech&quot;&gt;email&lt;/a&gt; me to help me make corrections.&lt;/p&gt;
-&lt;p&gt;Footnotes:&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;
-&lt;p&gt;&lt;span id=&quot;footnote1&quot;&gt;&lt;/span&gt; Open the &quot;beta&quot; warning block to read it &lt;a href=&quot;https://studio.retejs.org/&quot;&gt;https://studio.retejs.org/&lt;/a&gt;.
-It truly is a challenging thing so I don&apos;t blame them, you&apos;re converting to a language with separate semantics and potentially
-backwards, while trying to be readable on both ends...&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;&lt;span id=&quot;footnote2&quot;&gt;&lt;/span&gt; I will not go into detail right now about AI and coding, many seem to believe that the dawn of
-english-only coding is near, but here is my overall thinking:&lt;/p&gt;
-&lt;p&gt;I would suggest the evidence is pointing to us still needing well trained humans deeply involved in the process until
-today&apos;s AI compute load becomes significantly cheaper (and uses clean energy).
-The current trajectory of &quot;better&quot; AI seems to include &quot;spend catastrophic amounts of compute to invoke the LLM hundreds of times
-for 50% more (decaying) accuracy in each iteration&quot;.&lt;/p&gt;
-&lt;p&gt;Yes, a small browser extension might be doable, but I think most built-only-by-AI projects will rot, and still need debugging by
-humans. And a visual language&apos;s debugger will be &lt;em&gt;much&lt;/em&gt; easier for the less technically endowed.&lt;/p&gt;
-&lt;/li&gt;
-&lt;/ol&gt;</content:encoded></item><item><title><![CDATA[Why being both a textual and visual language is hard]]></title><description><![CDATA[Why do visual scripting languages suck? Why are there no very popular visual scripting languages?
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title><![CDATA[Graphl dev blog RSS feed]]></title><description><![CDATA[A visual programming software company]]></description><link>https://graphl.tech</link><generator>GatsbyJS</generator><lastBuildDate>Sun, 11 May 2025 03:37:31 GMT</lastBuildDate><item><title><![CDATA[Why being both a textual and visual language is hard]]></title><description><![CDATA[Why do visual scripting languages suck? Why are there no very popular visual scripting languages?
 You may know the answer here already…]]></description><link>https://graphl.tech/blog/why-its-hard-to-be-isomorphically-visual/</link><guid isPermaLink="false">https://graphl.tech/blog/why-its-hard-to-be-isomorphically-visual/</guid><pubDate>Wed, 01 Jan 2025 00:00:00 GMT</pubDate><content:encoded>&lt;h2&gt;Why do visual scripting languages suck?&lt;/h2&gt;
 &lt;p&gt;Why are there no very popular visual scripting languages?
 You may know the answer here already. There are tons!&lt;/p&gt;
@@ -263,6 +124,145 @@ What if they refactored it to not use a state machine?&lt;/p&gt;
 &lt;h2&gt;Lisp macros&lt;/h2&gt;
 &lt;hr /&gt;
 &lt;p&gt;There is a &lt;em&gt;lot&lt;/em&gt; out there, so maybe I got something wrong, please feel free to
+&lt;a href=&quot;mike@graphl.tech&quot;&gt;email&lt;/a&gt; me to help me make corrections.&lt;/p&gt;
+&lt;p&gt;Footnotes:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;span id=&quot;footnote1&quot;&gt;&lt;/span&gt; Open the &quot;beta&quot; warning block to read it &lt;a href=&quot;https://studio.retejs.org/&quot;&gt;https://studio.retejs.org/&lt;/a&gt;.
+It truly is a challenging thing so I don&apos;t blame them, you&apos;re converting to a language with separate semantics and potentially
+backwards, while trying to be readable on both ends...&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;span id=&quot;footnote2&quot;&gt;&lt;/span&gt; I will not go into detail right now about AI and coding, many seem to believe that the dawn of
+english-only coding is near, but here is my overall thinking:&lt;/p&gt;
+&lt;p&gt;I would suggest the evidence is pointing to us still needing well trained humans deeply involved in the process until
+today&apos;s AI compute load becomes significantly cheaper (and uses clean energy).
+The current trajectory of &quot;better&quot; AI seems to include &quot;spend catastrophic amounts of compute to invoke the LLM hundreds of times
+for 50% more (decaying) accuracy in each iteration&quot;.&lt;/p&gt;
+&lt;p&gt;Yes, a small browser extension might be doable, but I think most built-only-by-AI projects will rot, and still need debugging by
+humans. And a visual language&apos;s debugger will be &lt;em&gt;much&lt;/em&gt; easier for the less technically endowed.&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ol&gt;</content:encoded></item><item><title><![CDATA[Why do visual scripting languages suck?]]></title><description><![CDATA[Why are there no very popular visual scripting languages? This is a trick question... there are plenty!
+Here is a sample of some different…]]></description><link>https://graphl.tech/blog/why-are-there-no-visual-scripting-languages/</link><guid isPermaLink="false">https://graphl.tech/blog/why-are-there-no-visual-scripting-languages/</guid><pubDate>Wed, 01 Jan 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Why are there no very popular visual scripting languages? This is a trick question... there are plenty!
+Here is a sample of some different visual scripting systems, some you may have heard of:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/index.html&quot;&gt;Blender nodes&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;https://dev.epicgames.com/documentation/en-us/unreal-engine/introduction-to-blueprints-visual-scripting-in-unreal-engine&quot;&gt;Unreal Engine Blueprints&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;https://developers.google.com/blockly/&quot;&gt;Scratch/Google Blockly&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;https://www.grasshopper3d.com/page/tutorials-1&quot;&gt;Grasshopper&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;https://unit.software&quot;&gt;unit&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;https://github.com/IndiePython/nodezator&quot;&gt;nodezator&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;n8n&lt;/li&gt;
+&lt;li&gt;flyde&lt;/li&gt;
+&lt;li&gt;zapier&lt;/li&gt;
+&lt;li&gt;every no-code workflow engine ever&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;And they don&apos;t suck, but honestly, I think some parts might suck... kinda.
+Why is visual programming so much less popular than textual programming languages like JavaScript and Python, anyway?&lt;/p&gt;
+&lt;p&gt;Perhaps, a better question might be:&lt;/p&gt;
+&lt;!-- TODO: different font --&gt;
+&lt;p&gt;&lt;em&gt;&lt;strong&gt;Why can you use languages like JavaScript or Python in websites, browser extensions, servers,
+microcontrollers, minecraft, Figma, etc... And yet you can only run Unreal Engine&apos;s Blueprint visual
+scripting language inside the Unreal Engine editor?&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
+&lt;p&gt;You can&apos;t even write your own blueprints and run them in an Unreal Engine-based game!
+(although a few mod systems with Epic&apos;s blessing seem to have a form of this).&lt;/p&gt;
+&lt;p&gt;The answer as far as I can tell is three-fold:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;People don&apos;t design visual languages to be used at scale.
+They create them as a &lt;a href=&quot;https://en.wikipedia.org/wiki/Domain-specific_language&quot;&gt;Domain-Specific Language (DSL)&lt;/a&gt;
+for users that are less familiar with big code-based projects.&lt;/li&gt;
+&lt;li&gt;Visual scripting is usually implemented in a limited scope, with less resources,
+often with a simplistic interpreter since performance isn&apos;t a concern&lt;/li&gt;
+&lt;li&gt;Some visual scripts translate to a more common textual language (like JavaScript).
+&lt;a href=&quot;https://studio.retejs.org/&quot;&gt;Rete Studio&lt;/a&gt;) does this, and today they explicitly say it is in beta, recommending you
+&quot;&lt;em&gt;verify that the obtained graph is correctly converted into code that reflects the original code&quot;!&lt;/em&gt;&lt;a href=&quot;#footnote1&quot;&gt;&lt;super&gt;1&lt;/super&gt;&lt;/a&gt;.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;I think the real problem is a social intertia one. The people building these things have been using textual
+languages since computers had too little memory for anything else, and don&apos;t plan on stopping. Very few people
+have considered building a visual language for anything serious. No one, as far I can tell, has even made
+a visual language that can be freely embedded in other hosts. Even if it &quot;works in any web site&quot;, you can&apos;t
+write a game engine or engineering application that scripts with it.&lt;/p&gt;
+&lt;p&gt;So instead people chasing serious visual scripting seem to go with option 3. I&apos;ve seen few attempts and little
+success with option 3. And on top of that, they&apos;re now converting to a complex language like JavaScript with its
+own complex semantics and often heavy-weight runtime dependency.&lt;/p&gt;
+&lt;h2&gt;Why is it hard to convert visual graphs to an existing language?&lt;/h2&gt;
+&lt;p&gt;How hard can it be to make a graph representation that converts to JavaScript or Python?
+I will leave a lot of the detail for a future post, but here is a summary:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;it&apos;s tempting to base the visual graph on the language&apos;s AST, but ASTs are &lt;em&gt;Abstract Syntax TREES&lt;/em&gt;, they aren&apos;t graphs,
+and they don&apos;t represent control flow. Even simplifications of the AST tend to lack things that make visual programming
+attractive.&lt;/li&gt;
+&lt;li&gt;In a truly graph-like visual scripting language you can intuitively jump back to previous code sections,
+but the equivalent in programming languages &lt;em&gt;goto&lt;/em&gt; is &lt;a href=&quot;https://en.wikipedia.org/wiki/Considered_harmful&quot;&gt;considered harmful&lt;/a&gt;
+and doesn&apos;t truly exist in many languages, including Python and JavaScript.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;It&apos;s so hard that no one seems to have done it in any usable capacity. Take this small example:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;What do you do with big, twice used expressions?
+&lt;ul&gt;
+&lt;li&gt;Store a variable? What do you name it? When do you initialize it?&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;What do you do when control arbitrarily goes back to an earlier part of the graph?
+&lt;ul&gt;
+&lt;li&gt;You can&apos;t use &lt;code class=&quot;language-text&quot;&gt;goto&lt;/code&gt; in Python or JavaScript, you would need to build a state machine device&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;So my theory is that the intertia of all these textual languages has prevented builders from
+investing in a visual language that can match them. Textual languages are the norm and people
+seem to think &quot;you can either learn to code or you can&apos;t code&quot;.&lt;/p&gt;
+&lt;p&gt;Then why do people keep building a brand new, limited-scope visual language,
+but then also adding Python bindings to their projects?&lt;/p&gt;
+&lt;p&gt;If only there were a visual language that could be embedded anywhere! (wink, wink).&lt;/p&gt;
+&lt;h2&gt;Can visual languages not suck?&lt;/h2&gt;
+&lt;p&gt;I think so! I think they almost all leave something to be desired compared to textual languages,
+but I think that&apos;s because most people implementing them haven&apos;t taken them seriously enough.&lt;/p&gt;
+&lt;p&gt;The visual graph is in many ways just a &lt;a href=&quot;https://en.wikipedia.org/wiki/Control-flow_graph&quot;&gt;Control Flow Graph&lt;/a&gt; for a compiler.
+You could easily make it performant, even compile it to native code such that it&apos;s lightning fast. You don&apos;t even have to
+write a parser (the easy part tbh).&lt;/p&gt;
+&lt;p&gt;Again, the hard part is that people keep trying to make a visual script that can convert to an existing programming language and back.
+We have a large group of text-editor trained
+people (programmers) who want to write their code in text (I am one of them), and we have a large(r) group of
+people who don&apos;t want the overhead of learning a 60 year-old paradigm of text input invented under the baggage of
+punch cards, teletype machines, and terminals.&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;They just want to click on an integer output and be able to search through the list of functions that apply to integers.&lt;/em&gt;&lt;/p&gt;
+&lt;p&gt;So if we can make a language that both kinds of people can edit, be it text, or visual, &lt;em&gt;and&lt;/em&gt; also make it embeddable,
+then I think we&apos;re getting close to the holy grail of visual scripting.&lt;/p&gt;
+&lt;h2&gt;The dream of the visual &lt;em&gt;and&lt;/em&gt; textual language&lt;/h2&gt;
+&lt;p&gt;I believe we can introduce a &lt;em&gt;new&lt;/em&gt; textual programming language which
+lets us save our programs textually to a sane, language-like format for text editing,
+and then load them back in a graph! We just need to extend existing languages with some new pieces to
+make it possible to represent graphs intuitively.&lt;/p&gt;
+&lt;p&gt;This will allow both traditional text-editor-using programmers and non-programmer low-code users to work together
+and customize or integrate their applications in ways that today is inhibited by that sociotechnical divide.&lt;/p&gt;
+&lt;p&gt;One fly in this ointment that I will discuss in a future post, is the problem of encoding graph node positions
+in the textual language, especially if there are people editing this code only via text. Yikes!
+I will definitely explain some approaches later.&lt;/p&gt;
+&lt;p&gt;If we can achieve this truly &lt;a href=&quot;https://en.wikipedia.org/wiki/Isomorphism&quot;&gt;isomorphic&lt;/a&gt; language though, I believe optimistically
+it can bring us closer to the dream of truly extensible applications!
+Today, 99% of browser users will never script a browser extension even if they have to work with a website daily where they need
+to click something 100 times to get their work done.
+There&apos;s just too much to learn to create something as simple as an &quot;open selected image in photoshop&quot; button.&lt;/p&gt;
+&lt;p&gt;I think the gap will be narrowed significantly if a new visual-first programming language can co-exist with the likes
+of Python and JavaScript. And if you&apos;re thinking about AI, I don&apos;t think it
+precludes the need for this kind of language.
+In fact, I think AI makes it even more useful&lt;super&gt;&lt;a href=&quot;#footnote3&quot;&gt;2&lt;/a&gt;&lt;/super&gt;
+as less technical people start writing ---and debugging--- more code.&lt;/p&gt;
+&lt;h2&gt;Graphl&lt;/h2&gt;
+&lt;p&gt;So all this is really so much fluff to introduce &lt;a href=&quot;https://graphl.tech&quot;&gt;graphl&lt;/a&gt;, what I am designing as
+an answer to these problems.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;TODO: show how Graphl solves the above problems&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;By designing a language explicitly for textual and visual interpretation, and applying the lessons of
+modern software tooling, I believe we can introduce a newcomer to the scripting space that can bring
+coding to people never before.&lt;/p&gt;
+&lt;p&gt;I have seen visual scripting languages inspire smart but code-hating people (architects, game
+developers, engineers), and I want to break visual scripting from the chains of their hosts,
+and let people make applications extensible with an easy, reusable, standardized language.&lt;/p&gt;
+&lt;p&gt;If you feel the same way, please, &lt;a href=&quot;https://graphl.tech/app&quot;&gt;try Graphl&lt;/a&gt;, and reach out to me with
+how you might want to use it! I want it to be used for everything!&lt;/p&gt;
+&lt;hr /&gt;
+&lt;p&gt;Do you think I got something wrong? Please feel free to
 &lt;a href=&quot;mike@graphl.tech&quot;&gt;email&lt;/a&gt; me to help me make corrections.&lt;/p&gt;
 &lt;p&gt;Footnotes:&lt;/p&gt;
 &lt;ol&gt;
