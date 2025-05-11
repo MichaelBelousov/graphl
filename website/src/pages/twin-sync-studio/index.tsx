@@ -1,15 +1,28 @@
 import React from 'react'
+import ReactDOM from 'react-dom';
 import Layout from '../../components/layout'
 import "../../shared.css";
 // TODO: move roadmap into this dir
 import "../roadmap.css";
 import { InPageLink } from '../../components/InPageLink';
+import Modal from '../../components/modal'
+import * as headerStyles from '../../components/header.module.scss';
 
-const Homepage = () => {
-  // TODO: add blurbs to each canvas example
+let modalContainer: HTMLDivElement | undefined = undefined;
+
+const TwinSyncStudioPage = () => {
+  // FIXME: gross workaround for hydration being rejected because the rendered result isn't the same
+  React.useEffect(() => {
+    if (typeof document !== "undefined") {
+      modalContainer = document.getElementById("graphl-overlay") as HTMLDivElement;
+    }
+  }, []);
+
+  const [purchaseRequestOpen, setPurchaseRequestOpen] = React.useState(false);
+
   return (
     <Layout pageTitle="Twin Sync Studio" pageDesc="The ultimate iTwin/Synchro->Unreal tool" className="itue-page-twin-sync-studio">
-      <h1 style={{ textAlign: "center" }}> Twin Sync Studio </h1>
+      <h1 style={{ textAlign: "center", fontSize: "2rem" }}> Twin Sync Studio </h1>
 
       <div className="center" style={{ flexDirection: "column" }}>
         <iframe
@@ -104,14 +117,107 @@ const Homepage = () => {
         <InPageLink slug="roadmap"><h2 style={{ textAlign: "center" }}> Pricing </h2></InPageLink>
 
         <p>
-          A standard pricing model is being worked out and will be set and detailed here by July 2025.
-          If you have any questions, please <a href="mailto:mike@graphl.tech">contact us</a>.
+          A standard pricing model will be set and detailed here in July 2025.
+          Until then, if you're ready to use Twin Sync Studio commercially,
+          please <a 
+            href="https://docs.google.com/forms/d/e/1FAIpQLSct5LNo2cT1HzbKhe45Ik60cp-U5CvGqWi0-tT8Dy7lqRGWTQ/viewform"
+            onClick={(e) => {
+              e.preventDefault();
+              setPurchaseRequestOpen(prev => !prev);
+            }}
+          >
+            make a purchase request
+          </a> for pricing information.
         </p>
         <br/>
         <br/>
+
+        {modalContainer && ReactDOM.createPortal(
+          <PurchaseRequestModal isOpen={purchaseRequestOpen} setIsOpen={setPurchaseRequestOpen} />,
+          modalContainer
+        )}
       </section>
     </Layout>
   );
-}
+};
 
-export default Homepage
+const PurchaseRequestModal = (props: {
+  isOpen: boolean,
+  setIsOpen: React.Dispatch<React.SetStateAction<boolean>>,
+}) => {
+  const emailInputRef = React.useRef<HTMLInputElement>(null);
+
+
+  // TODO: use a batteries-included form framework
+  const [emailInput, setEmailInput] = React.useState("");
+  const [companyNameInput, setCompanyNameInput] = React.useState("");
+  const [machineAllowanceInput, setMachineAllowanceInput] = React.useState("");
+
+  React.useEffect(() => {
+    if (emailInputRef.current && props.isOpen) {
+      emailInputRef.current.focus();
+    }
+  }, [props.isOpen])
+
+
+  return (
+    <Modal isOpen={props.isOpen} setIsOpen={props.setIsOpen}>
+      {/* HACK to prevent weird browser behavior */}
+      <iframe style={{ display: "none" }} name="hidden-target-frame" />
+      <form
+        className="itue-purchase-form"
+        action={
+          "https://docs.google.com/forms/d/e/1FAIpQLSct5LNo2cT1HzbKhe45Ik60cp-U5CvGqWi0-tT8Dy7lqRGWTQ/formResponse?submit=Submit&usp=pp_url"
+          + `&entry.1717367917=${encodeURIComponent(emailInput)}`
+          + `&entry.1784948496=${encodeURIComponent(companyNameInput)}`
+          + `&entry.1501421878=${machineAllowanceInput}`
+        }
+        method="POST"
+        target="hidden-target-frame"
+        onSubmit={(_e) => {
+          // TODO: check if successful!
+          props.setIsOpen(false);
+        }}
+      >
+
+        <label>
+          Email:
+          <input
+            className={headerStyles.subInput}
+            ref={emailInputRef}
+            value={emailInput}
+            onChange={e => setEmailInput(e.currentTarget.value)}
+            placeholder="you@example.com"
+            type="email"
+          />
+        </label>
+
+        <label>
+          Company Name:
+          <input
+            className={headerStyles.subInput}
+            value={companyNameInput}
+            onChange={e => setCompanyNameInput(e.currentTarget.value)}
+            placeholder="Your Awesome Company"
+          />
+        </label>
+
+
+        <label>
+          Machine Count Desired:
+          <input
+            className={headerStyles.subInput}
+            value={machineAllowanceInput}
+            onChange={e => setMachineAllowanceInput(e.currentTarget.value)}
+            placeholder="1"
+            type="number"
+          />
+        </label>
+
+        <input value="submit" className={headerStyles.subButton} type="submit"></input>
+      </form>
+    </Modal>
+  );
+};
+
+export default TwinSyncStudioPage;

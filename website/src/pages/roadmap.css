@@ -52,3 +52,16 @@
 .itue-page-twin-sync-studio > * > main > section > h2 {
   margin-bottom: 0.25in;
 }
+
+.itue-purchase-form {
+  padding: 5px;
+  display: flex;
+  gap: 15px;
+  flex-direction: column;
+}
+
+.itue-purchase-form > label {
+  display: flex;
+  gap: 12px;
+  margin-right: 36px;
+}

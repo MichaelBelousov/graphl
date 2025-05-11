@@ -93,7 +93,7 @@ exports.onCreateWebpackConfig = ({ stage, actions, getConfig }) => {
   //     }),
   //   },
   // });
-  console.log(JSON.stringify(getConfig().module.rules, (_k, v) => v instanceof RegExp ? v.source : v, " "));
+  //console.log(JSON.stringify(getConfig().module.rules, (_k, v) => v instanceof RegExp ? v.source : v, " "));
 }
 
 exports.onCreateNode = ({ node, getNode, actions }) => {
