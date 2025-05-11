@@ -7,11 +7,15 @@ import { InPageLink } from "../../components/InPageLink";
 const PrivacyPolicy = () => {
   return (
     <div className="itue-doc-root">
-      <h1>Graphl Technologies Privacy Policy</h1>
+      <h1 style={{ textAlign: "center" }}>Graphl Technologies Privacy Policy</h1>
 
-      Effective Date: May 10, 2025
+      <p>
+        Effective Date: May 10, 2025
+      </p>
 
-      Applicable To The Following services:
+      <p>
+        Applicable To The Following services:
+      </p>
 
       <ul>
         <li>Twin Sync Studio desktop application and accompanying services (for example, web services for evaluating product validity)</li>
@@ -538,7 +542,7 @@ const PrivacyPolicy = () => {
         <h3>Article 16 - CONTACT INFORMATION:</h3>
         If you have any questions about this Privacy Policy or the way we collect information
         from you, or if you would like to launch a complaint about anything related to this Privacy
-        Policy, you may contact us at the following email address: ________.
+        Policy, you may contact us at the following email address: <a href="mailto:mike@graphl.tech">mike@graphl.tech</a>.
       </section>
     </div>
   );
