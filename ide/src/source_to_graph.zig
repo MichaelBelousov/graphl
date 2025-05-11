@@ -31,13 +31,14 @@ const Graphs = std.SinglyLinkedList(Graph);
 fn funcSourceToGraph(
     // NOTE: for now this must be gpa...
     a: std.mem.Allocator,
+    graph: *Graph,
     app: *App,
     mod: *const ModuleContext,
     type_sexp_idx: u32,
     impl_sexp_idx: u32,
     index: u16,
     env: *Env,
-) !Graph {
+) !void {
     const type_sexp = mod.get(type_sexp_idx);
     const impl_sexp = mod.get(impl_sexp_idx);
 
@@ -64,7 +65,7 @@ fn funcSourceToGraph(
 
     const func_name = try a.dupeZ(u8, impl_func_name.value.symbol);
 
-    var graph = try Graph.init(app, index, func_name, .{});
+    try Graph.initInPlace(graph, app, index, func_name, .{});
 
     const param_names = bindings.value.list.items[1..];
     const param_types = binding_types.value.list.items[1..];
@@ -220,7 +221,7 @@ fn funcSourceToGraph(
         }
     };
 
-    var prev_node = graph.graphl_graph.entry() orelse unreachable;
+    var prev_node_id = graph.graphl_graph.entry_id orelse unreachable;
     for (body_exprs) |body_expr_idx| {
         const body_expr = mod.get(body_expr_idx);
         const callee = mod.get(body_expr.value.list.items[0]).value.symbol;
@@ -228,21 +229,27 @@ fn funcSourceToGraph(
         // TODO: this should return the full node and not cause consumers to need to perform a lookup
         const new_node_id = try graph.addNode(a, callee, false, null, null, .{});
         const new_node = graph.graphl_graph.nodes.map.getPtr(new_node_id) orelse unreachable;
-        assert(new_node.desc().getInputs()[0].isExec());
-        assert(prev_node.desc().getOutputs()[0].isExec());
-        prev_node.outputs[0] = .{};
-        try prev_node.outputs[0].append(a, .{
-            .target = new_node_id,
-            .pin_index = 0,
-        });
-        new_node.inputs[0] = .{ .link = .{ .target = prev_node.id, .pin_index = 0 } };
+        const prev_node = graph.graphl_graph.nodes.map.getPtr(prev_node_id) orelse unreachable;
+
+        if (prev_node.desc().getOutputs().len > 0 and prev_node.desc().getOutputs()[0].kind.primitive == .exec
+        // and
+        and new_node.desc().getInputs().len > 0 and new_node.desc().getInputs()[0].kind.primitive == .exec
+        ) {
+            prev_node.outputs[0] = .{};
+            try prev_node.outputs[0].append(a, .{
+                .target = new_node_id,
+                .pin_index = 0,
+            });
+            new_node.inputs[0] = .{ .link = .{ .target = prev_node.id, .pin_index = 0 } };
+        }
+
         // FIXME: won't work for if duh
-        try Local.attachArgs(a, new_node, args, env, &graph, mod, node_for_sexp);
+        try Local.attachArgs(a, new_node, args, env, graph, mod, node_for_sexp);
+
+        prev_node_id = new_node_id;
     }
 
     try graph.visual_graph.formatGraphNaive(a);
-
-    return graph;
 }
 
 fn sexpToGraphs(a: std.mem.Allocator, app: *App, mod_ctx: *const ModuleContext, env: *Env) !Graphs {
@@ -272,9 +279,7 @@ fn sexpToGraphs(a: std.mem.Allocator, app: *App, mod_ctx: *const ModuleContext, 
             assert(define_kw.value.symbol.ptr == syms.define.value.symbol.ptr);
 
             const graph_slot = try a.create(Graphs.Node);
-            graph_slot.* = .{
-                .data = try funcSourceToGraph(a, app, mod_ctx, prev_typeof, top_level_idx, index, env),
-            };
+            try funcSourceToGraph(a, &graph_slot.data, app, mod_ctx, prev_typeof, top_level_idx, index, env);
             graphs.prepend(graph_slot);
             index += 1;
         } else {
