@@ -3291,6 +3291,7 @@ const Compilation = struct {
         );
 
         if (opts.optimize != .none) {
+            byn.c.BinaryenSetOptimizeLevel(1);
             // FIXME: should at least optimize out extraneous branching?
             byn.c.BinaryenModuleOptimize(self.module.c());
         }
