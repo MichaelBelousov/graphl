@@ -117,6 +117,8 @@ pub fn build(b: *std.Build) void {
             .strip = false,
             .link_libc = true,
             .filters = test_filters,
+            // FIXME: try to remove
+            .single_threaded = true,
         });
 
         const run_exe_unit_tests = b.addRunArtifact(ide_unit_tests);
@@ -128,11 +130,15 @@ pub fn build(b: *std.Build) void {
         ide_unit_tests.root_module.addImport("dvui", dvui_generic_dep.module("dvui_raylib"));
         ide_unit_tests.root_module.addImport("graphl_core", graphl_core_dep.module("graphl_core"));
 
-        // Similar to creating the run step earlier, this exposes a `test` step to
-        // the `zig build --help` menu, providing a way for the user to request
-        // running the unit tests.
         const test_step = b.step("test", "Run unit tests");
         test_step.dependOn(&run_exe_unit_tests.step);
+
+        const cgdb_step = b.step("cgdb", "run tests under cgdb");
+
+        const cgdb_tests = b.addSystemCommand(&.{"cgdb"});
+        cgdb_tests.addArtifactArg(ide_unit_tests);
+
+        cgdb_step.dependOn(&cgdb_tests.step);
     }
 
     if (target.result.os.tag != .wasi) {
@@ -145,7 +151,7 @@ pub fn build(b: *std.Build) void {
                 .ReleaseFast, .ReleaseSmall => true,
                 else => false,
             },
-            // FIXME: remove!
+            // TODO: try to remove
             .single_threaded = true,
         });
 

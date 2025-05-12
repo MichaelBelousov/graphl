@@ -1,13 +1,17 @@
 const std = @import("std");
 const App = @import("./app.zig");
-const graphl = @import("grappl_core");
+const graphl = @import("graphl_core");
 const gpa = @import("./app.zig").gpa;
 const compiled_prelude = graphl.compiler.compiled_prelude;
+
+var transfer_buffer: [1024]u8 = undefined;
 
 test "call double" {
     // TODO: use testing allocator
     const a = gpa;
-    var app: App = .{};
+
+    var app: App = undefined;
+    try app.init(.{ .transfer_buffer = &transfer_buffer });
 
     const user_funcs: []const graphl.compiler.UserFunc = &.{
         graphl.compiler.UserFunc{
@@ -177,8 +181,8 @@ test "call factorial" {
     // TODO: use testing allocator
     const a = gpa;
 
-    var app: App = .{};
-    try app.init(.{});
+    var app: App = undefined;
+    try app.init(.{ .transfer_buffer = &transfer_buffer });
     defer app.deinit();
 
     const main_graph = app.current_graph;
@@ -387,8 +391,8 @@ test "sample1 (if)" {
     // TODO: use testing allocator
     const a = gpa;
 
-    var app: App = .{};
-    try app.init(.{});
+    var app: App = undefined;
+    try app.init(.{ .transfer_buffer = &transfer_buffer });
     defer app.deinit();
 
     const main_graph = app.current_graph;

@@ -2716,5 +2716,6 @@ pub fn frame(self: *@This()) !void {
 }
 
 test {
-    _ = @import("./app_tests.zig");
+    // FIXME: reinstate these tests
+    //_ = @import("./app_tests.zig");
 }

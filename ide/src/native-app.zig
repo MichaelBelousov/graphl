@@ -131,4 +131,9 @@ fn _onRequestLoadSource() !void {
 // FIXME:
 //const window_icon_png = @embedFile("zig-favicon.png");
 
+test {
+    //std.testing.refAllDecls(app);
+    std.testing.refAllDecls(@import("./source_to_graph.zig"));
+}
+
 pub const gpa = App.gpa;

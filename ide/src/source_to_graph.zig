@@ -302,3 +302,75 @@ pub fn sourceToGraph(a: std.mem.Allocator, app: *App, source: []const u8, env: *
         return err;
     }
 }
+
+test "factorial source to graph" {
+    const t = std.testing;
+    // TODO: use testing allocator
+    //const a = App.gpa;
+
+    var app: App = undefined;
+    var transfer_buffer: [1024]u8 = undefined;
+    try app.init(.{ .transfer_buffer = &transfer_buffer });
+    defer app.deinit();
+
+    const source =
+        \\(typeof (main) i32)
+        \\(define (main)
+        \\        (begin (factorial 10) <!__label1
+        \\               (return #!label1)))
+        \\(typeof (main2) i32)
+        \\(define (main2)
+        \\        (begin (return (factorial 10))))
+        \\(typeof (factorial i32) i32)
+        \\(define (factorial a1)
+        \\        (begin (if (<= a1 1)
+        \\                   (begin (return 1))
+        \\                   (begin (factorial (- a1 1)) <!__label1
+        \\                          (return (* #!label1 a1))))))
+    ;
+
+    const graphs = try sourceToGraph(t.allocator, &app, source, &app.shared_env);
+
+    const main_graph = graphs.first.?.data;
+    try t.expectEqualStrings(main_graph.name, "main");
+    const main2_graph = graphs.first.?.next.?.data;
+    try t.expectEqualStrings(main2_graph.name, "main2");
+    const factorial_graph = graphs.first.?.next.?.next.?.data;
+    try t.expectEqualStrings(factorial_graph.name, "factorial");
+
+    // FIXME:
+    // {
+    //     const factorial_graph = try app.addGraph(try a.dupe(u8, "factorial"), true, .{});
+    //     try app.addParamOrResult(factorial_graph.grappl_graph.result_node, factorial_graph.grappl_graph.result_node_basic_desc, .results, null, null);
+
+    //     const if_node_id = try App.NodeAdder.addNode(&app, "if", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
+    //     try app.addParamOrResult(factorial_graph.grappl_graph.entry_node, factorial_graph.grappl_graph.entry_node_basic_desc, .params, null, null);
+    //     const lessthaneq_id = try App.NodeAdder.addNode(&app, "<=", .{ .kind = .output, .index = 1, .node_id = 0 }, .{}, 0);
+    //     try factorial_graph.addLiteralInput(lessthaneq_id, 1, 0, .{ .int = 1 });
+    //     try factorial_graph.addEdge(a, lessthaneq_id, 0, if_node_id, 1, 0);
+    //     const return1_id = try App.NodeAdder.addNode(&app, "return", .{ .kind = .output, .index = 0, .node_id = if_node_id }, .{}, 0);
+    //     try factorial_graph.addLiteralInput(return1_id, 1, 0, .{ .int = 1 });
+
+    //     const recurse_id = try App.NodeAdder.addNode(&app, "factorial", .{ .kind = .output, .index = 1, .node_id = if_node_id }, .{}, 0);
+    //     const return2_id = try App.NodeAdder.addNode(&app, "return", .{ .kind = .output, .index = 0, .node_id = recurse_id }, .{}, 0);
+
+    //     const mul_node_id = try App.NodeAdder.addNode(&app, "*", .{ .kind = .output, .index = 1, .node_id = recurse_id }, .{}, 0);
+    //     try factorial_graph.addEdge(a, mul_node_id, 0, return2_id, 1, 0);
+    //     const sub_id = try App.NodeAdder.addNode(&app, "-", .{ .kind = .input, .index = 1, .node_id = recurse_id }, .{}, 0);
+    //     _ = try App.NodeAdder.addNode(&app, "get_a1", .{ .kind = .input, .index = 0, .node_id = sub_id }, .{}, 0);
+    //     try factorial_graph.addLiteralInput(sub_id, 1, 0, .{ .int = 1 });
+
+    //     _ = try App.NodeAdder.addNode(&app, "get_a1", .{ .kind = .input, .index = 1, .node_id = mul_node_id }, .{}, 0);
+    // }
+
+    // app.current_graph = main_graph;
+
+    // {
+    //     try app.addParamOrResult(main_graph.grappl_graph.result_node, main_graph.grappl_graph.result_node_basic_desc, .results, null, null);
+    //     const factorial_node_id = try App.NodeAdder.addNode(&app, "factorial", .{ .kind = .output, .index = 0, .node_id = 0 }, .{}, 0);
+    //     try main_graph.addLiteralInput(factorial_node_id, 1, 0, .{ .int = 10 });
+    //     const return_id = try App.NodeAdder.addNode(&app, "return", .{ .kind = .output, .index = 0, .node_id = factorial_node_id }, .{}, 0);
+    //     try main_graph.addEdge(a, factorial_node_id, 1, return_id, 1, 0);
+    // }
+
+}
