@@ -64,9 +64,6 @@ pub const ModuleContext = struct {
         return added_idx;
     }
 
-
-
-
     pub fn init(a: std.mem.Allocator) !@This() {
         return initCapacity(a, 1);
     }
@@ -83,10 +80,7 @@ pub const ModuleContext = struct {
 
     pub fn deinit(self: *@This()) void {
         for (self.arena.items) |*sexp| {
-            switch (sexp.value) {
-                .module, .list => |*v| v.deinit(self.alloc()),
-                else => {},
-            }
+            sexp.deinit(self.alloc());
         }
         self.arena.deinit(self.alloc());
     }
@@ -150,37 +144,16 @@ pub const Sexp = struct {
 
     const Self = @This();
 
-    fn _deinit(
+    fn deinit(
         self: *@This(),
-        mod_ctx: *const ModuleContext,
+        /// probably should be the ModuleContext.alloc()
         alloc: std.mem.Allocator,
-        visited: *std.AutoHashMap(*const Sexp, void),
     ) void {
-        if (visited.contains(self))
-            return;
-        visited.put(self, {}) catch unreachable;
         switch (self.value) {
-            .ownedString => |v| {
-                alloc.free(v);
-            },
-            .list, .module => |*v| {
-                for (v.items) |item_idx| {
-                    const item = &mod_ctx.arena.items[item_idx];
-                    item._deinit(mod_ctx, alloc, visited);
-                }
-                v.deinit(alloc);
-            },
-            .void, .int, .float, .bool, .borrowedString, .symbol, .jump => {},
+            .ownedString => |v| alloc.free(v),
+            .list, .module => |*v| v.deinit(alloc),
+            .void, .int, .float, .bool, .borrowedString, .symbol, .jump, .valref => {},
         }
-    }
-
-    pub fn deinit(self: *@This(), mod_ctx: *const ModuleContext, alloc: std.mem.Allocator) void {
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
-        var visited = std.AutoHashMap(*const Sexp, void).init(arena.allocator());
-        defer visited.deinit();
-
-        return self._deinit(mod_ctx, alloc, &visited);
     }
 
     // FIXME: deprecate

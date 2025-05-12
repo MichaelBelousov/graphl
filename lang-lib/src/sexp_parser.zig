@@ -503,6 +503,7 @@ pub const Parser = struct {
         errdefer out_arena.deinit();
         const out_alloc = out_arena.allocator();
 
+        // FIXME: use this
         var local_arena = std.heap.ArenaAllocator.init(in_alloc);
         defer local_arena.deinit();
         const local_alloc = local_arena.allocator();
@@ -511,9 +512,11 @@ pub const Parser = struct {
         // no defer; arena
         //defer label_map.deinit(in_alloc);
 
+        // TODO: scan and count the expected amount of nodes, to avoid any memory allocation
         var module = try ModuleContext.initCapacity(in_alloc, 256);
+        // no need to deinit cuz we use an arena here
+        errdefer module.deinit();
         module.source = src;
-        defer module.deinit();
 
         var loc: Loc = .{};
         // TODO: store the the opener position and whether it's a quote
@@ -540,10 +543,11 @@ pub const Parser = struct {
             _module: *@TypeOf(module),
             _out_diag: @TypeOf(out_diag),
 
-            fn pushAllocedSexp(self: *const @This(), index: u32) !void {
+            fn pushSexp(self: *const @This(), in_sexp: Sexp) !void {
                 // not reachable because invalidly trying to pop the module scope is handled
                 const top = peek(self._stack) orelse unreachable;
-                try self._module.get(top).body().append(self._out_alloc, index);
+                const index = try self._module.addAndAppendToList(top, in_sexp);
+
                 self._last_sexp.* = index;
 
                 if (self._active_label.*) |label| {
@@ -566,11 +570,6 @@ pub const Parser = struct {
 
                     self._active_label.* = null;
                 }
-            }
-
-            fn pushSexp(self: *const @This(), in_sexp: Sexp) !void {
-                const new_idx = try self._module.add(in_sexp);
-                return self.pushAllocedSexp(new_idx);
             }
         }{
             ._loc = &loc,
@@ -629,7 +628,7 @@ pub const Parser = struct {
                         out_diag.*.result = .{ .unmatchedCloser = loc };
                         return error.UnmatchedCloser;
                     };
-                    try module.get(new_top).body().append(out_alloc, old_top);
+                    try module.get(new_top).body().append(module.alloc(), old_top);
                     last_sexp = old_top;
                 },
                 '"' => {
@@ -739,15 +738,8 @@ pub const Parser = struct {
             return Error.UnmatchedOpener;
         }
 
-        const out_mod_arena = std.ArrayListUnmanaged(Sexp).fromOwnedSlice(try out_alloc.dupe(Sexp, module.arena.items));
-        module.arena.clearRetainingCapacity();
-
         return ParseResult{
-            .module = ModuleContext{
-                .source = module.source,
-                .arena = out_mod_arena,
-                ._alloc = out_alloc,
-            },
+            .module = module,
             .arena = out_arena,
         };
     }
