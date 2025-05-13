@@ -41,11 +41,9 @@ fn pasteNodesToCurrentGraphFromClipboard(app: *App) void {
     // FIXME: support reading chunks in
     getClipboard(clipboard_content.ptr);
 
-    addGraphlJsonToGraph(
-        app.current_graph,
-        gpa,
-        clipboard_content,
-    ) catch |err| {
+    const graphl_json = clipboard_content["data:application/graphl-json,".len..];
+
+    addGraphlJsonToGraph(app.current_graph, gpa, graphl_json) catch |err| {
         std.log.err("encountered error '{}' while interpreting clipboard to add to graph", .{err});
         // NOTE: ignore errors
         return;
@@ -55,6 +53,9 @@ fn pasteNodesToCurrentGraphFromClipboard(app: *App) void {
 fn copySelectedToClipboard(app: *const App) !void {
     const json_nodes = try nodesToGraphlJson(gpa, &app.current_graph.selection, app.current_graph);
     defer gpa.free(json_nodes);
+    // TODO: gross
+    const data_url = try std.fmt.allocPrint(gpa, "data:application/graphl-json,{s}", .{json_nodes});
+    defer gpa.free(data_url);
     putClipboard(json_nodes.ptr, json_nodes.len);
 }
 
