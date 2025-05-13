@@ -478,9 +478,11 @@ pub const Parser = struct {
 
     pub const ParseResult = struct {
         module: ModuleContext,
+        /// used for storing e.g. strings and symbols that the module may refer to
         arena: std.heap.ArenaAllocator,
 
         pub fn deinit(self: *@This()) void {
+            self.module.deinit();
             self.arena.deinit();
         }
     };
@@ -508,6 +510,7 @@ pub const Parser = struct {
         defer local_arena.deinit();
         const local_alloc = local_arena.allocator();
 
+        // FIXME: labels should be scoped per function!
         var label_map = SymMapUnmanaged(LabelEntry){};
         // no defer; arena
         //defer label_map.deinit(in_alloc);
@@ -755,7 +758,7 @@ test "parseNumberOrUnaryNegationToken" {
     try std.testing.expectEqual(1, (try Parser.scanNumberOrUnaryNegationToken("1 ", loc, &diag)).sexp.value.int);
     try std.testing.expectEqual(1, (try Parser.scanNumberOrUnaryNegationToken("1", loc, &diag)).sexp.value.int);
     try std.testing.expectEqual(-3, (try Parser.scanNumberOrUnaryNegationToken("-3", loc, &diag)).sexp.value.int);
-    try std.testing.expectEqual(syms.@"-", (try Parser.scanNumberOrUnaryNegationToken("-", loc, &diag)).sexp);
+    try std.testing.expectEqual(syms.@"-".value, (try Parser.scanNumberOrUnaryNegationToken("-", loc, &diag)).sexp.value);
     try std.testing.expectEqual(1000, (try Parser.scanNumberOrUnaryNegationToken("1000)", loc, &diag)).sexp.value.int);
     try std.testing.expectEqual(1.5e+2, (try Parser.scanNumberOrUnaryNegationToken("1.5e+2", loc, &diag)).sexp.value.float);
     try std.testing.expectEqual(-0.5e-2, (try Parser.scanNumberOrUnaryNegationToken("-0.5e-2", loc, &diag)).sexp.value.float);

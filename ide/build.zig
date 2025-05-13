@@ -151,7 +151,7 @@ pub fn build(b: *std.Build) void {
                 .ReleaseFast, .ReleaseSmall => true,
                 else => false,
             },
-            // TODO: try to remove
+            // FIXME: remove!
             .single_threaded = true,
         });
 

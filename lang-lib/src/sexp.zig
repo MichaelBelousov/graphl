@@ -24,7 +24,7 @@ comptime {
 
 // TODO: add an init function that initializes the root for you
 pub const ModuleContext = struct {
-    // TODO: rename from arena, which means something else in zig
+    // TODO: rename from arena, to like "slots" or something, as zig uses arena already
     arena: std.ArrayListUnmanaged(Sexp) = .{},
     source: ?[]const u8 = null,
     // NOTE: do not use an arena for this since 'arena' may grow often!
@@ -150,9 +150,11 @@ pub const Sexp = struct {
         alloc: std.mem.Allocator,
     ) void {
         switch (self.value) {
-            .ownedString => |v| alloc.free(v),
+            // FIXME: figure out ownership for this... currently most common case
+            // is owned by an arena allocator from the SexpParser.ParseResult
+            .ownedString => {},
             .list, .module => |*v| v.deinit(alloc),
-            .void, .int, .float, .bool, .borrowedString, .symbol, .jump, .valref => {},
+            .void, .int, .float, .bool, .borrowedString, .symbol, .jump, .valref, .deadcode => {},
         }
     }
 
@@ -293,9 +295,23 @@ pub const Sexp = struct {
         }
     };
 
+    const WriteOptions = struct {
+        do_indent: bool = true,
+        string_literal_dialect: enum {
+            json,
+            wat,
+            // HACK: backslashes can't be escaped cuz this sucks. Temporary to make encoding
+            // WAT easier (FIXME: can be removed now that I don't write my own WAT)
+            /// only escapes quotes, not even backslashes
+            simple,
+        } = .simple,
+    };
+
     fn _write(self: *const Self, mod_ctx: *const ModuleContext, writer: anytype, state: WriteState, comptime opts: WriteOptions) @TypeOf(writer).Error!WriteState {
         if (self.label) |label| {
             if (state.emitted_labels.contains(label.ptr)) {
+                std.debug.panic("sexp cycles not allowed", .{});
+                // FIXME: weird old code from back when sexp cycles were allowed
                 _ = try writer.write(">!");
                 _ = try writer.write(label);
                 return .{
@@ -374,7 +390,7 @@ pub const Sexp = struct {
             .valref => |v| _: {
                 const target = mod_ctx.get(v.target);
                 var cw = std.io.countingWriter(writer);
-                try cw.writer().print("#!{s}", .{target.label orelse "$$NOLABEL$$"});
+                try cw.writer().print("#!{s}", .{target.label orelse unreachable});
                 break :_ @as(usize, @intCast(cw.bytes_written));
             },
         };
@@ -384,18 +400,6 @@ pub const Sexp = struct {
             .emitted_labels = state.emitted_labels,
         };
     }
-
-    const WriteOptions = struct {
-        do_indent: bool = true,
-        string_literal_dialect: enum {
-            json,
-            wat,
-            // HACK: backslashes can't be escaped cuz this sucks. Temporary to make encoding
-            // WAT easier
-            /// only escape quotes, not even backslashes
-            simple,
-        } = .simple,
-    };
 
     pub fn write(self: *const Self, mod_ctx: *const ModuleContext, writer: anytype, comptime options: WriteOptions) !usize {
         var counting_writer = std.io.countingWriter(writer);
@@ -444,8 +448,16 @@ pub const Sexp = struct {
             .ownedString => |v| return std.mem.eql(u8, v, other.value.ownedString),
             .borrowedString => |v| return std.mem.eql(u8, v, other.value.borrowedString),
             .symbol => |v| return std.meta.eql(v, other.value.symbol),
-            .jump => |v| return std.meta.eql(v, other.value.jump),
-            .valref => |v| return std.meta.eql(v, other.value.valref),
+            .jump => |v| {
+                const ltarget_label = lctx.get(v.target).label;
+                const rtarget_label = rctx.get(other.value.jump.target).label;
+                return std.mem.eql(u8, ltarget_label.?, rtarget_label.?);
+            },
+            .valref => |v| {
+                const ltarget_label = lctx.get(v.target).label;
+                const rtarget_label = rctx.get(other.value.valref.target).label;
+                return std.mem.eql(u8, ltarget_label.?, rtarget_label.?);
+            },
             inline .module, .list => |v, sexp_type| {
                 const other_list = @field(other.value, @tagName(sexp_type));
                 if (v.items.len != other_list.items.len) {
@@ -501,10 +513,9 @@ pub const Sexp = struct {
             .int => |v| return if (v == pattern.value.int) null else self_index,
             .ownedString => |v| return if (std.mem.eql(u8, v, pattern.value.ownedString)) null else self_index,
             .borrowedString => |v| return if (std.mem.eql(u8, v, pattern.value.borrowedString)) null else self_index,
-            // TODO: it's pooled, can do a cheaper comparison
             .symbol => |v| return if (std.meta.eql(v, pattern.value.symbol)) null else self_index,
-            .jump => |v| return if (std.meta.eql(v, pattern.value.jump)) null else self_index,
-            .valref => |v| return if (std.meta.eql(v, pattern.value.valref)) null else self_index,
+            .jump => @panic("unsupported pattern type"),
+            .valref => @panic("unsupported pattern type"),
             inline .module, .list => |v, sexp_type| {
                 const pattern_list = @field(pattern.value, @tagName(sexp_type));
                 var i: usize = 0;
