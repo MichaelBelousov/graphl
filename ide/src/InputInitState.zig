@@ -42,23 +42,51 @@ pub const InputInitState = union(enum) {
         }
         return value;
     }
+
+    pub fn jsonStringify(self: *const @This(), jws: anytype) !void {
+        try switch (self.*) {
+            .node => |v| jws.write(struct { node: usize, outPin: usize, }{ .node =  v.id, .outPin = v.out_pin}),
+            .int => |v| jws.write(struct {int: i64}{.int = v}),
+            .float => |v| jws.write(struct {float: f64}{.float = v}),
+            .bool => |v| jws.write(struct {bool: bool}{.bool = v}),
+            .string => |v| jws.write(struct {string: []const u8}{.string = v}),
+            .symbol => |v| jws.write(struct {symbol: [:0]const u8}{.symbol = v}),
+        };
+    }
 };
 
-test "parse InputInitState" {
-    const result = try std.json.parseFromSlice([]const InputInitState, std.testing.allocator,
+test "InputInitState twoway" {
+    const src =
         \\[
-        \\  {"id": 0, "outPin": 1},
-        \\  {"int": -201},
-        \\  {"float": 0.32},
-        \\  {"bool": false},
-        \\  {"bool": true},
-        \\  {"string": "hello"},
-        \\  {"symbol": "world"}
+        \\  {
+        \\    "node": 0,
+        \\    "outPin": 1
+        \\  },
+        \\  {
+        \\    "int": -201
+        \\  },
+        \\  {
+        \\    "float": 3.2e-1
+        \\  },
+        \\  {
+        \\    "bool": false
+        \\  },
+        \\  {
+        \\    "bool": true
+        \\  },
+        \\  {
+        \\    "string": "hello"
+        \\  },
+        \\  {
+        \\    "symbol": "world"
+        \\  }
         \\]
-    , .{});
-    defer result.deinit();
+    ;
 
-    const expected = &[_]InputInitState{
+    const parse_result = try std.json.parseFromSlice([]const InputInitState, std.testing.allocator, src, .{});
+    defer parse_result.deinit();
+
+    const objects = &[_]InputInitState{
         InputInitState{ .node = .{ .id = 0, .out_pin = 1 } },
         InputInitState{ .int = -201 },
         InputInitState{ .float = 0.32 },
@@ -68,7 +96,12 @@ test "parse InputInitState" {
         InputInitState{ .symbol = "world" },
     };
 
-    try std.testing.expectEqualDeep(expected, result.value);
+    try std.testing.expectEqualDeep(objects, parse_result.value);
+
+    const stringify_result = try std.json.stringifyAlloc(std.testing.allocator, objects, .{.whitespace = .indent_2});
+    defer std.testing.allocator.free(stringify_result);
+
+    try std.testing.expectEqualStrings(src, stringify_result);
 
     try std.testing.expectError(error.InvalidCharacter, std.json.parseFromSlice(InputInitState, std.testing.allocator,
         \\{"int": "test"}
