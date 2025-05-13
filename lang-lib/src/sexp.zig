@@ -154,7 +154,7 @@ pub const Sexp = struct {
             // is owned by an arena allocator from the SexpParser.ParseResult
             .ownedString => {},
             .list, .module => |*v| v.deinit(alloc),
-            .void, .int, .float, .bool, .borrowedString, .symbol, .jump, .valref, .deadcode => {},
+            .void, .int, .float, .bool, .borrowedString, .symbol, .jump, .valref => {},
         }
     }
 

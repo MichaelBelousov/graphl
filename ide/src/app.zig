@@ -20,10 +20,44 @@ const ModuleContext = @import("graphl_core").ModuleContext;
 const helpers = @import("graphl_core").helpers;
 const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 
+const NodeInitStateJson = @import("./json-format.zig").NodeInitStateJson;
+const InputInitStateJson = @import("./json-format.zig").InputInitStateJson;
+
 const MAX_FUNC_NAME = 256;
 
 // FIXME: these need to have the App instance as an argument
 extern fn onClickReportIssue() void;
+
+extern fn getClipboardLen() usize;
+/// request the host put clipboard contents into the a buffer,
+/// size of the buffer must be equal to getClipboardLen's result
+extern fn getClipboard(buff_ptr: [*]u8) void;
+/// put content into the clipboard
+extern fn putClipboard(content_ptr: [*]u8, content_len: usize) void;
+
+fn pasteNodesToCurrentGraphFromClipboard(app: *App) void {
+    const clipboard_len = getClipboardLen();
+    const clipboard_content = gpa.alloc(u8, clipboard_len) catch return;
+    // FIXME: support reading chunks in
+    getClipboard(clipboard_content.ptr);
+
+    addGraphlJsonToGraph(
+        app.current_graph,
+        gpa,
+        clipboard_content,
+    ) catch |err| {
+        std.log.err("encountered error '{}' while interpreting clipboard to add to graph", .{err});
+        // NOTE: ignore errors
+        return;
+    };
+}
+
+fn copySelectedToClipboard(app: *const App) !void {
+    const json_nodes = try nodesToGraphlJson(gpa, &app.current_graph.selection, app.current_graph);
+    defer gpa.free(json_nodes);
+    putClipboard(json_nodes.ptr, json_nodes.len);
+}
+
 
 // // FIXME: should use the new std.heap.SmpAllocator in release mode off wasm
 // //const gpa = gpa_instance.allocator();
@@ -37,12 +71,84 @@ extern fn onClickReportIssue() void;
 // FIXME: use raw_c_allocator for arenas!
 pub const gpa = std.heap.c_allocator;
 
-const SelectionSet = std.AutoHashMapUnmanaged(graphl.NodeId, void);
+const NodeSet = std.AutoHashMapUnmanaged(graphl.NodeId, void);
 
-// FIXME: would be cooler to copy selected nodes out to graphl
-pub fn nodesToJson(a: std.mem.Allocator, selection: *SelectionSet) []const u8 {
-    _ = a;
-    _ = selection;
+// TODO: when IDE switches to manipulating sexp in memory, we can just write those sexp
+pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Graph) ![]const u8 {
+    var json_nodes: std.ArrayListUnmanaged(NodeInitStateJson) = .initCapacity(a, nodes.count());
+    defer json_nodes.deinit();
+    var node_ids_iter = nodes.keyIterator();
+
+    var inputs_arena = std.heap.ArenaAllocator.init(a);
+    defer inputs_arena.deinit();
+
+    while (node_ids_iter.next()) |node_id| {
+        const node = graph.graphl_graph.nodes.map.getPtr(node_id) orelse unreachable;
+        const dvui_pos = graph.visual_graph.node_data.getPtr(node_id).?.position;
+        const json_inputs = inputs_arena.allocator().alloc(InputInitStateJson, node.inputs.len);
+        for (json_inputs, node.inputs) |*json_input, input| {
+            json_input.* = input;
+        }
+        json_nodes.addOneAssumeCapacity().* = .{
+            .id = node_id.*,
+            .type = node.desc().name,
+            .inputs = json_inputs,
+            .position = .{ .x = dvui_pos.x, .y = dvui_pos.y },
+        };
+    }
+
+    return std.json.stringifyAlloc(a, json_nodes.items, .{});
+}
+
+// TODO: when IDE switches to manipulating sexp in memory, we can just write those sexp
+pub fn addGraphlJsonToGraph(graph: *Graph, a: std.mem.Allocator, json: []const u8) !void {
+    const parsed = try std.json.parseFromSlice([]NodeInitStateJson, a, json, .{ .ignore_unknown_fields = true });
+    defer parsed.deinit();
+    const nodes = parsed.value;
+
+    var resolved_ids: std.AutoHashMapUnmanaged(usize, graphl.NodeId) = .empty;
+    defer resolved_ids.deinit(a);
+
+    for (nodes) |node_desc| {
+        const resolved_id = try graph.addNode(gpa, node_desc.@"type", false, null, null, .{});
+        try resolved_ids.put(a, node_desc.id, resolved_id);
+    }
+
+    // FIXME: allow this to be 
+    for (nodes) |node_desc| {
+        const node_id = resolved_ids.get(node_desc.id) orelse unreachable;
+        if (node_desc.position) |pos| {
+            const viz_node = graph.visual_graph.node_data.getPtr(node_id) orelse unreachable;
+            viz_node.position_override = pos;
+        }
+        var input_iter = node_desc.inputs.iterator();
+        while (input_iter.next()) |input_entry| {
+            const input_id = input_entry.key_ptr.*;
+            const input_desc = input_entry.value_ptr;
+            switch (input_desc.*) {
+                .node => |v| {
+                    try graph.addEdge(gpa, resolved_ids.get(v.id), @intCast(v.out_pin), node_id, input_id, 0);
+                },
+                .int => |v| {
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .int = v });
+                },
+                .float => |v| {
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .float = v });
+                },
+                .bool => |v| {
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .bool = v });
+                },
+                .string => |v| {
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .string = v });
+                },
+                .symbol => |v| {
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .symbol = v });
+                },
+            }
+        }
+    }
+
+    try graph.visual_graph.formatGraphNaive(gpa);
 }
 
 pub const Graph = struct {
@@ -62,7 +168,7 @@ pub const Graph = struct {
     visual_graph: VisualGraph,
 
     // TODO: make it possible to copy the selection as Sexp
-    selection: SelectionSet = .empty,
+    selection: NodeSet = .empty,
 
     // FIXME: why is this separate from self.graphl_graph.env
     env: graphl.Env,
@@ -1132,6 +1238,18 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
                             self.current_graph.removeNode(selected_single.key_ptr.*) catch continue
                         );
                     }
+                } else if (ke.action == .up and ke.code == .v and ctrlOnly(ke.mod)) {
+                    pasteNodesToCurrentGraphFromClipboard(self);
+                } else if (ke.action == .up and ke.code == .c and ctrlOnly(ke.mod)) {
+                    try copySelectedToClipboard(self);
+                } else if (ke.action == .up and ke.code == .x and ctrlOnly(ke.mod)) {
+                    try copySelectedToClipboard(self);
+                    var selected_iter = self.current_graph.selection.iterator();
+                    while (selected_iter.next()) |selected_single| {
+                        std.debug.assert(
+                            self.current_graph.removeNode(selected_single.key_ptr.*) catch continue
+                        );
+                    }
                 }
             },
             else => {},
@@ -1237,6 +1355,15 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
             self.node_menu_filter = null;
         }
     }
+}
+
+// TODO: contribute back to dvui
+fn ctrlOnly(self: dvui.enums.Mod) bool {
+    const lctrl = @intFromEnum(dvui.enums.Mod.lcontrol);
+    const rctrl = @intFromEnum(dvui.enums.Mod.rcontrol);
+    const mask = lctrl | rctrl;
+    const input = @intFromEnum(self);
+    return (input & mask) == input;
 }
 
 // TODO: contribute this to dvui?

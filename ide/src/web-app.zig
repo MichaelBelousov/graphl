@@ -49,6 +49,7 @@ export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
     };
 }
 
+// TODO: maybe rename to returnSlice?
 extern fn onReceiveSlice(ptr: ?[*]const u8, len: usize) void;
 
 /// returns null if failure
