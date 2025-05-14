@@ -1357,6 +1357,31 @@ export async function Ide(canvasElem, opts) {
             breakpoint() {
                 debugger;
             },
+
+            requestPaste() {
+                const impl = async () => {
+                    const clipboard = await navigator.clipboard.readText();
+                    const bytes = utf8encoder.encode(clipboard);
+                    const ptr = ideWasm.instance.exports.gpa_u8(bytes.byteLength);
+                    var dest = new Uint8Array(ideWasm.instance.exports.memory.buffer, ptr, bytes.byteLength);
+                    dest.set(bytes);
+                    ideWasm.instance.exports.pasteText(ptr, bytes.byteLength);
+                    ideWasm.instance.exports.gpa_free(ptr, bytes.byteLength);
+                };
+                void impl();
+            },
+
+            /**
+             * @param {number} content_ptr
+             * @param {number} content_len
+             * @returns {void}
+             */
+            putClipboard(content_ptr, content_len) {
+                const contentView = new Uint8Array(ideWasm.instance.exports.memory.buffer, content_ptr, content_len);
+                const source = utf8decoder.decode(contentView);
+                void navigator.clipboard.writeText(source);
+            },
+
             main() {},
             //wasm_opt_transfer: sharedWasmMem,
             // FIXME: remove
@@ -1441,7 +1466,6 @@ export async function Ide(canvasElem, opts) {
             ideWasm = wasmResult
             const we = wasmResult.instance.exports;
             wasi.initialize(wasmResult.instance);
-
             dvui.setInstance(wasmResult.instance);
             dvui.setCanvas(canvasElem);
 

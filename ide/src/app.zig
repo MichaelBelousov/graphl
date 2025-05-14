@@ -20,28 +20,17 @@ const ModuleContext = @import("graphl_core").ModuleContext;
 const helpers = @import("graphl_core").helpers;
 const sourceToGraph = @import("./source_to_graph.zig").sourceToGraph;
 
-const NodeInitStateJson = @import("./json-format.zig").NodeInitStateJson;
-const InputInitStateJson = @import("./json-format.zig").InputInitStateJson;
-
 const MAX_FUNC_NAME = 256;
 
 // FIXME: these need to have the App instance as an argument
 extern fn onClickReportIssue() void;
+extern fn requestPaste() void;
 
-extern fn getClipboardLen() usize;
-/// request the host put clipboard contents into the a buffer,
-/// size of the buffer must be equal to getClipboardLen's result
-extern fn getClipboard(buff_ptr: [*]u8) void;
-/// put content into the clipboard
-extern fn putClipboard(content_ptr: [*]u8, content_len: usize) void;
-
-fn pasteNodesToCurrentGraphFromClipboard(app: *App) void {
-    const clipboard_len = getClipboardLen();
-    const clipboard_content = gpa.alloc(u8, clipboard_len) catch return;
-    // FIXME: support reading chunks in
-    getClipboard(clipboard_content.ptr);
-
-    const graphl_json = clipboard_content["data:application/graphl-json,".len..];
+/// expects text in a data-url like format with type application/graphl-json
+/// NOTE: I am not currently encoding the data part of the url, making it not really
+/// compliant
+pub fn pasteText(app: *App, clipboard: []const u8) void {
+    const graphl_json = clipboard["data:application/graphl-json,".len..];
 
     addGraphlJsonToGraph(app.current_graph, gpa, graphl_json) catch |err| {
         std.log.err("encountered error '{}' while interpreting clipboard to add to graph", .{err});
@@ -49,6 +38,9 @@ fn pasteNodesToCurrentGraphFromClipboard(app: *App) void {
         return;
     };
 }
+
+/// put content into the host clipboard
+extern fn putClipboard(content_ptr: [*]const u8, content_len: usize) void;
 
 fn copySelectedToClipboard(app: *const App) !void {
     const json_nodes = try nodesToGraphlJson(gpa, &app.current_graph.selection, app.current_graph);
@@ -76,25 +68,50 @@ const NodeSet = std.AutoHashMapUnmanaged(graphl.NodeId, void);
 
 // TODO: when IDE switches to manipulating sexp in memory, we can just write those sexp
 pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Graph) ![]const u8 {
-    var json_nodes: std.ArrayListUnmanaged(NodeInitStateJson) = .initCapacity(a, nodes.count());
-    defer json_nodes.deinit();
+    var json_nodes: std.ArrayListUnmanaged(NodeInitState) = try .initCapacity(a, nodes.count());
+    defer json_nodes.deinit(a);
     var node_ids_iter = nodes.keyIterator();
 
     var inputs_arena = std.heap.ArenaAllocator.init(a);
     defer inputs_arena.deinit();
 
-    while (node_ids_iter.next()) |node_id| {
+    while (node_ids_iter.next()) |p_node_id| {
+        const node_id = p_node_id.*;
         const node = graph.graphl_graph.nodes.map.getPtr(node_id) orelse unreachable;
         const dvui_pos = graph.visual_graph.node_data.getPtr(node_id).?.position;
-        const json_inputs = inputs_arena.allocator().alloc(InputInitStateJson, node.inputs.len);
-        for (json_inputs, node.inputs) |*json_input, input| {
-            json_input.* = input;
+
+        // dealloced later
+        var inputs: std.AutoHashMapUnmanaged(u16, InputInitState) = .empty;
+
+        for (node.inputs, 0..) |input, i| {
+            switch (input) {
+                .link => |link| {
+                    if (!nodes.contains(link.target)) {
+                        continue;
+                    }
+                    std.debug.assert(link.sub_index == 0);
+                    try inputs.put(inputs_arena.allocator(), @intCast(i), InputInitState{ .node = .{
+                        .id = link.target,
+                        .out_pin = link.pin_index,
+                    } });
+                },
+                .value => |val| switch (val) {
+                    .int => |v| try inputs.put(inputs_arena.allocator(), @intCast(i), InputInitState{.int = v}),
+                    .float => |v| try inputs.put(inputs_arena.allocator(), @intCast(i), InputInitState{.float = v}),
+                    .string => |v| try inputs.put(inputs_arena.allocator(), @intCast(i), InputInitState{.string = v}),
+                    .bool => |v| try inputs.put(inputs_arena.allocator(), @intCast(i), InputInitState{.bool = v}),
+                    // FIXME: maybe require it be null terminated? maybe put it in the pool?
+                    .symbol => |v| try inputs.put(inputs_arena.allocator(), @intCast(i), InputInitState{.symbol = try inputs_arena.allocator().dupeZ(u8, v)}),
+                    .null => continue,
+                },
+            }
         }
-        json_nodes.addOneAssumeCapacity().* = .{
-            .id = node_id.*,
-            .type = node.desc().name,
-            .inputs = json_inputs,
-            .position = .{ .x = dvui_pos.x, .y = dvui_pos.y },
+
+        json_nodes.addOneAssumeCapacity().* = NodeInitState{
+            .id = node_id,
+            .type_ = node.desc().name(),
+            .inputs = inputs,
+            .position = dvui_pos,
         };
     }
 
@@ -103,7 +120,7 @@ pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Gr
 
 // TODO: when IDE switches to manipulating sexp in memory, we can just write those sexp
 pub fn addGraphlJsonToGraph(graph: *Graph, a: std.mem.Allocator, json: []const u8) !void {
-    const parsed = try std.json.parseFromSlice([]NodeInitStateJson, a, json, .{ .ignore_unknown_fields = true });
+    const parsed = try std.json.parseFromSlice([]NodeInitState, a, json, .{ .ignore_unknown_fields = true });
     defer parsed.deinit();
     const nodes = parsed.value;
 
@@ -111,7 +128,7 @@ pub fn addGraphlJsonToGraph(graph: *Graph, a: std.mem.Allocator, json: []const u
     defer resolved_ids.deinit(a);
 
     for (nodes) |node_desc| {
-        const resolved_id = try graph.addNode(gpa, node_desc.@"type", false, null, null, .{});
+        const resolved_id = try graph.addNode(gpa, node_desc.type_, false, null, null, .{});
         try resolved_ids.put(a, node_desc.id, resolved_id);
     }
 
@@ -128,7 +145,14 @@ pub fn addGraphlJsonToGraph(graph: *Graph, a: std.mem.Allocator, json: []const u
             const input_desc = input_entry.value_ptr;
             switch (input_desc.*) {
                 .node => |v| {
-                    try graph.addEdge(gpa, resolved_ids.get(v.id), @intCast(v.out_pin), node_id, input_id, 0);
+                    try graph.addEdge(
+                        gpa,
+                        resolved_ids.get(v.id) orelse unreachable,
+                        @intCast(v.out_pin),
+                        node_id,
+                        input_id,
+                        0,
+                    );
                 },
                 .int => |v| {
                     try graph.addLiteralInput(node_id, input_id, 0, .{ .int = v });
@@ -486,12 +510,75 @@ pub const Orientation = enum(u32) {
 
 pub const InputInitState = @import("./InputInitState.zig").InputInitState;
 
+const IntArrayHashMap = @import("graphl_core").IntArrayHashMap;
+
 pub const NodeInitState = struct {
     id: usize,
+    // TODO: rename to @"type"
     /// type of node "+"
     type_: []const u8,
     inputs: std.AutoHashMapUnmanaged(u16, InputInitState),
     position: ?dvui.Point = null,
+
+    const JsonType = struct {
+        id: usize,
+        type: []const u8,
+        inputs: IntArrayHashMap(u16, InputInitState, 10) = .{},
+        position: ?dvui.Point = null,
+    };
+
+    pub fn jsonParse(a: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
+        // FIXME: this intermediate parsing is completely unnecessary and a waste, just parse the json
+        // tokens into the input map directly
+        const node_json = try std.json.innerParse(JsonType, a, source, options);
+
+        var inputs = std.AutoHashMapUnmanaged(u16, App.InputInitState){};
+        errdefer inputs.deinit(a);
+        var input_iter = node_json.inputs.map.iterator();
+
+        while (input_iter.next()) |input_json_entry| {
+            const key = input_json_entry.key_ptr.*;
+            const input = input_json_entry.value_ptr.*;
+            try inputs.put(a, key, input);
+        }
+
+        return .{
+            .id = node_json.id,
+            .type_ = node_json.type,
+            .position = if (node_json.position) |p| .{ .x = p.x, .y = p.y } else .{},
+            .inputs = inputs,
+        };
+    }
+
+    pub fn jsonStringify(self: *const @This(), jws: anytype) std.mem.Allocator.Error!void {
+        try jws.beginObject();
+
+        try jws.objectField("id");
+        try jws.write(self.id);
+
+        try jws.objectField("type");
+        try jws.write(self.type_);
+
+        try jws.objectField("position");
+        try jws.write(self.position);
+
+        try jws.objectField("inputs");
+        {
+            try jws.beginObject();
+
+            var input_iter = self.inputs.iterator();
+            while (input_iter.next()) |entry| {
+                var intBuf: [6]u8 = undefined; // max decimal u16 as string is 65535 aka 5 characters
+                const str_key = std.fmt.bufPrint(&intBuf, "{}", .{entry.key_ptr.*}) catch unreachable;
+                try jws.objectField(str_key);
+                try jws.write(entry.value_ptr.*);
+            }
+
+            try jws.endObject();
+        }
+
+        try jws.endObject();
+    }
 };
 
 pub const GraphInitState = struct {
@@ -1240,7 +1327,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
                         );
                     }
                 } else if (ke.action == .up and ke.code == .v and ctrlOnly(ke.mod)) {
-                    pasteNodesToCurrentGraphFromClipboard(self);
+                    requestPaste();
                 } else if (ke.action == .up and ke.code == .c and ctrlOnly(ke.mod)) {
                     try copySelectedToClipboard(self);
                 } else if (ke.action == .up and ke.code == .x and ctrlOnly(ke.mod)) {

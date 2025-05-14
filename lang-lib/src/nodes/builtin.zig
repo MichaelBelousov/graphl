@@ -378,6 +378,7 @@ pub const GraphTypes = struct {
 
     pub const Node = struct {
         id: NodeId,
+        // FIXME: is this even used...? very confusing
         position: Point = .{},
         label: ?[]const u8 = null,
         comment: ?[]const u8 = null,

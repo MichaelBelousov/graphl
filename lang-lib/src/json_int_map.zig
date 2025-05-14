@@ -64,13 +64,12 @@ pub fn IntArrayHashMap(comptime Key: type, comptime T: type, comptime base: u8) 
         }
 
         pub fn jsonStringify(self: @This(), jws: anytype) !void {
-            const intBuf: u8[32] = undefined; // TODO: generate buff size from base
+            const intBuf: [32]u8 = undefined; // TODO: generate buff size from base
             try jws.beginObject();
             var it = self.map.iterator();
             while (it.next()) |kv| {
-                const str = try std.fmt.bufPrint(intBuf, "{s}", kv.key_ptr.*);
+                const str = try std.fmt.bufPrint(&intBuf, "{s}", kv.key_ptr.*);
                 try jws.objectField(str);
-                try jws.objectField();
                 try jws.write(kv.value_ptr.*);
             }
             try jws.endObject();

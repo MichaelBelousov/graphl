@@ -7,15 +7,10 @@ pub const MenuOptionJson = struct {
 // TODO: just use dvui.Point
 pub const PtJson = struct { x: f32 = 0.0, y: f32 = 0.0 };
 
+// TODO: make all these InitState types JSON capable natively
 pub const InputInitStateJson = App.InputInitState;
 
-pub const NodeInitStateJson = struct {
-    id: usize,
-    /// type of node, e.g. "+"
-    type: []const u8,
-    inputs: IntArrayHashMap(u16, InputInitStateJson, 10) = .{},
-    position: ?PtJson = null,
-};
+pub const NodeInitStateJson = App.NodeInitState;
 
 pub const GraphInitStateJson = struct {
     fixedSignature: bool = false,
@@ -121,7 +116,7 @@ pub fn convertGraphs(a: std.mem.Allocator, graphs: GraphsInitStateJson) !App.Gra
         for (entry.value_ptr.nodes, nodes) |node_json, *node| {
             var inputs = std.AutoHashMapUnmanaged(u16, App.InputInitState){};
             errdefer inputs.deinit(a);
-            var input_iter = node_json.inputs.map.iterator();
+            var input_iter = node_json.inputs.iterator();
             while (input_iter.next()) |input_json_entry| {
                 const key = input_json_entry.key_ptr.*;
                 switch (input_json_entry.value_ptr.*) {
@@ -142,7 +137,7 @@ pub fn convertGraphs(a: std.mem.Allocator, graphs: GraphsInitStateJson) !App.Gra
 
             node.* = .{
                 .id = node_json.id,
-                .type_ = node_json.type,
+                .type_ = node_json.type_,
                 .position = if (node_json.position) |p| .{ .x = p.x, .y = p.y } else .{},
                 .inputs = inputs,
             };

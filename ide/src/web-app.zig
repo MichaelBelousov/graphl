@@ -82,23 +82,6 @@ export fn setInitOpts(json_ptr: ?[*]const u8, json_len: usize) bool {
     return true;
 }
 
-// FIXME: just use a default env
-const jsonStrToGraphlType: std.StaticStringMap(graphl.Type) = _: {
-    break :_ std.StaticStringMap(graphl.Type).initComptime(.{
-        .{ "u32", graphl.primitive_types.u32_ },
-        .{ "u64", graphl.primitive_types.u64_ },
-        .{ "i32", graphl.primitive_types.i32_ },
-        .{ "i64", graphl.primitive_types.i64_ },
-        .{ "f32", graphl.primitive_types.f32_ },
-        .{ "f64", graphl.primitive_types.f64_ },
-        .{ "string", graphl.primitive_types.string },
-        .{ "code", graphl.primitive_types.code },
-        .{ "bool", graphl.primitive_types.bool_ },
-        .{ "rgba", graphl.primitive_types.rgba },
-        .{ "vec3", graphl.primitive_types.vec3 },
-    });
-};
-
 extern fn on_menu_click(handle: u32) void;
 
 fn onMenuClick(_: ?*anyopaque, click_ctx: ?*anyopaque) void {
@@ -160,6 +143,10 @@ fn _setInitOpts(in_json: []const u8) !void {
             } else .{},
         } else .{},
     };
+}
+
+export fn pasteText(clipboard_ptr: [*]const u8, clipboard_len: usize) void {
+    app.pasteText(clipboard_ptr[0..clipboard_len]);
 }
 
 const gpa = App.gpa;
