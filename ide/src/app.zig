@@ -48,7 +48,7 @@ fn copySelectedToClipboard(app: *const App) !void {
     // TODO: gross
     const data_url = try std.fmt.allocPrint(gpa, "data:application/graphl-json,{s}", .{json_nodes});
     defer gpa.free(data_url);
-    putClipboard(json_nodes.ptr, json_nodes.len);
+    putClipboard(data_url.ptr, data_url.len);
 }
 
 
