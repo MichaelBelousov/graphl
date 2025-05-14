@@ -32,7 +32,7 @@ extern fn requestPaste() void;
 pub fn pasteText(app: *App, clipboard: []const u8) void {
     const graphl_json = clipboard["data:application/graphl-json,".len..];
 
-    addGraphlJsonToGraph(app.current_graph, gpa, graphl_json) catch |err| {
+    pasteGraphlJsonToGraph(app.current_graph, gpa, graphl_json) catch |err| {
         std.log.err("encountered error '{}' while interpreting clipboard to add to graph", .{err});
         // NOTE: ignore errors
         return;
@@ -119,16 +119,19 @@ pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Gr
 }
 
 // TODO: when IDE switches to manipulating sexp in memory, we can just write those sexp
-pub fn addGraphlJsonToGraph(graph: *Graph, a: std.mem.Allocator, json: []const u8) !void {
+pub fn pasteGraphlJsonToGraph(graph: *Graph, a: std.mem.Allocator, json: []const u8) !void {
     const parsed = try std.json.parseFromSlice([]NodeInitState, a, json, .{ .ignore_unknown_fields = true });
     defer parsed.deinit();
     const nodes = parsed.value;
+
+    graph.selection.clearRetainingCapacity();
 
     var resolved_ids: std.AutoHashMapUnmanaged(usize, graphl.NodeId) = .empty;
     defer resolved_ids.deinit(a);
 
     for (nodes) |node_desc| {
         const resolved_id = try graph.addNode(gpa, node_desc.type_, false, null, null, .{});
+        try graph.selection.put(gpa, resolved_id, {});
         try resolved_ids.put(a, node_desc.id, resolved_id);
     }
 
@@ -138,6 +141,7 @@ pub fn addGraphlJsonToGraph(graph: *Graph, a: std.mem.Allocator, json: []const u
         if (node_desc.position) |pos| {
             const viz_node = graph.visual_graph.node_data.getPtr(node_id) orelse unreachable;
             viz_node.position_override = pos;
+            viz_node.position_override.?.y += 200;
         }
         var input_iter = node_desc.inputs.iterator();
         while (input_iter.next()) |input_entry| {
@@ -173,7 +177,8 @@ pub fn addGraphlJsonToGraph(graph: *Graph, a: std.mem.Allocator, json: []const u
         }
     }
 
-    try graph.visual_graph.formatGraphNaive(gpa);
+    // TODO: format the pasted part? or at least increase positions by like 200 y points
+    //try graph.visual_graph.formatGraphNaive(gpa);
 }
 
 pub const Graph = struct {
@@ -192,7 +197,7 @@ pub const Graph = struct {
     // FIXME: merge with visual graph
     visual_graph: VisualGraph,
 
-    // TODO: make it possible to copy the selection as Sexp
+    // TODO: implement dragging selection together as a unit
     selection: NodeSet = .empty,
 
     // FIXME: why is this separate from self.graphl_graph.env
@@ -1931,6 +1936,11 @@ fn renderNode(
                 ctrl_down = (e.evt.key.action == .down or e.evt.key.action == .repeat);
             }
 
+            var shift_down = false;
+            if (e.evt == .key and e.evt.key.matchBind("shift")) {
+                shift_down = (e.evt.key.action == .down or e.evt.key.action == .repeat);
+            }
+
             if (!box.matchEvent(e))
                 continue;
 
@@ -1942,7 +1952,7 @@ fn renderNode(
                         const offset = me.p.diff(box.data().rectScale().r.topLeft()); // pixel offset from box corner
                         dvui.dragPreStart(me.p, .{ .offset = offset });
                         dvui.cursorSet(.hand);
-                        if (!ctrl_down) {
+                        if (!(ctrl_down or shift_down)) {
                             self.current_graph.selection.clearRetainingCapacity();
                         }
                         try self.current_graph.selection.put(gpa, node.id, {});
