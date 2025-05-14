@@ -1,4 +1,4 @@
-//! Copyright 2024, Michael Belouso
+//! Copyright 2024, Michael Belousov
 //!
 
 // TODO: rename this file to App.zig
@@ -1952,9 +1952,6 @@ fn renderNode(
                         const offset = me.p.diff(box.data().rectScale().r.topLeft()); // pixel offset from box corner
                         dvui.dragPreStart(me.p, .{ .offset = offset });
                         dvui.cursorSet(.hand);
-                        if (!(ctrl_down or shift_down)) {
-                            self.current_graph.selection.clearRetainingCapacity();
-                        }
                         try self.current_graph.selection.put(gpa, node.id, {});
                         //
                     } else if (me.action == .release and me.button.pointer()) {
@@ -1962,13 +1959,26 @@ fn renderNode(
                             e.handled = true;
                             dvui.captureMouse(null);
                             dvui.dragEnd();
+                            // TODO: only clear selection if they they didn't move the mouse...
+                            if (!(ctrl_down or shift_down)) {
+                                self.current_graph.selection.clearRetainingCapacity();
+                            }
+                            try self.current_graph.selection.put(gpa, node.id, {});
                         }
                         //
                     } else if (me.action == .motion) {
                         if (dvui.captured(box.data().id)) {
                             if (dvui.dragging(me.p)) |_| {
                                 const p = me.p.diff(dvui.dragOffset());
-                                viz_data.position_override = dataRectScale.pointFromScreen(p);
+
+                                var selected_iter = self.current_graph.selection.keyIterator();
+                                while (selected_iter.next()) |selected_node_id| {
+                                    const selected_viz_data = self.current_graph.visual_graph.node_data.getPtr(selected_node_id.*) orelse continue;
+                                    const offset_from_grab = (selected_viz_data.position_override orelse dvui.Point{})
+                                        .diff(viz_data.position_override orelse dvui.Point{});
+                                    selected_viz_data.position_override = dataRectScale.pointFromScreen(p).plus(offset_from_grab);
+                                }
+
                                 dvui.refresh(null, @src(), graph_area.scroll.data().id);
 
                                 var scrolldrag = dvui.Event{ .evt = .{ .scroll_drag = .{
