@@ -1579,9 +1579,8 @@ fn renderNode(
 
     const is_selected = self.current_graph.selection.contains(node.id);
 
-    const box = try dvui.box(
-        @src(),
-        .vertical,
+    const box = try dvui.currentWindow().arena().create(dvui.BoxWidget);
+    box.* = dvui.BoxWidget.init(@src(), .vertical, false,
         .{
             .rect = dvui.Rect{
                 .x = position.x,
@@ -1602,11 +1601,13 @@ fn renderNode(
             //.max_size_content = dvui.Size{ .w = 300, .h = 600 },
         },
     );
+    try box.install();
     try dvui.boxShadow(box.data(), .{
         .alpha = 0.5,
         .blur = 5,
         .color = dvui.Color.black,
     });
+    try box.drawBackground();
 
     defer box.deinit();
 
