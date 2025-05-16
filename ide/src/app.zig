@@ -42,13 +42,46 @@ pub fn pasteText(app: *App, clipboard: []const u8) void {
 /// put content into the host clipboard
 extern fn putClipboard(content_ptr: [*]const u8, content_len: usize) void;
 
+// FIXME:  maybe move putClipboard to web-app.zig?
 fn copySelectedToClipboard(app: *const App) !void {
-    const json_nodes = try nodesToGraphlJson(gpa, &app.current_graph.selection, app.current_graph);
-    defer gpa.free(json_nodes);
-    // TODO: gross
-    const data_url = try std.fmt.allocPrint(gpa, "data:application/graphl-json,{s}", .{json_nodes});
+    var json_nodes = try nodesToGraphlJson(gpa, &app.current_graph.selection, app.current_graph);
+    defer json_nodes.deinit(gpa);
+
+    const json = try std.json.stringifyAlloc(gpa, json_nodes.items, .{});
+    defer gpa.free(json);
+    // TODO: create an std.ArrayList(u8) writer and write the json to that?
+    const data_url = try std.fmt.allocPrint(gpa, "data:application/graphl-json,{s}", .{json});
     defer gpa.free(data_url);
     putClipboard(data_url.ptr, data_url.len);
+}
+
+pub fn getGraphsJson(app: *const App) ![]const u8 {
+    var json_graphs = try std.ArrayListUnmanaged(GraphInitState).initCapacity(gpa, app.graphCount());
+    defer {
+        for (json_graphs.items) |*json_graph| {
+            json_graph.nodes.deinit(gpa);
+        }
+        json_graphs.deinit(gpa);
+    }
+
+    {
+        var next = app.graphs.first;
+        while (next) |cursor| : (next = cursor.next) {
+            const graph = &cursor.data;
+            var json_nodes = try nodesToGraphlJson(gpa, &app.current_graph.selection, app.current_graph);
+            defer json_nodes.deinit(gpa);
+            json_graphs.appendAssumeCapacity(.{
+                .nodes = json_nodes,
+                //.params = ,
+                .fixed_signature = graph.fixed_signature,
+                // FIXME: HACK these are never pure (yet)
+                .parameters = graph.graphl_graph.entry_node_basic_desc.outputs[1..],
+                .results = graph.graphl_graph.result_node_basic_desc.inputs[1..],
+            });
+        }
+    }
+
+    return std.json.stringifyAlloc(gpa, json_graphs.items, .{});
 }
 
 // // FIXME: should use the new std.heap.SmpAllocator in release mode off wasm
@@ -66,9 +99,9 @@ pub const gpa = std.heap.c_allocator;
 const NodeSet = std.AutoHashMapUnmanaged(graphl.NodeId, void);
 
 // TODO: when IDE switches to manipulating sexp in memory, we can just write those sexp
-pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Graph) ![]const u8 {
+pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Graph) !std.ArrayListUnmanaged(NodeInitState) {
     var json_nodes: std.ArrayListUnmanaged(NodeInitState) = try .initCapacity(a, nodes.count());
-    defer json_nodes.deinit(a);
+    errdefer json_nodes.deinit(a);
     var node_ids_iter = nodes.keyIterator();
 
     var inputs_arena = std.heap.ArenaAllocator.init(a);
@@ -114,7 +147,7 @@ pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Gr
         };
     }
 
-    return std.json.stringifyAlloc(a, json_nodes.items, .{});
+    return json_nodes;
 }
 
 // TODO: when IDE switches to manipulating sexp in memory, we can just write those sexp
@@ -468,7 +501,7 @@ prev_drag_state: ?dvui.Point.Physical = null,
 
 edge_drag_end: ?Socket = null,
 
-// NOTE: must be singly linked list because Graph contains an internal pointer and cannot be moved!
+// NOTE: must be linked list because Graph contains an internal pointer and cannot be moved!
 graphs: std.SinglyLinkedList(Graph) = .{},
 current_graph: *Graph = undefined,
 next_graph_index: u16 = 0,
@@ -479,6 +512,10 @@ next_graph_index: u16 = 0,
 
 init_opts: InitOptions,
 user_funcs: UserFuncList = .{},
+
+pub fn graphCount(self: *const App) u16 {
+    return self.next_graph_index;
+}
 
 pub const UserFuncList = std.SinglyLinkedList(compiler.UserFunc);
 
@@ -605,6 +642,39 @@ pub const GraphInitState = struct {
     // FIXME: these pins can't have spaces in the names!
     parameters: []const graphl.Pin,
     results: []const graphl.Pin,
+
+    pub fn jsonStringify(self: *const @This(), jws: anytype) std.mem.Allocator.Error!void {
+        try jws.write(.{
+            .fixedSignature = self.fixed_signature,
+            .nodes = self.nodes.items,
+            .inputs = self.parameters,
+            .outputs = self.results,
+        });
+    }
+
+    pub fn jsonParse(a: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
+        const empty_nodes: []App.NodeInitState = &.{};
+        const empty_inputs: []const graphl.Pin = &.{};
+        const empty_outputs: []const graphl.Pin = &.{};
+
+        const raw_parsed = try std.json.innerParse(struct {
+            fixedSignature: bool = false,
+            nodes: []App.NodeInitState = empty_nodes,
+            inputs: []const graphl.Pin = empty_inputs,
+            outputs: []const graphl.Pin = empty_outputs,
+        }, a, source, options);
+
+        return @This(){
+            .fixed_signature = raw_parsed.fixedSignature,
+            .nodes = if (raw_parsed.nodes.ptr != empty_nodes.ptr)
+                    std.ArrayListUnmanaged(App.NodeInitState).fromOwnedSlice(raw_parsed.nodes)
+                else .{},
+            .parameters = if (raw_parsed.inputs.ptr != empty_inputs.ptr) raw_parsed.inputs
+                else try a.dupe(graphl.Pin, empty_inputs),
+            .results = if (raw_parsed.outputs.ptr != empty_outputs.ptr) raw_parsed.outputs
+                else try a.dupe(graphl.Pin, empty_outputs),
+        };
+    }
 };
 
 pub const GraphsInitState = std.StringHashMapUnmanaged(GraphInitState);
@@ -1207,13 +1277,12 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
                     continue;
                 };
 
-                // FIXME: dedup with below edge drawing
                 const stroke_shade_color = dvui.Color{ .r = 0x30, .g = 0x30, .b = 0x30, .a = 0x88 };
-                // TODO: need to handle deletion...
                 try dvui.pathStroke(&.{
                     source_pos.plus(.{ .x = 0, .y = 3}),
                     target_pos.plus(.{ .x = 0, .y = 3}),
                 }, 3.0, stroke_shade_color, .{ .endcap_style = .none });
+
                 const stroke_color = dvui.Color{ .r = 0xaa, .g = 0xaa, .b = 0xaa, .a = 0xee };
                 try dvui.pathStroke(&.{
                     source_pos,
@@ -1605,14 +1674,14 @@ fn renderNode(
                     else dvui.Color.black,
             },
             //.max_size_content = dvui.Size{ .w = 300, .h = 600 },
+            .box_shadow = .{
+                .alpha = 0.5,
+                .blur = 5,
+                //.color = dvui.Color.black,
+            },
         },
     );
     try box.install();
-    try dvui.boxShadow(box.data(), .{
-        .alpha = 0.5,
-        .blur = 5,
-        .color = dvui.Color.black,
-    });
     try box.drawBackground();
 
     defer box.deinit();
@@ -2478,11 +2547,11 @@ pub fn frame(self: *@This()) !void {
     // file menu
     if (self.init_opts.preferences.topbar.visible) {
         var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .expand = .horizontal });
-        try dvui.boxShadow(m.box.data(), .{
-            .alpha = 0.2,
-            .blur = 3,
-            .color = dvui.Color.black,
-        });
+        // try dvui.boxShadow(m.box.data(), .{
+        //     .alpha = 0.2,
+        //     .blur = 3,
+        //     .color = dvui.Color.black,
+        // });
         defer m.deinit();
 
         if (builtin.mode == .Debug) {
@@ -2574,13 +2643,20 @@ pub fn frame(self: *@This()) !void {
             .{
                 .expand = .vertical,
                 .background = true,
+                .box_shadow =  .{
+                    .alpha = 0.2,
+                    .blur = 3,
+                    // FIXME
+                    //.color = dvui.Color.black,
+                },
             },
         );
-        try dvui.boxShadow(defines_box.data(), .{
-            .alpha = 0.2,
-            .blur = 3,
-            .color = dvui.Color.black,
-        });
+        // FIXME
+        // try dvui.boxShadow(defines_box.data(), .{
+        //     .alpha = 0.2,
+        //     .blur = 3,
+        //     .color = dvui.Color.black,
+        // });
         defer defines_box.deinit();
 
         {

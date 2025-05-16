@@ -1506,9 +1506,22 @@ export async function Ide(canvasElem, opts) {
                             name: "Save",
                             async onClick() {
                                 /** @type {Awaited<ReturnType<typeof result["compile"]>>} */
-                                const graphlt = await result.exportGraphlt();
+                                // FIXME: replace with export graphl
+                                //const content = await result.exportGraphlt();
+
+                                let content;
+                                try {
+                                    const resultPromise = setupSliceReturn();
+                                    ideWasm.instance.exports.getGraphsJson();
+                                    content = await resultPromise;
+                                } catch (err) {
+                                    // TODO: this should be like a "cancel" function on resultPromise
+                                    onReceiveSliceCb = undefined;
+                                    throw err;
+                                }
+
                                 downloadFile({
-                                    content: graphlt,
+                                    content,
                                     fileName: "project.gr",
                                 });
                             },

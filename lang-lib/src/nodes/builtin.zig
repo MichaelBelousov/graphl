@@ -186,6 +186,23 @@ pub const Value = union(enum) {
     symbol: []const u8,
 };
 
+pub const jsonStrToGraphlType: std.StaticStringMap(Type) = _: {
+    break :_ std.StaticStringMap(Type).initComptime(.{
+        .{ "u32", primitive_types.u32_ },
+        .{ "u64", primitive_types.u64_ },
+        .{ "i32", primitive_types.i32_ },
+        .{ "i64", primitive_types.i64_ },
+        .{ "f32", primitive_types.f32_ },
+        .{ "f64", primitive_types.f64_ },
+        .{ "string", primitive_types.string },
+        .{ "code", primitive_types.code },
+        .{ "bool", primitive_types.bool_ },
+        .{ "rgba", primitive_types.rgba },
+        .{ "vec3", primitive_types.vec3 },
+    });
+};
+
+
 pub const Pin = struct {
     name: [:0]const u8,
     kind: union(enum) {
@@ -202,6 +219,40 @@ pub const Pin = struct {
 
     pub fn isExec(self: @This()) bool {
         return self.kind == .primitive and self.kind.primitive == .exec;
+    }
+
+    const JsonType = struct {
+        name: [:0]const u8,
+        type: []const u8,
+    };
+
+    pub fn jsonStringify(self: *const @This(), jws: anytype) std.mem.Allocator.Error!void {
+        try jws.write(.{
+            .name = self.name,
+            // FIXME: handle non-primitives
+            .type = switch (self.kind.primitive) {
+                .exec => "exec",
+                .value => |v| v.name,
+            },
+        });
+    }
+
+    pub fn jsonParse(a: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
+        const raw_parsed = try std.json.innerParse(JsonType, a, source, options);
+
+        return @This(){
+            .name = raw_parsed.name,
+            .kind = if (std.mem.eql(u8, raw_parsed.type, "exec"))
+                .{ .primitive = .exec }
+            else
+                .{ .primitive = .{ .value = jsonStrToGraphlType.get(raw_parsed.type)
+                    orelse {
+                        std.log.err("Unknown graphl type json id: '{s}'", .{raw_parsed.type});
+                        return error.UnknownField;
+                    }
+                }
+                },
+        };
     }
 };
 

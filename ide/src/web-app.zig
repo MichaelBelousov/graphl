@@ -149,6 +149,17 @@ export fn pasteText(clipboard_ptr: [*]const u8, clipboard_len: usize) void {
     app.pasteText(clipboard_ptr[0..clipboard_len]);
 }
 
+// TODO: replace with save via grappl
+export fn getGraphsJson() void {
+    const json = app.getGraphsJson() catch |err| {
+        std.log.err("getGraphsJson error: {}", .{err});
+        return;
+    };
+    defer gpa.free(json);
+    onReceiveSlice(json.ptr, json.len);
+}
+
+
 const gpa = App.gpa;
 const graphl = @import("graphl_core");
 // FIXME: move to util package
