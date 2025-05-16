@@ -1597,6 +1597,12 @@ fn renderNode(
             //.max_size_content = dvui.Size{ .w = 300, .h = 600 },
         },
     );
+    try dvui.boxShadow(box.data(), .{
+        .alpha = 0.5,
+        .blur = 5,
+        .color = dvui.Color.black,
+    });
+
     defer box.deinit();
 
     const result = box.data().rectScale().r; // already has origin added (already in scroll coords)
