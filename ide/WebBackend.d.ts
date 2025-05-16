@@ -54,6 +54,7 @@ export declare interface NodeInitState {
 
 // FIXME: add hidden to this so fixedSignature graphs can't be called
 export declare interface GraphInitState {
+  name?: string,
   /**
    * Disallow editing of the parameter or result types,
    * and disallow removing.

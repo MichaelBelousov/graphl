@@ -1322,6 +1322,9 @@ const INIT_BUFFER_SZ = 8192;
  * @returns{Promise<import("./WebBackend.js").Ide<T>>}
  */
 export async function Ide(canvasElem, opts) {
+    for (const [name, graph] of Object.entries(opts.graphs ?? {})) {
+        graph.name = name;
+    }
     /** @type {Map<number, { name: string, func: Required<Pick<import("./WebBackend.js").BasicMutNodeDescJson, "impl" | "inputs" | "outputs">> }>} */
     const userFuncs = new Map();
 
@@ -1522,7 +1525,7 @@ export async function Ide(canvasElem, opts) {
 
                                 downloadFile({
                                     content,
-                                    fileName: "project.gr",
+                                    fileName: "project.gr.json",
                                 });
                             },
                         },

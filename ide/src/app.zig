@@ -69,9 +69,10 @@ pub fn getGraphsJson(app: *const App) ![]const u8 {
         var next = app.graphs.first;
         while (next) |cursor| : (next = cursor.next) {
             const graph = &cursor.data;
-            var json_nodes = try nodesToGraphlJson(gpa, &app.current_graph.selection, app.current_graph);
+            var json_nodes = try graphToGraphlJson(gpa, app.current_graph);
             defer json_nodes.deinit(gpa);
             json_graphs.appendAssumeCapacity(.{
+                .name = graph.name,
                 .nodes = json_nodes,
                 //.params = ,
                 .fixed_signature = graph.fixed_signature,
@@ -122,6 +123,54 @@ pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Gr
                     if (!nodes.contains(link.target)) {
                         continue;
                     }
+                    std.debug.assert(link.sub_index == 0);
+                    try inputs.put(inputs_arena.allocator(), @intCast(i), InputInitState{ .node = .{
+                        .id = link.target,
+                        .out_pin = link.pin_index,
+                    } });
+                },
+                .value => |val| switch (val) {
+                    .int => |v| try inputs.put(inputs_arena.allocator(), @intCast(i), InputInitState{.int = v}),
+                    .float => |v| try inputs.put(inputs_arena.allocator(), @intCast(i), InputInitState{.float = v}),
+                    .string => |v| try inputs.put(inputs_arena.allocator(), @intCast(i), InputInitState{.string = v}),
+                    .bool => |v| try inputs.put(inputs_arena.allocator(), @intCast(i), InputInitState{.bool = v}),
+                    // FIXME: maybe require it be null terminated? maybe put it in the pool?
+                    .symbol => |v| try inputs.put(inputs_arena.allocator(), @intCast(i), InputInitState{.symbol = try inputs_arena.allocator().dupeZ(u8, v)}),
+                    .null => continue,
+                },
+            }
+        }
+
+        json_nodes.addOneAssumeCapacity().* = NodeInitState{
+            .id = node_id,
+            .type_ = node.desc().name(),
+            .inputs = inputs,
+            .position = dvui_pos,
+        };
+    }
+
+    return json_nodes;
+}
+
+// TODO: dedup with above!
+pub fn graphToGraphlJson(a: std.mem.Allocator, graph: *Graph) !std.ArrayListUnmanaged(NodeInitState) {
+    var json_nodes: std.ArrayListUnmanaged(NodeInitState) = try .initCapacity(a, graph.graphl_graph.nodes.map.count());
+    errdefer json_nodes.deinit(a);
+    const node_ids_iter = graph.graphl_graph.nodes.map.keys();
+
+    var inputs_arena = std.heap.ArenaAllocator.init(a);
+    defer inputs_arena.deinit();
+
+    for (node_ids_iter) |node_id| {
+        const node = graph.graphl_graph.nodes.map.getPtr(node_id) orelse unreachable;
+        const dvui_pos = graph.visual_graph.node_data.getPtr(node_id).?.position;
+
+        // dealloced later
+        var inputs: std.AutoHashMapUnmanaged(u16, InputInitState) = .empty;
+
+        for (node.inputs, 0..) |input, i| {
+            switch (input) {
+                .link => |link| {
                     std.debug.assert(link.sub_index == 0);
                     try inputs.put(inputs_arena.allocator(), @intCast(i), InputInitState{ .node = .{
                         .id = link.target,
@@ -452,7 +501,7 @@ fn setCurrentGraphByIndex(self: *@This(), index: u16) !void {
     return error.RangeError;
 }
 
-pub fn addGraph(
+pub fn addEmptyGraph(
     self: *@This(),
     name: []const u8,
     set_as_current: bool,
@@ -486,6 +535,75 @@ pub fn addGraph(
     return &new_graph.data;
 }
 
+pub fn addGraph(
+    self: *@This(),
+    init_state: *const GraphInitState,
+    set_as_current: bool,
+) !*Graph {
+    const graph = try self.addEmptyGraph(init_state.name, set_as_current, .{ .fixed_signature = init_state.fixed_signature });
+    const graph_desc = init_state;
+
+    for (graph_desc.parameters) |param| {
+        try self.addParamOrResult(
+            graph.graphl_graph.entry_node,
+            graph.graphl_graph.entry_node_basic_desc,
+            .params,
+            // TODO: leak?
+            try gpa.dupe(u8, param.name),
+            param.asPrimitivePin().value,
+        );
+    }
+
+    for (graph_desc.results) |result| {
+        try self.addParamOrResult(
+            graph.graphl_graph.result_node,
+            graph.graphl_graph.result_node_basic_desc,
+            .results,
+            // TODO: leak?
+            try gpa.dupe(u8, result.name),
+            result.asPrimitivePin().value,
+        );
+    }
+
+    for (graph_desc.nodes.items) |node_desc| {
+        const node_id: graphl.NodeId = @intCast(node_desc.id);
+        _ = try graph.addNode(gpa, node_desc.type_, false, node_id, null, .{});
+        if (node_desc.position) |pos| {
+            const node = graph.visual_graph.node_data.getPtr(node_id) orelse unreachable;
+            node.position_override = pos;
+        }
+        var input_iter = node_desc.inputs.iterator();
+        while (input_iter.next()) |input_entry| {
+            const input_id = input_entry.key_ptr.*;
+            const input_desc = input_entry.value_ptr;
+            switch (input_desc.*) {
+                .node => |v| {
+                    try graph.addEdge(gpa, @intCast(v.id), @intCast(v.out_pin), node_id, input_id, 0);
+                },
+                .int => |v| {
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .int = v });
+                },
+                .float => |v| {
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .float = v });
+                },
+                .bool => |v| {
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .bool = v });
+                },
+                .string => |v| {
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .string = v });
+                },
+                .symbol => |v| {
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .symbol = v });
+                },
+            }
+        }
+    }
+
+    try graph.visual_graph.formatGraphNaive(gpa);
+
+    return graph;
+}
+
 // FIXME: should this be undefined?
 shared_env: graphl.Env = undefined,
 
@@ -513,6 +631,18 @@ next_graph_index: u16 = 0,
 
 init_opts: InitOptions,
 user_funcs: UserFuncList = .{},
+
+// TODO: implement undo/redo
+undo_buffer: [256]UndoableAction = undefined,
+last_done: usize = 0,
+first_undone: usize = 255,
+
+pub const UndoableAction = union (enum) {
+    add_node: struct { node_id: graphl.NodeId },
+    link_sockets: struct { from: Socket, to: Socket },
+    // ouch this one is much harder lol
+    delete_node: struct { node_desc: *const graphl.NodeDesc, inputs: []graphl.Pin, outputs: []graphl.Pin, pos: dvui.Point },
+};
 
 pub fn graphCount(self: *const App) u16 {
     return self.next_graph_index;
@@ -634,6 +764,7 @@ pub const NodeInitState = struct {
 };
 
 pub const GraphInitState = struct {
+    name: []const u8,
     /// implies:
     /// - non removable
     /// - can't edit parameters/results
@@ -646,6 +777,7 @@ pub const GraphInitState = struct {
 
     pub fn jsonStringify(self: *const @This(), jws: anytype) std.mem.Allocator.Error!void {
         try jws.write(.{
+            .name = self.name,
             .fixedSignature = self.fixed_signature,
             .nodes = self.nodes.items,
             .inputs = self.parameters,
@@ -659,6 +791,7 @@ pub const GraphInitState = struct {
         const empty_outputs: []const graphl.Pin = &.{};
 
         const raw_parsed = try std.json.innerParse(struct {
+            name: []const u8,
             fixedSignature: bool = false,
             nodes: []App.NodeInitState = empty_nodes,
             inputs: []const graphl.Pin = empty_inputs,
@@ -666,6 +799,7 @@ pub const GraphInitState = struct {
         }, a, source, options);
 
         return @This(){
+            .name = raw_parsed.name,
             .fixed_signature = raw_parsed.fixedSignature,
             .nodes = if (raw_parsed.nodes.ptr != empty_nodes.ptr)
                     std.ArrayListUnmanaged(App.NodeInitState).fromOwnedSlice(raw_parsed.nodes)
@@ -709,67 +843,12 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
     if (in_opts.graphs != null and in_opts.graphs.?.count() > 0) {
         var graph_iter = in_opts.graphs.?.iterator();
         while (graph_iter.next()) |entry| {
-            const graph_name = entry.key_ptr;
             const graph_desc = entry.value_ptr;
             // FIXME: must I dupe this?
-            const graph = try addGraph(self, graph_name.*, true, .{ .fixed_signature = graph_desc.fixed_signature });
-            for (graph_desc.parameters) |param| {
-                try self.addParamOrResult(
-                    graph.graphl_graph.entry_node,
-                    graph.graphl_graph.entry_node_basic_desc,
-                    .params,
-                    // TODO: leak?
-                    try gpa.dupe(u8, param.name),
-                    param.asPrimitivePin().value,
-                );
-            }
-            for (graph_desc.results) |result| {
-                try self.addParamOrResult(
-                    graph.graphl_graph.result_node,
-                    graph.graphl_graph.result_node_basic_desc,
-                    .results,
-                    // TODO: leak?
-                    try gpa.dupe(u8, result.name),
-                    result.asPrimitivePin().value,
-                );
-            }
-            for (graph_desc.nodes.items) |node_desc| {
-                const node_id: graphl.NodeId = @intCast(node_desc.id);
-                _ = try graph.addNode(gpa, node_desc.type_, false, node_id, null, .{});
-                if (node_desc.position) |pos| {
-                    const node = graph.visual_graph.node_data.getPtr(node_id) orelse unreachable;
-                    node.position_override = pos;
-                }
-                var input_iter = node_desc.inputs.iterator();
-                while (input_iter.next()) |input_entry| {
-                    const input_id = input_entry.key_ptr.*;
-                    const input_desc = input_entry.value_ptr;
-                    switch (input_desc.*) {
-                        .node => |v| {
-                            try graph.addEdge(gpa, @intCast(v.id), @intCast(v.out_pin), node_id, input_id, 0);
-                        },
-                        .int => |v| {
-                            try graph.addLiteralInput(node_id, input_id, 0, .{ .int = v });
-                        },
-                        .float => |v| {
-                            try graph.addLiteralInput(node_id, input_id, 0, .{ .float = v });
-                        },
-                        .bool => |v| {
-                            try graph.addLiteralInput(node_id, input_id, 0, .{ .bool = v });
-                        },
-                        .string => |v| {
-                            try graph.addLiteralInput(node_id, input_id, 0, .{ .string = v });
-                        },
-                        .symbol => |v| {
-                            try graph.addLiteralInput(node_id, input_id, 0, .{ .symbol = v });
-                        },
-                    }
-                }
-            }
-            try graph.visual_graph.formatGraphNaive(gpa);
+            _ = try addGraph(self, graph_desc, true);
         }
     } else {
-        _ = try addGraph(self, "main", true, .{});
+        _ = try addEmptyGraph(self, "main", true, .{});
     }
 }
 
@@ -1704,7 +1783,6 @@ fn renderNode(
             .box_shadow = .{
                 .alpha = 0.5,
                 .blur = 5,
-                //.color = dvui.Color.black,
             },
         },
     );
@@ -2558,12 +2636,19 @@ pub fn addParamToCurrentGraph(
     );
 }
 
+// FIXME: make this load actual graphl, not json, but need to first rework the IDE to use graphl sexp in-memory
 pub fn onReceiveLoadedSource(self: *@This(), src: []const u8) !void {
     self.deinitGraphs();
 
-    // FIXME: overwriting without deallocating graphs is a leak!
-    // opting to keep for now since cleaning up isn't trivial
-    self.graphs = try sourceToGraph(gpa, self, src, &self.shared_env);
+    const parsed = try std.json.parseFromSlice([]GraphInitState, gpa, src, .{ .ignore_unknown_fields = true });
+    defer parsed.deinit();
+
+    for (parsed.value) |*json_graph| {
+        _ = try self.addGraph(json_graph, true);
+    }
+
+    // TODO: see above FIXME
+    //self.graphs = try sourceToGraph(gpa, self, src, &self.shared_env);
 }
 
 pub fn frame(self: *@This()) !void {
@@ -2669,8 +2754,6 @@ pub fn frame(self: *@This()) !void {
                 .box_shadow =  .{
                     .alpha = 0.2,
                     .blur = 3,
-                    // FIXME
-                    //.color = dvui.Color.black,
                 },
             },
         );
@@ -2690,7 +2773,7 @@ pub fn frame(self: *@This()) !void {
 
             const add_clicked = try dvui.buttonIcon(@src(), "add-graph", entypo.plus, .{}, .{});
             if (add_clicked) {
-                _ = try addGraph(
+                _ = try addEmptyGraph(
                     self,
                     try std.fmt.allocPrint(gpa, "new-func-{}", .{self.next_graph_index}),
                     false,
