@@ -22,8 +22,8 @@
         //     .hash = "dvui-0.2.0-AQFJmRSOygDqdfLgLTVsPQEJWwVU_zyash87RHBZrqXe",
         // },
         .dvui = .{
-            .url = "https://github.com/david-vanderson/dvui/archive/277d6b0daaf81309f23cbb085aeb8d7d9debff02.zip",
-            .hash = "dvui-0.2.0-AQFJmVP_zQClmkkqxGYwWanTeAYEI0M3ftYFwfaWnabF",
+            .url = "https://github.com/david-vanderson/dvui/archive/80f80c56646c2e3263c23cd0357afd8f1adf01e1.zip",
+            .hash = "dvui-0.2.0-AQFJmQ8BzgClYT_HxAyL8Otgt3khdkW3MGa-PlLCU8g3",
         },
         .graphl = .{
             .path = "../lang-lib",
