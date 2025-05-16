@@ -60,7 +60,7 @@ pub const GraphBuilder = struct {
     branch_joiner_map: std.AutoHashMapUnmanaged(NodeId, NodeId) = .{},
     is_join_set: std.DynamicBitSetUnmanaged,
 
-    // use a comptime struct member instead cuz this should always be 0
+    // use a comptime struct member instead cuz this should always be 0 (and should always exist)
     entry_id: ?NodeId = null,
 
     branch_count: u32 = 0,
@@ -77,6 +77,9 @@ pub const GraphBuilder = struct {
     entry_node_basic_desc: *BasicMutNodeDesc,
     // FIXME: rename to NodeDesc
     entry_node: *const NodeDesc,
+
+    // TODO: consolidate with entry_id above
+    pub const default_entry_id: NodeId = 0;
 
     const Self = @This();
     const Types = GraphTypes;

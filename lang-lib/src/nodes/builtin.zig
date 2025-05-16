@@ -1046,7 +1046,7 @@ pub const builtin_nodes = struct {
         .name = "start",
         .hidden = true,
         .outputs = &.{
-            Pin{ .name = "start", .kind = .{ .primitive = .exec } },
+            Pin{ .name = "", .kind = .{ .primitive = .exec } },
         },
     });
 

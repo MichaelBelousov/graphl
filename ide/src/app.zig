@@ -32,7 +32,7 @@ extern fn requestPaste() void;
 pub fn pasteText(app: *App, clipboard: []const u8) void {
     const graphl_json = clipboard["data:application/graphl-json,".len..];
 
-    pasteGraphlJsonToGraph(app.current_graph, gpa, graphl_json) catch |err| {
+    placeGraphlJsonToGraph(app.current_graph, gpa, graphl_json, .{ .allow_overwrite_entry = false }) catch |err| {
         std.log.err("encountered error '{}' while interpreting clipboard to add to graph", .{err});
         // NOTE: ignore errors
         return;
@@ -50,7 +50,6 @@ fn copySelectedToClipboard(app: *const App) !void {
     defer gpa.free(data_url);
     putClipboard(data_url.ptr, data_url.len);
 }
-
 
 // // FIXME: should use the new std.heap.SmpAllocator in release mode off wasm
 // //const gpa = gpa_instance.allocator();
@@ -119,7 +118,14 @@ pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Gr
 }
 
 // TODO: when IDE switches to manipulating sexp in memory, we can just write those sexp
-pub fn pasteGraphlJsonToGraph(graph: *Graph, a: std.mem.Allocator, json: []const u8) !void {
+pub fn placeGraphlJsonToGraph(
+    graph: *Graph,
+    a: std.mem.Allocator,
+    json: []const u8,
+    comptime opts: struct {
+        allow_overwrite_entry: bool,
+    },
+) !void {
     const parsed = try std.json.parseFromSlice([]NodeInitState, a, json, .{ .ignore_unknown_fields = true });
     defer parsed.deinit();
     const nodes = parsed.value;
@@ -130,12 +136,15 @@ pub fn pasteGraphlJsonToGraph(graph: *Graph, a: std.mem.Allocator, json: []const
     defer resolved_ids.deinit(a);
 
     for (nodes) |node_desc| {
-        const resolved_id = try graph.addNode(gpa, node_desc.type_, false, null, null, .{});
+        if (node_desc.id == graphl.GraphBuilder.default_entry_id and !opts.allow_overwrite_entry)
+            continue;
+        const resolved_id = if (node_desc.id == graphl.GraphBuilder.default_entry_id)
+            graphl.GraphBuilder.default_entry_id
+            else try graph.addNode(gpa, node_desc.type_, false, null, null, .{});
         try graph.selection.put(gpa, resolved_id, {});
         try resolved_ids.put(a, node_desc.id, resolved_id);
     }
 
-    // FIXME: allow this to be 
     for (nodes) |node_desc| {
         const node_id = resolved_ids.get(node_desc.id) orelse unreachable;
         if (node_desc.position) |pos| {
@@ -451,11 +460,11 @@ node_menu_filter: ?Socket = null,
 
 // the start of an attempt to drag an edge out of a socket
 edge_drag_start: ?struct {
-    pt: dvui.Point,
+    pt: dvui.Point.Physical,
     socket: Socket,
 } = null,
 
-prev_drag_state: ?dvui.Point = null,
+prev_drag_state: ?dvui.Point.Physical = null,
 
 edge_drag_end: ?Socket = null,
 
@@ -797,9 +806,9 @@ pub const NodeAdder = struct {
     }
 };
 
-fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, maybe_create_from: ?Socket) !void {
+fn renderAddNodeMenu(self: *@This(), pt: dvui.Point.Natural, pt_in_graph: dvui.Point, maybe_create_from: ?Socket) !void {
     // TODO: handle defocus event
-    var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(pt) }, .{});
+    var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.Natural.fromPoint(pt) }, .{});
     defer fw.deinit();
 
     const has_type_event = _: {
@@ -869,7 +878,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
         if (bindings.items.len > 0) {
             if (maybe_create_from == null or maybe_create_from.?.kind == .input) {
                 if (try dvui.menuItemLabel(@src(), "Get " ++ bindings_info.display ++ " >", .{ .submenu = true }, .{ .expand = .horizontal, .id_extra = i })) |r| {
-                    var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{});
+                    var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.Natural.fromPoint(dvui.Point.Natural{ .x = r.x + r.w, .y = r.y }) }, .{});
                     defer subfw.deinit();
 
                     for (bindings.items, 0..) |binding, j| {
@@ -897,7 +906,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
             }
 
             if (try dvui.menuItemLabel(@src(), "Set " ++ bindings_info.display ++ " >", .{ .submenu = true }, .{ .expand = .horizontal, .id_extra = i })) |r| {
-                var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{});
+                var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.Natural.fromPoint(dvui.Point.Natural{ .x = r.x + r.w, .y = r.y }) }, .{});
                 defer subfw.deinit();
 
                 for (bindings.items, 0..) |binding, j| {
@@ -936,7 +945,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
     if (self.current_graph.graphl_graph.entry_node_basic_desc.outputs.len > 1) {
         if (maybe_create_from == null or maybe_create_from.?.kind == .input) {
             if (try dvui.menuItemLabel(@src(), "Get Params >", .{ .submenu = true }, .{ .expand = .horizontal })) |r| {
-                var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{});
+                var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.Natural.fromPoint(dvui.Point.Natural{ .x = r.x + r.w, .y = r.y }) }, .{});
                 defer subfw.deinit();
 
                 for (self.current_graph.graphl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
@@ -964,7 +973,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
         }
 
         if (try dvui.menuItemLabel(@src(), "Set Params >", .{ .submenu = true }, .{ .expand = .horizontal })) |r| {
-            var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{});
+            var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.Natural.fromPoint(dvui.Point.Natural{ .x = r.x + r.w, .y = r.y }) }, .{});
             defer subfw.deinit();
 
             for (self.current_graph.graphl_graph.entry_node_basic_desc.outputs[1..], 1..) |binding, j| {
@@ -1044,7 +1053,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point, pt_in_graph: dvui.Point, ma
             const label = try std.fmt.bufPrint(&buf, "{s} >", .{type_.name});
 
             if (try dvui.menuItemLabel(@src(), label, .{ .submenu = true }, .{ .expand = .horizontal, .id_extra = i })) |r| {
-                var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x + r.w, .y = r.y }) }, .{ .id_extra = i});
+                var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.Natural.fromPoint(dvui.Point.Natural{ .x = r.x + r.w, .y = r.y }) }, .{ .id_extra = i});
                 defer subfw.deinit();
 
                 var j: u32 = 0;
@@ -1123,7 +1132,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
     // can use this to convert between viewport/virtual_size and screen coords
     const scrollRectScale = graph_area.scroll.screenRectScale(.{});
 
-    var scaler = try dvui.scale(@src(), ScrollData.scale, .{ .rect = .{ .x = -ScrollData.origin.x, .y = -ScrollData.origin.y } });
+    var scaler = try dvui.scale(@src(), .{ .scale = &ScrollData.scale, .pinch_zoom = .none }, .{ .rect = .{ .x = -ScrollData.origin.x, .y = -ScrollData.origin.y } },);
 
     // can use this to convert between data and screen coords
     const dataRectScale = scaler.screenRectScale(.{});
@@ -1138,12 +1147,12 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
     // try dvui.pathStroke(false, 1, .none, dvui.Color.black);
 
     // TODO: use link struct?
-    var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Point){};
+    var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Point.Physical){};
     defer socket_positions.deinit(gpa);
 
     const mouse_pt = dvui.currentWindow().mouse_pt;
 
-    var mbbox: ?Rect = null;
+    var mbbox: ?Rect.Physical = null;
 
     // set drag end to false, rendering nodes will determine if it should still be set
     self.edge_drag_end = null;
@@ -1278,7 +1287,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
         dvui.cursorSet(.hand);
 
     var zoom: f32 = 1;
-    var zoomP: dvui.Point = .{};
+    var zoomP: dvui.Point.Physical = .{};
 
     // process scroll area events after nodes so the nodes get first pick (so the button works)
     const scroll_evts = dvui.events();
@@ -1352,18 +1361,18 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
     if (zoom != 1.0) {
         // scale around mouse point
         // first get data point of mouse
-        const prevP = dataRectScale.pointFromScreen(zoomP);
+        const prevP = dataRectScale.pointFromPhysical(zoomP);
 
         // scale
-        var pp = prevP.scale(1 / ScrollData.scale);
+        var pp = prevP.scale(1 / ScrollData.scale, dvui.Point);
         ScrollData.scale *= zoom;
-        pp = pp.scale(ScrollData.scale);
+        pp = pp.scale(ScrollData.scale, dvui.Point);
 
         // get where the mouse would be now
-        const newP = dataRectScale.pointToScreen(pp);
+        const newP = dataRectScale.pointToPhysical(pp);
 
         // convert both to viewport
-        const diff = scrollRectScale.pointFromScreen(newP).diff(scrollRectScale.pointFromScreen(zoomP));
+        const diff = scrollRectScale.pointFromPhysical(newP).diff(scrollRectScale.pointFromPhysical(zoomP));
         ScrollData.scroll_info.viewport.x += diff.x;
         ScrollData.scroll_info.viewport.y += diff.y;
 
@@ -1373,7 +1382,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
     const mp = dvui.currentWindow().mouse_pt;
     // calculate mouse in graph for later after graph deinit and event handling
     // we will use it for renderAddNodeMenu
-    const pt_in_graph = dataRectScale.pointFromScreen(mp);
+    const pt_in_graph = dataRectScale.pointFromPhysical(mp);
 
     scaler.deinit();
     // deinit graph area to process events
@@ -1387,7 +1396,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
         var bbox = ScrollData.scroll_info.viewport.outsetAll(pad);
         if (mbbox) |bb| {
             // convert bb from screen space to viewport space
-            const scrollbbox = scrollRectScale.rectFromScreen(bb);
+            const scrollbbox = scrollRectScale.rectFromPhysical(bb);
             bbox = bbox.unionWith(scrollbbox);
         }
 
@@ -1436,7 +1445,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
 
     {
         // FIXME: get max size from this from the graph size
-        const ctext = try dvui.context(@src(), .{ .rect = graph_area.data().rect }, .{ .expand = .both });
+        const ctext = try dvui.context(@src(), .{ .rect = graph_area.data().rectScale().r }, .{ .expand = .both });
         // FIXME: shouldn't this be set before the usage?
         self.context_menu_widget_id = ctext.wd.id;
 
@@ -1460,14 +1469,14 @@ fn ctrlOnly(self: dvui.enums.Mod) bool {
 }
 
 // TODO: contribute this to dvui?
-fn rectCenter(r: Rect) dvui.Point {
-    return dvui.Point{
+fn rectCenter(r: Rect.Physical) dvui.Point.Physical {
+    return dvui.Point.Physical{
         .x = r.x + r.w / 2,
         .y = r.y + r.h / 2,
     };
 }
 
-fn rectContainsMouse(r: Rect) bool {
+fn rectContainsMouse(r: Rect.Physical) bool {
     const mouse_pt = dvui.currentWindow().mouse_pt;
     return r.contains(mouse_pt);
 }
@@ -1495,7 +1504,7 @@ fn colorForType(t: graphl.Type) !dvui.Color {
 }
 
 // FIXME: replace with idiomatic dvui event processing
-fn considerSocketForHover(self: *@This(), icon_res: *dvui_extra.ButtonIconResult, socket: Socket) dvui.Point {
+fn considerSocketForHover(self: *@This(), icon_res: *dvui_extra.ButtonIconResult, socket: Socket) dvui.Point.Physical {
     const r = icon_res.icon.wd.rectScale().r;
     const socket_center = rectCenter(r);
 
@@ -1542,10 +1551,10 @@ const exec_color = dvui.Color{ .r = 0x55, .g = 0x55, .b = 0x55, .a = 0xff };
 fn renderNode(
     self: *@This(),
     node: *graphl.Node,
-    socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Point),
+    socket_positions: *std.AutoHashMapUnmanaged(Socket, dvui.Point.Physical),
     graph_area: *dvui.ScrollAreaWidget,
     dataRectScale: dvui.RectScale,
-) !Rect {
+) !Rect.Physical {
     const root_id_extra: usize = @intCast(node.id);
 
     // FIXME:  this is temp, go back to auto graph formatting
@@ -1634,7 +1643,7 @@ fn renderNode(
                 .background = true,
             };
 
-            const socket_point: dvui.Point = if (
+            const socket_point: dvui.Point.Physical = if (
                 //
                 input_desc.kind.primitive == .exec
                 //
@@ -1952,8 +1961,9 @@ fn renderNode(
                         const offset = me.p.diff(box.data().rectScale().r.topLeft()); // pixel offset from box corner
                         dvui.dragPreStart(me.p, .{ .offset = offset });
                         dvui.cursorSet(.hand);
-                        try self.current_graph.selection.put(gpa, node.id, {});
-                        //
+                        // FIXME: require ctrl to be down or we clear the selection (see below comments)
+                        const get_res = try self.current_graph.selection.getOrPut(gpa, node.id);
+                        _ = get_res;
                     } else if (me.action == .release and me.button.pointer()) {
                         if (dvui.captured(box.data().id)) {
                             e.handled = true;
@@ -1976,7 +1986,7 @@ fn renderNode(
                                     const selected_viz_data = self.current_graph.visual_graph.node_data.getPtr(selected_node_id.*) orelse continue;
                                     const offset_from_grab = (selected_viz_data.position_override orelse dvui.Point{})
                                         .diff(viz_data.position_override orelse dvui.Point{});
-                                    selected_viz_data.position_override = dataRectScale.pointFromScreen(p).plus(offset_from_grab);
+                                    selected_viz_data.position_override = dataRectScale.pointFromPhysical(p).plus(offset_from_grab);
                                 }
 
                                 dvui.refresh(null, @src(), graph_area.scroll.data().id);
@@ -2003,25 +2013,17 @@ fn renderNode(
         defer ctext.deinit();
 
         if (ctext.activePoint()) |cp| {
-            var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(cp) }, .{});
+            var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.Natural.fromPoint(cp) }, .{});
             defer fw.deinit();
 
-            if (self.current_graph.canRemoveNode(node.id) //
-            and (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal })) != null) {
-                if (self.current_graph.removeNode(node.id)) |removed| {
-                    std.debug.assert(removed);
-                } else |err| {
-                    return err;
-                }
-            }
-
-            if (try dvui.menuItemLabel(@src(), "Delete nodes", .{}, .{ .expand = .horizontal }) != null) {
+            if (try dvui.menuItemLabel(@src(), "Delete selected", .{}, .{ .expand = .horizontal }) != null) {
                 var selected_iter = self.current_graph.selection.iterator();
                 while (selected_iter.next()) |selected_single| {
                     std.debug.assert(
                         self.current_graph.removeNode(selected_single.key_ptr.*) catch continue
                     );
                 }
+                dvui.refresh(null, @src(), box.data().id);
             }
             // TODO: also add ability to change the type of the node?
         }
@@ -2463,7 +2465,7 @@ pub fn frame(self: *@This()) !void {
 
         if (builtin.mode == .Debug) {
             if (try dvui.menuItemLabel(@src(), "DevMode", .{ .submenu = true }, .{ .expand = .none })) |r| {
-                var fw = try dvui.floatingMenu(@src(), .{ .from = dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }) }, .{});
+                var fw = try dvui.floatingMenu(@src(), .{ .from = dvui.Rect.Natural.fromPoint(dvui.Point.Natural{ .x = r.x, .y = r.y + r.h }) }, .{});
                 defer fw.deinit();
 
                 if (builtin.mode == .Debug) {
@@ -2475,7 +2477,7 @@ pub fn frame(self: *@This()) !void {
         }
 
         if (try dvui.menuItemLabel(@src(), "Help", .{ .submenu = true }, .{ .expand = .none })) |r| {
-            var fw = try dvui.floatingMenu(@src(), .{ .from = dvui.Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }) }, .{});
+            var fw = try dvui.floatingMenu(@src(), .{ .from = dvui.Rect.Natural.fromPoint(dvui.Point.Natural{ .x = r.x, .y = r.y + r.h }) }, .{});
             defer fw.deinit();
             if (try dvui.menuItemLabel(@src(), "Graphl Guide", .{}, .{ .expand = .horizontal })) |_| {
                 try dvui.dialog(@src(), .{}, .{
@@ -2520,7 +2522,7 @@ pub fn frame(self: *@This()) !void {
                             on_click(app_ctx, menu.on_click_ctx);
                         }
 
-                        var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.fromPoint(dvui.Point{ .x = r.x, .y = r.y + r.h }) }, .{ .id_extra = id });
+                        var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.Natural.fromPoint(dvui.Point.Natural{ .x = r.x, .y = r.y + r.h }) }, .{ .id_extra = id });
                         defer fw.deinit();
                         try recurseMenus(menu.submenus, in_counter, app_ctx);
                     }
