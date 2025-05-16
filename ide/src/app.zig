@@ -1345,6 +1345,12 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
                             self.current_graph.removeNode(selected_single.key_ptr.*) catch continue
                         );
                     }
+                } else if (ke.action == .up and ke.code == .a and ctrlOnly(ke.mod)) {
+                    // select all
+                    var iter = self.current_graph.graphl_graph.nodes.map.iterator();
+                    while (iter.next()) |entry| {
+                        try self.current_graph.selection.put(gpa, entry.key_ptr.*, {});
+                    }
                 } else if (ke.action == .up and ke.code == .v and ctrlOnly(ke.mod)) {
                     requestPaste();
                 } else if (ke.action == .up and ke.code == .c and ctrlOnly(ke.mod)) {
@@ -1973,7 +1979,9 @@ fn renderNode(
                         const offset = me.p.diff(box.data().rectScale().r.topLeft()); // pixel offset from box corner
                         dvui.dragPreStart(me.p, .{ .offset = offset });
                         dvui.cursorSet(.hand);
-                        // FIXME: require ctrl to be down or we clear the selection (see below comments)
+                        if (!(ctrl_down or shift_down) and !is_selected) {
+                            self.current_graph.selection.clearRetainingCapacity();
+                        }
                         const get_res = try self.current_graph.selection.getOrPut(gpa, node.id);
                         _ = get_res;
                     } else if (me.action == .release and me.button.pointer()) {
@@ -1982,9 +1990,6 @@ fn renderNode(
                             dvui.captureMouse(null);
                             dvui.dragEnd();
                             // TODO: only clear selection if they they didn't move the mouse...
-                            if (!(ctrl_down or shift_down)) {
-                                self.current_graph.selection.clearRetainingCapacity();
-                            }
                             try self.current_graph.selection.put(gpa, node.id, {});
                         }
                         //
@@ -2473,6 +2478,11 @@ pub fn frame(self: *@This()) !void {
     // file menu
     if (self.init_opts.preferences.topbar.visible) {
         var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .expand = .horizontal });
+        try dvui.boxShadow(m.box.data(), .{
+            .alpha = 0.2,
+            .blur = 3,
+            .color = dvui.Color.black,
+        });
         defer m.deinit();
 
         if (builtin.mode == .Debug) {
@@ -2566,6 +2576,11 @@ pub fn frame(self: *@This()) !void {
                 .background = true,
             },
         );
+        try dvui.boxShadow(defines_box.data(), .{
+            .alpha = 0.2,
+            .blur = 3,
+            .color = dvui.Color.black,
+        });
         defer defines_box.deinit();
 
         {
