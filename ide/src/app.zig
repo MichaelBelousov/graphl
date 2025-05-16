@@ -1208,8 +1208,13 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
                 };
 
                 // FIXME: dedup with below edge drawing
-                const stroke_color = dvui.Color{ .r = 0xaa, .g = 0xaa, .b = 0xaa, .a = 0xee };
+                const stroke_shade_color = dvui.Color{ .r = 0x30, .g = 0x30, .b = 0x30, .a = 0x88 };
                 // TODO: need to handle deletion...
+                try dvui.pathStroke(&.{
+                    source_pos.plus(.{ .x = 0, .y = 3}),
+                    target_pos.plus(.{ .x = 0, .y = 3}),
+                }, 3.0, stroke_shade_color, .{ .endcap_style = .none });
+                const stroke_color = dvui.Color{ .r = 0xaa, .g = 0xaa, .b = 0xaa, .a = 0xee };
                 try dvui.pathStroke(&.{
                     source_pos,
                     target_pos,
