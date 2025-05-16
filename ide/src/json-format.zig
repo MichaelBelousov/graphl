@@ -7,16 +7,14 @@ pub const MenuOptionJson = struct {
 // TODO: just use dvui.Point
 pub const PtJson = struct { x: f32 = 0.0, y: f32 = 0.0 };
 
-// TODO: make all these InitState types JSON capable natively
+// TODO: make all these InitState types JSON capable natively, removing most of this file I think
 pub const InputInitStateJson = App.InputInitState;
-
 pub const NodeInitStateJson = App.NodeInitState;
-
 pub const GraphInitStateJson = App.GraphInitState;
-
 pub const GraphsInitStateJson = std.json.ArrayHashMap(GraphInitStateJson);
 
 // FIXME: copied in some places and replaced by raw Graphl.Pin
+// CONSOLIDATE
 pub const PinJson = struct {
     name: [:0]const u8,
     type: []const u8,

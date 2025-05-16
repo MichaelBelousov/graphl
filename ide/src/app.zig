@@ -1075,14 +1075,19 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point.Natural, pt_in_graph: dvui.P
     }
 
     {
-        // FIXME: replace with node iterator
+        // FIXME: replace with tag iterator?
         var i: u32 = 0;
         var type_iter = self.current_graph.env.typeIterator();
         while (type_iter.next()) |type_| : (i += 1) {
             var type_node_iter = self.current_graph.env.nodeByTypeIterator(type_) orelse continue;
-            
-            // FIXME: deduplicate work with next loop
-            const type_has_entry = _: {
+
+            // TODO: use an enum { None, One: *const NodeDesc, Many }
+            var single_choice: *const graphl.NodeDesc = undefined;
+
+            // FIXME: deduplicate work with next loop?
+            const type_choice_cardinality: usize = _: {
+                var choice_count: usize = 0;
+
                 var j: u32 = 0;
                 while (type_node_iter.next()) |node_desc_ptr| : (j += 1) {
                     const node_desc = node_desc_ptr.*;
@@ -1108,14 +1113,34 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point.Natural, pt_in_graph: dvui.P
                         if (!matches_search) continue;
                     }
 
-                    break :_ true;
+                    choice_count += 1;
+                    single_choice = node_desc;
+
+                    if (choice_count > 1)
+                        break :_ choice_count;
                 }
 
-                break :_ false;
+                break :_ choice_count;
             };
 
-            if (!type_has_entry)
+            if (type_choice_cardinality == 0)
                 continue;
+
+            if (type_choice_cardinality == 1) {
+                var valid_socket_index: ?u16 = null;
+
+                if (maybe_create_from_type) |create_from_type| {
+                    valid_socket_index = try NodeAdder.validSocketIndex(single_choice, maybe_create_from.?, create_from_type);
+                    if (valid_socket_index == null)
+                        continue;
+                }
+
+                if ((try dvui.menuItemLabel(@src(), single_choice.name(), .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
+                    _ = try NodeAdder.addNode(self, single_choice.name(), maybe_create_from, pt_in_graph, valid_socket_index);
+                    fw.close();
+                }
+                continue;
+            }
 
             type_node_iter = self.current_graph.env.nodeByTypeIterator(type_) orelse unreachable;
 
