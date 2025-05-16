@@ -646,6 +646,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
         .context = @ptrCast(in_desc),
         .hidden = in_desc.hidden,
         .kind = in_desc.kind,
+        .tags = in_desc.tags,
         ._getInputs = BasicNodeImpl.getInputs,
         ._getOutputs = BasicNodeImpl.getOutputs,
         ._getName = BasicNodeImpl.getName,
@@ -685,6 +686,7 @@ pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
         .context = @ptrCast(in_desc),
         .hidden = in_desc.hidden,
         .kind = in_desc.kind,
+        .tags = in_desc.tags,
         ._getInputs = BasicMutNodeImpl.getInputs,
         ._getOutputs = BasicMutNodeImpl.getOutputs,
         ._getName = BasicMutNodeImpl.getName,
@@ -1090,7 +1092,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "next", .kind = .{ .primitive = .exec } },
             Pin{ .name = "value", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
-        .tags = &.{"set"},
+        .tags = &.{"state"},
     });
 
     pub const func_start: NodeDesc = basicNode(&.{
@@ -1357,7 +1359,7 @@ pub const Env = struct {
     created_types: std.SinglyLinkedList(TypeInfo) = .{},
     created_nodes: std.SinglyLinkedList(NodeDesc) = .{},
 
-    const TagSet = std.SegmentedList([]const u8, 64);
+    const TagSet = std.StringArrayHashMapUnmanaged(void);
     const NodeSet = std.AutoHashMapUnmanaged(*const NodeDesc, void);
     const TypeNodesMap = std.AutoHashMapUnmanaged(Type, NodeSet);
     const TagNodesMap = std.StringHashMapUnmanaged(NodeSet);
@@ -1468,8 +1470,8 @@ pub const Env = struct {
         return result;
     }
 
-    pub fn tagIterator(self: *@This()) TagSet.ConstIterator {
-        return self._tag_set.constIterator();
+    pub fn tagIterator(self: *@This()) []const []const u8 {
+        return self._tag_set.keys();
     }
 
     pub const NodeIterator = struct {
@@ -1549,6 +1551,19 @@ pub const Env = struct {
 
     pub fn registerNode(self: *@This(), a: std.mem.Allocator, node_desc: *const NodeDesc) !void {
         for (node_desc.tags) |tag| {
+            try self._tag_set.put(a, tag, {});
+            const tag_set_res = try self._nodes_by_tag.getOrPut(a, tag);
+            if (!tag_set_res.found_existing) {
+                tag_set_res.value_ptr.* = .{};
+            }
+            const tag_set = tag_set_res.value_ptr;
+            try tag_set.putNoClobber(a, node_desc, {});
+        }
+
+        // FIXME: make a better way to get untagged nodes
+        if (node_desc.tags.len == 0) {
+            const tag = "other";
+            try self._tag_set.put(a, tag, {});
             const tag_set_res = try self._nodes_by_tag.getOrPut(a, tag);
             if (!tag_set_res.found_existing) {
                 tag_set_res.value_ptr.* = .{};

@@ -39,6 +39,7 @@ pub fn pasteText(app: *App, clipboard: []const u8) void {
     };
 }
 
+// FIXME: oops, dvui has a clipboard access API already! just use that!
 /// put content into the host clipboard
 extern fn putClipboard(content_ptr: [*]const u8, content_len: usize) void;
 
@@ -1077,9 +1078,10 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point.Natural, pt_in_graph: dvui.P
     {
         // FIXME: replace with tag iterator?
         var i: u32 = 0;
-        var type_iter = self.current_graph.env.typeIterator();
-        while (type_iter.next()) |type_| : (i += 1) {
-            var type_node_iter = self.current_graph.env.nodeByTypeIterator(type_) orelse continue;
+        const groups_iter = self.current_graph.env.tagIterator();
+        for (groups_iter) |tag| {
+            i += 1;
+            var in_group_iter = self.current_graph.env.nodeByTagIterator(tag) orelse continue;
 
             // TODO: use an enum { None, One: *const NodeDesc, Many }
             var single_choice: *const graphl.NodeDesc = undefined;
@@ -1089,7 +1091,7 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point.Natural, pt_in_graph: dvui.P
                 var choice_count: usize = 0;
 
                 var j: u32 = 0;
-                while (type_node_iter.next()) |node_desc_ptr| : (j += 1) {
+                while (in_group_iter.next()) |node_desc_ptr| : (j += 1) {
                     const node_desc = node_desc_ptr.*;
                     const node_name = node_desc.name();
 
@@ -1142,17 +1144,17 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point.Natural, pt_in_graph: dvui.P
                 continue;
             }
 
-            type_node_iter = self.current_graph.env.nodeByTypeIterator(type_) orelse unreachable;
+            in_group_iter = self.current_graph.env.nodeByTagIterator(tag) orelse unreachable;
 
             var buf: [128]u8 = undefined;
-            const label = try std.fmt.bufPrint(&buf, "{s} >", .{type_.name});
+            const label = try std.fmt.bufPrint(&buf, "{s} >", .{tag});
 
             if (try dvui.menuItemLabel(@src(), label, .{ .submenu = true }, .{ .expand = .horizontal, .id_extra = i })) |r| {
                 var subfw = try dvui.floatingMenu(@src(), .{ .from = Rect.Natural.fromPoint(dvui.Point.Natural{ .x = r.x + r.w, .y = r.y }) }, .{ .id_extra = i});
                 defer subfw.deinit();
 
                 var j: u32 = 0;
-                while (type_node_iter.next()) |node_desc_ptr| : (j += 1) {
+                while (in_group_iter.next()) |node_desc_ptr| : (j += 1) {
                     const node_desc = node_desc_ptr.*;
                     const node_name = node_desc.name();
 
@@ -1763,6 +1765,7 @@ fn renderNode(
                     //
                 ) _: {
                     var icon_res = try dvui_extra.buttonIconResult(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
+                    //var icon_res = try dvui_extra.buttonIconResult(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
                     const socket_center = considerSocketForHover(self, &icon_res, socket);
                     if (icon_res.clicked) {
                         // FIXME: add an "input" reset
@@ -1786,16 +1789,11 @@ fn renderNode(
                         // TODO: handle all possible types using exhaustive switch or something
 
                         // FIXME: hack!
-                        // const is_text_field = input_desc.kind.primitive.value == graphl.primitive_types.string
-                        // //
-                        // and node._desc.tags.len > 0
-                        // //
-                        // and std.mem.eql(u8, node._desc.tags[0], "text");
-
-                        // FIXME: hack! should do some pin metadata instead
                         const is_text_field = input_desc.kind.primitive.value == graphl.primitive_types.string
-                            //
-                        and std.mem.eql(u8, node._desc.name(), "JavaScript-Eval");
+                        //
+                        and node._desc.tags.len > 0
+                        //
+                        and std.mem.eql(u8, node._desc.tags[0], "text");
 
                         const empty = "";
 
