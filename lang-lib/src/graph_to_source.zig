@@ -290,7 +290,8 @@ pub const GraphBuilder = struct {
             const result = try alloc.create(BasicMutNodeDesc);
 
             result.* = .{
-                .name = "Return",
+                // TODO: capitalize, but need to fix references lol...
+                .name = "return",
                 .hidden = false,
                 .inputs = inputs,
                 .outputs = outputs,
