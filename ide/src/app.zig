@@ -1,4 +1,4 @@
-//! Copyright 2024, Michael Belousov
+//! Copyright 2025, Michael Belousov
 //!
 
 // TODO: rename this file to App.zig
@@ -45,7 +45,7 @@ extern fn putClipboard(content_ptr: [*]const u8, content_len: usize) void;
 
 // FIXME:  maybe move putClipboard to web-app.zig?
 fn copySelectedToClipboard(app: *const App) !void {
-    var json_nodes = try nodesToGraphlJson(gpa, &app.current_graph.selection, app.current_graph);
+    var json_nodes = try nodesToGraphlJson(gpa, &app.current_graph.selection, app.current_graph, true);
     defer json_nodes.deinit(gpa);
 
     const json = try std.json.stringifyAlloc(gpa, json_nodes.items, .{});
@@ -101,7 +101,7 @@ pub const gpa = std.heap.c_allocator;
 const NodeSet = std.AutoHashMapUnmanaged(graphl.NodeId, void);
 
 // TODO: when IDE switches to manipulating sexp in memory, we can just write those sexp
-pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Graph) !std.ArrayListUnmanaged(NodeInitState) {
+pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Graph, comptime ignore_entry: bool) !std.ArrayListUnmanaged(NodeInitState) {
     var json_nodes: std.ArrayListUnmanaged(NodeInitState) = try .initCapacity(a, nodes.count());
     errdefer json_nodes.deinit(a);
     var node_ids_iter = nodes.keyIterator();
@@ -111,6 +111,9 @@ pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Gr
 
     while (node_ids_iter.next()) |p_node_id| {
         const node_id = p_node_id.*;
+        if (ignore_entry and node_id == graphl.GraphBuilder.default_entry_id)
+            continue;
+
         const node = graph.graphl_graph.nodes.map.getPtr(node_id) orelse unreachable;
         const dvui_pos = graph.visual_graph.node_data.getPtr(node_id).?.position;
 
@@ -1313,14 +1316,16 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
     // can use this to convert between data and screen coords
     const dataRectScale = scaler.screenRectScale(.{});
 
-    // origin
-    // try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .x = -10 }));
-    // try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .x = 10 }));
-    // try dvui.pathStroke(false, 1, .none, dvui.Color.black);
-
-    // try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .y = -10 }));
-    // try dvui.pathAddPoint(dataRectScale.pointToScreen(.{ .y = 10 }));
-    // try dvui.pathStroke(false, 1, .none, dvui.Color.black);
+    // const grid_divisions = 100;
+    // // draw grid
+    // for (0..grid_divisions) |x| {
+    //     const stroke_shade_color = dvui.Color{ .r = 0xff, .g = 0xff, .b = 0xff, .a = 0x20 };
+    //     const r = graph_area.data().contentRect();
+    //     try dvui.pathStroke(&.{
+    //         .{ .x = -ScrollData.origin.x + r.x + (r.w * @as(f32, @floatFromInt(x)) / (grid_divisions + 1)), .y = r.y },
+    //         .{ .x = -ScrollData.origin.x + r.x + (r.w * @as(f32, @floatFromInt(x)) / (grid_divisions + 1)), .y = r.y + r.h },
+    //     }, 1.5, stroke_shade_color, .{ .endcap_style = .none });
+    // }
 
     // TODO: use link struct?
     var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Point.Physical){};
@@ -1529,6 +1534,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
                 } else if (ke.action == .up and ke.code == .v and ctrlOnly(ke.mod)) {
                     requestPaste();
                 } else if (ke.action == .up and ke.code == .c and ctrlOnly(ke.mod)) {
+                    // TODO: use built in dvui clipboard support!
                     try copySelectedToClipboard(self);
                 } else if (ke.action == .up and ke.code == .x and ctrlOnly(ke.mod)) {
                     try copySelectedToClipboard(self);
@@ -1996,12 +2002,14 @@ fn renderNode(
                             const text_entry = try dvui.textEntry(@src(), .{}, .{ .id_extra = j });
                             defer text_entry.deinit();
 
-                            if (dvui.firstFrame(text_entry.data().id)) {
+                            const first_frame = dvui.firstFrame(text_entry.data().id);
+
+                            if (first_frame) {
                                 text_entry.textTyped(input.value.string, false);
                             }
 
-                            // TODO: don't dupe this memory! use a dynamic buffer instead
-                            if (text_entry.text_changed) {
+                            // TODO: make dvui use our dynamic buffer directly cuz wtf
+                            if (text_entry.text_changed and !first_frame) {
                                 if (input.value.string.ptr != empty.ptr)
                                     gpa.free(input.value.string);
 
