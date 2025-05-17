@@ -578,6 +578,9 @@ pub fn addGraph(
 
     for (graph_desc.nodes.items) |node_desc| {
         const node_id: graphl.NodeId = @intCast(node_desc.id);
+        if (node_id == graphl.GraphBuilder.default_entry_id)
+            continue;
+
         _ = try graph.addNode(gpa, node_desc.type_, false, node_id, null, .{});
         if (node_desc.position) |pos| {
             const node = graph.visual_graph.node_data.getPtr(node_id) orelse unreachable;
@@ -851,9 +854,8 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
         _ = try self.shared_env.addNode(gpa, helpers.basicMutableNode(&node.data.node));
     }
 
-    // TODO:
-    if (in_opts.graphs != null and in_opts.graphs.?.count() > 0) {
-        var graph_iter = in_opts.graphs.?.iterator();
+    if (in_opts.graphs) |graphs| {
+        var graph_iter = graphs.iterator();
         while (graph_iter.next()) |entry| {
             const graph_desc = entry.value_ptr;
             // FIXME: must I dupe this?
