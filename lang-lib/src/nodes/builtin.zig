@@ -411,6 +411,7 @@ pub const GraphTypes = struct {
             return if (self.links.len == 1) self.links.uncheckedAt(0) else null;
         }
 
+        // FIXME: should be able to sink multiple source execs to one target
         pub fn setExecOutput(self: *Outputs, link: Link) void {
             std.debug.assert(self.links.len <= 1);
             self.links.len = 1;

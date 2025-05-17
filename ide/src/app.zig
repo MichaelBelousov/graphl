@@ -893,11 +893,12 @@ pub fn deinit(self: *@This()) void {
     self.shared_env.deinit(gpa);
 
     while (self.user_funcs.popFirst()) |cursor| {
-        gpa.free(cursor.data.node.name);
-        for (cursor.data.node.inputs[1..]) |input| gpa.free(input.name);
-        gpa.free(cursor.data.node.inputs);
-        for (cursor.data.node.outputs[1..]) |output| gpa.free(output.name);
-        gpa.free(cursor.data.node.outputs);
+        // FIXME: atm we borrow these, so don't deinit them
+        // gpa.free(cursor.data.node.name);
+        // for (cursor.data.node.inputs[1..]) |input| gpa.free(input.name);
+        // gpa.free(cursor.data.node.inputs);
+        // for (cursor.data.node.outputs[1..]) |output| gpa.free(output.name);
+        // gpa.free(cursor.data.node.outputs);
         gpa.destroy(cursor);
     }
 }
@@ -2657,9 +2658,11 @@ pub fn addParamToCurrentGraph(
 
 // FIXME: make this load actual graphl, not json, but need to first rework the IDE to use graphl sexp in-memory
 pub fn onReceiveLoadedSource(self: *@This(), src: []const u8) !void {
-    // FIXME: reinit better
+    // FIXME: reinit better?
+    var init_opts = self.init_opts;
+    init_opts.graphs = .{};
     self.deinit();
-    try self.init(self.init_opts);
+    try self.init(init_opts);
 
     const parsed = try std.json.parseFromSlice([]GraphInitState, gpa, src, .{ .ignore_unknown_fields = true });
     defer parsed.deinit();
