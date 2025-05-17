@@ -1316,16 +1316,29 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
     // can use this to convert between data and screen coords
     const dataRectScale = scaler.screenRectScale(.{});
 
-    // const grid_divisions = 100;
-    // // draw grid
-    // for (0..grid_divisions) |x| {
-    //     const stroke_shade_color = dvui.Color{ .r = 0xff, .g = 0xff, .b = 0xff, .a = 0x20 };
-    //     const r = graph_area.data().contentRect();
-    //     try dvui.pathStroke(&.{
-    //         .{ .x = -ScrollData.origin.x + r.x + (r.w * @as(f32, @floatFromInt(x)) / (grid_divisions + 1)), .y = r.y },
-    //         .{ .x = -ScrollData.origin.x + r.x + (r.w * @as(f32, @floatFromInt(x)) / (grid_divisions + 1)), .y = r.y + r.h },
-    //     }, 1.5, stroke_shade_color, .{ .endcap_style = .none });
-    // }
+    // draw grid
+    {
+        const grid_divisions: f32 = if (ScrollData.scale > 0.4) 100 else 10;
+        const bg_grid_color = dvui.Color{ .r = 0xff, .g = 0xff, .b = 0xff, .a = 0x10 };
+        const r = graph_area.data().rectScale().r;
+        const grid_gap = @max(2, r.w * ScrollData.scale / grid_divisions);
+
+        var x = r.x - @mod(ScrollData.origin.x, grid_gap);
+        while (x < r.x + r.w) : (x += grid_gap) {
+            try dvui.pathStroke(&.{
+                .{ .x = x, .y = r.y },
+                .{ .x = x, .y = r.y + r.h },
+            }, 1.5, bg_grid_color, .{ .endcap_style = .none });
+        }
+
+        var y = r.y - @mod(ScrollData.origin.y, grid_gap);
+        while (y < r.y + r.h) : (y += grid_gap) {
+            try dvui.pathStroke(&.{
+                .{ .y = y, .x = r.x },
+                .{ .y = y, .x = r.x + r.w },
+            }, 1.5, bg_grid_color, .{ .endcap_style = .none });
+        }
+    }
 
     // TODO: use link struct?
     var socket_positions = std.AutoHashMapUnmanaged(Socket, dvui.Point.Physical){};
@@ -1787,7 +1800,7 @@ fn renderNode(
             },
             //.max_size_content = dvui.Size{ .w = 300, .h = 600 },
             .box_shadow = .{
-                .alpha = 0.5,
+                .alpha = 0.3,
                 .blur = 5,
             },
         },
