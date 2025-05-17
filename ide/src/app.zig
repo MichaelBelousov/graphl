@@ -70,7 +70,7 @@ pub fn getGraphsJson(app: *const App) ![]const u8 {
         var next = app.graphs.first;
         while (next) |cursor| : (next = cursor.next) {
             const graph = &cursor.data;
-            const json_result = try graphToGraphlJson(gpa, app.current_graph);
+            const json_result = try graphToGraphlJson(gpa, graph);
             // TODO: simplify this bs
             graph_arenas.appendAssumeCapacity(json_result.arena);
             json_graphs.appendAssumeCapacity(.{
