@@ -1835,6 +1835,13 @@ fn renderNode(
     var hbox = try dvui.box(@src(), .horizontal, .{});
     defer hbox.deinit();
 
+    const socket_icon_base_opts = dvui.Options{
+        .min_size_content = .{ .h = 20, .w = 20 },
+        .gravity_y = 0.5,
+        .corner_radius = .{ .x = 20, .y = 20, .h = 20, .w = 20 },
+        .background = true,
+    };
+
     {
         var inputs_vbox = try dvui.box(@src(), .vertical, .{ .gravity_x = 0, .expand = .horizontal });
         defer inputs_vbox.deinit();
@@ -1849,16 +1856,10 @@ fn renderNode(
             else
                 exec_color;
 
-            const icon_opts = dvui.Options{
-                .min_size_content = .{ .h = 20, .w = 20 },
-                .gravity_y = 0.5,
-                .id_extra = j,
-                .color_fill = .{ .color = color },
-                .color_fill_hover = .{ .color = .{ .r = color.r, .g = color.g, .b = color.b, .a = 0x88 } },
-                .debug = true,
-                .border = dvui.Rect{},
-                .background = true,
-            };
+            var socket_icon_opts = socket_icon_base_opts;
+            socket_icon_opts.id_extra = j;
+            socket_icon_opts.color_fill = .{ .color = color };
+            socket_icon_opts.color_fill_hover = .{ .color = .{ .r = color.r, .g = color.g, .b = color.b, .a = 0x88 } };
 
             const socket_point: dvui.Point.Physical = if (
                 //
@@ -1867,8 +1868,7 @@ fn renderNode(
                 or input_desc.kind.primitive.value == helpers.primitive_types.code
                     //
                 ) _: {
-                    var icon_res = try dvui_extra.buttonIconResult(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
-                    //var icon_res = try dvui_extra.buttonIconResult(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts);
+                    var icon_res = try dvui_extra.buttonIconResult(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, socket_icon_opts);
                     const socket_center = considerSocketForHover(self, &icon_res, socket);
                     if (icon_res.clicked) {
                         // FIXME: add an "input" reset
@@ -1878,8 +1878,7 @@ fn renderNode(
                     break :_ socket_center;
                 } else _: {
                     // FIXME: make non interactable/hoverable
-
-                    var icon_res = try dvui_extra.buttonIconResult(@src(), "circle", entypo.circle, .{}, icon_opts);
+                    var icon_res = try dvui_extra.buttonIconResult(@src(), "circle", entypo.circle, .{}, socket_icon_opts);
                     const socket_center = considerSocketForHover(self, &icon_res, socket);
                     if (icon_res.clicked) {
                         input.* = .{ .value = .{ .int = 0 } };
@@ -2117,24 +2116,17 @@ fn renderNode(
             else
                 dvui.Color{ .a = 0x55 };
 
-            const icon_opts = dvui.Options{
-                .min_size_content = .{ .h = 20, .w = 20 },
-                .gravity_y = 0.5,
-                .id_extra = j,
-                //
-                .debug = true,
-                .border = dvui.Rect{},
-                .color_fill = .{ .color = color },
-                .color_fill_hover = .{ .color = .{ .r = color.r, .g = color.g, .b = color.b, .a = 0x88 } },
-                .background = true,
-            };
+            var socket_icon_opts = socket_icon_base_opts;
+            socket_icon_opts.id_extra = j;
+            socket_icon_opts.color_fill = .{ .color = color };
+            socket_icon_opts.color_fill_hover = .{ .color = .{ .r = color.r, .g = color.g, .b = color.b, .a = 0x88 } };
 
             _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .id_extra = j });
 
             var icon_res = if (output_desc.kind.primitive == .exec)
-                try dvui_extra.buttonIconResult(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, icon_opts)
+                try dvui_extra.buttonIconResult(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, socket_icon_opts)
             else
-                try dvui_extra.buttonIconResult(@src(), "circle", entypo.circle, .{}, icon_opts);
+                try dvui_extra.buttonIconResult(@src(), "circle", entypo.circle, .{}, socket_icon_opts);
 
             if (icon_res.clicked) {
                 // NOTE: hopefully this gets inlined...

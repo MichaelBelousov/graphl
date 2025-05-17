@@ -263,12 +263,12 @@ pub const GraphBuilder = struct {
         const entry_node_basic_desc = _: {
             const inputs = try alloc.alloc(Pin, 0);
             const outputs = try alloc.alloc(Pin, 1);
-            outputs[0] = Pin{ .name = "start", .kind = .{ .primitive = .exec } };
+            outputs[0] = Pin{ .name = "", .kind = .{ .primitive = .exec } };
 
             const result = try alloc.create(BasicMutNodeDesc);
 
             result.* = .{
-                .name = "enter",
+                .name = "Enter",
                 .hidden = true,
                 .inputs = inputs,
                 .outputs = outputs,
@@ -283,14 +283,14 @@ pub const GraphBuilder = struct {
 
         const result_node_basic_desc = _: {
             const inputs = try alloc.alloc(Pin, 1);
-            inputs[0] = Pin{ .name = "exit", .kind = .{ .primitive = .exec } };
+            inputs[0] = Pin{ .name = "", .kind = .{ .primitive = .exec } };
 
             const outputs = try alloc.alloc(Pin, 0);
 
             const result = try alloc.create(BasicMutNodeDesc);
 
             result.* = .{
-                .name = "return",
+                .name = "Return",
                 .hidden = false,
                 .inputs = inputs,
                 .outputs = outputs,
