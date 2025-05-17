@@ -1324,10 +1324,10 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
 
     // draw grid
     {
-        const grid_divisions: f32 = if (ScrollData.scale > 0.4) 100 else 10;
+        const grid_divisions: f32 = if (ScrollData.scale > 0.5) 100 else 10;
         const bg_grid_color = dvui.Color{ .r = 0xff, .g = 0xff, .b = 0xff, .a = 0x10 };
         const r = graph_area.data().rectScale().r;
-        const grid_gap = @max(2, r.w * ScrollData.scale / grid_divisions);
+        const grid_gap = @max(1/r.w, r.w * ScrollData.scale / grid_divisions);
 
         var x = r.x - @mod(ScrollData.origin.x, grid_gap);
         while (x < r.x + r.w) : (x += grid_gap) {
@@ -1482,7 +1482,7 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
     }
 
     if (drop_node_menu) {
-        dvui.dataSet(null, self.context_menu_widget_id orelse unreachable, "_activePt", mouse_pt);
+        dvui.dataSet(null, self.context_menu_widget_id orelse unreachable, "_activePt", mouse_pt.toNatural());
         dvui.focusWidget(self.context_menu_widget_id orelse unreachable, null, null);
     }
 
