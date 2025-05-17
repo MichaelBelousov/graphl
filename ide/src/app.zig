@@ -58,22 +58,24 @@ fn copySelectedToClipboard(app: *const App) !void {
 
 pub fn getGraphsJson(app: *const App) ![]const u8 {
     var json_graphs = try std.ArrayListUnmanaged(GraphInitState).initCapacity(gpa, app.graphCount());
+    var graph_arenas = try std.ArrayListUnmanaged(std.heap.ArenaAllocator).initCapacity(gpa, app.graphCount());
     defer {
-        for (json_graphs.items) |*json_graph| {
-            json_graph.nodes.deinit(gpa);
-        }
+        for (json_graphs.items) |*json_graph| json_graph.nodes.deinit(gpa);
         json_graphs.deinit(gpa);
+        for (graph_arenas.items) |*arena| arena.deinit();
+        graph_arenas.deinit(gpa);
     }
 
     {
         var next = app.graphs.first;
         while (next) |cursor| : (next = cursor.next) {
             const graph = &cursor.data;
-            var json_nodes = try graphToGraphlJson(gpa, app.current_graph);
-            defer json_nodes.deinit(gpa);
+            const json_result = try graphToGraphlJson(gpa, app.current_graph);
+            // TODO: simplify this bs
+            graph_arenas.appendAssumeCapacity(json_result.arena);
             json_graphs.appendAssumeCapacity(.{
                 .name = graph.name,
-                .nodes = json_nodes,
+                .nodes = json_result.nodes,
                 //.params = ,
                 .fixed_signature = graph.fixed_signature,
                 // FIXME: HACK these are never pure (yet)
@@ -156,13 +158,16 @@ pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Gr
 }
 
 // TODO: dedup with above!
-pub fn graphToGraphlJson(a: std.mem.Allocator, graph: *Graph) !std.ArrayListUnmanaged(NodeInitState) {
+pub fn graphToGraphlJson(a: std.mem.Allocator, graph: *Graph) !struct {
+    nodes: std.ArrayListUnmanaged(NodeInitState),
+    arena: std.heap.ArenaAllocator,
+} {
     var json_nodes: std.ArrayListUnmanaged(NodeInitState) = try .initCapacity(a, graph.graphl_graph.nodes.map.count());
     errdefer json_nodes.deinit(a);
     const node_ids_iter = graph.graphl_graph.nodes.map.keys();
 
     var inputs_arena = std.heap.ArenaAllocator.init(a);
-    defer inputs_arena.deinit();
+    errdefer inputs_arena.deinit();
 
     for (node_ids_iter) |node_id| {
         const node = graph.graphl_graph.nodes.map.getPtr(node_id) orelse unreachable;
@@ -200,7 +205,10 @@ pub fn graphToGraphlJson(a: std.mem.Allocator, graph: *Graph) !std.ArrayListUnma
         };
     }
 
-    return json_nodes;
+    return .{
+        .nodes = json_nodes,
+        .arena = inputs_arena,
+    };
 }
 
 // TODO: when IDE switches to manipulating sexp in memory, we can just write those sexp
@@ -817,6 +825,7 @@ pub const GraphInitState = struct {
 
 pub const GraphsInitState = std.StringHashMapUnmanaged(GraphInitState);
 
+// FIXME: investigate removing this
 // FIXME: keep in sync with typescript automatically
 pub const UserFuncTypes = enum(u32) {
     i32_ = 0,
@@ -891,9 +900,6 @@ pub fn deinit(self: *@This()) void {
         gpa.free(cursor.data.node.outputs);
         gpa.destroy(cursor);
     }
-
-    // FIXME: this breaks in tests
-    //_ = gpa_instance.deinit();
 }
 
 const SocketType = enum(u1) { input, output };
@@ -2659,7 +2665,9 @@ pub fn addParamToCurrentGraph(
 
 // FIXME: make this load actual graphl, not json, but need to first rework the IDE to use graphl sexp in-memory
 pub fn onReceiveLoadedSource(self: *@This(), src: []const u8) !void {
-    self.deinitGraphs();
+    // FIXME: reinit better
+    self.deinit();
+    try self.init(self.init_opts);
 
     const parsed = try std.json.parseFromSlice([]GraphInitState, gpa, src, .{ .ignore_unknown_fields = true });
     defer parsed.deinit();
