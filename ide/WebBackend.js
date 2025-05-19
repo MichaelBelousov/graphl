@@ -1111,6 +1111,14 @@ class Dvui {
         this.gl.canvas.addEventListener("contextmenu", (ev) => {
             ev.preventDefault();
         });
+
+        if (this.gl.canvas instanceof HTMLCanvasElement) {
+            const resizeObserver = new ResizeObserver(() => {
+                requestRender();
+            });
+            resizeObserver.observe(this.gl.canvas);
+        }
+        
         window.addEventListener("resize", (ev) => {
             requestRender();
         });

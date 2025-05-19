@@ -17,6 +17,8 @@ await esbuild.build({
     // zigar `nodeCompat: true` uses these node packages as externals
     "fs/promises",
     "url",
+    // we optionally use wasi in the js-sdk
+    "node:wasi",
   ],
   loader: {
     ".wasm": "copy",
