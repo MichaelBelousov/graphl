@@ -45,10 +45,10 @@ extern fn putClipboard(content_ptr: [*]const u8, content_len: usize) void;
 
 // FIXME:  maybe move putClipboard to web-app.zig?
 fn copySelectedToClipboard(app: *const App) !void {
-    var json_nodes = try nodesToGraphlJson(gpa, &app.current_graph.selection, app.current_graph, true);
-    defer json_nodes.deinit(gpa);
+    var json_result = try nodesToGraphlJson(gpa, &app.current_graph.selection, app.current_graph, true);
+    defer json_result.deinit();
 
-    const json = try std.json.stringifyAlloc(gpa, json_nodes.items, .{});
+    const json = try std.json.stringifyAlloc(gpa, json_result.nodes.items, .{});
     defer gpa.free(json);
     // TODO: create an std.ArrayList(u8) writer and write the json to that?
     const data_url = try std.fmt.allocPrint(gpa, "data:application/graphl-json,{s}", .{json});
@@ -103,13 +103,24 @@ pub const gpa = std.heap.c_allocator;
 const NodeSet = std.AutoHashMapUnmanaged(graphl.NodeId, void);
 
 // TODO: when IDE switches to manipulating sexp in memory, we can just write those sexp
-pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Graph, comptime ignore_entry: bool) !std.ArrayListUnmanaged(NodeInitState) {
-    var json_nodes: std.ArrayListUnmanaged(NodeInitState) = try .initCapacity(a, nodes.count());
-    errdefer json_nodes.deinit(a);
+pub fn nodesToGraphlJson(
+    a: std.mem.Allocator,
+    nodes: *const NodeSet,
+    graph: *Graph,
+    comptime ignore_entry: bool,
+) !struct {
+    nodes: std.ArrayListUnmanaged(NodeInitState),
+    arena: std.heap.ArenaAllocator,
+    fn deinit(self: *@This()) void {
+        self.arena.deinit();
+    }
+} {
+    var inputs_arena = std.heap.ArenaAllocator.init(a);
+    errdefer inputs_arena.deinit();
+
+    var json_nodes: std.ArrayListUnmanaged(NodeInitState) = try .initCapacity(inputs_arena.allocator(), nodes.count());
     var node_ids_iter = nodes.keyIterator();
 
-    var inputs_arena = std.heap.ArenaAllocator.init(a);
-    defer inputs_arena.deinit();
 
     while (node_ids_iter.next()) |p_node_id| {
         const node_id = p_node_id.*;
@@ -154,7 +165,10 @@ pub fn nodesToGraphlJson(a: std.mem.Allocator, nodes: *const NodeSet, graph: *Gr
         };
     }
 
-    return json_nodes;
+    return .{
+        .nodes = json_nodes,
+        .arena = inputs_arena,
+    };
 }
 
 // TODO: dedup with above!
@@ -2240,6 +2254,7 @@ fn renderNode(
                         self.current_graph.removeNode(selected_single.key_ptr.*) catch continue
                     );
                 }
+                self.current_graph.selection.clearRetainingCapacity();
                 dvui.refresh(null, @src(), box.data().id);
             }
             // TODO: also add ability to change the type of the node?
