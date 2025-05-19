@@ -278,7 +278,7 @@ pub const GraphBuilder = struct {
             break :_ result;
         };
 
-        // FIXME: this breaks without layered envs!
+        // FIXME: see if layered envs make this less awkward?
         const entry_node = try env.addNode(alloc, helpers.basicMutableNode(entry_node_basic_desc));
 
         const result_node_basic_desc = _: {
@@ -315,8 +315,6 @@ pub const GraphBuilder = struct {
 
         const entry_id = self.addNode(alloc, self.entry_node_basic_desc.name, true, 0, null) catch unreachable;
         _ = entry_id;
-        //const return_id = self.addNode(alloc, self.result_node_basic_desc.name, false, null, null) catch unreachable;
-        //self.addEdge(alloc, entry_id, 0, return_id, 0, 0) catch unreachable;
 
         return self;
     }
