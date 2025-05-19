@@ -1907,6 +1907,11 @@ fn renderNode(
                                 input.* = .{ .value = .{ .string = empty } };
                             }
 
+                            
+                            const is_big_checked = dvui.dataGetPtrDefault(null, input_box.data().id, "is_big", bool, false);
+                            // TODO: make resizable
+                            _ = try dvui.checkbox(@src(), is_big_checked, null, .{ .id_extra = j, .gravity_y = 0.5 });
+
                             const text_result = try dvui.textEntry(
                                 @src(),
                                 .{
@@ -1914,8 +1919,12 @@ fn renderNode(
                                     .multiline = true,
                                     .break_lines = true,
                                 },
-                                .{ .id_extra = j, .min_size_content = .{ .h = 60, .w = 160 } },
+                                .{
+                                    .id_extra = j,
+                                    .min_size_content = if (is_big_checked.*) .{ .h = 60, .w = 160 } else null,
+                                },
                             );
+
                             defer text_result.deinit();
                             if (dvui.firstFrame(text_result.data().id)) {
                                 text_result.textTyped(input.value.string, false);
@@ -2098,8 +2107,7 @@ fn renderNode(
 
             try socket_positions.put(gpa, socket, socket_point);
 
-            // FIXME: this doesn't render?
-            _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .font_style = .heading, .id_extra = j });
+            _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .font_style = .heading, .id_extra = j, .gravity_y = 0.5 });
         }
     }
 
@@ -2124,7 +2132,7 @@ fn renderNode(
             socket_icon_opts.color_fill = .{ .color = color };
             socket_icon_opts.color_fill_hover = .{ .color = .{ .r = color.r, .g = color.g, .b = color.b, .a = 0x88 } };
 
-            _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .id_extra = j });
+            _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .id_extra = j, .gravity_y = 0.5 });
 
             var icon_res = if (output_desc.kind.primitive == .exec)
                 try dvui_extra.buttonIconResult(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, socket_icon_opts)

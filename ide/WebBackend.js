@@ -1118,7 +1118,6 @@ class Dvui {
             });
             resizeObserver.observe(this.gl.canvas);
         }
-        
         window.addEventListener("resize", (ev) => {
             requestRender();
         });
