@@ -1181,13 +1181,13 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point.Natural, pt_in_graph: dvui.P
     }
 
     {
-        // FIXME: replace with tag iterator?
         var i: u32 = 0;
         const groups_iter = self.current_graph.env.tagIterator();
         for (groups_iter) |tag| {
             i += 1;
             var in_group_iter = self.current_graph.env.nodeByTagIterator(tag) orelse continue;
 
+            // FIXME: do not show a single_choice if it's already the single choice of another tag!
             // TODO: use an enum { None, One: *const NodeDesc, Many }
             var single_choice: *const graphl.NodeDesc = undefined;
 
