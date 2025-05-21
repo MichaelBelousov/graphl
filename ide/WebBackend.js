@@ -1,7 +1,7 @@
 import { WASI, File, OpenFile, ConsoleStdout, PreopenDirectory } from '@bjorn3/browser_wasi_shim';
 import frontendWasmUrl from './zig-out/bin/dvui-frontend.wasm?url';
 import { downloadFile, uploadFile } from './localFileManip';
-import { GraphlTypes, instantiateProgramFromWasmBuffer } from "@graphl/compiler-js/wasm-backend";
+import { instantiateProgramFromWasmBuffer } from "@graphl/compiler-js/wasm-backend";
 
 /**
  * @param {number} ms Number of milliseconds to sleep
@@ -1393,6 +1393,7 @@ export async function Ide(canvasElem, opts) {
             },
 
             main() {},
+
             //wasm_opt_transfer: sharedWasmMem,
             // FIXME: remove
             onExportCurrentSource: (ptr, len) => {
@@ -1425,7 +1426,7 @@ export async function Ide(canvasElem, opts) {
             },
 
             onClickReportIssue() {
-                window.open("https://docs.google.com/forms/d/e/1FAIpQLSf2dRcS7Nrv4Ut9GGmxIDVuIpzYnKR7CyHBMUkJQwdjenAXAA/viewform?usp=header", "_blank").focus();
+                window.open("https://github.com/MichaelBelousov/graphl/issues/new", "_blank");
             },
 
             /** @param {number} handle */
@@ -1536,20 +1537,23 @@ export async function Ide(canvasElem, opts) {
                                 });
                             },
                         },
-                        {
-                            name: "Export to wasm",
-                            async onClick() {
-                                /** @type {Awaited<ReturnType<typeof result["compile"]>>} */
-                                const wasm = await result.exportWasm();
-                                downloadFile({
-                                    content: wasm,
-                                    fileName: "project.wasm",
-                                });
-                            },
-                        },
+                        // FIXME: don't do any default menus, let the user customize entirely but re-expose
+                        // save and open above as part of the IDE api
+                        // {
+                        //     name: "Export to wasm",
+                        //     async onClick() {
+                        //         /** @type {Awaited<ReturnType<typeof result["compile"]>>} */
+                        //         const wasm = await result.exportWasm();
+                        //         downloadFile({
+                        //             content: wasm,
+                        //             fileName: "project.wasm",
+                        //         });
+                        //     },
+                        // },
                     ],
                 },
-                {
+                ...opts.allowRunning
+                ? [{
                     name: "Build",
                     submenus: [
                         {
@@ -1569,17 +1573,17 @@ export async function Ide(canvasElem, opts) {
                             },
                         },
                     ],
-                },
+                }] : [],
             ];
 
             const menus = [...opts.menus ?? []];
 
-            /** @type {any} */
-            const optsForWasm = { ...opts, menus, userFuncs: {} };
-
-            if (!opts.preferences?.topbar?.noDefaultMenus && opts.allowRunning !== false) {
+            if (!opts.preferences?.topbar?.noDefaultMenus) {
                 menus.unshift(...defaultMenus);
             }
+
+            /** @type {any} */
+            const optsForWasm = { ...opts, menus, userFuncs: {} };
 
             bindMenus(menus);
 

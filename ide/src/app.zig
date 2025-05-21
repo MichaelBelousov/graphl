@@ -2247,6 +2247,13 @@ fn renderNode(
             var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.Natural.fromPoint(cp) }, .{});
             defer fw.deinit();
 
+            if (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal }) != null) {
+                std.debug.assert(
+                    self.current_graph.removeNode(node.id) catch true
+                );
+                dvui.refresh(null, @src(), box.data().id);
+            }
+
             if (try dvui.menuItemLabel(@src(), "Delete selected", .{}, .{ .expand = .horizontal }) != null) {
                 var selected_iter = self.current_graph.selection.iterator();
                 while (selected_iter.next()) |selected_single| {
