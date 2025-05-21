@@ -285,10 +285,10 @@ pub fn placeGraphlJsonToGraph(
                     try graph.addLiteralInput(node_id, input_id, 0, .{ .bool = v });
                 },
                 .string => |v| {
-                    try graph.addLiteralInput(node_id, input_id, 0, .{ .string = v });
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .string = try gpa.dupe(u8, v) });
                 },
                 .symbol => |v| {
-                    try graph.addLiteralInput(node_id, input_id, 0, .{ .symbol = v });
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .symbol = try gpa.dupe(u8, v) });
                 },
             }
         }
@@ -618,10 +618,10 @@ pub fn addGraph(
                     try graph.addLiteralInput(node_id, input_id, 0, .{ .bool = v });
                 },
                 .string => |v| {
-                    try graph.addLiteralInput(node_id, input_id, 0, .{ .string = v });
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .string = try gpa.dupe(u8, v) });
                 },
                 .symbol => |v| {
-                    try graph.addLiteralInput(node_id, input_id, 0, .{ .symbol = v });
+                    try graph.addLiteralInput(node_id, input_id, 0, .{ .symbol = try gpa.dupe(u8, v) });
                 },
             }
         }
@@ -1849,7 +1849,7 @@ fn renderNode(
     //     .set => |v| try dvui.label(@src(), "Set {s}", .{v.binding.name}, .{ .font_style = .title_3 }),
     // }
 
-    var hbox = try dvui.box(@src(), .horizontal, .{});
+    var hbox = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal });
     defer hbox.deinit();
 
     const socket_icon_base_opts = dvui.Options{
@@ -2053,7 +2053,7 @@ fn renderNode(
                             }
 
                             // TODO: make dvui use our dynamic buffer directly cuz wtf
-                            if (text_entry.text_changed and !first_frame) {
+                            if (text_entry.text_changed) {
                                 if (input.value.string.ptr != empty.ptr)
                                     gpa.free(input.value.string);
 
