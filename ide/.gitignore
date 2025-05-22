@@ -9,8 +9,5 @@ dist
 .vite-inspect
 demo
 
-# build generated
-index.html
-
 # binaryen emscripten build
 build.log

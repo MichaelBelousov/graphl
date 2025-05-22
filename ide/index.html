@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en" style="height: 100%;">
+  <head>
+    <meta charset="utf-8" />
+
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Graphl Editor</title>
+    <!-- FIXME: remove temp -->
+    <script src="https://cdn.jsdelivr.net/npm/@tsparticles/confetti@3.0.3/tsparticles.confetti.bundle.min.js"></script>
+  </head>
+
+  <body style="height: 100%; margin: 0; padding: 0;" >
+    <style>
+        body {
+          overflow-x: hidden;
+          display: grid;
+          grid-template-columns: 0px 100vw 50vw;
+          margin: 0;
+          padding: 0;
+        }
+        #dvui-canvas {
+          height: 100vh;
+          display: block;
+          outline: none;
+          caret-color: transparent;
+        }
+        #react-app {
+          height: 100vh;
+          display: none;
+        }
+        /* FIXME: was this required in other versions? */
+        #confetti {
+          pointer-events: none;
+        }
+    </style>
+    <!-- need tabIndex for the canvas to receive keydown/keyup/beforeinput events -->
+    <canvas id="dvui-canvas" tabIndex="1"></canvas>
+    <div id="react-app"></div>
+    <script type="module" src="./demo.tsx"></script>
+    <script type="module">
+      import * as graphl from "./WebBackend.js";
+      import { downloadFile } from "./localFileManip.ts";
+
+      const showText = "0px 50vw 50vw";
+      const noShowText = "0px 100vw 50vw";
+
+      const sexpToSql = (sexp) => {
+        if (Array.isArray(sexp)) {
+          let sql = "";
+
+          const [func, ...params] = sexp;
+
+          const handlePrev = (ignore = false) => {
+            if (!Array.isArray(params[0]))
+              return;
+            const execParam = params.shift();
+            if (!ignore) {
+              const prev = sexpToSql(execParam);
+              sql += prev;
+              sql += '\n';
+            }
+          };
+
+          if (func.symbol === "SELECT") {
+            handlePrev();
+            params.forEach(p => { if (typeof p !== "string") throw Error("bad SELECT arg"); })
+            sql += sexpToSql(func) + ' ' + params.join(',');
+
+          } else if (func.symbol === "WHERE") {
+            handlePrev();
+            sql += sexpToSql(func) + ' ' + params.map(sexpToSql).join(',');
+
+          } else if (func.symbol === "FROM") {
+            handlePrev();
+            params.forEach(p => { if (typeof p !== "string") throw Error("bad FROM arg"); })
+            sql += sexpToSql(func) + ' ' + params.join(',');
+
+            // assume it's a binary operator
+          } else {
+            handlePrev();
+            sql += `${sexpToSql(params[0])} ${sexpToSql(func)} ${sexpToSql(params[1])}`;
+
+          }
+
+          return sql;
+
+        } else if (typeof sexp === "object" && "symbol" in sexp) {
+          return sexp.symbol;
+
+        } else if (typeof sexp === "string") {
+          return `'${sexp}'`
+
+        } else if (typeof sexp === "number") {
+          return `${sexp}`
+
+        } else {
+          throw Error("unexpected value:", sexp);
+        }
+      };
+
+      /** @type {import("./WebBackend.js").Ide}  */
+      let ide;
+
+      async function main() {
+        ide = await new Promise((resolve, reject) => {
+          document.body.onload = () => {
+            const canvas = document.getElementById("dvui-canvas");
+            const ideOpts = {
+              allowRunning: true,
+              userFuncs: {
+                "NoClusterId": {
+                  description: "get the special cluster id which doesn't do any merging",
+                  outputs: [{ name: "id", type: "u64" }],
+                  kind: "pure",
+                  impl() { return 0n; },
+                },
+                "Confetti": {
+                  inputs: [{ name: "ParticleCount", type: "i32" }],
+                  outputs: [],
+                  description: "spray confetti everywhere",
+                  impl(particleCount) {
+                    confetti({
+                      particleCount,
+                      spread: 70,
+                      origin: { y: 0.6 },
+                      duration: 2000,
+                    });
+                  }
+                },
+                "ECSQL-exec": {
+                  inputs: [{ name: "query", type: "code" }],
+                  outputs: [{ name: "string", type: "string" }],
+                  impl(code) {
+                    console.log('QUERY:', sexpToSql(code));
+                  }
+                },
+                "testme": {
+                  inputs: [{ name: "query", type: "string" }],
+                  outputs: [],
+                  impl(str) {
+                    console.log(str);
+                  }
+                },
+                // dummy nodes
+                "SELECT": {
+                  inputs: [{ name: "column", type: "string" }],
+                  outputs: [],
+                },
+                "WHERE": {
+                  inputs: [{ name: "condition", type: "bool" }],
+                  outputs: [],
+                },
+                "FROM": {
+                  inputs: [{ name: "table", type: "string" }],
+                  outputs: [],
+                },
+                // TODO: rename to project center
+                "ModelCenter": {
+                  inputs: [],
+                  outputs: [{ name: "center", type: "vec3" }],
+                  description: "get the center of the project in scene coordinates",
+                  impl() {
+                    // NOTE: this must be implemented on the backend!
+                    return { x: 0, y: 0, z: 0 };
+                  },
+                },
+                "JavaScript-Eval": {
+                  inputs: [
+                    { name: "elementId", type: "u64" },
+                    { name: "code", type: "string" },
+                  ],
+                  outputs: [{ name: "JsonResult", type: "string" }],
+                  tags: ["text"],
+                  description: "call out to a javascript runtime to execute some JavaScript\nThe last unterminated expression is returned",
+                  /**
+                   * @param {bigint} elemId
+                   * @param {string} code
+                   * @returns {string}
+                   */
+                  impl(elemId, code) {
+                    'use strict'
+                    return JSON.stringify(eval(code) ?? "");
+                  }
+                },
+              },
+              menus: [{
+                name: "Test",
+                onClick: () => console.log("hello!"),
+                submenus: [{
+                  name: "again",
+                  onClick() {
+                    const content = ide
+                    void downloadFile({
+                      fileName: "compiled.wat",
+                      content,
+                    });
+                  }
+                }]
+              }],
+              graphs: {
+                "main": {
+                  //fixedSignature: true,
+                  // inputs: [{
+                  //   name: "x",
+                  //   type: "string",
+                  // }],
+                  outputs: [{
+                    name: "y",
+                    type: "i32",
+                  }],
+                  nodes: [
+                    {
+                      id: 1,
+                      type: "Confetti",
+                      inputs: {
+                        0: { node: 0, outPin: 0 },
+                        1: { int: 100 },
+                      }
+                    },
+                    {
+                      id: 2,
+                      type: "return",
+                      inputs: {
+                        0: { node: 1, outPin: 0 },
+                      }
+                    },
+                  ]
+                },
+
+                processInstance: {
+                  fixedSignature: true,
+                  inputs: [
+                    { name: "ElementId", type: "u64" },
+                    // part or element
+                    { name: "GeometrySourceId", type: "u64" },
+                    { name: "Origin", type: "vec3" },
+                    { name: "Rotation", type: "vec3" },
+                    //{ name: "AnimationBatchId", type: "maybe-u32" },
+                  ],
+                  outputs: [
+                    { name: "Output File", type: "string" },
+                    // TODO: add the ability to put a tooltip on a pin
+                    { name: "Cluster Id", type: "u64" },
+                    { name: "Material Name", type: "string" },
+                  ],
+                  nodes: [
+                    {
+                      id: 1,
+                      type: "NoClusterId",
+                    },
+                    {
+                      id: 2,
+                      type: "return",
+                      inputs: {
+                        0: { node: 0, outPin: 0 },
+                        // FIXME: allow editing the graph imperatively so we can set this once the imodel loads
+                        1: { string: "imodel" },
+                        2: { node: 1, outPin: 0 },
+                        3: { string: "/ITwinUnrealWorkshop/M_combinedMesh.M_combinedMesh" },
+                      },
+                    }
+                  ],
+                },
+              },
+              /*
+              preferences: {
+                graph: {
+                  scale: 0.7,
+                  origin: { x: 0, y: 0 },
+                },
+              },
+              */
+            };
+            graphl.Ide(canvas, ideOpts).then(resolve);
+          };
+
+          document.body.onerror = (err) => reject(err);
+        });
+
+        document.addEventListener("keydown", (e) => {
+          const isCtrlShiftE = e.ctrlKey && e.shiftKey && /[eE]/.test(e.key);
+          if (isCtrlShiftE) {
+            e.preventDefault();
+            document.body.style["grid-template-columns"]
+              = document.body.style["grid-template-columns"] === showText
+              ? noShowText
+              : showText;
+          } else if (e.ctrlKey && e.shiftKey && /[xX]/.test(e.key)) {
+            e.preventDefault();
+            console.log("COMPILED!", ide.exportCompiled());
+          }
+        });
+      }
+
+      void main();
+    </script>
+  </body>
+</html>
