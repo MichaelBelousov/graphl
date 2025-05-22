@@ -89,6 +89,11 @@ pub const Diagnostic = struct {
             type: Type,
         },
         ParamCountConflict: u32,
+        UnsupportedTypeCoercion: struct {
+            idx: u32,
+            from: Type,
+            to: Type,
+        }
     };
 
     const Code = error{
@@ -109,6 +114,7 @@ pub const Diagnostic = struct {
         AccessNonCompound,
         AccessNonExistentField,
         StructTooLarge,
+        UnsupportedTypeCoercion,
     };
 
     pub fn init() @This() {
@@ -190,6 +196,35 @@ pub const Diagnostic = struct {
                     SpacePrint.init(loc.col - 1),
                     err_info.expected,
                     err_info.received,
+                });
+            },
+            .UnsupportedTypeCoercion => |err_info| {
+                const sexp = self.graphlt_module.get(err_info.idx);
+
+                if (sexp.span == null or self.graphlt_module.source == null) {
+                    return;
+                }
+
+                const span = sexp.span.?;
+                const byte_offset: usize = span.ptr - self.graphlt_module.source.?.ptr;
+
+                var loc: Loc = .{};
+                while (loc.index != byte_offset) {
+                    loc.increment(self.graphlt_module.source.?);
+                }
+
+                try writer.print(
+                    \\Unsupported type coercion in {}:
+                    \\  | {s}
+                    \\    {}^
+                    \\There is no conversion from type '{s}' to type '{s}'.
+                    \\
+                , .{
+                    loc,
+                    try loc.containing_line(self.graphlt_module.source.?),
+                    SpacePrint.init(loc.col - 1),
+                    err_info.from.name,
+                    err_info.to.name,
                 });
             },
             .AccessNonCompound => |err_info| {
@@ -1594,7 +1629,16 @@ const Compilation = struct {
 
                         for (v.items[1..], return_types) |arg, return_type| {
                             try self.compileExpr(arg, fn_ctx);
-                            self.promoteToTypeInPlace(&self._sexp_compiled[arg], return_type);
+                            self.promoteToTypeInPlace(&self._sexp_compiled[arg], return_type) catch |err| switch (err) {
+                                error.UnsupportedTypeCoercion => {
+                                    self.diag.err = .{ .UnsupportedTypeCoercion = .{
+                                        .idx = arg,
+                                        .from = self._sexp_compiled[arg].type,
+                                        .to = return_type,
+                                    } };
+                                    return err;
+                                },
+                            };
                         }
 
                         if (v.items.len == 1) {
@@ -1714,7 +1758,14 @@ const Compilation = struct {
                                                 try self.getBynType(last_arg_slot.type),
                                             ),
                                             slot.type,
-                                        ),
+                                        ) catch |err| switch (err) { error.UnsupportedTypeCoercion => {
+                                            self.diag.err = .{ .UnsupportedTypeCoercion = .{
+                                                .idx = last_arg_idx,
+                                                .from = last_arg_slot.type,
+                                                .to = slot.type
+                                            }};
+                                            return err;
+                                        } },
                                     );
                                 } else if (v.items.len == 2) {
                                     // has no default, leave unset (probably zeroed by wasm maybe)
@@ -1956,12 +2007,30 @@ const Compilation = struct {
                                         lhs.type,
                                         byn.c.BinaryenLocalGet(self.module.c(), lhs.local_index, try self.getBynType(lhs.type)),
                                         args_top_type,
-                                    ),
+                                    ) catch |err| switch (err) {
+                                        error.UnsupportedTypeCoercion => {
+                                            self.diag.err = .{ .UnsupportedTypeCoercion = .{
+                                                .idx = v.items[1],
+                                                .from = lhs.type,
+                                                .to = args_top_type,
+                                            } };
+                                            return err;
+                                        },
+                                    },
                                     self.promoteToType(
                                         rhs.type,
                                         byn.c.BinaryenLocalGet(self.module.c(), rhs.local_index, try self.getBynType(rhs.type)),
                                         args_top_type,
-                                    ),
+                                    ) catch |err| switch (err) {
+                                        error.UnsupportedTypeCoercion => {
+                                            self.diag.err = .{ .UnsupportedTypeCoercion = .{
+                                                .idx = v.items[2],
+                                                .from = rhs.type,
+                                                .to = args_top_type,
+                                            } };
+                                            return err;
+                                        },
+                                    },
                                 ),
                             );
 
@@ -2300,8 +2369,8 @@ const Compilation = struct {
         return resolved_type;
     }
 
-    fn promoteToTypeInPlace(self: *@This(), slot: *Slot, target_type: Type) void {
-        slot.expr = self.promoteToType(slot.type, slot.expr, target_type);
+    fn promoteToTypeInPlace(self: *@This(), slot: *Slot, target_type: Type) error{UnsupportedTypeCoercion}!void {
+        slot.expr = try self.promoteToType(slot.type, slot.expr, target_type);
         slot.type = target_type;
     }
 
@@ -2311,7 +2380,7 @@ const Compilation = struct {
         start_type: Type,
         expr: byn.c.BinaryenExpressionRef,
         target_type: Type,
-    ) byn.c.BinaryenExpressionRef {
+    ) error{UnsupportedTypeCoercion}!byn.c.BinaryenExpressionRef {
         var curr_type = start_type;
         var curr_expr = expr;
         var i: usize = 0;
@@ -2345,13 +2414,8 @@ const Compilation = struct {
                 op = byn.Expression.Op.promoteFloat32();
                 curr_type = primitive_types.f64_;
             } else {
-                log.err("unimplemented type promotion: {s} -> {s}", .{ curr_type.name, target_type.name });
-                std.debug.panic("unimplemented type promotion: {s} -> {s}", .{ curr_type.name, target_type.name });
-                // FIXME:
-                // self.diag.err = .{ .InvalidTypeCoercion = .{
-                //     .op = {},
-                // } };
-                // return error.InvalidTypeCoercion;
+                //log.err("unimplemented type promotion: {s} -> {s}", .{ curr_type.name, target_type.name });
+                return error.UnsupportedTypeCoercion;
             }
 
             curr_expr = byn.c.BinaryenUnary(self.module.c(), op.c(), curr_expr);
@@ -2375,6 +2439,7 @@ const Compilation = struct {
         const resolved_type = resolvePeerType(a.type, b.type);
 
         inline for (&.{ a, b }) |fragment| {
+            // FIXME: doesn't handle error
             self.promoteToTypeInPlace(fragment, resolved_type);
         }
 
