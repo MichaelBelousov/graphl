@@ -238,6 +238,7 @@ pub fn placeGraphlJsonToGraph(
     defer parsed.deinit();
     const nodes = parsed.value;
 
+    // FIXME: selection manip doesn't really belong in this code...?
     graph.selection.clearRetainingCapacity();
 
     var resolved_ids: std.AutoHashMapUnmanaged(usize, graphl.NodeId) = .empty;
@@ -266,14 +267,7 @@ pub fn placeGraphlJsonToGraph(
             const input_desc = input_entry.value_ptr;
             switch (input_desc.*) {
                 .node => |v| {
-                    try graph.addEdge(
-                        gpa,
-                        resolved_ids.get(v.id) orelse unreachable,
-                        @intCast(v.out_pin),
-                        node_id,
-                        input_id,
-                        0,
-                    );
+                    try graph.addEdge(gpa, resolved_ids.get(v.id) orelse unreachable, @intCast(v.out_pin), node_id, input_id, 0);
                 },
                 .int => |v| {
                     try graph.addLiteralInput(node_id, input_id, 0, .{ .int = v });
@@ -560,6 +554,7 @@ pub fn addEmptyGraph(
     return &new_graph.data;
 }
 
+// FIXME: dedup with placeGraphlJsonToGraph
 pub fn addGraph(
     self: *@This(),
     init_state: *const GraphInitState,
@@ -605,8 +600,7 @@ pub fn addGraph(
             const input_id = input_entry.key_ptr.*;
             const input_desc = input_entry.value_ptr;
             switch (input_desc.*) {
-                .node => |v| {
-                    try graph.addEdge(gpa, @intCast(v.id), @intCast(v.out_pin), node_id, input_id, 0);
+                .node => { // ignore, will link after creating all nodes
                 },
                 .int => |v| {
                     try graph.addLiteralInput(node_id, input_id, 0, .{ .int = v });
@@ -623,6 +617,21 @@ pub fn addGraph(
                 .symbol => |v| {
                     try graph.addLiteralInput(node_id, input_id, 0, .{ .symbol = try gpa.dupe(u8, v) });
                 },
+            }
+        }
+    }
+
+
+    for (graph_desc.nodes.items) |node_desc| {
+        const node_id: graphl.NodeId = @intCast(node_desc.id);
+        if (node_id == graphl.GraphBuilder.default_entry_id) continue;
+        var input_iter = node_desc.inputs.iterator();
+        while (input_iter.next()) |input_entry| {
+            const input_id = input_entry.key_ptr.*;
+            const input_desc = input_entry.value_ptr;
+            switch (input_desc.*) {
+                .node => |v| try graph.addEdge(gpa, @intCast(v.id), @intCast(v.out_pin), node_id, input_id, 0),
+                else => {}
             }
         }
     }
@@ -1242,10 +1251,19 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point.Natural, pt_in_graph: dvui.P
                         continue;
                 }
 
-                if ((try dvui.menuItemLabel(@src(), single_choice.name(), .{}, .{ .expand = .horizontal, .id_extra = i })) != null) {
+                const menu_item = try menuItemLabelReturn(@src(), single_choice.name(), .{}, .{ .expand = .horizontal, .id_extra = i });
+
+                if (single_choice.description) |description| {
+                    try dvui.tooltip(@src(), .{.active_rect = menu_item.data().borderRectScale().r  }, "{s}", .{description}, .{});
+                }
+
+                menu_item.deinit();
+
+                if (menu_item.activated) {
                     _ = try NodeAdder.addNode(self, single_choice.name(), maybe_create_from, pt_in_graph, valid_socket_index);
                     fw.close();
                 }
+
                 continue;
             }
 
@@ -1281,11 +1299,21 @@ fn renderAddNodeMenu(self: *@This(), pt: dvui.Point.Natural, pt_in_graph: dvui.P
                     }
 
                     if (search_input.len != 0) {
+                        // FIXME: make all these searches a local function, maybe with caching for pointers, and make it
+                        // consider tags when searching
                         const matches_search = std.ascii.indexOfIgnoreCase(node_name, search_input) != null;
                         if (!matches_search) continue;
                     }
 
-                    if ((try dvui.menuItemLabel(@src(), node_name, .{}, .{ .expand = .horizontal, .id_extra = j })) != null) {
+                    const menu_item = try menuItemLabelReturn(@src(), node_name, .{}, .{ .expand = .horizontal, .id_extra = j });
+
+                    if (node_desc.description) |description| {
+                        try dvui.tooltip(@src(), .{.active_rect = menu_item.data().borderRectScale().r  }, "{s}", .{description}, .{});
+                    }
+
+                    menu_item.deinit();
+
+                    if (menu_item.activated) {
                         _ = try NodeAdder.addNode(self, node_name, maybe_create_from, pt_in_graph, valid_socket_index);
                         fw.close();
                     }
@@ -1774,6 +1802,20 @@ fn considerSocketForHover(self: *@This(), icon_res: *dvui_extra.ButtonIconResult
 }
 
 const exec_color = dvui.Color{ .r = 0x55, .g = 0x55, .b = 0x55, .a = 0xff };
+
+fn menuItemLabelReturn(src: std.builtin.SourceLocation, label_str: []const u8, init_opts: dvui.MenuItemWidget.InitOptions, opts: dvui.Options) !*dvui.MenuItemWidget {
+    const mi = try dvui.menuItem(src, init_opts, opts);
+
+    var labelopts = opts.strip();
+
+    if (mi.show_active) {
+        labelopts = labelopts.override(dvui.themeGet().style_accent);
+    }
+
+    try dvui.labelNoFmt(@src(), label_str, labelopts);
+
+    return mi;
+}
 
 // TODO: remove need for id, it should be inside the node itself
 fn renderNode(
@@ -2703,8 +2745,8 @@ pub fn onReceiveLoadedSource(self: *@This(), src: []const u8) !void {
     const parsed = try std.json.parseFromSlice([]GraphInitState, gpa, src, .{ .ignore_unknown_fields = true });
     defer parsed.deinit();
 
-    for (parsed.value) |*json_graph| {
-        _ = try self.addGraph(json_graph, true);
+    for (parsed.value) |json_graph| {
+        _ = try self.addGraph(&json_graph, true);
     }
 
     // TODO: see above FIXME

@@ -712,7 +712,8 @@ pub const BreakNodeContext = struct {
 pub const builtin_nodes = struct {
     // FIXME: replace with real macro system that isn't JSON hack
     pub const json_quote: NodeDesc = basicNode(&.{
-        .name = "quote", // FIXME: rename this or remove it
+        .name = "quote",
+        .hidden = true, // FIXME: fix and unhide
         .inputs = &.{
             Pin{ .name = "code", .kind = .{ .primitive = .{ .value = primitive_types.code } } },
         },
@@ -721,6 +722,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "data", .kind = .{ .primitive = .{ .value = primitive_types.code } } },
         },
         .tags = &.{"json"},
+        .description = "convert code into an array of instructions for post-processing",
     });
 
     pub const @"+": NodeDesc = basicNode(&.{
@@ -733,6 +735,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .tags = &.{"math"},
+        .description = "add any numbers together",
     });
     pub const @"-": NodeDesc = basicNode(&.{
         .name = "-",
@@ -744,6 +747,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .tags = &.{"math"},
+        .description = "subtract any numbers from each other",
     });
     pub const max: NodeDesc = basicNode(&.{
         .name = "max",
@@ -755,6 +759,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .tags = &.{"math"},
+        .description = "get the maximum of two numbers",
     });
     pub const min: NodeDesc = basicNode(&.{
         .name = "min",
@@ -766,6 +771,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .tags = &.{"math"},
+        .description = "get the minimum of two numbers",
     });
     pub const @"*": NodeDesc = basicNode(&.{
         .name = "*",
@@ -777,6 +783,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .tags = &.{"math"},
+        .description = "multiply any numbers from each other",
     });
     pub const @"/": NodeDesc = basicNode(&.{
         .name = "/",
@@ -788,6 +795,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .tags = &.{"math"},
+        .description = "divide any numbers from each other",
     });
     pub const @">=": NodeDesc = basicNode(&.{
         .name = ">=",
@@ -799,6 +807,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
         .tags = &.{"comparison"},
+        .description = "returns true if a is greater than or equal to b, false otherwise",
     });
     pub const @"<=": NodeDesc = basicNode(&.{
         .name = "<=",
@@ -810,6 +819,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
         .tags = &.{"comparison"},
+        .description = "returns true if a is less than or equal to b, false otherwise",
     });
     pub const @"<": NodeDesc = basicNode(&.{
         .name = "<",
@@ -821,6 +831,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
         .tags = &.{"comparison"},
+        .description = "returns true if a is less than b, false otherwise",
     });
     pub const @">": NodeDesc = basicNode(&.{
         .name = ">",
@@ -832,6 +843,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
         .tags = &.{"comparison"},
+        .description = "returns true if a is greater than b, false otherwise",
     });
     pub const @"==": NodeDesc = basicNode(&.{
         .name = "==",
@@ -843,6 +855,9 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
         .tags = &.{"comparison"},
+        .description = "returns true if a is equal to b, false otherwise. Don't use this for f32, f64",
+        // FIXME: implement a floating point equality with tolerance
+        //.description = "returns true if a is equal to b, false otherwise. Use almost-equal for f32, f64",
     });
     pub const @"!=": NodeDesc = basicNode(&.{
         .name = "!=",
@@ -853,18 +868,20 @@ pub const builtin_nodes = struct {
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
+        .description = "returns true if a is not equal to b, false otherwise. Don't use this for f32, f64",
         .tags = &.{"comparison"},
     });
 
     pub const not: NodeDesc = basicNode(&.{
         .name = "not",
         .inputs = &.{
-            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
         .outputs = &.{
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
         .tags = &.{"boolean"},
+        .description = "returns the opposite boolean value of the input. True if false, false if true",
     });
 
     pub const @"and": NodeDesc = basicNode(&.{
@@ -877,6 +894,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
         .tags = &.{"boolean"},
+        .description = "returns true only if both inputs are true, false otherwise",
     });
 
     pub const @"or": NodeDesc = basicNode(&.{
@@ -889,6 +907,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
         .tags = &.{"boolean"},
+        .description = "returns true if at least one input is true, false otherwise",
     });
 
     pub const @"if": NodeDesc = basicNode(&.{
@@ -902,6 +921,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "else", .kind = .{ .primitive = .exec } },
         },
         .tags = &.{"control flow"},
+        .description = "directs control flow of the program based on a boolean condition.",
     });
 
     pub const string_equal: NodeDesc = basicNode(&.{
@@ -914,6 +934,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "equal", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
         .tags = &.{"string"},
+        .description = "returns true if both input strings contain the same bytes in order",
     });
 
     // TODO: allow variadic arguments
@@ -928,6 +949,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "result", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
         },
         .tags = &.{"string"},
+        .description = "concatenates two strings such that you have one string containing the bytes of a then of b",
     });
 
     pub const make_vec3: NodeDesc = basicNode(&.{
@@ -941,6 +963,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "Vec3", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
         },
         .tags = &.{"vector"},
+        .description = "create a vec3 from its components",
     });
 
     // FIXME: replace with rgba "break" struct
@@ -953,6 +976,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "X", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
         .tags = &.{"vector"},
+        .description = "get the x component of a vec3",
     });
     pub const vec3_y: NodeDesc = basicNode(&.{
         .name = "Vec3->Y",
@@ -963,6 +987,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "Y", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
         .tags = &.{"vector"},
+        .description = "get the y component of a vec3",
     });
     pub const vec3_z: NodeDesc = basicNode(&.{
         .name = "Vec3->Z",
@@ -973,6 +998,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "Z", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
         },
         .tags = &.{"vector"},
+        .description = "get the z component of a vec3",
     });
 
     // FIXME: replace with rgba "break" struct
@@ -985,6 +1011,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "R", .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
         },
         .tags = &.{"color"},
+        .description = "get the red byte of an rgba value",
     });
     pub const rgba_g: NodeDesc = basicNode(&.{
         .name = "RGBA->G",
@@ -995,6 +1022,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "G", .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
         },
         .tags = &.{"color"},
+        .description = "get the green byte of an rgba value",
     });
     pub const rgba_b: NodeDesc = basicNode(&.{
         .name = "RGBA->B",
@@ -1005,6 +1033,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "B", .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
         },
         .tags = &.{"color"},
+        .description = "get the blue byte of an rgba value",
     });
     pub const rgba_a: NodeDesc = basicNode(&.{
         .name = "RGBA->A",
@@ -1015,6 +1044,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "A", .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
         },
         .tags = &.{"color"},
+        .description = "get the alpha byte of an rgba value",
     });
 
     pub const make_rgba: NodeDesc = basicNode(&.{
@@ -1030,6 +1060,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "RGBA", .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
         },
         .tags = &.{"color"},
+        .description = "create an rgba from its components",
     });
 
     pub const string_indexof: NodeDesc = basicNode(&.{
@@ -1042,6 +1073,7 @@ pub const builtin_nodes = struct {
             Pin{ .name = "index", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .tags = &.{"string"},
+        .description = "return the first index of 'string' containing character 'char', or -1 if there is no such index",
     });
 
     pub const string_length: NodeDesc = basicNode(&.{
@@ -1050,9 +1082,10 @@ pub const builtin_nodes = struct {
             Pin{ .name = "string", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
         },
         .outputs = &.{
-            Pin{ .name = "length", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .tags = &.{"string"},
+        .description = "return the length of the input string",
     });
 
     pub const make_string: NodeDesc = basicNode(&.{
@@ -1061,9 +1094,10 @@ pub const builtin_nodes = struct {
             Pin{ .name = "string", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
         },
         .outputs = &.{
-            Pin{ .name = "string", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
         },
         .tags = &.{"string"},
+        .description = "create a string",
     });
 
     pub const make_symbol: NodeDesc = basicNode(&.{
@@ -1072,9 +1106,10 @@ pub const builtin_nodes = struct {
             Pin{ .name = "string", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
         },
         .outputs = &.{
-            Pin{ .name = "symbol", .kind = .{ .primitive = .{ .value = primitive_types.symbol } } },
+            Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.symbol } } },
         },
         .tags = &.{"symbol"},
+        .description = "create a symbol from a string",
     });
     // TODO: function...
     // pub const sequence: NodeDesc = basicNode(&.{
@@ -1091,23 +1126,16 @@ pub const builtin_nodes = struct {
         .name = "set!",
         // FIXME: needs to be generic/per variable
         .inputs = &.{
-            Pin{ .name = "run", .kind = .{ .primitive = .exec } },
+            Pin{ .name = "", .kind = .{ .primitive = .exec } },
             Pin{ .name = "variable", .kind = .{ .primitive = .{ .value = primitive_types.symbol } } },
             Pin{ .name = "new value", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .outputs = &.{
-            Pin{ .name = "next", .kind = .{ .primitive = .exec } },
+            Pin{ .name = "", .kind = .{ .primitive = .exec } },
             Pin{ .name = "value", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .tags = &.{"state"},
-    });
-
-    pub const func_start: NodeDesc = basicNode(&.{
-        .name = "start",
-        .hidden = true,
-        .outputs = &.{
-            Pin{ .name = "", .kind = .{ .primitive = .exec } },
-        },
+        .description = "set a value to some variable",
     });
 
     // "cast":
@@ -1123,224 +1151,11 @@ pub const builtin_nodes = struct {
     // });
 };
 
-pub const temp_ue = struct {
-    pub const types = struct {
-        // TODO: impl enums
-        // pub const physical_material: Type = &TypeInfo{ .name = "physical_material" };
-        // pub const actor: Type = &TypeInfo{ .name = "actor" };
-        // pub const scene_component: Type = &TypeInfo{ .name = "SceneComponent" };
-
-        // // FIXME: use list(actor)
-        // pub const actor_list: Type = &TypeInfo{ .name = "list(actor)" };
-        // pub const trace_channels: Type = &TypeInfo{ .name = "trace_channels" };
-        // pub const draw_debug_types: Type = &TypeInfo{ .name = "draw_debug_types" };
-        // pub const hit_result: Type = &TypeInfo{
-        //     .name = "hit_result",
-        //     .field_names = &[_][]const u8{
-        //         "location",
-        //         "normal",
-        //         "impact point",
-        //         "impact normal",
-        //         "physical material",
-        //         "hit actor",
-        //         "hit component",
-        //         "hit bone name",
-        //     },
-        //     .field_types = &.{
-        //         primitive_types.vec3,
-        //         primitive_types.vec3,
-        //         primitive_types.vec3,
-        //         primitive_types.vec3,
-        //         physical_material,
-        //         actor,
-        //         scene_component,
-        //         primitive_types.string,
-        //     },
-        // };
-    };
-
-    pub const nodes = struct {
-        // pub const custom_tick_call: NodeDesc = basicNode(&.{
-        //     .name = "CustomTickCall",
-        //     .inputs = &.{
-        //         Pin{ .name = "actor", .kind = .{ .primitive = .{ .value = types.actor } } },
-        //     },
-        //     .outputs = &.{
-        //         Pin{ .name = "loc", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-        //     },
-        // });
-
-        // pub const custom_tick_call: NodeDesc = basicNode(&.{
-        //     .name = "CustomTickCall",
-        //     .inputs = &.{
-        //         Pin{ .name = "actor", .kind = .{ .primitive = .{ .value = types.actor } } },
-        //     },
-        //     .outputs = &.{
-        //         Pin{ .name = "loc", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-        //     },
-        // });
-
-        // pub const move_component_to: NodeDesc = basicNode(&.{
-        //     .name = "Move Component To",
-        //     .inputs = &.{
-        //         Pin{ .name = "Move", .kind = .{ .primitive = .exec } },
-        //         Pin{ .name = "Stop", .kind = .{ .primitive = .exec } },
-        //         Pin{ .name = "Return", .kind = .{ .primitive = .exec } },
-        //         Pin{ .name = "Component", .kind = .{ .primitive = .{ .value = types.scene_component } } },
-        //         Pin{ .name = "TargetRelativeLocation", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-        //         Pin{ .name = "TargetRelativeRotation", .kind = .{ .primitive = .{ .value = primitive_types.vec4 } } },
-        //         Pin{ .name = "Ease Out", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-        //         Pin{ .name = "Ease In", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-        //         Pin{ .name = "Over Time", .kind = .{ .primitive = .{ .value = primitive_types.f32_ } } },
-        //         Pin{ .name = "Force Shortest Rotation Time", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-        //     },
-        //     .outputs = &.{
-        //         Pin{ .name = "Completed", .kind = .{ .primitive = .exec } },
-        //     },
-        // });
-
-        // pub const break_hit_result: NodeDesc =
-        //     makeBreakNodeForStruct(failing_allocator, types.hit_result) catch unreachable;
-
-        // pub const get_capsule_component: NodeDesc = capsule_component.get;
-        // pub const set_capsule_component: NodeDesc = capsule_component.set;
-
-        // pub const get_current_spawn_point: NodeDesc = current_spawn_point.get;
-        // pub const set_current_spawn_point: NodeDesc = current_spawn_point.set;
-
-        // pub const get_drone_state: NodeDesc = drone_state.get;
-        // pub const set_drone_state: NodeDesc = drone_state.set;
-
-        // pub const get_mesh: NodeDesc = mesh.get;
-        // pub const set_mesh: NodeDesc = mesh.set;
-
-        // pub const get_over_time: NodeDesc = over_time.get;
-        // pub const set_over_time: NodeDesc = over_time.set;
-
-        // pub const get_speed: NodeDesc = speed.get;
-        // pub const set_speed: NodeDesc = speed.set;
-
-        // pub const cast: NodeDesc = basicNode(&.{
-        //     .name = "cast",
-        //     .inputs = &.{
-        //         exec,
-        //         exec,
-        //     },
-        //     .outputs = &.{
-        //         exec,
-        //         exec,
-        //         Pin{ .name = "value", .kind = .{ .primitive = .{ .value = types.actor } } },
-        //     },
-        // });
-
-        // pub const do_once: NodeDesc = basicNode(&.{
-        //     .name = "do-once",
-        //     .inputs = &.{
-        //         exec,
-        //         exec, // reset
-        //         Pin{ .name = "start closed", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-        //     },
-        //     .outputs = &.{
-        //         exec, // completed
-        //     },
-        // });
-
-        // pub const fake_switch: NodeDesc = basicNode(&.{
-        //     .name = "fake-switch",
-        //     .inputs = &.{
-        //         exec,
-        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-        //     },
-        //     .outputs = &.{
-        //         Pin{ .name = "move to player", .kind = .{ .primitive = .exec } },
-        //         Pin{ .name = "move up", .kind = .{ .primitive = .exec } },
-        //         Pin{ .name = "dead", .kind = .{ .primitive = .exec } },
-        //     },
-        // });
-
-        // pub const this_actor_location: NodeDesc = basicNode(&.{
-        //     .name = "#GET#actor-location",
-        //     .inputs = &.{},
-        //     .outputs = &.{
-        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-        //     },
-        // });
-
-        // pub const get_location_of_actor: NodeDesc = basicNode(&.{
-        //     .name = "get-actor-location",
-        //     .inputs = &.{
-        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = types.actor } } },
-        //     },
-        //     .outputs = &.{
-        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-        //     },
-        // });
-
-        // pub const get_actor_rotation: NodeDesc = basicNode(&.{
-        //     .name = "#GET#actor-rotation",
-        //     .inputs = &.{
-        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = types.actor } } },
-        //     },
-        //     .outputs = &.{
-        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec4 } } },
-        //     },
-        // });
-
-        // pub const get_socket_location: NodeDesc = basicNode(&.{
-        //     .name = "#GET#socket-location",
-        //     .inputs = &.{
-        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = types.actor } } },
-        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
-        //     },
-        //     .outputs = &.{
-        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-        //     },
-        // });
-
-        // pub const fake_sequence_3: NodeDesc = basicNode(&.{
-        //     .name = "fake-sequence-3",
-        //     .inputs = &.{exec},
-        //     .outputs = &.{ exec, exec, exec },
-        // });
-
-        // pub const single_line_trace_by_channel: NodeDesc = basicNode(&.{
-        //     .name = "single-line-trace-by-channel",
-        //     .inputs = &.{
-        //         exec,
-        //         Pin{ .name = "start", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-        //         Pin{ .name = "end", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-        //         Pin{ .name = "channel", .kind = .{ .primitive = .{ .value = types.trace_channels } } },
-        //         Pin{ .name = "trace-complex", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-        //         Pin{ .name = "actors-to-ignore", .kind = .{ .primitive = .{ .value = types.actor_list } } },
-        //         Pin{ .name = "draw-debug-type (default 'none)", .kind = .{ .primitive = .{ .value = types.draw_debug_types } } },
-        //         Pin{ .name = "ignore-self (default false)", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-        //     },
-        //     .outputs = &.{
-        //         exec,
-        //         Pin{ .name = "out hit", .kind = .{ .primitive = .{ .value = types.hit_result } } },
-        //         Pin{ .name = "did hit", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
-        //     },
-        // });
-
-        // pub const vector_length: NodeDesc = basicNode(&.{
-        //     .name = "vector-length",
-        //     .inputs = &.{
-        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-        //     },
-        //     .outputs = &.{
-        //         Pin{ .name = "", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-        //     },
-        // });
-    };
-};
-
 test "node types" {
     try std.testing.expectEqual(
         builtin_nodes.@"+".getOutputs()[0].kind.primitive.value,
         primitive_types.i32_,
     );
-    try std.testing.expect(builtin_nodes.func_start.getOutputs()[0].kind.primitive == .exec);
-    //try expectEqualTypes(temp_ue.nodes.break_hit_result.getOutputs()[2].kind.primitive.value, primitive_types.vec3);
 }
 
 pub const Env = struct {
@@ -1414,7 +1229,7 @@ pub const Env = struct {
         env._nodes_by_type.* = .{};
         env._tag_set.* = .{};
 
-        inline for (&.{ primitive_types, temp_ue.types }) |types| {
+        inline for (&.{ primitive_types }) |types| {
             //const types_decls = comptime std.meta.declList(types, TypeInfo);
             const types_decls = comptime std.meta.declarations(types);
             try env._types.ensureTotalCapacity(alloc, @intCast(types_decls.len));
@@ -1424,7 +1239,7 @@ pub const Env = struct {
             }
         }
 
-        inline for (&.{ builtin_nodes, temp_ue.nodes }) |nodes| {
+        inline for (&.{ builtin_nodes }) |nodes| {
             // TODO: select by type so we can make public other types
             //const nodes_decls = std.meta.declList(nodes, NodeDesc);
             const nodes_decls = comptime std.meta.declarations(nodes);

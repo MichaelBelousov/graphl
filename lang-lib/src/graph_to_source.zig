@@ -273,6 +273,7 @@ pub const GraphBuilder = struct {
                 .inputs = inputs,
                 .outputs = outputs,
                 .kind = .entry,
+                .description = "the start of script execution",
             };
 
             break :_ result;
@@ -296,6 +297,7 @@ pub const GraphBuilder = struct {
                 .inputs = inputs,
                 .outputs = outputs,
                 .kind = .return_,
+                .description = "stops executing this function and returns the outputs to the caller",
             };
 
             break :_ result;
