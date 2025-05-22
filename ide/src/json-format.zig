@@ -33,6 +33,7 @@ pub const PinJson = struct {
 pub const BasicMutNodeDescJson = struct {
     name: [:0]const u8,
     hidden: bool = false,
+    description: ?[]const u8 = null,
     kind: enum { func, pure } = .func,
     inputs: []PinJson = &.{},
     outputs: []PinJson = &.{},
@@ -125,6 +126,7 @@ pub fn convertUserFuncs(a: std.mem.Allocator, user_funcs_json: std.json.ArrayHas
                     .func => .func,
                     .pure => .func,
                 },
+                .description = entry.value_ptr.node.description,
             },
         };
     }

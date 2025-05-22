@@ -273,6 +273,8 @@ pub const NodeDesc = struct {
     //type: Type,
 
     tags: []const []const u8 = &.{},
+    /// a description of what the node does
+    description: ?[]const u8 = null,
     context: *const anyopaque,
     // TODO: do I really need pointers? The types are all going to be well defined aggregates,
     // and the nodes too
@@ -615,6 +617,7 @@ pub const compound_builtin_types = struct {
 pub const BasicNodeDesc = struct {
     name: [:0]const u8,
     hidden: bool = false,
+    description: ?[]const u8 = null,
     // FIXME: remove in favor of nodes directly referencing whether they are a getter/setter
     kind: NodeDescKind = .func,
     inputs: []const Pin = &.{},
@@ -648,6 +651,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
         .hidden = in_desc.hidden,
         .kind = in_desc.kind,
         .tags = in_desc.tags,
+        .description = in_desc.description,
         ._getInputs = BasicNodeImpl.getInputs,
         ._getOutputs = BasicNodeImpl.getOutputs,
         ._getName = BasicNodeImpl.getName,
@@ -656,6 +660,7 @@ pub fn basicNode(in_desc: *const BasicNodeDesc) NodeDesc {
 
 pub const BasicMutNodeDesc = struct {
     name: [:0]const u8,
+    description: ?[]const u8 = null,
     hidden: bool = false,
     kind: NodeDescKind = .func,
     inputs: []Pin = &.{},
@@ -688,6 +693,7 @@ pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
         .hidden = in_desc.hidden,
         .kind = in_desc.kind,
         .tags = in_desc.tags,
+        .description = in_desc.description,
         ._getInputs = BasicMutNodeImpl.getInputs,
         ._getOutputs = BasicMutNodeImpl.getOutputs,
         ._getName = BasicMutNodeImpl.getName,

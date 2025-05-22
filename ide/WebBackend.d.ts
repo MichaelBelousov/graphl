@@ -86,6 +86,11 @@ export declare interface BasicMutNodeDescJson {
   inputs?: PinJson[];
   outputs?: PinJson[];
   tags?: string[];
+  /**
+   * description to show up in the UI (e.g. tooltips) when inspecting
+   * this function
+   */
+  description?: string;
   /*
    * if defined, must match the above given inputs/outputs
    * if undefined, this is a data-only node.

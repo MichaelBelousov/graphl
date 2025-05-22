@@ -1835,19 +1835,23 @@ fn renderNode(
 
     const result = box.data().rectScale().r; // already has origin added (already in scroll coords)
 
-    // FIXME: do this better
-    // FIXME: maybe remove node.kind since we need a desc anyway?
-    switch (node.desc().kind) {
-        .func, .entry, .return_ => try dvui.label(@src(), "{s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
-        .get => try dvui.label(@src(), "Get {s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
-        .set => try dvui.label(@src(), "Set {s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
+    {
+        var name_box = try dvui.box(@src(), .horizontal, .{});
+        defer name_box.deinit();
+
+        // FIXME: do this better
+        // FIXME: maybe remove node.kind since we need a desc anyway?
+        switch (node.desc().kind) {
+            .func, .entry, .return_ => try dvui.label(@src(), "{s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
+            .get => try dvui.label(@src(), "Get {s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
+            .set => try dvui.label(@src(), "Set {s}", .{node.desc().name()}, .{ .font_style = .title_3 }),
+        }
+
+        if (node.desc().description) |description| {
+            try dvui.tooltip(@src(), .{.active_rect = name_box.data().borderRectScale().r  }, "{s}", .{description}, .{});
+        }
     }
 
-    // switch (node.kind) {
-    //     .desc => |desc| try dvui.label(@src(), "{s}", .{desc.name()}, .{ .font_style = .title_3 }),
-    //     .get => |v| try dvui.label(@src(), "Get {s}", .{v.binding.name}, .{ .font_style = .title_3 }),
-    //     .set => |v| try dvui.label(@src(), "Set {s}", .{v.binding.name}, .{ .font_style = .title_3 }),
-    // }
 
     var hbox = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal });
     defer hbox.deinit();
@@ -1855,7 +1859,7 @@ fn renderNode(
     const socket_icon_base_opts = dvui.Options{
         .min_size_content = .{ .h = 20, .w = 20 },
         .gravity_y = 0.5,
-        .corner_radius = .{ .x = 20, .y = 20, .h = 20, .w = 20 },
+        .corner_radius = Rect.all(20),
         .background = true,
     };
 
@@ -2848,38 +2852,58 @@ pub fn frame(self: *@This()) !void {
                 var box = try dvui.box(@src(), .horizontal, .{ .expand = .horizontal, .id_extra = i });
                 defer box.deinit();
 
-                const entry_state = try dvui.textEntry(@src(), .{}, .{
-                    .id_extra = i,
-                    .color_border = if (&cursor.data == self.current_graph) .{ .name = .accent } else null,
-                });
-                // FIXME: use temporary buff and then commit the name after checking it's valid!
-                if (entry_state.text_changed) {
-                    const old_name = cursor.data.name;
-                    defer gpa.free(old_name);
-                    // FIXME: ask dvui to allow specifying null termination
-                    const new_name = try gpa.dupeZ(u8, entry_state.getText());
-                    cursor.data.name = new_name;
-                    cursor.data.call_basic_desc.name = new_name;
-                    std.debug.assert(self.shared_env._nodes.remove(old_name));
-                    if (self.shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data.call_basic_desc))) |result| {
-                        cursor.data.call_desc = result;
-                    } else |e| switch (e) {
-                        error.EnvAlreadyExists => {
-                            defer gpa.free(new_name);
-                            cursor.data.name = old_name;
-                            cursor.data.call_basic_desc.name = old_name;
-                            cursor.data.call_desc = self.shared_env.addNode(gpa, helpers.basicMutableNode(&self.current_graph.call_basic_desc)) catch unreachable;
-                        },
-                        else => return e,
+                if (cursor.data.fixed_signature) {
+                    // FIXME: do something better and reuse this for uneditable parameters
+                    var label_box = try dvui.box(@src(), .horizontal, .{
+                        .expand = .none,
+                        .id_extra = i,
+                        .color_border = if (&cursor.data == self.current_graph) .{ .name = .accent } else .{ .name = .border },
+                        .background = true,
+                        .color_fill = .{ .name = .fill },
+                        .corner_radius = Rect.all(5),
+                        .min_size_content = .{ .w = 30, .h = 20 },
+                        .border = Rect.all(1),
+                        .margin = Rect.all(5),
+                    });
+                    defer label_box.deinit();
+
+                    try dvui.label(@src(), "{s}", .{cursor.data.name}, .{});
+                } else {
+                    const entry_state = try dvui.textEntry(@src(), .{}, .{
+                        .id_extra = i,
+                        .color_border = if (&cursor.data == self.current_graph) .{ .name = .accent } else null,
+                    });
+                    defer entry_state.deinit();
+
+                    // FIXME: use temporary buff and then commit the name after checking it's valid!
+                    if (entry_state.text_changed) {
+                        const old_name = cursor.data.name;
+                        defer gpa.free(old_name);
+                        // FIXME: ask dvui to allow specifying null termination
+                        const new_name = try gpa.dupeZ(u8, entry_state.getText());
+                        cursor.data.name = new_name;
+                        cursor.data.call_basic_desc.name = new_name;
+                        std.debug.assert(self.shared_env._nodes.remove(old_name));
+                        if (self.shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data.call_basic_desc))) |result| {
+                            cursor.data.call_desc = result;
+                        } else |e| switch (e) {
+                            error.EnvAlreadyExists => {
+                                defer gpa.free(new_name);
+                                cursor.data.name = old_name;
+                                cursor.data.call_basic_desc.name = old_name;
+                                cursor.data.call_desc = self.shared_env.addNode(gpa, helpers.basicMutableNode(&self.current_graph.call_basic_desc)) catch unreachable;
+                            },
+                            else => return e,
+                        }
+                    }
+
+                    if (dvui.firstFrame(entry_state.data().id)) {
+                        entry_state.textTyped(cursor.data.name, false);
                     }
                 }
-                if (dvui.firstFrame(entry_state.data().id)) {
-                    entry_state.textTyped(cursor.data.name, false);
-                }
-                entry_state.deinit();
 
                 //_ = try dvui.label(@src(), "()", .{}, .{ .font_style = .body, .id_extra = i });
-                const graph_clicked = try dvui.buttonIcon(@src(), "open-graph", entypo.chevron_right, .{}, .{ .id_extra = i });
+                const graph_clicked = try dvui.buttonIcon(@src(), "open-graph", entypo.chevron_right, .{}, .{ .id_extra = i, .gravity_y = 0.5 });
                 if (graph_clicked)
                     self.current_graph = &cursor.data;
             }
