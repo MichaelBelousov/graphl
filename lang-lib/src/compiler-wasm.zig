@@ -2396,9 +2396,29 @@ const Compilation = struct {
                 continue;
             }
 
-            var op: byn.Expression.Op = undefined;
+            var op: ?byn.Expression.Op = null;
 
-            if (curr_type == primitive_types.i32_) {
+            // FIXME: implement real type coercion graph
+            if (false) {
+                // lol
+            } else if (curr_type == primitive_types.i32_ and target_type == primitive_types.u32_) {
+                curr_type = primitive_types.i64_;
+            } else if (curr_type == primitive_types.i32_ and target_type == primitive_types.u64_) {
+                // FIXME: test cuz this is probably broken when sign is negative
+                op = byn.Expression.Op.extendUInt32();
+                curr_type = primitive_types.i64_;
+            } else if (curr_type == primitive_types.i64_ and target_type == primitive_types.u32_) {
+                op = byn.Expression.Op.wrapInt64();
+                curr_type = primitive_types.i64_;
+            } else if (curr_type == primitive_types.i64_ and target_type == primitive_types.u64_) {
+                // FIXME: test cuz this is probably broken when sign is negative
+                curr_type = primitive_types.i64_;
+
+            // FIXME: omg this is so hacky, it also doesn't support u64->i64
+
+
+            // FIXME: this like half-assed one-way coercion to a float top type
+            } else if (curr_type == primitive_types.i32_) {
                 op = byn.Expression.Op.extendSInt32();
                 curr_type = primitive_types.i64_;
             } else if (curr_type == primitive_types.i64_) {
@@ -2414,11 +2434,13 @@ const Compilation = struct {
                 op = byn.Expression.Op.promoteFloat32();
                 curr_type = primitive_types.f64_;
             } else {
-                //log.err("unimplemented type promotion: {s} -> {s}", .{ curr_type.name, target_type.name });
+                log.err("unimplemented type promotion: {s} -> {s}", .{ curr_type.name, target_type.name });
                 return error.UnsupportedTypeCoercion;
             }
 
-            curr_expr = byn.c.BinaryenUnary(self.module.c(), op.c(), curr_expr);
+            if (op) |had_op| {
+                curr_expr = byn.c.BinaryenUnary(self.module.c(), had_op.c(), curr_expr);
+            }
         }
 
         return curr_expr;

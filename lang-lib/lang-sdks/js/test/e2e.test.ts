@@ -4,8 +4,9 @@ import assert from "node:assert";
 
 // TODO: move these tests to a separate package to consume bundle directly
 // local (native) backend
-//import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../index.mts";
-// wasm backend
+// import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../index.mts";
+//import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/native-cjs/index.js";
+// production wasm backend
 import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/cjs/index.js";
 
 if (typeof Bun === "undefined") {
@@ -425,6 +426,21 @@ describe("js sdk", () => {
     assert.partialDeepStrictEqual(
         program.functions.processInstance(10n, 10n, {x: 0, y: 0, z: 0}, {x: 1, y: 1, z: 1}),
         { 0: "imodel", 1: 2n, 2: "/ITwinUnrealWorkshop/M_combinedMesh.M_combinedMesh" },
+    );
+    assert(called);
+  });
+
+  it.only("u64 to f64 implicit", async () => {
+    let called = false;
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (typeof (make_u64) u64)
+      (define (make_u64) (return 1))
+      (typeof (to_f64) f64)
+      (define (to_f64) (return (make_u64)))
+    `);
+    assert.strictEqual(
+        program.functions.to_u64(),
+        1.0,
     );
     assert(called);
   });
