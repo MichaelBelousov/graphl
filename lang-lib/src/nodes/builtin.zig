@@ -933,6 +933,8 @@ pub const builtin_nodes = struct {
         },
         .tags = &.{"string"},
         .description = "returns true if both input strings contain the same bytes in order",
+        // FIXME: currently this function is unimplemented, so hiding for now
+        .hidden = true,
     });
 
     // TODO: allow variadic arguments
