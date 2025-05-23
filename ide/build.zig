@@ -40,7 +40,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         // FIXME: don't disable for native
-        //.disable_compiler = true,
+        .disable_compiler = true,
     });
 
     const wasm = b.addSharedLibrary(.{

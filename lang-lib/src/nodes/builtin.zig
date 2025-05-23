@@ -540,9 +540,7 @@ pub const primitive_types = struct {
     // FIXME: replace when we think out the macro system
     pub const code: Type = &TypeInfo{
         .name = "code",
-        // FIXME: figure out what the size is of heap types
-        // in wasm-gc
-        .size = @sizeOf(usize),
+        .size = 0,
     };
 
     // pub const vec3: Type = &TypeInfo{

@@ -481,24 +481,6 @@ fn combineGraphsText(
     return bytes;
 }
 
-// FIXME: take a diagnostic
-pub fn compileToWasm(self: *@This()) ![]const u8 {
-    var graphlt_mod = try combineGraphs(self);
-    defer graphlt_mod.deinit();
-
-    if (builtin.mode == .Debug) {
-        std.log.info("compiled graphlt:\n{s}", .{ graphlt_mod });
-    }
-
-    var comp_diag = graphl.compiler.Diagnostic.init();
-    const wasm = graphl.compiler.compile(gpa, &graphlt_mod, &self.user_funcs, &comp_diag) catch |err| {
-        // TODO: return the diagnostic
-        std.log.err("Compile error:\n {}", .{comp_diag});
-        return err;
-    };
-    return wasm;
-}
-
 pub fn compileToGraphlt(self: *@This()) ![]const u8 {
     var bytes = try combineGraphsText(self);
     defer bytes.deinit();

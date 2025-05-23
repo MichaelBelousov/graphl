@@ -36,6 +36,9 @@ export default [
         optimize,
         //embedWASM: true, // fetch wasm by default
         nodeCompat: true,
+        // FIXME: topLevelAwait is very convenient but it means we can't set the WASI instance
+        // ourselves... consider figuring out how to re-enable it
+        topLevelAwait: false,
       }),
       typescript({
         include: "**/*.(|m)ts(|x)",
