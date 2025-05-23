@@ -1,4 +1,4 @@
-//! TODO: move this toanother place
+//! TODO: move this to another place
 //! ABI:
 //! - stack
 //! - For functions:
@@ -2381,6 +2381,30 @@ const Compilation = struct {
         expr: byn.c.BinaryenExpressionRef,
         target_type: Type,
     ) error{UnsupportedTypeCoercion}!byn.c.BinaryenExpressionRef {
+        const CoercionInfo = struct {
+            is_signed: bool,
+            is_signed_int: bool,
+            is_unsigned_int: bool,
+            is_int: bool,
+            is_float: bool,
+
+            pub fn from(@"type": Type) @This() {
+                const is_signed_int = @"type" == primitive_types.i32_ or @"type" == primitive_types.i64_;
+                const is_unsigned_int = @"type" == primitive_types.u32_ or @"type" == primitive_types.u64_;
+                const is_float = @"type" == primitive_types.f32_ or @"type" == primitive_types.f64_;
+
+                return .{
+                    .is_signed = is_signed_int or is_float,
+                    .is_signed_int = is_signed_int,
+                    .is_unsigned_int = is_unsigned_int,
+                    .is_int = is_signed_int or is_unsigned_int,
+                    .is_float = is_float,
+                };
+            }
+        };
+
+        const target_info = CoercionInfo.from(target_type);
+
         var curr_type = start_type;
         var curr_expr = expr;
         var i: usize = 0;
@@ -2391,56 +2415,158 @@ const Compilation = struct {
                 std.debug.panic("max iters resolving types: {s} -> {s}", .{ curr_type.name, target_type.name });
             }
 
-            if (curr_type == primitive_types.bool_) {
-                curr_type = primitive_types.i32_;
-                continue;
-            }
+            const src_info = CoercionInfo.from(curr_type);
 
-            var op: ?byn.Expression.Op = null;
+            const op: byn.Expression.Op = _: {
+                // coerce to bool
+                if (target_type == primitive_types.bool_) {
+                    if (curr_type == primitive_types.i32_) {
+                        curr_type = primitive_types.bool_;
+                        break :_ byn.Expression.Op.eqZInt32();
+                    }
+                    if (curr_type == primitive_types.i64_) {
+                        curr_type = primitive_types.bool_;
+                        break :_ byn.Expression.Op.eqZInt64();
+                    }
+                    if (curr_type == primitive_types.f32_) {
+                        //curr_type = primitive_types.bool_;
+                        return byn.c.BinaryenBinary(
+                            self.module.c(),
+                            byn.c.BinaryenEqFloat32,
+                            curr_expr,
+                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat32(0))
+                        );
+                    }
+                    if (curr_type == primitive_types.f64_) {
+                        //curr_type = primitive_types.bool_;
+                        return byn.c.BinaryenBinary(
+                            self.module.c(),
+                            byn.c.BinaryenEqFloat64,
+                            curr_expr,
+                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat64(0))
+                        );
+                    }
+                    log.err("unimplemented bool demotion leg: {s} -> {s}", .{ curr_type.name, target_type.name });
+                    return error.UnsupportedTypeCoercion;
+                }
 
-            // FIXME: implement real type coercion graph
-            if (false) {
-                // lol
-            } else if (curr_type == primitive_types.i32_ and target_type == primitive_types.u32_) {
-                curr_type = primitive_types.i64_;
-            } else if (curr_type == primitive_types.i32_ and target_type == primitive_types.u64_) {
-                // FIXME: test cuz this is probably broken when sign is negative
-                op = byn.Expression.Op.extendUInt32();
-                curr_type = primitive_types.i64_;
-            } else if (curr_type == primitive_types.i64_ and target_type == primitive_types.u32_) {
-                op = byn.Expression.Op.wrapInt64();
-                curr_type = primitive_types.i64_;
-            } else if (curr_type == primitive_types.i64_ and target_type == primitive_types.u64_) {
-                // FIXME: test cuz this is probably broken when sign is negative
-                curr_type = primitive_types.i64_;
+                // float to int
+                if (src_info.is_float and target_type.is_int) {
+                    return byn.c.BinaryenUnary(
+                        self.module.c(),
+                        if      (curr_type == primitive_types.f32_ and target_type == primitive_types.i32_)
+                            byn.c.BinaryenTruncUFloat32ToInt32()
+                        else if (curr_type == primitive_types.f32_ and target_type == primitive_types.i64_)
+                            byn.c.BinaryenTruncUFloat32ToInt64()
+                        else if (curr_type == primitive_types.f32_ and target_type == primitive_types.u32_)
+                            byn.c.BinaryenTruncSFloat32ToInt32()
+                        else if (curr_type == primitive_types.f32_ and target_type == primitive_types.u64_)
+                            byn.c.BinaryenTruncSFloat32ToInt64()
+                        else if (curr_type == primitive_types.f64_ and target_type == primitive_types.i32_)
+                            byn.c.BinaryenTruncUFloat64ToInt32()
+                        else if (curr_type == primitive_types.f64_ and target_type == primitive_types.i64_)
+                            byn.c.BinaryenTruncUFloat64ToInt64()
+                        else if (curr_type == primitive_types.f64_ and target_type == primitive_types.u32_)
+                            byn.c.BinaryenTruncSFloat64ToInt32()
+                        else if (curr_type == primitive_types.f64_ and target_type == primitive_types.u64_)
+                            byn.c.BinaryenTruncSFloat64ToInt64()
+                        else unreachable,
+                        curr_expr,
+                    );
+                }
 
-            // FIXME: omg this is so hacky, it also doesn't support u64->i64
+                // int to any float
+                if (src_info.is_int and target_info.is_float) {
+                    return byn.c.BinaryenUnary(
+                        self.module.c(),
+                        if      (curr_type == primitive_types.i32_ and target_type == primitive_types.f32_)
+                            byn.c.BinaryenConvertSInt32ToFloat32()
+                        else if (curr_type == primitive_types.i32_ and target_type == primitive_types.f64_)
+                            byn.c.BinaryenConvertSInt32ToFloat64()
+                        else if (curr_type == primitive_types.u32_ and target_type == primitive_types.f32_)
+                            byn.c.BinaryenConvertUInt32ToFloat32()
+                        else if (curr_type == primitive_types.u32_ and target_type == primitive_types.f64_)
+                            byn.c.BinaryenConvertUInt32ToFloat64()
+                        else if (curr_type == primitive_types.i64_ and target_type == primitive_types.f32_)
+                            byn.c.BinaryenConvertSInt64ToFloat32()
+                        else if (curr_type == primitive_types.i64_ and target_type == primitive_types.f64_)
+                            byn.c.BinaryenConvertSInt64ToFloat64()
+                        else if (curr_type == primitive_types.u64_ and target_type == primitive_types.f32_)
+                            byn.c.BinaryenConvertUInt64ToFloat32()
+                        else if (curr_type == primitive_types.u64_ and target_type == primitive_types.f64_)
+                            byn.c.BinaryenConvertUInt64ToFloat64()
+                        else unreachable,
+                        curr_expr,
+                    );
+                }
 
+                // bool to unsigned
+                if (curr_type == primitive_types.bool_) {
+                    curr_type = primitive_types.u32_;
+                    continue;
+                }
 
-            // FIXME: this like half-assed one-way coercion to a float top type
-            } else if (curr_type == primitive_types.i32_) {
-                op = byn.Expression.Op.extendSInt32();
-                curr_type = primitive_types.i64_;
-            } else if (curr_type == primitive_types.i64_) {
-                op = byn.Expression.Op.convertSInt64ToFloat32();
-                curr_type = primitive_types.f32_;
-            } else if (curr_type == primitive_types.u32_) {
-                op = byn.Expression.Op.extendUInt32();
-                curr_type = primitive_types.i64_;
-            } else if (curr_type == primitive_types.u64_) {
-                op = byn.Expression.Op.convertUInt64ToFloat32();
-                curr_type = primitive_types.f32_;
-            } else if (curr_type == primitive_types.f32_) {
-                op = byn.Expression.Op.promoteFloat32();
-                curr_type = primitive_types.f64_;
-            } else {
-                log.err("unimplemented type promotion: {s} -> {s}", .{ curr_type.name, target_type.name });
+                // FIXME: trap on range errors
+
+                // signed to unsigned
+                if (src_info.is_signed_int and target_info.is_unsigned_int) {
+                    if (curr_type == primitive_types.i32_) {
+                        curr_type = primitive_types.u32_;
+                        continue;
+                    }
+                    if (curr_type == primitive_types.i64_) {
+                        curr_type = primitive_types.u64_;
+                        continue;
+                    }
+                    unreachable;
+                }
+
+                // unsigned to signed
+                if (src_info.is_signed_int and target_info.is_unsigned_int) {
+                    if (curr_type == primitive_types.u32_) {
+                        curr_type = primitive_types.i32_;
+                        continue;
+                    }
+                    if (curr_type == primitive_types.u64_) {
+                        curr_type = primitive_types.i64_;
+                        continue;
+                    }
+                    unreachable;
+                }
+
+                // size conversions
+                if (curr_type == primitive_types.f32_ and target_type == primitive_types.f64_) {
+                    curr_type = primitive_types.f64_;
+                    break :_ byn.Expression.Op.promoteFloat32();
+                }
+                if (curr_type == primitive_types.f64_ and target_type == primitive_types.f32_) {
+                    curr_type = primitive_types.f32_;
+                    break :_ byn.Expression.Op.demoteFloat64();
+                }
+
+                if (curr_type == primitive_types.i32_ and target_type == primitive_types.i64_) {
+                    curr_type = primitive_types.i64_;
+                    break :_ byn.Expression.Op.extendSInt32();
+                }
+                if (curr_type == primitive_types.i64_ and target_type == primitive_types.i32_) {
+                    curr_type = primitive_types.i32_;
+                    break :_ byn.Expression.Op.wrapInt64();
+                }
+
+                if (curr_type == primitive_types.u32_ and target_type == primitive_types.u64_) {
+                    curr_type = primitive_types.u64_;
+                    break :_ byn.Expression.Op.extendUInt32();
+                }
+                if (curr_type == primitive_types.u64_ and target_type == primitive_types.u32_) {
+                    curr_type = primitive_types.u32_;
+                    break :_ byn.Expression.Op.wrapInt64();
+                }
+
+                log.err("unimplemented type promotion leg: {s} -> {s}", .{ curr_type.name, target_type.name });
                 return error.UnsupportedTypeCoercion;
-            }
+            };
 
-            if (op) |had_op| {
-                curr_expr = byn.c.BinaryenUnary(self.module.c(), had_op.c(), curr_expr);
-            }
+            curr_expr = byn.c.BinaryenUnary(self.module.c(), op.c(), curr_expr);
         }
 
         return curr_expr;
