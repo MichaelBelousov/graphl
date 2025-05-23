@@ -38,4 +38,4 @@ dist
 
 # zigar weird behavior
 # SEE: https://github.com/chung-leong/zigar/discussions/621
-./node-zigar.config.json
+node-zigar.config.json
