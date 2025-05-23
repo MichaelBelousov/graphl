@@ -127,6 +127,14 @@ describe("js sdk", () => {
     assert.partialDeepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello" });
   });
 
+  it("return (string i32 bool)", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (typeof (foo) (i32 string bool))
+      (define (foo) (return 5 "hello" #t))
+    `);
+    assert.partialDeepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello", 2: true });
+  });
+
   it("pass vec3", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (make) vec3)
