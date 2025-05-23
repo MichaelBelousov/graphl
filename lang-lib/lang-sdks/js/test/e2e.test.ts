@@ -5,9 +5,9 @@ import assert from "node:assert";
 // TODO: move these tests to a separate package to consume bundle directly
 // local (native) backend
 // import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../index.mts";
-//import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/native-cjs/index.js";
+import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/native-cjs/index.js";
 // production wasm backend
-import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/cjs/index.js";
+//import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/cjs/index.js";
 
 if (typeof Bun === "undefined") {
   ({ describe, it } = (await import("node:test")) as any);
@@ -430,18 +430,13 @@ describe("js sdk", () => {
     assert(called);
   });
 
-  it.only("u64 to f64 implicit", async () => {
-    let called = false;
+  it("u64 to f64 implicit", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (make_u64) u64)
       (define (make_u64) (return 1))
       (typeof (to_f64) f64)
       (define (to_f64) (return (make_u64)))
     `);
-    assert.strictEqual(
-        program.functions.to_u64(),
-        1.0,
-    );
-    assert(called);
+    assert.strictEqual(program.functions.to_f64(), 1.0);
   });
 });
