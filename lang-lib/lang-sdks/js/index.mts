@@ -62,6 +62,7 @@ export namespace GraphlTypes {
     export const i64: GraphlType = { name: "i64", kind: "primitive", size: 8 };
     export const u64: GraphlType = { name: "u64", kind: "primitive", size: 8 };
     export const bool: GraphlType = { name: "bool", kind: "primitive", size: 4 };
+    export const f32: GraphlType = { name: "f32", kind: "primitive", size: 4 };
     export const f64: GraphlType = { name: "f64", kind: "primitive", size: 8 };
     export const string: GraphlType = { name: "string", kind: "primitive", size: 0 };
 
@@ -171,24 +172,55 @@ function jsValToGraphlStructVal(
             const fieldType = subStructType.fieldTypes[i];
             const fieldOffset = subStructType.fieldOffsets[i];
             const fieldValue = jsVal[fieldName];
-            if (fieldType === GraphlTypes.f64) {
+
+            if (fieldType === GraphlTypes.f32) {
+                assert(
+                    typeof fieldValue === "number",
+                    `received non-number value '${JSON.stringify(fieldValue)}' for field '${fieldName}' of struct ${fieldType.name}`,
+                );
+                transferBufView.setFloat32(offset, fieldValue, true);
+
+            } else if (fieldType === GraphlTypes.f64) {
                 assert(
                     typeof fieldValue === "number",
                     `received non-number value '${JSON.stringify(fieldValue)}' for field '${fieldName}' of struct ${fieldType.name}`,
                 );
                 transferBufView.setFloat64(offset, fieldValue, true);
+
             } else if (fieldType === GraphlTypes.i32) {
                 assert(
-                    typeof fieldValue === "number" && fieldValue > 2**31 - 1 && fieldValue < -(2**31) && Math.round(fieldValue) === fieldValue,
+                    // TODO: support bigint?
+                    typeof fieldValue === "number" && fieldValue >= -(2**31) && fieldValue <= 2**31-1 && Math.round(fieldValue) === fieldValue,
                     `received value '${JSON.stringify(fieldValue)}' that was not a 32-bit signed integer for field '${fieldName}' of struct ${fieldType.name}`,
                 );
                 transferBufView.setInt32(offset, fieldValue, true);
-            } else if (fieldType === GraphlTypes.u64) {
+
+            } else if (fieldType === GraphlTypes.i64) {
                 assert(
-                    typeof fieldValue === "bigint" && fieldValue >= 0 && fieldValue <= 0xffff_ffff_ffff_ffffn,
-                    `received value '${JSON.stringify(fieldValue)}' that was not a 64-bit unsigned bigint value for field '${fieldName}' of struct ${fieldType.name}`,
+                    (typeof fieldValue === "number" && fieldValue >= Number.MIN_SAFE_INTEGER && fieldValue <= Number.MAX_SAFE_INTEGER && Math.round(fieldValue) === fieldValue)
+                    || (typeof fieldValue === "bigint" && fieldValue >= /* -2**63 */ -9223372036854775808n && fieldValue <= /* 2**63-1 */ 9223372036854775807n),
+                    `received value '${JSON.stringify(fieldValue)}' that was not a 64-bit signed integer for field '${fieldName}' of struct ${fieldType.name}`,
+                );
+                transferBufView.setBigInt64(offset, BigInt(fieldValue), true);
+            } else if (fieldType === GraphlTypes.u32) {
+                assert(
+                    typeof fieldValue === "bigint" && fieldValue >= 0 && fieldValue <= 2**32-1,
+                    `received value '${JSON.stringify(fieldValue)}' that was not a 32-bit unsigned number value for field '${fieldName}' of struct ${fieldType.name}`,
                 );
                 transferBufView.setBigInt64(offset, fieldValue, true);
+            } else if (fieldType === GraphlTypes.u64) {
+                assert(
+                    (typeof fieldValue === "number" && fieldValue >= 0 && fieldValue <= Number.MAX_SAFE_INTEGER && Math.round(fieldValue) === fieldValue)
+                    || (typeof fieldValue === "bigint" && fieldValue >= 0 && fieldValue <= /* 2**64-1 */ 0xffff_ffff_ffff_ffffn),
+                    `received value '${JSON.stringify(fieldValue)}' that was not a 64-bit unsigned integer for field '${fieldName}' of struct ${fieldType.name}`,
+                );
+                transferBufView.setBigUint64(offset, BigInt(fieldValue), true);
+            } else if (fieldType === GraphlTypes.bool) {
+                assert(
+                    typeof fieldValue === "boolean",
+                    `received value '${JSON.stringify(fieldValue)}' that was not a boolean value for field '${fieldName}' of struct ${fieldType.name}`,
+                );
+                transferBufView.setInt32(offset, fieldValue ? 1 : 0, true);
             } else if (fieldType === GraphlTypes.string) {
                 // FIXME: should write an empty usize into memory for array references, even if they aren't used yet
                 assert(
@@ -296,12 +328,20 @@ function graphlStructValToJsVal(
             const fieldName = subStructType.fieldNames[i];
             const fieldOffset = subStructType.fieldOffsets[i];
 
-            if (fieldType === GraphlTypes.f64) {
+            if (fieldType === GraphlTypes.f32) {
+                result[fieldName] = transferBufView.getFloat32(fieldOffset, true);
+            } else if (fieldType === GraphlTypes.f64) {
                 result[fieldName] = transferBufView.getFloat64(fieldOffset, true);
             } else if (fieldType === GraphlTypes.i32) {
                 result[fieldName] = transferBufView.getInt32(fieldOffset, true);
+            } else if (fieldType === GraphlTypes.i64) {
+                result[fieldName] = transferBufView.getBigInt64(fieldOffset, true);
+            } else if (fieldType === GraphlTypes.u32) {
+                result[fieldName] = transferBufView.getUint32(fieldOffset, true);
             } else if (fieldType === GraphlTypes.u64) {
                 result[fieldName] = transferBufView.getBigUint64(fieldOffset, true);
+            } else if (fieldType === GraphlTypes.bool) {
+                result[fieldName] = Boolean(transferBufView.getInt32(fieldOffset, true));
             } else if (fieldType === GraphlTypes.string) {
                 arraySlotQueue.push({ obj: result, fieldName })
             } else if (fieldType.kind === "struct") {
