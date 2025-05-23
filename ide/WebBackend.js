@@ -1351,14 +1351,22 @@ export async function Ide(canvasElem, opts) {
     /** @type {undefined | ((mem: Uint8Array) => void)} */
     let onReceiveSliceCb = undefined;
 
-    /** @type {(() => Promise<Uint8Array>)} */
-    const setupSliceReturn = () => new Promise((resolve) => {
+    /** @type {(() => Promise<Uint8Array> & { cleanup: () => void, reached: boolean })} */
+    const setupSliceReturn = () => {
+      /** @type {any} */
+      const result = new Promise((resolve) => {
         assert(onReceiveSliceCb === undefined);
         onReceiveSliceCb = (mem) => {
-            onReceiveSliceCb = undefined;
-            resolve(mem);
-        }
-    });
+          result.reached = true;
+          onReceiveSliceCb = undefined;
+          resolve(mem);
+        };
+      });
+      result.cleanup = () => (onReceiveSliceCb = undefined);
+      result.cleanup = () => (onReceiveSliceCb = undefined);
+      result.reached = false;
+      return result;
+    };
 
     const imports = {
         wasi_snapshot_preview1: wasi.wasiImport,
@@ -1442,26 +1450,39 @@ export async function Ide(canvasElem, opts) {
     // FIXME: use the new js sdk instead
     const result = {
         async exportGraphlt() {
+            const resultPromise = setupSliceReturn();
             try {
-                const resultPromise = setupSliceReturn();
                 ideWasm.instance.exports.compileToGraphlt();
+                // FIXME: do something better than this.
+                // Just in case onReceiveSliceCb wasn't called due to some failure, we unset
+                // the callback before the await which will dangle
+                if (!resultPromise.reached) {
+                    resultPromise.cleanup();
+                    // FIXME:
+                    throw Error("failed?");
+                }
                 const result = await resultPromise;
                 const content = utf8decoder.decode(result);
                 return content;
-            } catch (err) {
-                onReceiveSliceCb = undefined;
-                throw err;
+            } finally {
+                resultPromise.cleanup();
             }
         },
         async exportWasm() {
+            const resultPromise = setupSliceReturn();
             try {
-                const resultPromise = setupSliceReturn();
                 ideWasm.instance.exports.compileToWasm();
+                // FIXME: do something better than this.
+                // Just in case onReceiveSliceCb wasn't called due to some failure, we unset
+                // the callback before the await which will dangle
+                if (!resultPromise.reached) {
+                    resultPromise.cleanup();
+                    throw Error("failed?");
+                }
                 const result = await resultPromise;
                 return result;
-            } catch (err) {
-                onReceiveSliceCb = undefined;
-                throw err;
+            } finally {
+                resultPromise.cleanup();
             }
         },
         async compile() {
@@ -1525,10 +1546,9 @@ export async function Ide(canvasElem, opts) {
                                     const resultPromise = setupSliceReturn();
                                     ideWasm.instance.exports.getGraphsJson();
                                     content = await resultPromise;
-                                } catch (err) {
+                                } finally {
                                     // TODO: this should be like a "cancel" function on resultPromise
                                     onReceiveSliceCb = undefined;
-                                    throw err;
                                 }
 
                                 downloadFile({
