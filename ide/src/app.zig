@@ -1948,6 +1948,13 @@ fn renderNode(
                         input.* = .{ .value = .{ .float = 0.0 } };
                     }
 
+                    try dvui.tooltip(
+                      @src(), .{.active_rect = icon_res.icon.data().borderRectScale().r  },
+                      "{s}",
+                      .{if (input_desc.kind.primitive == .exec) "exec" else "code"},
+                      .{},
+                    );
+
                     break :_ socket_center;
                 } else _: {
                     // FIXME: make non interactable/hoverable
@@ -1956,6 +1963,8 @@ fn renderNode(
                     if (icon_res.clicked) {
                         input.* = .{ .value = .{ .int = 0 } };
                     }
+
+                    try dvui.tooltip(@src(), .{.active_rect = icon_res.icon.data().borderRectScale().r  }, "{s}", .{input_desc.kind.primitive.value.name}, .{});
 
                     // FIXME: report compiler bug
                     // } else switch (i.kind.primitive.value) {
@@ -2212,6 +2221,12 @@ fn renderNode(
             if (icon_res.clicked) {
                 // NOTE: hopefully this gets inlined...
                 try self.current_graph.removeOutputLinks(node.id, @intCast(j));
+            }
+
+            if (output_desc.kind.primitive == .exec) {
+              try dvui.tooltip(@src(), .{.active_rect = icon_res.icon.data().borderRectScale().r  }, "exec", .{}, .{});
+            } else {
+              try dvui.tooltip(@src(), .{.active_rect = icon_res.icon.data().borderRectScale().r  }, "{s}", .{output_desc.kind.primitive.value.name}, .{});
             }
 
             const socket_center = considerSocketForHover(self, &icon_res, socket);
