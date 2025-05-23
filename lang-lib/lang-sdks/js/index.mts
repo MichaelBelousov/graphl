@@ -1,38 +1,33 @@
-const inNodeJs = typeof process !== "undefined";
+
+// load compiler wasm lazily since not all users need it (e.g. the IDE)
 
 /** @type {undefined | Promise<import("./zig/js.zig")>} */
 let _zigPromise = undefined;
 
-// load compiler wasm lazily since not all users need it (e.g. the IDE)
-const getZig = (wasi?: import("node:wasi").WASI) => {
+const getZig = () => {
     return _zigPromise ??= (async () => {
-        if (inNodeJs) {
-            // @ts-ignore
-            await import("node-zigar/cjs");
-        }
-
+        // @ts-ignore
+        await import("node-zigar/cjs");
         const imported =
-            (globalThis as any)._GRAPHL_JS_NATIVE // only set in the non-browser native backend which should have require
-            ? require("./js.zigar")
+            (globalThis as any)._GRAPHL_JS_NATIVE
+            ? require("./js.zigar") // FIXME: I think I need require here... so maybe assert we're in node
             : await import("./zig/js.zig");
-
-        if (inNodeJs && !wasi) {
+        const inNodeJs = typeof process !== "undefined";
+        if (inNodeJs) {
             const { WASI } = require("node:wasi") as typeof import("node:wasi");
-            wasi = new WASI({
+            const wasi = new WASI({
                 version: "preview1",
                 env: {},
                 args: [],
             });
+            // @ts-ignore
+            await imported.__zigar.init(wasi);
+        } else {
+            await imported.__zigar.init();
         }
-        // @ts-ignore
-        await imported.__zigar.init(wasi);
         return imported;
     })();
 };
-
-export async function initialize(wasi?: import("node:wasi").WASI) {
-    return await getZig(wasi);
-}
 
 export type GraphlType =
     | {
@@ -61,7 +56,6 @@ export type GraphlType =
 ;
 
 export namespace GraphlTypes {
-    export const code: GraphlType = { name: "code", kind: "primitive", size: 0 };
     export const void_: GraphlType = { name: "void", kind: "primitive", size: 0 };
     export const i32: GraphlType = { name: "i32", kind: "primitive", size: 4 };
     export const u32: GraphlType = { name: "u32", kind: "primitive", size: 4 };
@@ -700,6 +694,8 @@ export async function compileGraphltSource(
     const diagnostic = new zig.Diagnostic({});
     try {
         compiledWasm = zig.compileSource("unknown", source, userFuncDescsJson, diagnostic).typedArray;
+        if (process.env.ITUE_DEBUG_DUMP)
+            (await import("node:fs")).writeFileSync(process.env.ITUE_DEBUG_DUMP, compiledWasm)
     } catch (err: any) {
         // FIXME: add zigar types
         const diagStr = diagnostic.error.string;

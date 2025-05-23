@@ -1,7 +1,7 @@
 import { WASI, File, OpenFile, ConsoleStdout, PreopenDirectory } from '@bjorn3/browser_wasi_shim';
 import frontendWasmUrl from './zig-out/bin/dvui-frontend.wasm?url';
 import { downloadFile, uploadFile } from './localFileManip';
-import * as compiler from "@graphl/compiler-js/wasm-backend";
+import { instantiateProgramFromWasmBuffer } from "@graphl/compiler-js/wasm-backend";
 
 /**
  * @param {number} ms Number of milliseconds to sleep
@@ -1338,20 +1338,13 @@ export async function Ide(canvasElem, opts) {
     /** @type {Map<number, (() => void) | undefined>} */
     const menuOnClickMap = new Map();
 
-    const compilerWasi = new WASI(["bin"], [""], [
-      new OpenFile(new File([])), // stdin
-      ConsoleStdout.lineBuffered(msg => console.log(`(WASI stdout) ${msg}`)),
-      ConsoleStdout.lineBuffered(msg => console.warn(`(WASI stderr) ${msg}`)),
-      new PreopenDirectory(".", new Map()),
-    ]);
-
-    const fds = [
+    let fds = [
       new OpenFile(new File([])), // stdin
       ConsoleStdout.lineBuffered(msg => console.log(`[WASI stdout] ${msg}`)),
       ConsoleStdout.lineBuffered(msg => console.warn(`[WASI stderr] ${msg}`)),
       new PreopenDirectory(".", new Map()),
     ];
-    const dvuiWasi = new WASI(["bin", "arg1"], ["FOO=bar"], fds);
+    let wasi = new WASI(["bin", "arg1"], ["FOO=bar"], fds);
 
     const dvui = new Dvui();
 
@@ -1376,7 +1369,7 @@ export async function Ide(canvasElem, opts) {
     };
 
     const imports = {
-        wasi_snapshot_preview1: dvuiWasi.wasiImport,
+        wasi_snapshot_preview1: wasi.wasiImport,
         dvui: dvui.imports, 
         env: {
             breakpoint() {
@@ -1459,29 +1452,42 @@ export async function Ide(canvasElem, opts) {
         async exportGraphlt() {
             const resultPromise = setupSliceReturn();
             try {
-                const success = ideWasm.instance.exports.compileToGraphlt();
+                ideWasm.instance.exports.compileToGraphlt();
                 // FIXME: do something better than this.
                 // Just in case onReceiveSliceCb wasn't called due to some failure, we unset
                 // the callback before the await which will dangle
-                assert(resultPromise.reached);
+                if (!resultPromise.reached) {
+                    resultPromise.cleanup();
+                    // FIXME:
+                    throw Error("failed?");
+                }
                 const result = await resultPromise;
                 const content = utf8decoder.decode(result);
-                if (!success)
-                    throw Error(content) 
                 return content;
             } finally {
                 resultPromise.cleanup();
             }
         },
         async exportWasm() {
-            const graphltCode = await this.exportGraphlt();
-            await compiler.initialize(compilerWasi);
-            return compiler.compileGraphltSource(graphltCode, opts.userFuncs);
+            const resultPromise = setupSliceReturn();
+            try {
+                ideWasm.instance.exports.compileToWasm();
+                // FIXME: do something better than this.
+                // Just in case onReceiveSliceCb wasn't called due to some failure, we unset
+                // the callback before the await which will dangle
+                if (!resultPromise.reached) {
+                    resultPromise.cleanup();
+                    throw Error("failed?");
+                }
+                const result = await resultPromise;
+                return result;
+            } finally {
+                resultPromise.cleanup();
+            }
         },
         async compile() {
             const wasm = await this.exportWasm();
-            await compiler.initialize(compilerWasi);
-            return compiler.instantiateProgramFromWasmBuffer(wasm.buffer, opts.userFuncs);
+            return instantiateProgramFromWasmBuffer(wasm.buffer, opts.userFuncs);
         },
 
         _dvui: dvui,
@@ -1491,7 +1497,7 @@ export async function Ide(canvasElem, opts) {
         .then((wasmResult) => {
             ideWasm = wasmResult
             const we = wasmResult.instance.exports;
-            dvuiWasi.initialize(wasmResult.instance);
+            wasi.initialize(wasmResult.instance);
             dvui.setInstance(wasmResult.instance);
             dvui.setCanvas(canvasElem);
 

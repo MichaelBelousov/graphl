@@ -52,19 +52,25 @@ export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {
 // TODO: maybe rename to returnSlice?
 extern fn onReceiveSlice(ptr: ?[*]const u8, len: usize) void;
 
-/// returns whether it was successful or not
-export fn compileToGraphlt() bool {
+/// returns null if failure
+export fn compileToWasm() void {
+    const wasm = app.compileToWasm() catch |e| {
+        std.log.err("compileToWasm error {}", .{e});
+        return;
+    };
+    defer gpa.free(wasm);
+
+    onReceiveSlice(wasm.ptr, wasm.len);
+}
+
+export fn compileToGraphlt() void {
     const graphlt = app.compileToGraphlt() catch |e| {
         std.log.err("compileToGraphlt error {}", .{e});
-        switch (e) {
-            inline else => onReceiveSlice(@errorName(e).ptr, @errorName(e).len),
-        }
-        return false;
+        return;
     };
     defer gpa.free(graphlt);
 
     onReceiveSlice(graphlt.ptr, graphlt.len);
-    return true;
 }
 
 export fn setInitOpts(json_ptr: ?[*]const u8, json_len: usize) bool {
