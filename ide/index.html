@@ -113,12 +113,6 @@
             const ideOpts = {
               allowRunning: true,
               userFuncs: {
-                "NoClusterId": {
-                  description: "get the special cluster id which doesn't do any merging",
-                  outputs: [{ name: "id", type: "u64" }],
-                  kind: "pure",
-                  impl() { return 0n; },
-                },
                 "Confetti": {
                   inputs: [{ name: "ParticleCount", type: "i32" }],
                   outputs: [],
@@ -159,33 +153,117 @@
                   inputs: [{ name: "table", type: "string" }],
                   outputs: [],
                 },
-                // TODO: rename to project center
-                "ModelCenter": {
+
+                "ProjectCenter": {
                   inputs: [],
                   outputs: [{ name: "center", type: "vec3" }],
-                  description: "get the center of the project in scene coordinates",
-                  impl() {
-                    // NOTE: this must be implemented on the backend!
-                    return { x: 0, y: 0, z: 0 };
-                  },
+                  kind: "pure",
+                  tags: ["iTwin"],
+                  description: "get the center of the project extents in iTwin coordinates",
                 },
+
+                "Category": {
+                  inputs: [{ name: "element", type: "u64" }],
+                  outputs: [{ name: "", type: "u64" }],
+                  tags: ["iTwin"],
+                  description: "get the id of the category for a geometric element",
+                  kind: "pure",
+                },
+
+                "Parent": {
+                  inputs: [{ name: "element", type: "u64" }],
+                  outputs: [{ name: "", type: "u64" }],
+                  tags: ["iTwin"],
+                  description: "get the id of the parent of an element",
+                  kind: "pure",
+                },
+
+                "UserLabel": {
+                  inputs: [{ name: "element", type: "u64" }],
+                  outputs: [{ name: "", type: "string" }],
+                  kind: "pure",
+                  tags: ["iTwin"],
+                  description: "get the user label of an element",
+                },
+
+                "CaselessMatch": {
+                  inputs: [
+                    { name: "Haystack", type: "string" },
+                    { name: "Needle", type: "string" },
+                  ],
+                  outputs: [{ name: "Found", type: "bool" }],
+                  kind: "pure",
+                  description:
+                  "return true if a match for the needle is found in the haystack, ignoring case\n" +
+                    "so a needle of 'el' would match a haystack of 'HeLLO'",
+                },
+
+                "MeshVertexCount": {
+                  inputs: [{ name: "MeshId", type: "u64" }],
+                  outputs: [{ name: "", type: "i32" }],
+                  kind: "pure",
+                  description: "get the vertex count for the given geometric element",
+                },
+
+                "MetaClusterId": {
+                  outputs: [{ name: "", type: "u64" }],
+                  kind: "pure",
+                  tags: ["clusters"],
+                  description: "the one big cluster for merging anything or everything",
+                },
+
+                "NoClusterId": {
+                  outputs: [{ name: "", type: "u64" }],
+                  kind: "pure",
+                  tags: ["clusters"],
+                  description: "special cluster id which prevents any merging",
+                },
+
+                "StringToU64": {
+                  inputs: [{ name: "", type: "string" }],
+                  outputs: [{ name: "", type: "u64" }],
+                  kind: "pure",
+                  tags: ["string"],
+                  description:
+                  "call out to a javascript runtime to execute some JavaScript\n" +
+                    "The last unterminated expression is returned",
+                },
+
+                "MapByTable": {
+                  inputs: [
+                    // TODO: add a "description" for floating tooltip
+                    {
+                      name: "Table",
+                      type: "string",
+                      // TODO: create a custom "enum" type in the graphl env,
+                      // mutated as the tables are added
+                      //tags: ["TABLES"],
+                    },
+                    { name: "Key", type: "string" },
+                    { name: "IfNotFound", type: "string" },
+                    { name: "MatchPart?", type: "bool" },
+                  ],
+                  outputs: [{ name: "found", type: "string" }],
+                  tags: ["table"],
+                  description:
+                  "Given the name of a 2-column table and a key,\n" +
+                    "search the first column for a matching key\n" +
+                    "and return the corresponding value in the second column.\n" +
+                    "If nothing matches, return the value provided to 'IfNotFound'\n" +
+                    "If 'MatchPart?' is true, choose the first row whose first\n" +
+                    "column is found within the key",
+                },
+
                 "JavaScript-Eval": {
                   inputs: [
-                    { name: "elementId", type: "u64" },
-                    { name: "code", type: "string" },
+                    { name: "Element", type: "u64" },
+                    { name: "Code", type: "string" },
                   ],
                   outputs: [{ name: "JsonResult", type: "string" }],
                   tags: ["text"],
-                  description: "call out to a javascript runtime to execute some JavaScript\nThe last unterminated expression is returned",
-                  /**
-                   * @param {bigint} elemId
-                   * @param {string} code
-                   * @returns {string}
-                   */
-                  impl(elemId, code) {
-                    'use strict'
-                    return JSON.stringify(eval(code) ?? "");
-                  }
+                  description:
+                  "Call out to a javascript runtime to execute some JavaScript\n" +
+                    "The last unterminated expression is returned",
                 },
               },
               menus: [{
@@ -240,13 +318,14 @@
                     { name: "GeometrySourceId", type: "u64" },
                     { name: "Origin", type: "vec3" },
                     { name: "Rotation", type: "vec3" },
-                    //{ name: "AnimationBatchId", type: "maybe-u32" },
+                    { name: "AnimationBatchId", type: "u64" },
                   ],
                   outputs: [
-                    { name: "Output File", type: "string" },
+                    { name: "OutputFile", type: "string" },
                     // TODO: add the ability to put a tooltip on a pin
-                    { name: "Cluster Id", type: "u64" },
-                    { name: "Material Name", type: "string" },
+                    { name: "ClusterId", type: "u64" },
+                    { name: "MaterialName", type: "string" },
+                    { name: "Ignore", type: "bool" },
                   ],
                   nodes: [
                     {
@@ -261,7 +340,8 @@
                         // FIXME: allow editing the graph imperatively so we can set this once the imodel loads
                         1: { string: "imodel" },
                         2: { node: 1, outPin: 0 },
-                        3: { string: "/ITwinUnrealWorkshop/M_combinedMesh.M_combinedMesh" },
+                        3: { string: "/TwinSyncStudio/M_combinedMesh.M_combinedMesh" },
+                        4: { bool: false },
                       },
                     }
                   ],

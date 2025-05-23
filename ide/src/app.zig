@@ -1,5 +1,4 @@
 //! Copyright 2025, Michael Belousov
-//!
 
 // TODO: rename this file to App.zig
 const App = @This();
@@ -128,7 +127,9 @@ pub fn nodesToGraphlJson(
             continue;
 
         const node = graph.graphl_graph.nodes.map.getPtr(node_id) orelse unreachable;
-        const dvui_pos = graph.visual_graph.node_data.getPtr(node_id).?.position;
+        // FIXME: gross
+        const dvui_pos = graph.visual_graph.node_data.getPtr(node_id).?.position_override
+            orelse graph.visual_graph.node_data.getPtr(node_id).?.position;
 
         // dealloced later
         var inputs: std.AutoHashMapUnmanaged(u16, InputInitState) = .empty;
@@ -185,7 +186,9 @@ pub fn graphToGraphlJson(a: std.mem.Allocator, graph: *Graph) !struct {
 
     for (node_ids_iter) |node_id| {
         const node = graph.graphl_graph.nodes.map.getPtr(node_id) orelse unreachable;
-        const dvui_pos = graph.visual_graph.node_data.getPtr(node_id).?.position;
+        // FIXME: gross
+        const dvui_pos = graph.visual_graph.node_data.getPtr(node_id).?.position_override
+            orelse graph.visual_graph.node_data.getPtr(node_id).?.position;
 
         // dealloced later
         var inputs: std.AutoHashMapUnmanaged(u16, InputInitState) = .empty;
@@ -554,11 +557,15 @@ pub fn addEmptyGraph(
     return &new_graph.data;
 }
 
+// FIXME:
+// in some instance saving appears to remove parameter references?
+
 // FIXME: dedup with placeGraphlJsonToGraph
 pub fn addGraph(
     self: *@This(),
     init_state: *const GraphInitState,
     set_as_current: bool,
+    dont_format: bool,
 ) !*Graph {
     const graph = try self.addEmptyGraph(init_state.name, set_as_current, .{ .fixed_signature = init_state.fixed_signature });
     const graph_desc = init_state;
@@ -636,7 +643,10 @@ pub fn addGraph(
         }
     }
 
-    try graph.visual_graph.formatGraphNaive(gpa);
+    // FIXME: the entry node position is wrong!
+    if (!dont_format) {
+        try graph.visual_graph.formatGraphNaive(gpa);
+    }
 
     return graph;
 }
@@ -882,7 +892,7 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
         while (graph_iter.next()) |entry| {
             const graph_desc = entry.value_ptr;
             // FIXME: must I dupe this?
-            _ = try addGraph(self, graph_desc, true);
+            _ = try addGraph(self, graph_desc, true, false);
         }
     } else {
         _ = try addEmptyGraph(self, "main", true, .{});
@@ -2746,7 +2756,7 @@ pub fn onReceiveLoadedSource(self: *@This(), src: []const u8) !void {
     defer parsed.deinit();
 
     for (parsed.value) |json_graph| {
-        _ = try self.addGraph(&json_graph, true);
+        _ = try self.addGraph(&json_graph, true, true);
     }
 
     // TODO: see above FIXME
