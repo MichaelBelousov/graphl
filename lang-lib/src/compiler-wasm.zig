@@ -1545,6 +1545,7 @@ const Compilation = struct {
         const code_sexp = self.graphlt_module.get(code_sexp_idx);
         const slot = &self._sexp_compiled[code_sexp_idx];
         slot.expr = undefined;
+        std.log.debug("compiling: {}\n", .{Sexp.printOneLine(self.graphlt_module, code_sexp_idx)});
 
         const local_index = fn_ctx.putLocalForSexp(self, code_sexp_idx);
 
@@ -1627,18 +1628,8 @@ const Compilation = struct {
                             return error.BuiltinWrongArity;
                         }
 
-                        for (v.items[1..], return_types) |arg, return_type| {
+                        for (v.items[1..]) |arg| {
                             try self.compileExpr(arg, fn_ctx);
-                            self.promoteToTypeInPlace(&self._sexp_compiled[arg], return_type) catch |err| switch (err) {
-                                error.UnsupportedTypeCoercion => {
-                                    self.diag.err = .{ .UnsupportedTypeCoercion = .{
-                                        .idx = arg,
-                                        .from = self._sexp_compiled[arg].type,
-                                        .to = return_type,
-                                    } };
-                                    return err;
-                                },
-                            };
                         }
 
                         if (v.items.len == 1) {
@@ -1647,12 +1638,30 @@ const Compilation = struct {
                             slot.expr = byn.c.BinaryenReturn(self.module.c(), byn.c.BinaryenNop(self.module.c()));
                             //
                         } else if (v.items.len == 2) {
-                            const first_arg = &self._sexp_compiled[v.items[1]];
+                            const first_arg_idx = v.items[1];
+                            const first_arg = &self._sexp_compiled[first_arg_idx];
                             slot.type = first_arg.type;
                             try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                             slot.expr = byn.c.BinaryenReturn(
                                 self.module.c(),
-                                byn.c.BinaryenLocalGet(self.module.c(), first_arg.local_index, try self.getBynType(first_arg.type)),
+                                self.promoteToType(
+                                    first_arg.type,
+                                    byn.c.BinaryenLocalGet(
+                                        self.module.c(),
+                                        first_arg.local_index,
+                                        try self.getBynType(first_arg.type)
+                                    ),
+                                    fn_ctx.return_type
+                                ) catch |err| switch (err) {
+                                    error.UnsupportedTypeCoercion => {
+                                        self.diag.err = .{ .UnsupportedTypeCoercion = .{
+                                            .idx = first_arg_idx,
+                                            .from = first_arg.type,
+                                            .to = fn_ctx.return_type,
+                                        } };
+                                        return err;
+                                    },
+                                },
                             );
                             //
                         } else if (v.items.len > 2) {
@@ -1666,12 +1675,24 @@ const Compilation = struct {
                             for (return_struct_info.field_types, v.items[1..]) |field_type, ctor_arg_idx| {
                                 const ctor_arg = &self._sexp_compiled[ctor_arg_idx];
                                 // FIXME: handle all array types
-                                _ = field_type; // FIXME
-                                operands.appendAssumeCapacity(byn.c.BinaryenLocalGet(
-                                    self.module.c(),
-                                    ctor_arg.local_index,
-                                    try self.getBynType(ctor_arg.type),
-                                ));
+                                operands.appendAssumeCapacity(self.promoteToType(
+                                    ctor_arg.type,
+                                    byn.c.BinaryenLocalGet(
+                                        self.module.c(),
+                                        ctor_arg.local_index,
+                                        try self.getBynType(ctor_arg.type),
+                                    ),
+                                    field_type,
+                                ) catch  |err| switch (err) {
+                                    error.UnsupportedTypeCoercion => {
+                                        self.diag.err = .{ .UnsupportedTypeCoercion = .{
+                                            .idx = ctor_arg_idx,
+                                            .from = ctor_arg.type,
+                                            .to = field_type,
+                                        } };
+                                        return err;
+                                    },
+                                });
                             }
 
                             slot.expr = byn.c.BinaryenReturn(self.module.c(), byn.c.BinaryenStructNew(
@@ -1681,8 +1702,6 @@ const Compilation = struct {
                                 try self.getBynHeapType(fn_ctx.return_type),
                             ));
                         }
-
-                        // FIXME: construct return tuple type from all arguments
 
                         break :done;
                     }
@@ -1889,10 +1908,13 @@ const Compilation = struct {
                     // FIXME: gross to ignore the first exec occasionally, need to better distinguish between non/pure nodes
                     const input_descs = _: {
                         if (func.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
-                            // FIXME: handle this better...
                             if (v.items.len != 4) {
-                                std.debug.print("bad if: {}\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
-                                std.debug.panic("bad if: {}\n", .{Sexp.withContext(self.graphlt_module, code_sexp_idx)});
+                                self.diag.err = .{ .BuiltinWrongArity = .{
+                                    .callee = code_sexp_idx,
+                                    .expected = 3,
+                                    .received = @intCast(v.items.len - 1),
+                                } };
+                                return error.BuiltinWrongArity;
                             }
                             break :_ &if_inputs;
                         } else if (func_node_desc.getInputs().len > 0 and func_node_desc.getInputs()[0].asPrimitivePin() == .exec) {
@@ -2381,6 +2403,7 @@ const Compilation = struct {
         expr: byn.c.BinaryenExpressionRef,
         target_type: Type,
     ) error{UnsupportedTypeCoercion}!byn.c.BinaryenExpressionRef {
+
         const CoercionInfo = struct {
             is_signed: bool,
             is_signed_int: bool,
@@ -2432,7 +2455,7 @@ const Compilation = struct {
                         //curr_type = primitive_types.bool_;
                         return byn.c.BinaryenBinary(
                             self.module.c(),
-                            byn.c.BinaryenEqFloat32,
+                            byn.c.BinaryenEqFloat32(),
                             curr_expr,
                             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat32(0))
                         );
@@ -2441,7 +2464,7 @@ const Compilation = struct {
                         //curr_type = primitive_types.bool_;
                         return byn.c.BinaryenBinary(
                             self.module.c(),
-                            byn.c.BinaryenEqFloat64,
+                            byn.c.BinaryenEqFloat64(),
                             curr_expr,
                             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat64(0))
                         );
@@ -2451,7 +2474,7 @@ const Compilation = struct {
                 }
 
                 // float to int
-                if (src_info.is_float and target_type.is_int) {
+                if (src_info.is_float and target_info.is_int) {
                     return byn.c.BinaryenUnary(
                         self.module.c(),
                         if      (curr_type == primitive_types.f32_ and target_type == primitive_types.i32_)
@@ -2522,7 +2545,7 @@ const Compilation = struct {
                 }
 
                 // unsigned to signed
-                if (src_info.is_signed_int and target_info.is_unsigned_int) {
+                if (src_info.is_unsigned_int and target_info.is_signed_int) {
                     if (curr_type == primitive_types.u32_) {
                         curr_type = primitive_types.i32_;
                         continue;
@@ -2570,28 +2593,6 @@ const Compilation = struct {
         }
 
         return curr_expr;
-    }
-
-    // resolve the peer type of the fragments, then augment the fragment to be casted to that resolved peer
-    fn resolvePeerTypesWithPromotions(self: *@This(), a: *Slot, b: *Slot) !Type {
-        if (a.type == graphl_builtin.empty_type)
-            return b.type;
-
-        if (b.type == graphl_builtin.empty_type)
-            return a.type;
-
-        if (a.type == b.type)
-            return a.type;
-
-        // REPORT: zig can't switch on constant pointers
-        const resolved_type = resolvePeerType(a.type, b.type);
-
-        inline for (&.{ a, b }) |fragment| {
-            // FIXME: doesn't handle error
-            self.promoteToTypeInPlace(fragment, resolved_type);
-        }
-
-        return resolved_type;
     }
 
     // FIXME: unused
