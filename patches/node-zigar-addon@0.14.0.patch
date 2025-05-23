@@ -28,7 +28,7 @@ index f5f6a2dc3e47ec257d1d1de22b083df322b4f0b3..2c49d54c9c05324e22bb7f591edcfaac
      };
 +    const pdb_path = try std.fmt.allocPrint(b.allocator, "{s}.pdb", .{output_path[0..output_path.len - 4]});
      wf.addCopyFileToSource(lib.getEmittedBin(), output_path);
-+    if (target.result.os.tag == .windows) {
++    if (target.result.os.tag == .windows and optimize == .Debug) {
 +        wf.addCopyFileToSource(lib.getEmittedPdb(), pdb_path);
 +    }
      wf.step.dependOn(&lib.step);
