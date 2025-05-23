@@ -133,7 +133,7 @@ pub const Sexp = struct {
             name: [:0]const u8,
             target: u32,
         },
-        // /// looks like: '#!target.0'
+        // /// looks like: '#!target'
         valref: ValRef,
         // TODO: quote/quasiquote, etc
     },

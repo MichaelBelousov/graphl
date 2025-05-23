@@ -815,7 +815,9 @@ pub const GraphBuilder = struct {
         const Context = struct {
             node_data: *std.MultiArrayList(NodeData),
             label_counter: u32 = 1,
+            // FIXME: use unmanaged
             node_labels: *std.AutoHashMap(NodeId, [:0]const u8),
+            label_to_sexp_idx: *std.StringHashMap(u32),
 
             pub fn init(
                 alloc: std.mem.Allocator,
@@ -824,11 +826,13 @@ pub const GraphBuilder = struct {
                     node_data: *std.MultiArrayList(NodeData),
                     // TODO: could create a perfect hash map for the node set upfront...
                     node_labels: *std.AutoHashMap(NodeId, [:0]const u8),
+                    label_to_sexp_idx: *std.StringHashMap(u32),
                 },
             ) !@This() {
                 var self = @This(){
                     .node_data = args.node_data,
                     .node_labels = args.node_labels,
+                    .label_to_sexp_idx = args.label_to_sexp_idx,
                 };
 
                 // TODO: can this be done better?
@@ -841,10 +845,10 @@ pub const GraphBuilder = struct {
             }
 
             pub fn getNextLabel(self: *@This(), alloc: std.mem.Allocator, node_id: NodeId, sexp_idx: u32) ![:0]const u8 {
-                // FIXME: generate name from sexp, and recommend people explicitly specify labels
-                _ = sexp_idx;
+                // FIXME: generate label from sexp src, and get people to explicitly specify labels
                 const label = try std.fmt.allocPrintZ(alloc, "__label{}", .{self.label_counter});
                 try self.node_labels.putNoClobber(node_id, label);
+                try self.label_to_sexp_idx.putNoClobber(label, sexp_idx);
                 self.label_counter += 1;
                 return label;
             }
@@ -870,16 +874,21 @@ pub const GraphBuilder = struct {
             var block: Block = .empty;
             defer block.deinit(alloc);
 
+            // FIXME: clean up this mess
             var node_data = std.MultiArrayList(NodeData){};
             defer node_data.deinit(alloc);
 
             var node_labels = std.AutoHashMap(NodeId, [:0]const u8).init(alloc);
             defer node_labels.deinit();
 
+            var label_to_sexp_idx = std.StringHashMap(u32).init(alloc);
+            defer label_to_sexp_idx.deinit();
+
             var ctx = try Context.init(alloc, .{
                 .node_count = self.graph.nodes.map.count(),
                 .node_data = &node_data,
                 .node_labels = &node_labels,
+                .label_to_sexp_idx = &label_to_sexp_idx,
             });
 
             const state = State{
@@ -1057,12 +1066,8 @@ pub const GraphBuilder = struct {
                     };
 
                     if (!is_pure) if (context.node_labels.getPtr(source_id)) |label| {
-                        // TODO: can't remember if this is a forced arena
-                        var try_stack_alloc_heap = std.heap.stackFallback(256, alloc);
-                        const try_stack_alloc = try_stack_alloc_heap.get();
-                        const label_sym = try std.fmt.allocPrintZ(try_stack_alloc, "#!{s}", .{label.*});
-                        defer try_stack_alloc.free(label_sym);
-                        return try self.mod_ctx.add(.symbol(label_sym));
+                        const valref_target = context.label_to_sexp_idx.get(label.*) orelse unreachable;
+                        return try self.mod_ctx.add(.valref(.{ .target = valref_target }));
                     };
 
                     const sexp_idx = _: {
@@ -1107,12 +1112,7 @@ pub const GraphBuilder = struct {
                         sexp.label = label;
                         // FIXME: horrible performance! maybe a linked list would be better?
                         state.block.insert(alloc, 0, sexp_idx) catch unreachable;
-
-                        var try_stack_alloc_heap = std.heap.stackFallback(256, alloc);
-                        const try_stack_alloc = try_stack_alloc_heap.get();
-                        const label_sym = try std.fmt.allocPrintZ(try_stack_alloc, "#!{s}", .{label});
-                        defer try_stack_alloc.free(label_sym);
-                        return try self.mod_ctx.add(.symbol(label_sym));
+                        return try self.mod_ctx.add(.valref(.{ .target = sexp_idx }));
                     }
                 },
                 // FIXME: move to own func for Value=>Sexp?, or just make Value==Sexp now...

@@ -1363,7 +1363,6 @@ export async function Ide(canvasElem, opts) {
         };
       });
       result.cleanup = () => (onReceiveSliceCb = undefined);
-      result.cleanup = () => (onReceiveSliceCb = undefined);
       result.reached = false;
       return result;
     };
