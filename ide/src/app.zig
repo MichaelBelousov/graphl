@@ -248,6 +248,7 @@ pub fn placeGraphlJsonToGraph(
     defer resolved_ids.deinit(a);
 
     for (nodes) |node_desc| {
+        // NOTE: currently only used during paste, so can assume "enter" node isn't copied
         if (node_desc.id == graphl.GraphBuilder.default_entry_id and !opts.allow_overwrite_entry)
             continue;
         const resolved_id = if (node_desc.id == graphl.GraphBuilder.default_entry_id)
@@ -594,8 +595,12 @@ pub fn addGraph(
 
     for (graph_desc.nodes.items) |node_desc| {
         const node_id: graphl.NodeId = @intCast(node_desc.id);
-        if (node_id == graphl.GraphBuilder.default_entry_id)
+        if (node_id == graphl.GraphBuilder.default_entry_id) {
+            if (graph.visual_graph.node_data.getPtr(node_id)) |viz_data| {
+                viz_data.position_override = node_desc.position;
+            }
             continue;
+        }
 
         _ = try graph.addNode(gpa, node_desc.type_, false, node_id, null, .{});
         if (node_desc.position) |pos| {
@@ -631,7 +636,6 @@ pub fn addGraph(
 
     for (graph_desc.nodes.items) |node_desc| {
         const node_id: graphl.NodeId = @intCast(node_desc.id);
-        if (node_id == graphl.GraphBuilder.default_entry_id) continue;
         var input_iter = node_desc.inputs.iterator();
         while (input_iter.next()) |input_entry| {
             const input_id = input_entry.key_ptr.*;
