@@ -2073,6 +2073,48 @@ const Compilation = struct {
                         }
                     }
 
+                    if (func.value.symbol.ptr == syms.not.value.symbol.ptr) {
+                        if (v.items.len != 2) {
+                            self.diag.err = .{ .BuiltinWrongArity = .{
+                                .callee = v.items[0],
+                                .expected = 1,
+                                .received = @intCast(v.items.len - 1),
+                            } };
+                            return error.BuiltinWrongArity;
+                        }
+
+                        const operand = &self._sexp_compiled[v.items[1]];
+
+                        slot.type = primitive_types.bool_;
+                        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
+
+                        slot.expr = byn.c.BinaryenLocalSet(
+                            self.module.c(),
+                            local_index,
+                            byn.c.BinaryenBinary(
+                                self.module.c(),
+                                byn.c.BinaryenEqInt32(),
+                                self.promoteToType(
+                                    operand.type,
+                                    byn.c.BinaryenLocalGet(self.module.c(), operand.local_index, try self.getBynType(operand.type)),
+                                    primitive_types.bool_
+                                ) catch |err| switch (err) {
+                                    error.UnsupportedTypeCoercion => {
+                                        self.diag.err = .{ .UnsupportedTypeCoercion = .{
+                                            .idx = v.items[1],
+                                            .from = operand.type,
+                                            .to = args_top_type,
+                                        } };
+                                        return err;
+                                    },
+                                },
+                                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                            ),
+                        );
+
+                        break :done;
+                    }
+
                     // FIXME: make this work again
                     // FIXME: this hacky interning-like code is horribly bug prone
                     // FIXME: rename to standard library cuz it's also that
