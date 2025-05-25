@@ -638,6 +638,7 @@ const Compilation = struct {
 
     pub const main_mem_name = "0";
     pub const stack_ptr_name = "__gstkp";
+    pub const empty_data_name = "s_empty_data";
 
     pub fn init(
         alloc: std.mem.Allocator,
@@ -727,6 +728,18 @@ const Compilation = struct {
             // I think it's actually fine... need to double check though
             byn.c.BinaryenConst(result.module.c(), byn.c.BinaryenLiteralInt32(@intCast(mem_start + str_transfer_seg_size))),
         ) != null);
+
+        // FIXME: do string deduplication/interning
+        byn.c.BinaryenAddDataSegment(
+            result.module.c(),
+            empty_data_name,
+            main_mem_name,
+            true,
+            null,
+            // FIXME: gross, use 0 terminated strings
+            "".ptr,
+            1,
+        );
 
         return result;
     }
@@ -2239,19 +2252,26 @@ const Compilation = struct {
 
                     // python: 10 == len(str(2**32 - 1)), could use comptime print to assert
                     var buf: ["s_".len + 10 + "\x00".len]u8 = undefined;
-                    const seg_name = std.fmt.bufPrintZ(&buf, "s_{}", .{self.ro_data_offset}) catch unreachable;
-
-                    // FIXME: do string deduplication/interning
-                    byn.c.BinaryenAddDataSegment(
-                        self.module.c(),
-                        seg_name,
-                        main_mem_name,
-                        true,
-                        null,
-                        // FIXME: gross, use 0 terminated strings
-                        v.ptr,
-                        @intCast(v.len),
-                    );
+                    const seg_name = _: {
+                        if (v.len == 0) {
+                            break :_ empty_data_name;
+                        } else {
+                            const seg_name = std.fmt.bufPrintZ(&buf, "s_{}", .{self.ro_data_offset}) catch unreachable;
+                            // FIXME: do string deduplication/interning
+                            byn.c.BinaryenAddDataSegment(
+                                self.module.c(),
+                                seg_name,
+                                main_mem_name,
+                                true,
+                                null,
+                                // FIXME: gross, use 0 terminated strings
+                                v.ptr,
+                                // add space for null terminator (HACK: and to prevent same segment_name after an empty slice)
+                                @intCast(v.len),
+                            );
+                            break :_ seg_name;
+                        }
+                    };
 
                     slot.type = primitive_types.string;
                     try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
