@@ -985,8 +985,9 @@ pub const GraphBuilder = struct {
                 return;
 
             const name = switch (node.desc().kind) {
-                // HACK: skip the get_/set_ prefix
-                .get, .set => node._desc.name()[4..],
+                // FIXME: gross
+                // HACK: skip the set_ prefix
+                .set => node._desc.name()[4..],
                 else => node._desc.name(),
             };
 
@@ -1071,10 +1072,10 @@ pub const GraphBuilder = struct {
                     };
 
                     const sexp_idx = _: {
-                        // FIXME: this should be handled better!
+                        // FIXME: this should be handled properly!
                         // HACK: skip the get_/set_ prefix
                         const name = switch (source_node.desc().kind) {
-                            .get, .set => source_node._desc.name()[4..],
+                            .set => source_node._desc.name()[4..],
                             else => source_node._desc.name(),
                         };
 
