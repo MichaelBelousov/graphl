@@ -924,6 +924,23 @@ pub const builtin_nodes = struct {
         .description = "directs control flow of the program based on a boolean condition.",
     });
 
+    pub const for_step: NodeDesc = basicNode(&.{
+        .name = "ForStep",
+        .inputs = &.{
+            Pin{ .name = "", .kind = .{ .primitive = .exec } },
+            Pin{ .name = "start", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "end", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "step", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+        .outputs = &.{
+            Pin{ .name = "body", .kind = .{ .primitive = .exec } },
+            Pin{ .name = "current", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "finished", .kind = .{ .primitive = .exec } },
+        },
+        .tags = &.{"control flow"},
+        .description = "directs control flow of the program based on a boolean condition.",
+    });
+
     pub const string_equal: NodeDesc = basicNode(&.{
         .name = "String-Equal",
         .inputs = &.{
