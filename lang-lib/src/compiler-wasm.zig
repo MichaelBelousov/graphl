@@ -1948,6 +1948,14 @@ const Compilation = struct {
                     }
 
                     if (func.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
+                        if (v.items.len < 3) {
+                            self.diag.err = .{ .BuiltinWrongArity = .{
+                                .callee = v.items[0],
+                                .expected = 2,
+                                .received = @intCast(v.items.len - 1),
+                            } };
+                            return error.BuiltinWrongArity;
+                        }
                         slot.type = args_top_type;
                         try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                         slot.expr = byn.c.BinaryenNop(self.module.c());
