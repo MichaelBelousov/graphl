@@ -913,7 +913,7 @@ pub const builtin_nodes = struct {
     pub const @"if": NodeDesc = basicNode(&.{
         .name = "if",
         .inputs = &.{
-            Pin{ .name = "run", .kind = .{ .primitive = .exec } },
+            Pin{ .name = "", .kind = .{ .primitive = .exec } },
             Pin{ .name = "condition", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
         },
         .outputs = &.{
