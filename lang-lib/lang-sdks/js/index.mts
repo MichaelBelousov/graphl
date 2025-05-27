@@ -8,13 +8,13 @@ const getZig = () => {
     return _zigPromise ??= (async () => {
         // @ts-ignore
         await import("node-zigar/cjs");
-        const imported =
+        const imported: any =
             (globalThis as any)._GRAPHL_JS_NATIVE
-            ? require("./js.zigar") // FIXME: I think I need require here... so maybe assert we're in node
+            ? await import("./js.zigar") // FIXME: I think I need require here... so maybe assert we're in node
             : await import("./zig/js.zig");
         const inNodeJs = typeof process !== "undefined";
         if (inNodeJs) {
-            const { WASI } = require("node:wasi") as typeof import("node:wasi");
+            const { WASI } = await import("node:wasi");
             const wasi = new WASI({
                 version: "preview1",
                 env: {},

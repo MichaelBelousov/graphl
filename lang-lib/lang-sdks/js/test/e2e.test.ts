@@ -4,8 +4,8 @@ import assert from "node:assert";
 
 // TODO: move these tests to a separate package to consume bundle directly
 // local (native) backend
-// import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../index.mts";
-import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/native-cjs/index.js";
+import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../index.mts";
+// import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/native-cjs/index.js";
 // production wasm backend
 //import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/cjs/index.js";
 
