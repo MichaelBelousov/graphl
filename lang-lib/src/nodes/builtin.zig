@@ -932,6 +932,21 @@ pub const builtin_nodes = struct {
         .description = "directs control flow of the program based on a boolean condition.",
     });
 
+    pub const select: NodeDesc = basicNode(&.{
+        .name = "select",
+        .inputs = &.{
+            // FIXME: support abstract types!
+            Pin{ .name = "a", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "b", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "condition", .kind = .{ .primitive = .{ .value = primitive_types.bool_ } } },
+        },
+        .outputs = &.{
+            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+        },
+        .tags = &.{"control flow"},
+        .description = "if condition is true, return the first value, return the second otherwise",
+    });
+
     pub const string_equal: NodeDesc = basicNode(&.{
         .name = "String-Equal",
         .inputs = &.{

@@ -2252,6 +2252,69 @@ const Compilation = struct {
                         break :done;
                     }
 
+                    if (func.value.symbol.ptr == syms.select.value.symbol.ptr) {
+                        // TODO: make variadic using an int?
+                        if (v.items.len != 4) {
+                            self.diag.err = .{ .BuiltinWrongArity = .{
+                                .callee = v.items[0],
+                                .expected = 3,
+                                .received = @intCast(v.items.len - 1),
+                            } };
+                            return error.BuiltinWrongArity;
+                        }
+
+                        // NOTE: wasm select has no short circuiting.
+                        const lhs = &self._sexp_compiled[v.items[1]];
+                        const rhs = &self._sexp_compiled[v.items[2]];
+                        const condition = &self._sexp_compiled[v.items[3]];
+
+                        slot.type = _: {
+                            var slot_type = graphl_builtin.empty_type;
+                            for (v.items[1..v.items.len - 1]) |arg_idx| {
+                                const arg_compiled = &self._sexp_compiled[arg_idx];
+                                slot_type = resolvePeerType(slot_type, arg_compiled.type);
+                            }
+                            break :_ slot_type;
+                        };
+
+                        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
+
+                        slot.expr = byn.c.BinaryenLocalSet(
+                            self.module.c(),
+                            local_index,
+                            byn.c.BinaryenSelect(
+                                self.module.c(),
+                                self.promoteToType(
+                                    condition.type,
+                                    byn.c.BinaryenLocalGet(self.module.c(), condition.local_index, try self.getBynType(condition.type)),
+                                    primitive_types.bool_
+                                ) catch |err| switch (err) { error.UnsupportedTypeCoercion => {
+                                        self.diag.err = .{ .UnsupportedTypeCoercion = .{ .idx = v.items[3], .from = lhs.type, .to = primitive_types.bool_ } };
+                                        return err;
+                                } },
+                                self.promoteToType(
+                                    lhs.type,
+                                    byn.c.BinaryenLocalGet(self.module.c(), lhs.local_index, try self.getBynType(lhs.type)),
+                                    slot.type,
+                                ) catch |err| switch (err) { error.UnsupportedTypeCoercion => {
+                                        self.diag.err = .{ .UnsupportedTypeCoercion = .{ .idx = v.items[1], .from = lhs.type, .to = slot.type } };
+                                        return err;
+                                } },
+                                self.promoteToType(
+                                    rhs.type,
+                                    byn.c.BinaryenLocalGet(self.module.c(), rhs.local_index, try self.getBynType(rhs.type)),
+                                    slot.type,
+                                ) catch |err| switch (err) { error.UnsupportedTypeCoercion => {
+                                        self.diag.err = .{ .UnsupportedTypeCoercion = .{ .idx = v.items[2], .from = rhs.type, .to = slot.type } };
+                                        return err;
+                                } },
+                                try self.getBynType(slot.type),
+                            ),
+                        );
+
+                        break :done;
+                    }
+
                     // FIXME: handle quote
 
                     // FIXME: make this work again
@@ -2540,6 +2603,7 @@ const Compilation = struct {
         slot.type = target_type;
     }
 
+    // TODO: rename to "coerce"
     // TODO: use an actual type graph/tree and search in it
     fn promoteToType(
         self: *@This(),

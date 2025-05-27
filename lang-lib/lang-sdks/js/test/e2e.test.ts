@@ -448,4 +448,12 @@ describe("js sdk", () => {
     `);
     assert.strictEqual(program.functions.to_f64(), 1.0);
   });
+
+  it("select u64", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (typeof (foo) u64)
+      (define (foo) (return (select 3 5 #f)))
+    `);
+    assert.strictEqual(program.functions.foo(), 5n);
+  });
 });

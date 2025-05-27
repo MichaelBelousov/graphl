@@ -790,6 +790,7 @@ pub const syms = struct {
     pub const @"or" = Sexp{ .value = .{ .symbol = builtin_nodes.@"or".name() } };
 
     pub const @"if" = Sexp{ .value = .{ .symbol = builtin_nodes.@"if".name() } };
+    pub const select = Sexp{ .value = .{ .symbol = builtin_nodes.select.name() } };
     pub const @"set!" = Sexp{ .value = .{ .symbol = builtin_nodes.@"set!".name() } };
 
     pub const min = Sexp{ .value = .{ .symbol = builtin_nodes.min.name() } };
