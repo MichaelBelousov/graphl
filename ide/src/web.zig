@@ -29,7 +29,7 @@ pub const std_options: std.Options = .{
 };
 
 fn app_init(win: *dvui.Window) void {
-    app.init() catch |e| {
+    app.init(win) catch |e| {
         std.log.err("App failed to init ({!})", .{e});
     };
 

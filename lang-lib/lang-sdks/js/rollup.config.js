@@ -52,6 +52,11 @@ export default [
   {
     input: "./index.mts",
     plugins: [
+      define({
+        replacements: {
+          "globalThis._GRAPHL_JS_NATIVE": JSON.stringify(false),
+        },
+      }),
       zigar({
         optimize,
         //embedWASM: true, // fetch wasm by default

@@ -350,7 +350,7 @@ pub const GraphBuilder = struct {
         const putResult = try self.nodes.map.getOrPut(alloc, node_id);
         putResult.value_ptr.* = try self.env.spawnNodeOfKind(alloc, node_id, kind) orelse {
             std.log.err("attempted to spawn unknown node: '{s}'", .{kind});
-            unreachable;
+            return error.NoSuchNodeType;
         };
         const node = putResult.value_ptr;
 

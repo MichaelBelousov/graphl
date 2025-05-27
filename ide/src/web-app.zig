@@ -17,12 +17,14 @@ pub const PinJson = @import("./json-format.zig").PinJson ;
 pub const BasicMutNodeDescJson = @import("./json-format.zig").BasicMutNodeDescJson;
 pub const UserFuncJson = @import("./json-format.zig").UserFuncJson;
 pub const InitOptsJson = @import("./json-format.zig").InitOptsJson;
+const dvui = @import("dvui");
 
 
-pub fn init() !void {
+pub fn init(window: *dvui.Window) !void {
     if (init_opts.result_buffer == null) {
         @panic("setInitOpts hasn't been called before init!");
     }
+    init_opts.window = window;
     try App.init(&app, init_opts);
 }
 
@@ -142,6 +144,7 @@ fn _setInitOpts(in_json: []const u8) !void {
                 .visible = topbar_prefs.visible orelse true,
             } else .{},
         } else .{},
+        .window = init_opts.window,
     };
 }
 

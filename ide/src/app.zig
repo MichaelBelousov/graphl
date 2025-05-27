@@ -732,6 +732,7 @@ pub const InitOptions = struct {
             visible: bool = true,
         } = .{},
     } = .{},
+    window: ?*dvui.Window = null,
 };
 
 // FIXME: consider moving options and initState to a separate file
@@ -2322,6 +2323,7 @@ fn renderNode(
             var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.Natural.fromPoint(cp) }, .{});
             defer fw.deinit();
 
+            // FIXME: deletion doesn't delete edges!
             if (try dvui.menuItemLabel(@src(), "Delete node", .{}, .{ .expand = .horizontal }) != null) {
                 std.debug.assert(
                     self.current_graph.removeNode(node.id) catch true
@@ -2777,6 +2779,9 @@ pub fn onReceiveLoadedSource(self: *@This(), src: []const u8) !void {
     for (parsed.value) |json_graph| {
         _ = try self.addGraph(&json_graph, true, true);
     }
+
+    if (self.init_opts.window) |window|
+        dvui.refresh(window, @src(), null);
 
     // TODO: see above FIXME
     //self.graphs = try sourceToGraph(gpa, self, src, &self.shared_env);

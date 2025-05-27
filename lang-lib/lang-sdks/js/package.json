@@ -31,7 +31,7 @@
   "private": true,
   "scripts": {
     "build": "rollup -c && bun run build-types && bun run build-native",
-    "rebuild": "rm -r dist && bun run build",
+    "rebuild": "rm -rf dist && bun run build",
     "build-debug": "NODE_ENV=development rollup -c && bun run build-types",
     "build-types": "tsc -p ./tsconfig.json",
     "build-native": "node ./native-build.mjs",
