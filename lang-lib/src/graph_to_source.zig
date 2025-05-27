@@ -354,8 +354,8 @@ pub const GraphBuilder = struct {
         };
         const node = putResult.value_ptr;
 
-        self.next_node_index += 1;
-        errdefer self.next_node_index -= 1;
+        // TODO: could undo this in the error case
+        self.next_node_index = @max(self.next_node_index, node_id) + 1;
 
         if (putResult.found_existing) {
             if (diag) |d| d.* = .{ .DuplicateNode = node_id };
@@ -658,7 +658,7 @@ pub const GraphBuilder = struct {
 
     /// context for analyzing an output-directed cyclic subtree of a graph rooted by a branch
     const AnalysisCtx = struct {
-        node_data: std.MultiArrayList(NodeAnalysisResult) = .{},
+        node_data: std.AutoHashMapUnmanaged(NodeId, NodeAnalysisResult) = .{},
 
         pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
             self.node_data.deinit(alloc);
@@ -683,17 +683,20 @@ pub const GraphBuilder = struct {
         var analysis_ctx: AnalysisCtx = .{};
         defer analysis_ctx.deinit(alloc);
 
-        try analysis_ctx.node_data.resize(alloc, self.nodes.map.count());
+        try analysis_ctx.node_data.ensureTotalCapacity(alloc, self.nodes.map.count());
 
-        // initialize with empty data
-        var slices = analysis_ctx.node_data.slice();
-        @memset(slices.items(.visited)[0..analysis_ctx.node_data.len], 0);
+        // TODO: realize this ungodly crap will all be removed when I rewrite the IDE to mutate a
+        // sexp in memory and there will no longer be a need to analyze the "graph" at all
+        for (self.nodes.map.keys()) |node_id| {
+            // inlined analyzeNode precondition because not sure with recursion compiler can figure it out
+            try analysis_ctx.node_data.put(alloc, node_id, .{ .visited = 0 });
+        }
 
         // FIXME: use value iterator
         var node_iter = self.nodes.map.iterator();
         while (node_iter.next()) |node| {
             // inlined analyzeNode precondition because not sure with recursion compiler can figure it out
-            if (analysis_ctx.node_data.items(.visited)[node.key_ptr.*] == 1)
+            if (analysis_ctx.node_data.getPtr(node.key_ptr.*).?.visited == 1)
                 continue;
 
             try self.analyzeNode(alloc, node.value_ptr, &analysis_ctx);
@@ -706,10 +709,10 @@ pub const GraphBuilder = struct {
         node: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
     ) NodeAnalysisErr!void {
-        if (analysis_ctx.node_data.items(.visited)[node.id] == 1)
+        if (analysis_ctx.node_data.getPtr(node.id).?.visited == 1)
             return;
 
-        analysis_ctx.node_data.items(.visited)[node.id] = 1;
+        analysis_ctx.node_data.getPtr(node.id).?.visited = 1;
 
         const is_branch = node.desc() == &helpers.builtin_nodes.@"if";
 
@@ -723,12 +726,12 @@ pub const GraphBuilder = struct {
         branch: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
     ) NodeAnalysisErr!?*const IndexedNode {
-        if (analysis_ctx.node_data.items(.visited)[branch.id] == 1) {
+        if (analysis_ctx.node_data.getPtr(branch.id).?.visited == 1) {
             const prev_result_id = self.branch_joiner_map.get(branch.id);
             return self.nodes.map.getPtr(if (prev_result_id) |v| v else return null);
         }
 
-        analysis_ctx.node_data.items(.visited)[branch.id] = 1;
+        analysis_ctx.node_data.getPtr(branch.id).?.visited = 1;
 
         const result = try self.doAnalyzeBranch(alloc, branch, analysis_ctx);
 
@@ -750,12 +753,12 @@ pub const GraphBuilder = struct {
         branch: *const IndexedNode,
         analysis_ctx: *AnalysisCtx,
     ) NodeAnalysisErr!?*const IndexedNode {
-        if (analysis_ctx.node_data.items(.visited)[branch.id] == 1) {
+        if (analysis_ctx.node_data.getPtr(branch.id).?.visited == 1) {
             const prev_result_id = self.branch_joiner_map.get(branch.id);
             return self.nodes.map.getPtr(if (prev_result_id) |v| v else return null);
         }
 
-        analysis_ctx.node_data.items(.visited)[branch.id] = 1;
+        analysis_ctx.node_data.getPtr(branch.id).?.visited = 1;
 
         const NodeSet = std.AutoArrayHashMapUnmanaged(*const IndexedNode, void);
         var collapsed_node_layer = NodeSet{};
