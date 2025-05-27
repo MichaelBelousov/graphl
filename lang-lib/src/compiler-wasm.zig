@@ -942,6 +942,87 @@ const Compilation = struct {
         return true;
     }
 
+    // TODO: need to prevent recursive struct types
+    fn compileStruct(self: *@This(), sexp_index: u32) !void {
+        const sexp = self.graphlt_module.get(sexp_index);
+
+        std.debug.assert(sexp.value.list.items.len >= 2);
+        const type_name_sexp = self.graphlt_module.get(sexp.value.list.items[1]);
+        std.debug.assert(type_name_sexp.value == .symbol);
+        const type_name = type_name_sexp.value.symbol;
+
+        const field_defs = sexp.value.list.items[2..];
+
+        const field_names = try self.arena.allocator().alloc([:0]const u8, field_defs.len);
+        const field_types = try self.arena.allocator().alloc(Type, field_defs.len);
+        const field_defaults = try self.arena.allocator().alloc(?Sexp, field_defs.len);
+
+        for (field_defs, field_names, field_types, field_defaults) |field_def_idx, *field_name, *field_type, *field_default| {
+            const field_def = self.graphlt_module.get(field_def_idx);
+
+            if (field_def.value != .list or field_def.value.list.items.len < 2 or field_def.value.list.items.len > 3) {
+                // FIXME: more specific struct related error
+                self.diag.err = .{ .BadTopLevelForm = field_def_idx };
+                return error.BadTopLevelForm;
+            }
+            const field_name_idx = field_def.value.list.items[0];
+            const field_name_sexp = self.graphlt_module.get(field_name_idx);
+            const field_type_idx = field_def.value.list.items[1];
+            const field_type_sexp = self.graphlt_module.get(field_type_idx);
+            const field_default_sexp = if (field_def.value.list.items.len == 3) self.graphlt_module.get(field_def.value.list.items[1]) else null;
+
+            if (field_name_sexp.value != .symbol) {
+                // FIXME: better error!
+                self.diag.err = .{ .BadTopLevelForm = field_name_idx };
+                return error.BadTopLevelForm;
+            }
+
+            field_name.* = field_name_sexp.value.symbol;
+
+            if (field_type_sexp.value != .symbol) {
+                // FIXME: better error!
+                self.diag.err = .{ .BadTopLevelForm = field_type_idx };
+                return error.BadTopLevelForm;
+            }
+
+            field_type.* = self.env.getType(field_type_sexp.value.symbol) orelse {
+                std.log.err("Undefined type: '{s}'", .{field_type_sexp.value.symbol});
+                // FIXME: better error!
+                self.diag.err = .{ .BadTopLevelForm = field_type_idx };
+                return error.BadTopLevelForm;
+            };
+
+            field_default.* = if (field_default_sexp) |p_sexp| p_sexp.* else null;
+        }
+
+        const struct_info = try graphl_builtin.StructType.initFromTypeList(self.arena.allocator(), .{
+            .field_names = field_names,
+            .field_types = field_types,
+        });
+
+        const created_type = try self.env.addType(self.arena.allocator(), graphl_builtin.TypeInfo{
+            .name = type_name,
+            .subtype = .{ .@"struct" = struct_info },
+            .size = struct_info.size,
+        });
+
+        // add code gen for type
+        _ = try self.getBynType(created_type);
+    }
+
+    fn compileType(self: *@This(), sexp_index: u32) !bool {
+        const is_struct_def = Sexp.findPatternMismatch(self.graphlt_module, sexp_index,
+            \\(struct SYMBOL ...ANY)
+        ) == null;
+
+        if (is_struct_def) {
+            try self.compileStruct(sexp_index);
+            return true;
+        }
+
+        return false;
+    }
+
     fn compileTypeOf(self: *@This(), sexp_index: u32) !bool {
         const sexp = self.graphlt_module.get(sexp_index);
 
@@ -3179,6 +3260,7 @@ const Compilation = struct {
                     const did_compile = (try self.compileFunc(idx) or
                         try self.compileVar(idx) or
                         try self.compileTypeOf(idx) or
+                        try self.compileType(idx) or
                         try self.compileMeta(idx) or
                         try self.compileImport(decl));
                     if (!did_compile) {

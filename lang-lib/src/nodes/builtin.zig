@@ -23,6 +23,8 @@ pub const StructType = struct {
     field_types: []const Type = &.{},
     // I feel like 32-bits is too many
     field_offsets: []const u32 = &.{},
+    // FIXME: add field defaults
+
     // FIXME: why have a size when the outer Type value will have one?
     size: u32,
 
@@ -73,19 +75,25 @@ pub const StructType = struct {
 
 pub const ArrayType = struct {
     type: Type,
-    // TODO: add optional static size?
+    fixed_size: ?u32,
 };
 
-// could use a u32 index into a type store (might be faster on 64-bit platforms)
+// FIXME: causes zigar bug?
+// TODO: consider adding (payload) unions?
+// pub const EnumType = struct {
+//     variants: std.ArrayListUnmanaged(Sexp),
+// };
+
+// could use a u32 index into a type store
 pub const TypeInfo = struct {
     name: [:0]const u8,
-    // FIXME: use a union?
     subtype: union(enum) {
         primitive: void,
         // TODO: figure out how this differs from "Node"
         func: *const NodeDesc,
         @"struct": StructType,
         array: ArrayType,
+        //@"enum": EnumType,
     } = .primitive,
     /// size in bytes of the type
     size: u32,
