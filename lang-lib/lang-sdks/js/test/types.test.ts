@@ -23,7 +23,7 @@ describe("compiler types", () => {
       (meta version 1)
 
       (struct foobar
-        (foo i32 0)
+        (foo i32 0) ;; NOTE: defaults not implemented yet
         (bar string "default"))
 
       ;; would be interesting to have a symmetric named field initializer syntax:
@@ -31,10 +31,12 @@ describe("compiler types", () => {
 
       (typeof (main foobar) foobar)
       (define (main arg)
-        (return (foobar
-                  (+ (.foo arg) 1)
-                  "hello")))
+        ;; TODO: allow returning structs directly...
+        (foobar (+ (.foo arg) 1)
+                "hello")
+        (return (+ (.foo arg) 1)
+                "hello"))
     `);
-    assert.strictEqual(program.functions.foo({ foo: 1, bar: "world" }), { foo: 2, bar: "hello" });
+    assert.strictEqual(program.functions.main({ foo: 1, bar: "world" }), { foo: 2, bar: "hello" });
   });
 });

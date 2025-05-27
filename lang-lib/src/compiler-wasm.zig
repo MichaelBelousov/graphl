@@ -1006,8 +1006,51 @@ const Compilation = struct {
             .size = struct_info.size,
         });
 
-        // add code gen for type
-        _ = try self.getBynType(created_type);
+        const constructor_inputs = try self.arena.allocator().alloc(Pin, field_types.len);
+        for (constructor_inputs, field_names, field_types) |*input, field_name, field_type| {
+            input.* = Pin{.name = field_name, .kind = .{ .primitive = .{ .value = field_type }} };
+        }
+
+        const node_desc = try self.arena.allocator().create(graphl_builtin.BasicNodeDesc);
+        node_desc.* = graphl_builtin.BasicNodeDesc{
+            .name = type_name,
+            .kind = .func,
+            // FIXME: leak
+            .inputs = constructor_inputs,
+            .outputs = try self.arena.allocator().dupe(Pin, &.{
+                Pin{.name = "", .kind = .{ .primitive = .{ .value = created_type }} },
+            }),
+        };
+
+        _ = try self.env.addNode(self.arena.allocator(), graphl_builtin.basicNode(node_desc));
+
+        const byn_type = try self.getBynType(created_type);
+        const byn_heap_type = try self.getBynHeapType(created_type);
+
+        const param_byn_types = try self.arena.allocator().alloc(byn.c.BinaryenType, field_defs.len);
+        for (param_byn_types, field_types) |*param_byn_type, field_type| {
+            param_byn_type.* = try self.getBynType(field_type);
+        }
+
+        const new_struct_ops = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, field_defs.len);
+        for (new_struct_ops, param_byn_types, 0..) |*new_struct_op, param_byn_type, param_idx| {
+            new_struct_op.* = byn.c.BinaryenLocalGet(self.module.c(), @intCast(param_idx), param_byn_type);
+        }
+
+        const constructor_wasmfunc = self.module.addFunction(
+            type_name,
+            byn.Type.create(@ptrCast(param_byn_types)),
+            @enumFromInt(byn_type),
+            &.{},
+            @ptrCast(byn.c.BinaryenStructNew(
+                self.module.c(),
+                new_struct_ops.ptr,
+                @intCast(new_struct_ops.len),
+                byn_heap_type,
+            )),
+        );
+
+        std.debug.assert(constructor_wasmfunc != null);
     }
 
     fn compileType(self: *@This(), sexp_index: u32) !bool {
@@ -2219,61 +2262,6 @@ const Compilation = struct {
 
                         break :done;
                     }
-
-                    // FIXME: make this work again
-                    // FIXME: this hacky interning-like code is horribly bug prone
-                    // FIXME: rename to standard library cuz it's also that
-                    // builtins with intrinsics
-                    // inline for (comptime std.meta.declarations(wat_syms.intrinsics)) |intrinsic_decl| {
-                    //     const intrinsic = @field(wat_syms.intrinsics, intrinsic_decl.name);
-                    //     const node_desc = intrinsic.node_desc;
-                    //     const outputs = node_desc.getOutputs();
-                    //     std.debug.assert(outputs.len == 1);
-                    //     std.debug.assert(outputs[0].kind == .primitive);
-                    //     std.debug.assert(outputs[0].kind.primitive == .value);
-                    //     result.type = outputs[0].kind.primitive.value;
-
-                    //     if (func.value.symbol.ptr == node_desc.name().ptr) {
-                    //         const instruct_count: usize = if (result.type == graphl_builtin.empty_type) 1 else 2;
-                    //         try result.values.ensureTotalCapacityPrecise(instruct_count);
-
-                    //         const wasm_call = result.values.addOneAssumeCapacity();
-                    //         wasm_call.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-
-                    //         const total_args = _: {
-                    //             var total_args_res: usize = 2; // start with 2 for (call $FUNC_NAME ...)
-                    //             for (arg_fragments) |arg_frag| total_args_res += arg_frag.values.items.len;
-                    //             break :_ total_args_res;
-                    //         };
-
-                    //         try wasm_call.value.list.ensureTotalCapacityPrecise(total_args);
-                    //         // FIXME: use types to determine
-                    //         wasm_call.value.list.addOneAssumeCapacity().* = wat_syms.call;
-                    //         wasm_call.value.list.addOneAssumeCapacity().* = intrinsic.wasm_sym;
-
-                    //         for (arg_fragments, node_desc.getInputs()) |*arg_fragment, input| {
-                    //             try self.promoteToTypeInPlace(arg_fragment, input.kind.primitive.value);
-                    //             wasm_call.value.list.appendSliceAssumeCapacity(arg_fragment.values.items);
-                    //             for (arg_fragment.values.items) |*subarg| {
-                    //                 // FIXME: implement move much more clearly
-                    //                 subarg.* = Sexp{ .value = .void };
-                    //             }
-                    //         }
-
-                    //         // FIXME: do any intrinsics need to be recalled without labels?
-                    //         // if (result.type != graphl_builtin.empty_type) {
-                    //         //     const local_result_ptr_sym = try context.addLocal(alloc, result.type);
-
-                    //         //     const consume_result = result.values.addOneAssumeCapacity();
-                    //         //     consume_result.* = Sexp{ .value = .{ .list = std.ArrayList(Sexp).init(alloc) } };
-                    //         //     try consume_result.value.list.ensureTotalCapacityPrecise(2);
-                    //         //     consume_result.value.list.appendAssumeCapacity(wat_syms.ops.@"local.set");
-                    //         //     consume_result.value.list.appendAssumeCapacity(local_result_ptr_sym);
-                    //         // }
-
-                    //         break :done;
-                    //     }
-                    // }
 
                     // FIXME: handle quote
 

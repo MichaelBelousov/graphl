@@ -212,7 +212,7 @@ pub const jsonStrToGraphlType: std.StaticStringMap(Type) = _: {
 
 
 pub const Pin = struct {
-    name: [:0]const u8,
+    name: [:0]const u8 = "",
     kind: union(enum) {
         primitive: PrimitivePin,
         variadic: PrimitivePin,
