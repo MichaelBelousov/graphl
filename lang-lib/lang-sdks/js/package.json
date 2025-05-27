@@ -36,7 +36,7 @@
     "build-types": "tsc -p ./tsconfig.json",
     "build-native": "node ./native-build.mjs",
     "dev": "rollup -c -w",
-    "test": "bun test ./test/e2e.test.ts",
+    "test": "bun test ./test/*.test.ts",
     "test-node": "node --loader=node-zigar --experimental-transform-types ./test/*.test.ts",
     "test-node-only": "node --loader=node-zigar --test-only --experimental-transform-types ./test/*.test.ts",
     "test-debug": "node --inspect-brk --loader=node-zigar --test-only --experimental-transform-types ./test/*.test.ts",

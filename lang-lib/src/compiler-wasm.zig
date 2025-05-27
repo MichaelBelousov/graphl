@@ -587,6 +587,8 @@ const Compilation = struct {
         func_types: std.StringHashMapUnmanaged(DeferredFuncTypeInfo) = .{},
     } = .{},
 
+    user_def_structs: std.ArrayListUnmanaged(Type) = .{},
+
     graphlt_module: *const ModuleContext,
     _sexp_compiled: []Slot,
 
@@ -1005,6 +1007,9 @@ const Compilation = struct {
             .subtype = .{ .@"struct" = struct_info },
             .size = struct_info.size,
         });
+
+        // FIXME: have a non-arena allocator for lists (or do a pass ahead of time checking how many structs there will be)
+        try self.user_def_structs.append(self.arena.child_allocator, created_type);
 
         const constructor_inputs = try self.arena.allocator().alloc(Pin, field_types.len);
         for (constructor_inputs, field_names, field_types) |*input, field_name, field_type| {
@@ -3602,6 +3607,32 @@ const Compilation = struct {
             function_data.deinit(self.arena.allocator());
         }
 
+        var struct_data = try std.ArrayListUnmanaged(struct {
+            name: []const u8,
+            field_names: []const []const u8,
+            field_types: []const []const u8,
+        }).initCapacity(self.arena.allocator(), self.user_def_structs.items.len);
+
+        for (self.user_def_structs.items) |user_def_struct| {
+            const field_type_names = try self.arena.allocator().alloc([]const u8, user_def_struct.subtype.@"struct".field_types.len);
+            for (field_type_names, user_def_struct.subtype.@"struct".field_types) |*field_type_name, field_type| {
+                field_type_name.* = field_type.name;
+            }
+
+            struct_data.appendAssumeCapacity(.{
+                .name = user_def_struct.name,
+                .field_names = user_def_struct.subtype.@"struct".field_names,
+                .field_types = field_type_names,
+            });
+        }
+
+        defer {
+            for (struct_data.items) |struct_datum| {
+                self.arena.allocator().free(struct_datum.field_types);
+            }
+            struct_data.deinit(self.arena.allocator());
+        }
+
         {
             std.debug.assert(self.deferred.func_decls.count() == self.deferred.func_types.count());
             var func_decl_iter = self.deferred.func_decls.iterator();
@@ -3630,6 +3661,7 @@ const Compilation = struct {
             // FIXME: this is an expediant hack, define a JSON schema that will remain
             .token = "63a7f259-5c6b-4206-8927-8102dc9ad34d",
             .functions = function_data.items,
+            .structs = struct_data.items,
             // FIXME: also define types
             .types = &[_](struct { name: []const u8 }){},
             .host = .{

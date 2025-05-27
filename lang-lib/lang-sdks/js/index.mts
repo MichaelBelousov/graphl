@@ -55,6 +55,7 @@ export type GraphlType =
     // }
 ;
 
+// TODO: rename to like BuiltinTypes cuz doesn't include user defined types
 export namespace GraphlTypes {
     export const void_: GraphlType = { name: "void", kind: "primitive", size: 0 };
     export const i32: GraphlType = { name: "i32", kind: "primitive", size: 4 };
@@ -111,8 +112,8 @@ export interface UserFuncInput {
     type: GraphlType | GraphlTypeKey;
 }
 
-function inputToType(input: UserFuncInput): GraphlType {
-    return typeof input.type === "string" ? (GraphlTypes as any)[input.type] : input.type;
+function inputToType(input: UserFuncInput, ctx: GraphlContext): GraphlType {
+    return typeof input.type === "string" ? ctx.types[input.type] : input.type;
 }
 
 export interface UserFuncOutput {
@@ -535,9 +536,14 @@ function indexOfSubArray(haystack: DataView, needle: DataView) {
  * TEMP: this is like really really going to change
  */
 interface GraphlMeta {
+    structs: {
+        name: string;
+        field_names: string[];
+        field_types: string[];
+    }[];
     functions: {
         name: string;
-        // types
+        // types, FIXME: use objects for extensibility (e.g. names, descriptions, etc)
         inputs: string[];
         // types
         outputs: string[];
@@ -586,6 +592,10 @@ function parseGraphlMeta(wasmBuffer: ArrayBufferLike): GraphlMeta {
     throw Error("couldn't find end of graphl meta")
 }
 
+interface GraphlContext {
+    types: Record<string, GraphlType>;
+}
+
 export async function instantiateProgramFromWasmBuffer<Funcs extends Record<string, (...args: any[]) => any>>(
     data: ArrayBufferLike,
     hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
@@ -625,11 +635,36 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
         outputs: UserFuncOutput[],
     }>;
 
+    const ctx: GraphlContext = {
+        types: {...GraphlTypes},
+    };
+
+    for (const struct of graphlMeta.structs) {
+        const result = {
+            name: struct.name,
+            kind: "struct" as const,
+            size: 0,
+            fieldNames: struct.field_names,
+            // FIXME: assumes graphl orders this (it should)
+            fieldTypes: struct.field_types.map(t => ctx.types[t]),
+            fieldOffsets: [] as number[],
+        };
+
+        let offset = 0;
+        for (const typeName of struct.field_types) {
+            result.fieldOffsets.push(offset);
+            offset += ctx.types[typeName].size;
+        }
+        result.size = offset;
+    
+        ctx.types[struct.name] = result;
+    }
+
     for (const fn of graphlMeta.functions) {
         functionMap.set(fn.name, {
             name: fn.name,
-            inputs: fn.inputs.map(i => ({ type: (GraphlTypes as any)[i]})),
-            outputs: fn.outputs.map(o => ({ type: (GraphlTypes as any)[o]})),
+            inputs: fn.inputs.map(i => ({ type: ctx.types[i]})),
+            outputs: fn.outputs.map(o => ({ type: ctx.types[o]})),
         });
     }
 
@@ -642,7 +677,6 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
     wasmExports.exports = (wasm.instance as WasmInstance).exports;
 
     return {
-        // FIXME:
         functions: Object.fromEntries(
             Object.entries(wasm.instance.exports)
             .filter(([_key, graphlFunc]) => typeof graphlFunc === "function")
@@ -650,8 +684,8 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
                 const fnInfo = functionMap.get(key)!;
                 const graphlArgs = args.map((arg, i) => jsValToGraphlVal(
                     arg,
-                    inputToType(fnInfo.inputs[i]),
-                    wasmExports
+                    inputToType(fnInfo.inputs[i], ctx),
+                    wasmExports,
                 ));
                 const graphlRes = (graphlFunc as Function)(...graphlArgs);
                 if (fnInfo.outputs.length === 0) return undefined;

@@ -19,7 +19,7 @@ if (typeof Bun === "undefined") {
 }
 
 describe("compiler types", () => {
-  it("return i32", async () => {
+  it.only("return i32", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (meta version 1)
 
