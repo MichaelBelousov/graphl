@@ -10,7 +10,7 @@ const getZig = () => {
         await import("node-zigar/cjs");
         const imported: any =
             (globalThis as any)._GRAPHL_JS_NATIVE
-            ? await import("./js.zigar") // FIXME: I think I need require here... so maybe assert we're in node
+            ? require("./js.zigar") // FIXME: need a require for rollup here, but I think need await import to run tests in node
             : await import("./zig/js.zig");
         const inNodeJs = typeof process !== "undefined";
         if (inNodeJs) {
