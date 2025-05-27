@@ -5,6 +5,7 @@ import assert from "node:assert";
 // TODO: move these tests to a separate package to consume bundle directly
 // local (native) backend
 import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../index.mts";
+// production wasm backend
 // import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/native-cjs/index.js";
 // production wasm backend
 //import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/cjs/index.js";
@@ -18,7 +19,7 @@ if (typeof Bun === "undefined") {
 }
 
 describe("compiler types", () => {
-  it.only("return i32", async () => {
+  it("return i32", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (meta version 1)
 
