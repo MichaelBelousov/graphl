@@ -1,8 +1,0 @@
-{
-  "dependencies": {
-    "s-expression": "https://github.com/fwg/s-expression"
-  },
-  "devDependencies": {
-    "@types/node": "^22.14.1"
-  }
-}

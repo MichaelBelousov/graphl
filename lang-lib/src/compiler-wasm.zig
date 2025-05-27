@@ -2086,22 +2086,6 @@ const Compilation = struct {
                         break :done;
                     }
 
-                    // (ForStep (0 10 1 i) (print i))
-                    if (func.value.symbol.ptr == syms.for_step.value.symbol.ptr) {
-                        if (v.items.len < 3) {
-                            self.diag.err = .{ .BuiltinWrongArity = .{
-                                .callee = v.items[0],
-                                .expected = 2,
-                                .received = @intCast(v.items.len - 1),
-                            } };
-                            return error.BuiltinWrongArity;
-                        }
-                        slot.type = args_top_type;
-                        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
-                        slot.expr = byn.c.BinaryenNop(self.module.c());
-                        break :done;
-                    }
-
                     if (func.value.symbol.ptr == syms.@"set!".value.symbol.ptr) {
                         std.debug.assert(v.items.len == 3);
 
@@ -2901,32 +2885,6 @@ const Compilation = struct {
                     self.RelooperAddBranch(list.items[2], .post, code_sexp_idx, .post, null, null);
                     return;
                 } else if (callee.value.symbol.ptr == syms.@"if".value.symbol.ptr) {
-                    std.debug.assert(list.items.len >= 3);
-                    const condition_idx = code_sexp.value.list.items[1];
-                    const condition_slot = &self._sexp_compiled[condition_idx];
-                    const consequence_idx = code_sexp.value.list.items[2];
-                    self.RelooperAddBranch(code_sexp_idx, .pre, condition_idx, .pre, null, null);
-                    self.RelooperAddBranch(
-                        condition_idx,
-                        .post,
-                        consequence_idx,
-                        .pre,
-                        byn.c.BinaryenLocalGet(self.module.c(), condition_slot.local_index, try self.getBynType(condition_slot.type)),
-                        null,
-                    );
-                    self.RelooperAddBranch(consequence_idx, .post, code_sexp_idx, .post, null, null);
-                    try self.linkExpr(consequence_idx, fn_ctx, link_ctx);
-                    if (list.items.len > 3) {
-                        const alternative_idx = code_sexp.value.list.items[3];
-                        try self.linkExpr(condition_idx, fn_ctx, link_ctx);
-                        try self.linkExpr(alternative_idx, fn_ctx, link_ctx);
-                        self.RelooperAddBranch(condition_idx, .post, alternative_idx, .pre, null, null);
-                        self.RelooperAddBranch(alternative_idx, .post, code_sexp_idx, .post, null, null);
-                    } else {
-                        try self.linkExpr(condition_idx, fn_ctx, link_ctx);
-                        self.RelooperAddBranch(condition_idx, .post, code_sexp_idx, .pre, null, null);
-                    }
-                } else if (callee.value.symbol.ptr == syms.for_step.value.symbol.ptr) {
                     std.debug.assert(list.items.len >= 3);
                     const condition_idx = code_sexp.value.list.items[1];
                     const condition_slot = &self._sexp_compiled[condition_idx];
