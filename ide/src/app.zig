@@ -2179,7 +2179,8 @@ fn renderNode(
                             break :_ socket_center;
                         }
 
-                        if (input_desc.kind.primitive.value == graphl.primitive_types.vec3) {
+                        // FIXME: require they use vec3 node
+                        if (input_desc.kind.primitive.value == graphl.nonprimitive_types.vec3) {
                             break :_ socket_center;
                         }
 

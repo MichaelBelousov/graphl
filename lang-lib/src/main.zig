@@ -16,6 +16,7 @@ pub const Point = @import("./nodes/builtin.zig").Point;
 pub const Pin = @import("./nodes/builtin.zig").Pin;
 pub const PrimitivePin = @import("./nodes/builtin.zig").PrimitivePin;
 pub const primitive_types = @import("./nodes/builtin.zig").primitive_types;
+pub const nonprimitive_types = @import("./nodes/builtin.zig").nonprimitive_types;
 pub const Type = @import("./nodes/builtin.zig").Type;
 pub const TypeInfo = @import("./nodes/builtin.zig").TypeInfo;
 pub const NodeDesc = @import("./nodes/builtin.zig").NodeDesc;
