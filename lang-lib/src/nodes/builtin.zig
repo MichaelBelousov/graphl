@@ -977,20 +977,6 @@ pub const builtin_nodes = struct {
         .description = "concatenates two strings such that you have one string containing the bytes of a then of b",
     });
 
-    pub const make_vec3: NodeDesc = basicNode(&.{
-        .name = "Make-Vec3",
-        .inputs = &.{
-            Pin{ .name = "X", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            Pin{ .name = "Y", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-            Pin{ .name = "Z", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
-        },
-        .outputs = &.{
-            Pin{ .name = "Vec3", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
-        },
-        .tags = &.{"vector"},
-        .description = "create a vec3 from its components",
-    });
-
     // FIXME: replace with rgba "break" struct
     pub const vec3_x: NodeDesc = basicNode(&.{
         .name = "Vec3->X",
@@ -1024,6 +1010,18 @@ pub const builtin_nodes = struct {
         },
         .tags = &.{"vector"},
         .description = "get the z component of a vec3",
+    });
+
+    pub const vec3_negate: NodeDesc = basicNode(&.{
+        .name = "negate",
+        .inputs = &.{
+            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        },
+        .outputs = &.{
+            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+        },
+        .tags = &.{"vector"},
+        .description = "get a new vector where each component is the negative of the original",
     });
 
     // FIXME: replace with rgba "break" struct
