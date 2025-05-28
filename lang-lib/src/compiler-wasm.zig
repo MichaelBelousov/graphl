@@ -28,6 +28,7 @@ const primitive_type_syms = @import("./sexp.zig").primitive_type_syms;
 const graphl_builtin = @import("./nodes/builtin.zig");
 const empty_type = graphl_builtin.empty_type;
 const primitive_types = @import("./nodes/builtin.zig").primitive_types;
+const nonprimitive_types = @import("./nodes/builtin.zig").nonprimitive_types;
 const Env = @import("./nodes/builtin.zig").Env;
 const TypeInfo = @import("./nodes/builtin.zig").TypeInfo;
 const Type = @import("./nodes/builtin.zig").Type;
@@ -1387,11 +1388,10 @@ const Compilation = struct {
 
         // TODO: use switch if compiler supports it
         if (graphl_type == primitive_types.string) {
-            self.used_features.string = true;
-        } else if (graphl_type == primitive_types.vec3) {
-            self.used_features.vec3 = true;
+            try self.ensureStringFeature();
+        } else if (graphl_type == nonprimitive_types.vec3) {
+            try self.ensureVec3Feature();
         }
-
 
         const has_intrinsics = (try self.type_intrinsics_generated.getOrPut(self.arena.allocator(), byn_type)).found_existing;
         if (graphl_type.subtype == .@"struct" and !has_intrinsics) {
@@ -1700,6 +1700,7 @@ const Compilation = struct {
 
     fn ensureVec3Feature(self: *@This()) CompileExprError!void {
         if (self.used_features.vec3) return;
+        self.used_features.vec3 = true;
 
         const vec3_module = byn.c.BinaryenModuleRead(@constCast(intrinsics_vec3.ptr), intrinsics_vec3.len);
         //_ = vec3_module;
@@ -1709,7 +1710,7 @@ const Compilation = struct {
         std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_y".ptr, "Vec3->Y".ptr));
         std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_z".ptr, "Vec3->Z".ptr));
 
-        const byn_types = try self.commitStructType(primitive_types.vec3.name, &primitive_types.vec3.subtype.@"struct");
+        const byn_types = try self.commitStructType(nonprimitive_types.vec3.name, &nonprimitive_types.vec3.subtype.@"struct");
 
         std.debug.assert(self.module.addFunction(
             "negate",
@@ -1768,6 +1769,7 @@ const Compilation = struct {
 
     fn ensureStringFeature(self: *@This()) CompileExprError!void {
         if (self.used_features.string) return;
+        self.used_features.string = true;
 
         const str_byn_type = try self.getBynType(primitive_types.string);
 
@@ -4446,7 +4448,7 @@ test "vec3 ref" {
             }),
             .outputs = try t.allocator.dupe(Pin, &.{
                 Pin{ .name = "", .kind = .{ .primitive = .exec } },
-                Pin{ .name = "center", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+                Pin{ .name = "center", .kind = .{ .primitive = .{ .value = nonprimitive_types.vec3 } } },
             }),
         } },
     };

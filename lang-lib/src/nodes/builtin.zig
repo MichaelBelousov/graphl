@@ -206,7 +206,7 @@ pub const jsonStrToGraphlType: std.StaticStringMap(Type) = _: {
         .{ "code", primitive_types.code },
         .{ "bool", primitive_types.bool_ },
         .{ "rgba", primitive_types.rgba },
-        .{ "vec3", primitive_types.vec3 },
+        .{ "vec3", nonprimitive_types.vec3 },
     });
 };
 
@@ -530,19 +530,6 @@ pub const primitive_types = struct {
         .size = 0,
     };
 
-    pub const vec3: Type = &TypeInfo{
-        .name = "vec3",
-        .size = @sizeOf(Vec3),
-        .subtype = .{ .@"struct" = .{
-            .field_names = &.{ "x", "y", "z" },
-            .field_types = &.{ primitive_types.f64_, primitive_types.f64_, primitive_types.f64_ },
-            .field_offsets = &.{ 0, 8, 16 },
-            .size = 24,
-            .flat_array_count = 0,
-            .flat_primitive_slot_count = 3,
-        } },
-    };
-
     pub const rgba: Type = &TypeInfo{ .name = "rgba", .size = 4 };
 
     // FIXME: replace when we think out the macro system
@@ -581,46 +568,21 @@ pub const primitive_types = struct {
     // }
 };
 
-// FIXME: check if the pointer should be u32 instead of i32
-/// all of these are represented locally as a i32 pointer to the memory for the type
-pub const compound_builtin_types = struct {
-    pub const string: Type = primitive_types.string;
-    pub const vec3: Type = primitive_types.vec3;
-
-    // TODO: assert these all have their size set
+/// these types are not always compiled in unless used from the standard library
+pub const nonprimitive_types = struct {
+    pub const vec3: Type = &TypeInfo{
+        .name = "vec3",
+        .size = @sizeOf(Vec3),
+        .subtype = .{ .@"struct" = .{
+            .field_names = &.{ "x", "y", "z" },
+            .field_types = &.{ primitive_types.f64_, primitive_types.f64_, primitive_types.f64_ },
+            .field_offsets = &.{ 0, 8, 16 },
+            .size = 24,
+            .flat_array_count = 0,
+            .flat_primitive_slot_count = 3,
+        } },
+    };
 };
-
-/// lisp-like tree, first is value, rest are children
-// const num_type_hierarchy = .{
-//     primitive_types.f64_,
-//     .{ primitive_types.f32_,
-//         .{ primitive_types.i64_,
-//             .{ primitive_types.i32_ },
-//             .{ primitive_types.u32_} },
-//         .{ primitive_types.u64_, } } };
-
-// comptime {
-//     fn countLeg(comptime types: anytype) usize {
-//         var result = 1;
-//         for (types[1..]) |leg|
-//             result += countLeg(leg);
-//         return result;
-//     }
-//     const num_type_hierarchy_leg_count = countLeg(num_type_hierarchy);
-
-//     var num_type_hierarchy_legs: [num_type_hierarchy_leg_count][2]Type = undefined;
-//     fn populateLegs(
-//         in_num_type_hierarchy_legs: *@TypeOf(num_type_hierarchy_legs),
-//         index: *usize,
-//         curr_node: @TypeOf(num_type_hierarchy),
-//     ) void {
-//         for (curr_node) |leg|
-//             result += countLeg(leg);
-//         index.* += 1;
-//         populateLegs()
-//     }
-//     populateLegs(0, &num_type_hierarchy);
-// }
 
 pub const BasicNodeDesc = struct {
     name: [:0]const u8,
@@ -981,7 +943,7 @@ pub const builtin_nodes = struct {
     pub const vec3_x: NodeDesc = basicNode(&.{
         .name = "Vec3->X",
         .inputs = &.{
-            Pin{ .name = "Vec3", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+            Pin{ .name = "Vec3", .kind = .{ .primitive = .{ .value = nonprimitive_types.vec3 } } },
         },
         .outputs = &.{
             Pin{ .name = "X", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -992,7 +954,7 @@ pub const builtin_nodes = struct {
     pub const vec3_y: NodeDesc = basicNode(&.{
         .name = "Vec3->Y",
         .inputs = &.{
-            Pin{ .name = "Vec3", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+            Pin{ .name = "Vec3", .kind = .{ .primitive = .{ .value = nonprimitive_types.vec3 } } },
         },
         .outputs = &.{
             Pin{ .name = "Y", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -1003,7 +965,7 @@ pub const builtin_nodes = struct {
     pub const vec3_z: NodeDesc = basicNode(&.{
         .name = "Vec3->Z",
         .inputs = &.{
-            Pin{ .name = "Vec3", .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+            Pin{ .name = "Vec3", .kind = .{ .primitive = .{ .value = nonprimitive_types.vec3 } } },
         },
         .outputs = &.{
             Pin{ .name = "Z", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
@@ -1015,10 +977,10 @@ pub const builtin_nodes = struct {
     pub const vec3_negate: NodeDesc = basicNode(&.{
         .name = "negate",
         .inputs = &.{
-            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+            Pin{ .kind = .{ .primitive = .{ .value = nonprimitive_types.vec3 } } },
         },
         .outputs = &.{
-            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.vec3 } } },
+            Pin{ .kind = .{ .primitive = .{ .value = nonprimitive_types.vec3 } } },
         },
         .tags = &.{"vector"},
         .description = "get a new vector where each component is the negative of the original",
@@ -1365,7 +1327,9 @@ pub const Env = struct {
         // TODO: dupe the key, we need to own the key memory lifetime
         const result = try self._types.getOrPut(a, type_info.name);
         // FIXME: allow types to be overriden within scopes?
-        if (result.found_existing) return error.EnvAlreadyExists;
+        if (result.found_existing) {
+            return error.EnvAlreadyExists;
+        }
         const slot = try a.create(std.SinglyLinkedList(TypeInfo).Node);
         slot.* = .{
             .data = type_info,
@@ -1380,7 +1344,9 @@ pub const Env = struct {
         // TODO: dupe the key, we need to own the key memory lifetime
         const result = try self._nodes.getOrPut(a, node_desc.name());
         // FIXME: allow types to be overriden within scopes?
-        if (result.found_existing) return error.EnvAlreadyExists;
+        if (result.found_existing) {
+            return error.EnvAlreadyExists;
+        }
         const slot = try a.create(std.SinglyLinkedList(NodeDesc).Node);
         slot.* = .{
             .data = node_desc,

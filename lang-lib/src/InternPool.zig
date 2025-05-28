@@ -102,7 +102,8 @@ pub export fn _intern_pool_constructor() callconv(.C) void {
         _ = addSourceSymbol(&pool, sym.value.symbol);
     }
 
-    inline for (@import("nodes/builtin.zig").primitive_types.vec3.subtype.@"struct".field_names) |field| {
+    // FIXME: do this for all structs automatically kinda
+    inline for (@import("nodes/builtin.zig").nonprimitive_types.vec3.subtype.@"struct".field_names) |field| {
         _ = addSourceSymbol(&pool, field);
     }
 }
