@@ -456,4 +456,12 @@ describe("js sdk", () => {
     `);
     assert.strictEqual(program.functions.foo(), 5n);
   });
+
+  it("vec3 negate", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (typeof (foo) vec3)
+      (define (foo) (return (negate (vec3 0 1 2))))
+    `);
+    assert.partialDeepStrictEqual(program.functions.foo(), { x: -0, y: -1, z: -2});
+  });
 });

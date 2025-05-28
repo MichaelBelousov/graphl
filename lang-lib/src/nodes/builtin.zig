@@ -1214,7 +1214,7 @@ pub const Env = struct {
         env._nodes_by_type.* = .{};
         env._tag_set.* = .{};
 
-        inline for (&.{ primitive_types }) |types| {
+        inline for (&.{ primitive_types, nonprimitive_types }) |types| {
             //const types_decls = comptime std.meta.declList(types, TypeInfo);
             const types_decls = comptime std.meta.declarations(types);
             try env._types.ensureTotalCapacity(alloc, @intCast(types_decls.len));

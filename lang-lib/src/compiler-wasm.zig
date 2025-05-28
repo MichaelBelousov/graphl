@@ -580,7 +580,7 @@ const Compilation = struct {
         func_types: std.StringHashMapUnmanaged(DeferredFuncTypeInfo) = .{},
     } = .{},
 
-    user_def_structs: std.ArrayListUnmanaged(Type) = .{},
+    defined_structs: std.ArrayListUnmanaged(Type) = .{},
 
     graphlt_module: *const ModuleContext,
     _sexp_compiled: []Slot,
@@ -995,14 +995,19 @@ const Compilation = struct {
             .field_types = field_types,
         });
 
-        _ = try self.commitStructType(type_name, &struct_info);
+        _ = try self.commitStructType(type_name, &struct_info, null);
     }
 
-    fn commitStructType(self: *@This(), type_name: [:0]const u8, struct_info: *const graphl_builtin.StructType) CompileExprError!struct {
+    fn commitStructType(
+        self: *@This(),
+        type_name: [:0]const u8,
+        struct_info: *const graphl_builtin.StructType,
+        builtin_type: ?Type,
+    ) CompileExprError!struct {
         byn_type: byn.c.BinaryenType,
         byn_heap_type: byn.c.BinaryenHeapType,
     } {
-        const created_type = self.env.addType(self.arena.allocator(), graphl_builtin.TypeInfo{
+        const created_type = builtin_type orelse self.env.addType(self.arena.allocator(), graphl_builtin.TypeInfo{
             .name = type_name,
             .subtype = .{ .@"struct" = struct_info.* },
             .size = struct_info.size,
@@ -1011,8 +1016,8 @@ const Compilation = struct {
             else => |nonEnvErr| return nonEnvErr,
         };
 
-        // FIXME: have a non-arena allocator for lists (or do a pass ahead of time checking how many structs there will be)
-        try self.user_def_structs.append(self.arena.child_allocator, created_type);
+        // FIXME: have a non-arena allocator for lists (better do a pass ahead of time checking how many structs there will be)
+        try self.defined_structs.append(self.arena.child_allocator, created_type);
 
         const constructor_inputs = try self.arena.allocator().alloc(Pin, struct_info.field_types.len);
         for (constructor_inputs, struct_info.field_names, struct_info.field_types) |*input, field_name, field_type| {
@@ -1386,6 +1391,11 @@ const Compilation = struct {
     inline fn getBynType(self: *@This(), graphl_type: Type) (Diagnostic.Code || std.mem.Allocator.Error)!byn.c.BinaryenType {
         const byn_type = BinaryenHelper.getType(graphl_type);
 
+
+        // FIXME: make these lazy!
+        // FIXME: need to wrap every env.getType call to only lazily add types as they
+        //
+        // are used (or require importing features)
         // TODO: use switch if compiler supports it
         if (graphl_type == primitive_types.string) {
             try self.ensureStringFeature();
@@ -1710,7 +1720,7 @@ const Compilation = struct {
         std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_y".ptr, "Vec3->Y".ptr));
         std.debug.assert(byn._binaryenCloneFunction(vec3_module, self.module.c(), "__graphl_vec3_z".ptr, "Vec3->Z".ptr));
 
-        const byn_types = try self.commitStructType(nonprimitive_types.vec3.name, &nonprimitive_types.vec3.subtype.@"struct");
+        const byn_types = try self.commitStructType(nonprimitive_types.vec3.name, &nonprimitive_types.vec3.subtype.@"struct", nonprimitive_types.vec3);
 
         std.debug.assert(self.module.addFunction(
             "negate",
@@ -1730,8 +1740,8 @@ const Compilation = struct {
                                 byn.c.BinaryenStructGet(
                                     self.module.c(),
                                     0,
-                                    byn.c.BinaryenLocalGet(self.module.c(), 0, @intFromEnum(byn.Type.f64)),
-                                    byn_types.byn_type,
+                                    byn.c.BinaryenLocalGet(self.module.c(), 0, byn_types.byn_type),
+                                    byn.c.BinaryenTypeFloat64(),
                                     true,
                                 ),
                             ),
@@ -1741,8 +1751,8 @@ const Compilation = struct {
                                 byn.c.BinaryenStructGet(
                                     self.module.c(),
                                     1,
-                                    byn.c.BinaryenLocalGet(self.module.c(), 0, @intFromEnum(byn.Type.f64)),
-                                    byn_types.byn_type,
+                                    byn.c.BinaryenLocalGet(self.module.c(), 0, byn_types.byn_type),
+                                    byn.c.BinaryenTypeFloat64(),
                                     true,
                                 ),
                             ),
@@ -1752,8 +1762,8 @@ const Compilation = struct {
                                 byn.c.BinaryenStructGet(
                                     self.module.c(),
                                     2,
-                                    byn.c.BinaryenLocalGet(self.module.c(), 0, @intFromEnum(byn.Type.f64)),
-                                    byn_types.byn_type,
+                                    byn.c.BinaryenLocalGet(self.module.c(), 0, byn_types.byn_type),
+                                    byn.c.BinaryenTypeFloat64(),
                                     true,
                                 ),
                             ),
@@ -2772,9 +2782,31 @@ const Compilation = struct {
                         const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, v.items.len - 1);
                         defer self.arena.allocator().free(operands);
 
-                        for (v.items[1..], operands[0 .. v.items.len - 1]) |arg_idx, *operand| {
+                        for (
+                            v.items[1..],
+                            operands[0 .. v.items.len - 1],
+                            if (is_pure) func_node_desc.getInputs() else func_node_desc.getInputs()[1..],
+                        ) |arg_idx, *operand, input_pin| {
                             const arg_compiled = self._sexp_compiled[arg_idx];
-                            operand.* = byn.c.BinaryenLocalGet(self.module.c(), arg_compiled.local_index, try self.getBynType(arg_compiled.type));
+                            operand.* = self.promoteToType(
+                                arg_compiled.type,
+                                byn.c.BinaryenLocalGet(
+                                    self.module.c(),
+                                    arg_compiled.local_index,
+                                    try self.getBynType(arg_compiled.type),
+                                ),
+                                input_pin.kind.primitive.value,
+                            // FIXME: clearly I should just require the error_idx?
+                            ) catch |err| switch (err) {
+                                error.UnsupportedTypeCoercion => {
+                                    self.diag.err = .{ .UnsupportedTypeCoercion = .{
+                                        .idx = arg_idx,
+                                        .from = arg_compiled.type,
+                                        .to = input_pin.kind.primitive.value,
+                                    } };
+                                    return err;
+                                },
+                            };
                         }
 
                         const call_expr = byn.c.BinaryenCall(
@@ -3212,6 +3244,8 @@ const Compilation = struct {
                     break :_ byn.Expression.Op.wrapInt64();
                 }
 
+                log.err("start: {s} to {s}", .{ start_type.name, target_type.name });
+                log.err("start: {*} to {*}", .{ start_type, target_type });
                 log.err("unimplemented type promotion leg: {s} -> {s}", .{ curr_type.name, target_type.name });
                 return error.UnsupportedTypeCoercion;
             };
@@ -3774,9 +3808,9 @@ const Compilation = struct {
             name: []const u8,
             field_names: []const []const u8,
             field_types: []const []const u8,
-        }).initCapacity(self.arena.allocator(), self.user_def_structs.items.len);
+        }).initCapacity(self.arena.allocator(), self.defined_structs.items.len);
 
-        for (self.user_def_structs.items) |user_def_struct| {
+        for (self.defined_structs.items) |user_def_struct| {
             const field_type_names = try self.arena.allocator().alloc([]const u8, user_def_struct.subtype.@"struct".field_types.len);
             for (field_type_names, user_def_struct.subtype.@"struct".field_types) |*field_type_name, field_type| {
                 field_type_name.* = field_type.name;
