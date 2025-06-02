@@ -139,7 +139,7 @@ describe("js sdk", () => {
   it("pass vec3", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (make) vec3)
-      (define (make) (begin (return 1.2 3.4 5.6789)))
+      (define (make) (begin (return (vec3 1.2 3.4 5.6789))))
       (typeof (take vec3) f64)
       (define (take v) (return (.z v)))
     `);

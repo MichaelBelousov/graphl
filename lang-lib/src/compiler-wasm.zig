@@ -1742,7 +1742,7 @@ const Compilation = struct {
                                     0,
                                     byn.c.BinaryenLocalGet(self.module.c(), 0, byn_types.byn_type),
                                     byn.c.BinaryenTypeFloat64(),
-                                    true,
+                                    false,
                                 ),
                             ),
                             byn.c.BinaryenUnary(
@@ -1753,7 +1753,7 @@ const Compilation = struct {
                                     1,
                                     byn.c.BinaryenLocalGet(self.module.c(), 0, byn_types.byn_type),
                                     byn.c.BinaryenTypeFloat64(),
-                                    true,
+                                    false,
                                 ),
                             ),
                             byn.c.BinaryenUnary(
@@ -1764,7 +1764,7 @@ const Compilation = struct {
                                     2,
                                     byn.c.BinaryenLocalGet(self.module.c(), 0, byn_types.byn_type),
                                     byn.c.BinaryenTypeFloat64(),
-                                    true,
+                                    false,
                                 ),
                             ),
                         }).ptr,
