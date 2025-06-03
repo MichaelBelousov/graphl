@@ -194,6 +194,7 @@ pub const Value = union(enum) {
     symbol: []const u8,
 };
 
+// TODO: get these out of the default env maybe?
 pub const jsonStrToGraphlType: std.StaticStringMap(Type) = _: {
     break :_ std.StaticStringMap(Type).initComptime(.{
         .{ "u32", primitive_types.u32_ },
@@ -213,6 +214,7 @@ pub const jsonStrToGraphlType: std.StaticStringMap(Type) = _: {
 
 pub const Pin = struct {
     name: [:0]const u8 = "",
+    description: ?[:0]const u8 = null,
     kind: union(enum) {
         primitive: PrimitivePin,
         variadic: PrimitivePin,
@@ -231,12 +233,14 @@ pub const Pin = struct {
 
     const JsonType = struct {
         name: [:0]const u8,
+        description: ?[:0]const u8 = null,
         type: []const u8,
     };
 
     pub fn jsonStringify(self: *const @This(), jws: anytype) std.mem.Allocator.Error!void {
         try jws.write(.{
             .name = self.name,
+            .description = self.description,
             // FIXME: handle non-primitives
             .type = switch (self.kind.primitive) {
                 .exec => "exec",
@@ -250,6 +254,7 @@ pub const Pin = struct {
 
         return @This(){
             .name = raw_parsed.name,
+            .description = raw_parsed.description,
             .kind = if (std.mem.eql(u8, raw_parsed.type, "exec"))
                 .{ .primitive = .exec }
             else

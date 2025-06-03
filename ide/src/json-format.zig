@@ -17,11 +17,13 @@ pub const GraphsInitStateJson = std.json.ArrayHashMap(GraphInitStateJson);
 // CONSOLIDATE
 pub const PinJson = struct {
     name: [:0]const u8,
+    description: ?[:0]const u8 = null,
     type: []const u8,
 
     pub fn promote(self: @This()) !helpers.Pin {
         return helpers.Pin{
             .name = self.name,
+            .description = self.description,
             .kind = if (std.mem.eql(u8, self.type, "exec"))
                 .{ .primitive = .exec }
             else

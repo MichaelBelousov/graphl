@@ -579,6 +579,7 @@ pub fn addGraph(
             // TODO: leak?
             try gpa.dupe(u8, param.name),
             param.asPrimitivePin().value,
+            param.description,
         );
     }
 
@@ -590,6 +591,7 @@ pub fn addGraph(
             // TODO: leak?
             try gpa.dupe(u8, result.name),
             result.asPrimitivePin().value,
+            result.description,
         );
     }
 
@@ -2192,7 +2194,15 @@ fn renderNode(
 
             try socket_positions.put(gpa, socket, socket_point);
 
-            _ = try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .font_style = .heading, .id_extra = j, .gravity_y = 0.5 });
+            {
+                var label_box = try dvui.box(@src(), .horizontal, .{});
+                defer label_box.deinit();
+
+                try dvui.label(@src(), "{s}", .{input_desc.name}, .{ .font_style = .heading, .id_extra = j, .gravity_y = 0.5 });
+                if (input_desc.description) |d| {
+                    try dvui.tooltip(@src(), .{.active_rect = label_box.data().borderRectScale().r  }, "{s}", .{d}, .{});
+                }
+            }
         }
     }
 
@@ -2217,7 +2227,15 @@ fn renderNode(
             socket_icon_opts.color_fill = .{ .color = color };
             socket_icon_opts.color_fill_hover = .{ .color = .{ .r = color.r, .g = color.g, .b = color.b, .a = 0x88 } };
 
-            _ = try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .id_extra = j, .gravity_y = 0.5 });
+            {
+                var label_box = try dvui.box(@src(), .horizontal, .{});
+                defer label_box.deinit();
+
+                try dvui.label(@src(), "{s}", .{output_desc.name}, .{ .font_style = .heading, .id_extra = j, .gravity_y = 0.5 });
+                if (output_desc.description) |d| {
+                    try dvui.tooltip(@src(), .{.active_rect = label_box.data().borderRectScale().r  }, "{s}", .{d}, .{});
+                }
+            }
 
             var icon_res = if (output_desc.kind.primitive == .exec)
                 try dvui_extra.buttonIconResult(@src(), "arrow_with_circle_right", entypo.arrow_with_circle_right, .{}, socket_icon_opts)
@@ -2619,6 +2637,7 @@ pub fn addParamOrResult(
     name: ?[]const u8,
     /// defaults to i32
     type_: ?graphl.Type,
+    description: ?[:0]const u8,
 ) !void {
     const pin_dir = comptime if (kind == .params) "outputs" else "inputs";
     const opposite_dir = comptime if (kind == .params) "inputs" else "outputs";
@@ -2651,6 +2670,7 @@ pub fn addParamOrResult(
 
     pin_descs[pin_descs.len - 1] = .{
         .name = new_name,
+        .description = description,
         // i32 is default param for now
         .kind = .{ .primitive = .{
             .value = type_ orelse graphl.primitive_types.i32_,
@@ -2684,7 +2704,7 @@ pub fn addParamOrResult(
         };
 
         param_set_slot.inputs[0] = .{
-            .name = "in",
+            .name = "",
             .kind = .{ .primitive = .exec },
         };
         param_set_slot.inputs[1] = .{
@@ -2693,7 +2713,7 @@ pub fn addParamOrResult(
         };
 
         param_set_slot.outputs[0] = .{
-            .name = "out",
+            .name = "",
             .kind = .{ .primitive = .exec },
         };
         param_set_slot.outputs[1] = .{
@@ -2706,6 +2726,7 @@ pub fn addParamOrResult(
         _ = self.current_graph.env.addNode(gpa, helpers.basicMutableNode(param_set_slot)) catch unreachable;
     }
 
+    // patch existing nodes
     {
         // TODO: nodes should not be guaranteed to have the same amount of links as their
         // definition has pins
@@ -2756,6 +2777,7 @@ pub fn addParamToCurrentGraph(
     self: *@This(),
     name: []const u8,
     type_: graphl.Type,
+    description: ?[:0]const u8,
 ) !void {
     return self.addParamOrResult(
         self.current_graph.graphl_graph.entry_node,
@@ -2763,6 +2785,7 @@ pub fn addParamToCurrentGraph(
         .params,
         name,
         type_,
+        description,
     );
 }
 
@@ -2844,21 +2867,25 @@ pub fn frame(self: *@This()) !void {
 
         const recurseMenus = (struct {
             pub fn recurseMenus(menus: []const MenuOption, in_counter: *u32, app_ctx: ?*anyopaque) !void {
-                const first = in_counter.* == 0;
                 for (menus) |menu| {
+                    // FIXME: not sure I need this because it's already parent based?
                     const id = in_counter.*;
                     in_counter.* += 1;
                     if (try dvui.menuItemLabel(
                         @src(),
                         menu.name,
                         .{ .submenu = menu.submenus.len > 0 },
-                        .{ .expand = if (first) .none else .horizontal, .id_extra = id },
+                        .{ .expand = .none, .id_extra = id },
                     )) |r| {
                         if (menu.on_click) |on_click| {
                             on_click(app_ctx, menu.on_click_ctx);
                         }
 
-                        var fw = try dvui.floatingMenu(@src(), .{ .from = Rect.Natural.fromPoint(dvui.Point.Natural{ .x = r.x, .y = r.y + r.h }) }, .{ .id_extra = id });
+                        var fw = try dvui.floatingMenu(
+                            @src(),
+                            .{ .from = Rect.Natural.fromPoint(dvui.Point.Natural{ .x = r.x, .y = r.y + r.h }) },
+                            .{ .id_extra = id },
+                        );
                         defer fw.deinit();
                         try recurseMenus(menu.submenus, in_counter, app_ctx);
                     }
@@ -3201,7 +3228,7 @@ pub fn frame(self: *@This()) !void {
                 if (!self.current_graph.fixed_signature) {
                     const add_clicked = try dvui.buttonIcon(@src(), "add-binding", entypo.plus, .{}, .{ .id_extra = i });
                     if (add_clicked) {
-                        try addParamOrResult(self, info.node_desc, info.node_basic_desc, info.type, null, null);
+                        try addParamOrResult(self, info.node_desc, info.node_basic_desc, info.type, null, null, null);
                     }
                 }
             }

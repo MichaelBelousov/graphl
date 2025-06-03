@@ -13,7 +13,6 @@ pub const InputInitStateJson = App.InputInitState;
 pub const NodeInitStateJson = @import("./json-format.zig").NodeInitStateJson;
 pub const GraphInitStateJson = @import("./json-format.zig").GraphInitStateJson;
 pub const GraphsInitStateJson = @import("./json-format.zig").GraphInitStateJson;
-pub const PinJson = @import("./json-format.zig").PinJson ;
 pub const BasicMutNodeDescJson = @import("./json-format.zig").BasicMutNodeDescJson;
 pub const UserFuncJson = @import("./json-format.zig").UserFuncJson;
 pub const InitOptsJson = @import("./json-format.zig").InitOptsJson;
@@ -93,7 +92,7 @@ fn onMenuClick(_: ?*anyopaque, click_ctx: ?*anyopaque) void {
 fn _setInitOpts(in_json: []const u8) !void {
     const json = try gpa.dupe(u8, in_json);
     var arena = std.heap.ArenaAllocator.init(gpa);
-    // NOTE: leaks on success, fix when switching to using globals
+    // NOTE: leaks on success, fix when switching from using globals
     //errdefer arena.deinit();
 
     var json_diagnostics = std.json.Diagnostics{};

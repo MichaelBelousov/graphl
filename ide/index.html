@@ -114,7 +114,7 @@
               allowRunning: true,
               userFuncs: {
                 "Confetti": {
-                  inputs: [{ name: "ParticleCount", type: "i32" }],
+                  inputs: [{ name: "ParticleCount", type: "i32", description: "amount of confetti particles" }],
                   outputs: [],
                   description: "spray confetti everywhere",
                   impl(particleCount) {
@@ -188,8 +188,8 @@
 
                 "CaselessMatch": {
                   inputs: [
-                    { name: "Haystack", type: "string" },
-                    { name: "Needle", type: "string" },
+                    { name: "Haystack", type: "string", description: "string to search in" },
+                    { name: "Needle", type: "string", description: "string to search for" },
                   ],
                   outputs: [{ name: "Found", type: "bool" }],
                   kind: "pure",
@@ -313,15 +313,15 @@
                 processInstance: {
                   fixedSignature: true,
                   inputs: [
-                    { name: "ElementId", type: "u64" },
+                    { name: "ElementId", type: "u64", description: "id of the element" },
                     // part or element
-                    { name: "GeometrySourceId", type: "u64" },
-                    { name: "Origin", type: "vec3" },
+                    { name: "GeometrySourceId", type: "u64", description: "id of the source of geometry" },
+                    { name: "Origin", type: "vec3", description: "xyz in meters origin" },
                     { name: "Rotation", type: "vec3" },
                     { name: "AnimationBatchId", type: "u64" },
                   ],
                   outputs: [
-                    { name: "OutputFile", type: "string" },
+                    { name: "OutputFile", type: "string", description: "Which datasmith file it goes to" },
                     // TODO: add the ability to put a tooltip on a pin
                     { name: "ClusterId", type: "u64" },
                     { name: "MaterialName", type: "string" },
