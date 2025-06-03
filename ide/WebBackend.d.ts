@@ -72,6 +72,7 @@ export declare interface GraphInitState {
 export declare interface PinJson {
   name: string;
   type: PrimitiveType;
+  description?: string;
 }
 
 export declare interface BasicMutNodeDescJson {
