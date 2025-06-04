@@ -2987,8 +2987,7 @@ pub fn frame(self: *@This()) !void {
                         const new_name = try gpa.dupeZ(u8, entry_state.getText());
                         cursor.data.name = new_name;
                         cursor.data.call_basic_desc.name = new_name;
-                        std.debug.assert(self.shared_env._nodes.remove(old_name));
-                        if (self.shared_env.addNode(gpa, helpers.basicMutableNode(&cursor.data.call_basic_desc))) |result| {
+                        if (self.shared_env.renameNode(gpa, old_name, helpers.basicMutableNode(&cursor.data.call_basic_desc))) |result| {
                             cursor.data.call_desc = result;
                         } else |e| switch (e) {
                             error.EnvAlreadyExists => {

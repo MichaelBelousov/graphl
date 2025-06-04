@@ -1365,7 +1365,17 @@ pub const Env = struct {
         return &slot.data;
     }
 
-    pub fn registerNode(self: *@This(), a: std.mem.Allocator, node_desc: *const NodeDesc) !void {
+    // FIXME: this leaks linked list garbage! but can do an O(1) delete if we just use a doubly linked list
+    pub fn renameNode(self: *@This(), a: std.mem.Allocator, old_name: []const u8, new: NodeDesc) !*NodeDesc {
+        // do this first so we can fail early if error.EnvAlreadyExists
+        const old = self._nodes.get(old_name) orelse unreachable;
+        const result = try self.addNode(a, new);
+        self.unregisterNode(old);
+        std.debug.assert(self._nodes.remove(old_name));
+        return result;
+    }
+
+    fn registerNode(self: *@This(), a: std.mem.Allocator, node_desc: *const NodeDesc) !void {
         for (node_desc.tags) |tag| {
             try self._tag_set.put(a, tag, {});
             const tag_set_res = try self._nodes_by_tag.getOrPut(a, tag);
@@ -1408,6 +1418,35 @@ pub const Env = struct {
                 type_set_res.value_ptr.* = .{};
             const type_set = type_set_res.value_ptr;
             try type_set.put(a, node_desc, {});
+        }
+    }
+
+    fn unregisterNode(self: *@This(), node_desc: *const NodeDesc) void {
+        for (node_desc.tags) |tag| {
+            const tag_set = self._nodes_by_tag.getPtr(tag).?;
+            _ = tag_set.remove(node_desc);
+        }
+
+        // TODO: always put the "other" category in each tag_set so we can avoid a branch
+        if (node_desc.tags.len == 0) {
+            const tag_set = self._nodes_by_tag.getPtr("other").?;
+            _ = tag_set.remove(node_desc);
+        }
+
+        for (node_desc.getInputs()) |input| {
+            if (input.asPrimitivePin() != .value)
+                continue;
+            const pin_type = input.asPrimitivePin().value;
+            const type_set = self._nodes_by_type.getPtr(pin_type) orelse continue;
+            _ = type_set.remove(node_desc);
+        }
+
+        for (node_desc.getOutputs()) |output| {
+            if (output.asPrimitivePin() != .value)
+                continue;
+            const pin_type = output.asPrimitivePin().value;
+            const type_set = self._nodes_by_type.getPtr(pin_type) orelse continue;
+            _ = type_set.remove(node_desc);
         }
     }
 };

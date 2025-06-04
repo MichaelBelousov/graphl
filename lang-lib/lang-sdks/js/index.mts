@@ -66,6 +66,7 @@ export namespace GraphlTypes {
     export const f32: GraphlType = { name: "f32", kind: "primitive", size: 4 };
     export const f64: GraphlType = { name: "f64", kind: "primitive", size: 8 };
     export const string: GraphlType = { name: "string", kind: "primitive", size: 0 };
+    export const rgba: GraphlType = { name: "rgba", kind: "primitive", size: 4 };
 
     // TODO: parse structs out of graphl meta section
     // of graphl output
