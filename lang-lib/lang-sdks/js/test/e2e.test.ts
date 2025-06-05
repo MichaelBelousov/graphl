@@ -481,4 +481,11 @@ describe("js sdk", () => {
         { 0: 0, 1: 1, 2: 2, 3: 255 },
     );
   });
+
+  it.skip("logs structs", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (typeof (foo) i32)
+      (define (foo) (begin (log 10) 20))
+    `);
+  });
 });

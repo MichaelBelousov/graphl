@@ -910,7 +910,7 @@ const Compilation = struct {
             // log.warn("No such host function: '{s}'", .{item_name});
             // FIXME: why log no work sometimes?
             if (builtin.os.tag != .wasi) {
-                std.debug.print("No such host function: '{s}'", .{item_name});
+                std.debug.print("No such host function: '{s}'\n", .{item_name});
             }
             return error.NoSuchHostFunc;
         };
@@ -2381,6 +2381,41 @@ const Compilation = struct {
 
                         try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
                         slot.expr = byn.c.BinaryenNop(self.module.c());
+
+                        break :done;
+                    }
+
+                    // FIXME: make this work
+                    if (func.value.symbol.ptr == syms.log.value.symbol.ptr) {
+                        const operands = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, 2 * (v.items.len - 1));
+                        defer self.arena.allocator().free(operands);
+
+                        for (v.items[1..], 0..) |arg_idx, operand_idx| {
+                            try self.compileExpr(arg_idx, fn_ctx);
+                            const arg_slot = &self._sexp_compiled[arg_idx];
+                            // type
+                            operands[operand_idx] = byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt64(@bitCast(@intFromPtr(arg_slot.type))));
+                            // value
+                            operands[operand_idx + 1] = byn.c.BinaryenLocalGet(self.module.c(), arg_slot.local_index, try self.getBynType(arg_slot.type));
+                        }
+
+                        slot.type = graphl_builtin.empty_type;
+
+                        if (v.items.len >= 2) {
+                            const last_arg_idx = v.items[v.items.len - 1];
+                            // FIXME: check the ExprContext and maybe promote the type...
+                            slot.type = self._sexp_compiled[last_arg_idx].type;
+                        }
+
+                        try fn_ctx.finalizeSlotTypeForSexp(self, code_sexp_idx);
+                        // TODO: repurpose the user func mechanism to include type info
+                        slot.expr = byn.c.BinaryenCall(
+                            self.module.c(),
+                            "__graphl_host_log_msg",
+                            operands.ptr,
+                            @intCast(operands.len),
+                            byn.c.BinaryenNone(),
+                        );
 
                         break :done;
                     }
@@ -3864,6 +3899,8 @@ const Compilation = struct {
                 },
             }
         }
+
+        //byn.c.BinaryenAddFunctionImport(ctx.module.c(), in_name, "__graphl_host_log_msg", in_name, byn.c.BinaryenTypeCreate(@constCast([1])), byn.c.BinaryenNone());
 
         {
             var import_iter = userfunc_imports.iterator();

@@ -818,6 +818,7 @@ pub const syms = struct {
     pub const make_string = Sexp{ .value = .{ .symbol = builtin_nodes.make_string.name() } };
 
     pub const json_quote = Sexp{ .value = .{ .symbol = builtin_nodes.json_quote.name() } };
+    pub const log = Sexp{ .value = .{ .symbol = "log" } };
 };
 
 pub const primitive_type_syms = struct {

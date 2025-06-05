@@ -49,60 +49,6 @@
       const showText = "0px 50vw 50vw";
       const noShowText = "0px 100vw 50vw";
 
-      const sexpToSql = (sexp) => {
-        if (Array.isArray(sexp)) {
-          let sql = "";
-
-          const [func, ...params] = sexp;
-
-          const handlePrev = (ignore = false) => {
-            if (!Array.isArray(params[0]))
-              return;
-            const execParam = params.shift();
-            if (!ignore) {
-              const prev = sexpToSql(execParam);
-              sql += prev;
-              sql += '\n';
-            }
-          };
-
-          if (func.symbol === "SELECT") {
-            handlePrev();
-            params.forEach(p => { if (typeof p !== "string") throw Error("bad SELECT arg"); })
-            sql += sexpToSql(func) + ' ' + params.join(',');
-
-          } else if (func.symbol === "WHERE") {
-            handlePrev();
-            sql += sexpToSql(func) + ' ' + params.map(sexpToSql).join(',');
-
-          } else if (func.symbol === "FROM") {
-            handlePrev();
-            params.forEach(p => { if (typeof p !== "string") throw Error("bad FROM arg"); })
-            sql += sexpToSql(func) + ' ' + params.join(',');
-
-            // assume it's a binary operator
-          } else {
-            handlePrev();
-            sql += `${sexpToSql(params[0])} ${sexpToSql(func)} ${sexpToSql(params[1])}`;
-
-          }
-
-          return sql;
-
-        } else if (typeof sexp === "object" && "symbol" in sexp) {
-          return sexp.symbol;
-
-        } else if (typeof sexp === "string") {
-          return `'${sexp}'`
-
-        } else if (typeof sexp === "number") {
-          return `${sexp}`
-
-        } else {
-          throw Error("unexpected value:", sexp);
-        }
-      };
-
       /** @type {import("./WebBackend.js").Ide}  */
       let ide;
 
@@ -126,34 +72,6 @@
                     });
                   }
                 },
-                "ECSQL-exec": {
-                  inputs: [{ name: "query", type: "code" }],
-                  outputs: [{ name: "string", type: "string" }],
-                  impl(code) {
-                    console.log('QUERY:', sexpToSql(code));
-                  }
-                },
-                "testme": {
-                  inputs: [{ name: "query", type: "string" }],
-                  outputs: [],
-                  impl(str) {
-                    console.log(str);
-                  }
-                },
-                // dummy nodes
-                "SELECT": {
-                  inputs: [{ name: "column", type: "string" }],
-                  outputs: [],
-                },
-                "WHERE": {
-                  inputs: [{ name: "condition", type: "bool" }],
-                  outputs: [],
-                },
-                "FROM": {
-                  inputs: [{ name: "table", type: "string" }],
-                  outputs: [],
-                },
-
                 "ProjectCenter": {
                   inputs: [],
                   outputs: [{ name: "center", type: "vec3" }],
@@ -254,7 +172,7 @@
                     "column is found within the key",
                 },
 
-                "JavaScript-Eval": {
+                "JavaScriptEval": {
                   inputs: [
                     { name: "Element", type: "u64" },
                     { name: "Code", type: "string" },

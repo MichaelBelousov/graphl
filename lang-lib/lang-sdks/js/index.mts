@@ -65,7 +65,9 @@ export namespace GraphlTypes {
     export const bool: GraphlType = { name: "bool", kind: "primitive", size: 4 };
     export const f32: GraphlType = { name: "f32", kind: "primitive", size: 4 };
     export const f64: GraphlType = { name: "f64", kind: "primitive", size: 8 };
+    // FIXME: is this really a primtive? bad name
     export const string: GraphlType = { name: "string", kind: "primitive", size: 0 };
+    export const code: GraphlType = { name: "string", kind: "primitive", size: 0 };
     export const rgba: GraphlType = { name: "rgba", kind: "primitive", size: 4 };
 
     // TODO: parse structs out of graphl meta section
@@ -106,11 +108,12 @@ function typeFromTypeArray(name: string, types: GraphlType[]): GraphlType {
 }
 
 // FIXME: use keyof GraphlTypes?
-type GraphlTypeKey = "string" | "vec3" | "i32" | "u64" | "bool" | "f64" | "rgba" | "i64" | "u32";
+type GraphlTypeKey = "string" | "vec3" | "i32" | "u64" | "bool" | "f64" | "rgba" | "i64" | "u32" | "code";
 
 export interface UserFuncInput {
     name?: string;
     type: GraphlType | GraphlTypeKey;
+    description?: string;
 }
 
 function inputToType(input: UserFuncInput, ctx: GraphlContext): GraphlType {
@@ -672,8 +675,19 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
     }
 
     const imports = {
+        // FIXME: categorize intrinsic and host-provided functions into different namespaces than "env"
         env: {
             ...userFuncEnvImports,
+            __graphl_host_log_msg(...wasmArgs: any[]) {
+                const graphlArgs = [];
+                for (let i = 0; i < wasmArgs.length; i += 2) {
+                    const typeId = wasmArgs[i];
+                    const val = wasmArgs[i + 1];
+                    // FIXME: convert to type correctly
+                    graphlArgs.push(jsValToGraphlVal(val, GraphlTypes.i32, wasmExports));
+                }
+                console.log(...graphlArgs)
+            }
         },
     };
     const wasm = await WebAssembly.instantiate(data, imports);
@@ -710,6 +724,7 @@ export async function compileGraphltSource(
     const builtinCtx: GraphlContext = {
         types: {...GraphlTypes },
     };
+
     const userFuncDescs = Object.fromEntries(
         Object.entries(hostEnv).map(([k, v], i) => [
             k,
@@ -719,7 +734,6 @@ export async function compileGraphltSource(
                     name: k,
                     //hidden: false,
                     kind: v.kind,
-                    // FIXME: the type is wrong here, input.type is a string
                     inputs: v.inputs?.map((inp, j) => ({ name: `p${j}`, type: inputToType(inp, builtinCtx).name })) ?? [],
                     outputs: v.outputs?.map((out, j) => ({ name: `p${j}`, type: outputToType(out, builtinCtx).name })) ?? [],
                     tags: ["host"],
@@ -727,9 +741,9 @@ export async function compileGraphltSource(
             }
         ]),
     );
+
     const userFuncDescsJson = JSON.stringify(userFuncDescs);
 
-    // if in node make sure to use --loader=node-zigar
     const zig = await getZig();
 
     let compiledWasm;
