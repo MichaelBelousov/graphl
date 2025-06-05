@@ -464,4 +464,21 @@ describe("js sdk", () => {
     `);
     assert.partialDeepStrictEqual(program.functions.foo(), { x: -0, y: -1, z: -2});
   });
+
+  it("rgba", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (typeof (foo) rgba)
+      (define (foo) (return (rgba 0 1 2 255)))
+      (typeof (split rgba) (i32 i32 i32 i32))
+      (define (split color) (return (extract-red color)
+                                    (extract-green color)
+                                    (extract-blue color)
+                                    (extract-alpha color)))
+    `);
+    assert.deepStrictEqual(program.functions.foo(), (1 << 16) | (2 << 8) | (255));
+    assert.partialDeepStrictEqual(
+        program.functions.split(program.functions.foo()),
+        { 0: 0, 1: 1, 2: 2, 3: 255 },
+    );
+  });
 });

@@ -436,6 +436,7 @@ const binaryop_builtins = .{
 const Features = struct {
     vec3: bool = false,
     string: bool = false,
+    color: bool = false,
 };
 
 const BinaryenHelper = struct {
@@ -1785,7 +1786,7 @@ const Compilation = struct {
 
         // FIXME: can I make a DSL for this? or does binaryen already support something like that?
         std.debug.assert(self.module.addFunction(
-            "__graphl_write_array",
+            "__graphl_write_array", // FIXME: this should be renamed or not tied to strings
             @enumFromInt(byn.c.BinaryenTypeCreate(@constCast(&[_]byn.c.BinaryenType{
                 str_byn_type, // array/string ref (;0;)
                 @intFromEnum(byn.Type.i32), // starting offset (;1;)
@@ -2091,6 +2092,106 @@ const Compilation = struct {
         ) != null);
 
         std.debug.assert(byn.c.BinaryenAddFunctionExport(self.module.c(), "__graphl_create_array_string", "__graphl_create_array_string") != null);
+    }
+
+    // TODO: implement these elsewhere or in graphl itself...
+    fn ensureColorFeature(self: *@This()) CompileExprError!void {
+        if (self.used_features.color) return;
+        self.used_features.color = true;
+
+        // FIXME: ugh really need to switch this out for inline IR or something
+        std.debug.assert(self.module.addFunction(
+            "rgba",
+            byn.Type.create(&.{.i32, .i32, .i32, .i32}),
+            .i32,
+            &.{},
+            // ((R<<24)&0xFF | (G<<16)&0xFF) | ((B<<8)&0xFF | A&0xFF)
+            byn.Expression.block(
+                self.module,
+                null,
+                @constCast(&[_]*byn.Expression{
+                    @as(*byn.Expression, @ptrCast(byn.c.BinaryenBinary(
+                        self.module.c(),
+                        byn.c.BinaryenOrInt32(),
+                        byn.c.BinaryenBinary(
+                            self.module.c(),
+                            byn.c.BinaryenOrInt32(),
+                            byn.c.BinaryenBinary(
+                                self.module.c(),
+                                byn.c.BinaryenShlInt32(),
+                                byn.c.BinaryenLocalGet(self.module.c(), 0, byn.c.BinaryenTypeInt32()),
+                                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(24)),
+                            ),
+                            byn.c.BinaryenBinary(
+                                self.module.c(),
+                                byn.c.BinaryenShlInt32(),
+                                byn.c.BinaryenBinary(
+                                    self.module.c(),
+                                    byn.c.BinaryenAndInt32(),
+                                    byn.c.BinaryenLocalGet(self.module.c(), 1, byn.c.BinaryenTypeInt32()),
+                                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0xff)),
+                                ),
+                                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(16)),
+                            ),
+                        ),
+                        byn.c.BinaryenBinary(
+                            self.module.c(),
+                            byn.c.BinaryenOrInt32(),
+                            byn.c.BinaryenBinary(
+                                self.module.c(),
+                                byn.c.BinaryenShlInt32(),
+                                byn.c.BinaryenBinary(
+                                    self.module.c(),
+                                    byn.c.BinaryenAndInt32(),
+                                    byn.c.BinaryenLocalGet(self.module.c(), 2, byn.c.BinaryenTypeInt32()),
+                                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0xff)),
+                                ),
+                                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(8)),
+                            ),
+                            byn.c.BinaryenBinary(
+                                self.module.c(),
+                                byn.c.BinaryenAndInt32(),
+                                byn.c.BinaryenLocalGet(self.module.c(), 3, byn.c.BinaryenTypeInt32()),
+                                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0xff)),
+                            ),
+                        ),
+                    ))),
+                }),
+                .none,
+            ) catch |e| switch (e) { error.Null => unreachable, else => |_e| return _e },
+        ) != null);
+
+        inline for (&.{
+            .{ .name = "extract-red", .shift = 24 },
+            .{ .name = "extract-green", .shift = 16 },
+            .{ .name = "extract-blue", .shift = 8 },
+            .{ .name = "extract-alpha", .shift = 0 },
+        }) |info| {
+            std.debug.assert(self.module.addFunction(
+                info.name,
+                .i32,
+                .i32,
+                &.{},
+                byn.Expression.block(
+                    self.module,
+                    null,
+                    @constCast(&[_]*byn.Expression{
+                        @as(*byn.Expression, @ptrCast(byn.c.BinaryenBinary(
+                            self.module.c(),
+                            byn.c.BinaryenAndInt32(),
+                            byn.c.BinaryenBinary(
+                                self.module.c(),
+                                byn.c.BinaryenShrUInt32(),
+                                byn.c.BinaryenLocalGet(self.module.c(), 0, byn.c.BinaryenTypeInt32()),
+                                byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(info.shift)),
+                            ),
+                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0xff)),
+                        ))),
+                    }),
+                    .none,
+                ) catch |e| switch (e) { error.Null => unreachable, else => |_e| return _e },
+            ) != null);
+        }
     }
 
     fn compileExpr(
@@ -2444,14 +2545,28 @@ const Compilation = struct {
                     // FIXME: have a hash map or something of vec3 functions
                     if (std.mem.indexOfScalar([*:0]const u8, &.{
                         syms.vec3_negate.value.symbol.ptr,
-                        syms.vec3.value.symbol.ptr
+                        syms.vec3.value.symbol.ptr,
                     }, func.value.symbol.ptr)) |_| {
                         try self.ensureVec3Feature();
                     }
+
                     if (std.mem.indexOfScalar([*:0]const u8, &.{
-                        syms.string_equal.value.symbol.ptr
+                        syms.string_equal.value.symbol.ptr,
+                        syms.string_join.value.symbol.ptr,
+                        syms.string_length.value.symbol.ptr,
+                        syms.string_indexof.value.symbol.ptr,
                     }, func.value.symbol.ptr)) |_| {
                         try self.ensureStringFeature();
+                    }
+
+                    if (std.mem.indexOfScalar([*:0]const u8, &.{
+                        syms.rgba.value.symbol.ptr,
+                        syms.rgba_r.value.symbol.ptr,
+                        syms.rgba_g.value.symbol.ptr,
+                        syms.rgba_b.value.symbol.ptr,
+                        syms.rgba_a.value.symbol.ptr,
+                    }, func.value.symbol.ptr)) |_| {
+                        try self.ensureColorFeature();
                     }
 
                     const func_node_desc = self.env.getNode(func.value.symbol) orelse {
@@ -3058,10 +3173,13 @@ const Compilation = struct {
     // TODO: use an actual type graph/tree and search in it
     fn promoteToType(
         self: *@This(),
-        start_type: Type,
+        in_start_type: Type,
         expr: byn.c.BinaryenExpressionRef,
-        target_type: Type,
+        in_target_type: Type,
     ) error{UnsupportedTypeCoercion}!byn.c.BinaryenExpressionRef {
+        // ignore bytes as u32 // FIXME: make this more precise
+        const start_type = if (in_start_type == primitive_types.byte) primitive_types.u32_ else in_start_type;
+        const target_type = if (in_target_type == primitive_types.byte) primitive_types.u32_ else in_target_type;
 
         const CoercionInfo = struct {
             is_signed: bool,

@@ -808,7 +808,7 @@ pub const syms = struct {
     // NOTE: symbol is inserted during struct type commit
     pub const vec3 = Sexp{ .value = .{ .symbol = "vec3" } };
 
-    pub const make_rgba = Sexp{ .value = .{ .symbol = builtin_nodes.make_rgba.name() } };
+    pub const rgba = Sexp{ .value = .{ .symbol = builtin_nodes.make_rgba.name() } };
     pub const rgba_r = Sexp{ .value = .{ .symbol = builtin_nodes.rgba_r.name() } };
     pub const rgba_g = Sexp{ .value = .{ .symbol = builtin_nodes.rgba_g.name() } };
     pub const rgba_b = Sexp{ .value = .{ .symbol = builtin_nodes.rgba_b.name() } };

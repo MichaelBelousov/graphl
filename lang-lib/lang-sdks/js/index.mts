@@ -106,7 +106,7 @@ function typeFromTypeArray(name: string, types: GraphlType[]): GraphlType {
 }
 
 // FIXME: use keyof GraphlTypes?
-type GraphlTypeKey = "string" | "vec3" | "i32" | "u64" | "bool" | "f64";
+type GraphlTypeKey = "string" | "vec3" | "i32" | "u64" | "bool" | "f64" | "rgba" | "i64" | "u32";
 
 export interface UserFuncInput {
     name?: string;
@@ -189,7 +189,8 @@ function jsValToGraphlStructVal(
                 );
                 transferBufView.setFloat64(offset, fieldValue, true);
 
-            } else if (fieldType === GraphlTypes.i32) {
+                // TODO: support struct format for rgba
+            } else if (fieldType === GraphlTypes.i32 || fieldType === GraphlTypes.rgba) {
                 assert(
                     // TODO: support bigint?
                     typeof fieldValue === "number" && fieldValue >= -(2**31) && fieldValue <= 2**31-1 && Math.round(fieldValue) === fieldValue,
@@ -334,7 +335,7 @@ function graphlStructValToJsVal(
                 result[fieldName] = transferBufView.getFloat32(fieldOffset, true);
             } else if (fieldType === GraphlTypes.f64) {
                 result[fieldName] = transferBufView.getFloat64(fieldOffset, true);
-            } else if (fieldType === GraphlTypes.i32) {
+            } else if (fieldType === GraphlTypes.i32 || fieldType === GraphlTypes.rgba) {
                 result[fieldName] = transferBufView.getInt32(fieldOffset, true);
             } else if (fieldType === GraphlTypes.i64) {
                 result[fieldName] = transferBufView.getBigInt64(fieldOffset, true);

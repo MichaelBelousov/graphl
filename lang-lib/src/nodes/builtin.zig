@@ -993,61 +993,62 @@ pub const builtin_nodes = struct {
 
     // FIXME: replace with rgba "break" struct
     pub const rgba_r: NodeDesc = basicNode(&.{
-        .name = "RGBA->R",
+        .name = "extract-red",
         .inputs = &.{
-            Pin{ .name = "RGBA", .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
+            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
         },
         .outputs = &.{
-            Pin{ .name = "R", .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
+            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
         },
         .tags = &.{"color"},
         .description = "get the red byte of an rgba value",
     });
     pub const rgba_g: NodeDesc = basicNode(&.{
-        .name = "RGBA->G",
+        .name = "extract-green",
         .inputs = &.{
-            Pin{ .name = "RGBA", .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
+            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
         },
         .outputs = &.{
-            Pin{ .name = "G", .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
+            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
         },
         .tags = &.{"color"},
         .description = "get the green byte of an rgba value",
     });
     pub const rgba_b: NodeDesc = basicNode(&.{
-        .name = "RGBA->B",
+        .name = "extract-blue",
         .inputs = &.{
-            Pin{ .name = "RGBA", .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
+            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
         },
         .outputs = &.{
-            Pin{ .name = "B", .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
+            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
         },
         .tags = &.{"color"},
         .description = "get the blue byte of an rgba value",
     });
     pub const rgba_a: NodeDesc = basicNode(&.{
-        .name = "RGBA->A",
+        .name = "extract-alpha",
         .inputs = &.{
-            Pin{ .name = "RGBA", .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
+            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
         },
         .outputs = &.{
-            Pin{ .name = "A", .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
+            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.byte } } },
         },
         .tags = &.{"color"},
         .description = "get the alpha byte of an rgba value",
     });
 
+    // TODO: make this a struct with packed fields
     pub const make_rgba: NodeDesc = basicNode(&.{
-        .name = "Make-RGBA",
+        .name = "rgba",
         .inputs = &.{
             // FIXME: use bytes, ignoring for now
-            Pin{ .name = "R", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
-            Pin{ .name = "G", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
-            Pin{ .name = "B", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
-            Pin{ .name = "A", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "Red", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "Green", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "Blue", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
+            Pin{ .name = "Alpha", .kind = .{ .primitive = .{ .value = primitive_types.i32_ } } },
         },
         .outputs = &.{
-            Pin{ .name = "RGBA", .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
+            Pin{ .kind = .{ .primitive = .{ .value = primitive_types.rgba } } },
         },
         .tags = &.{"color"},
         .description = "create an rgba from its components",
