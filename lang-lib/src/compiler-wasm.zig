@@ -1393,9 +1393,9 @@ const Compilation = struct {
 
         std.debug.assert(func != null);
 
-        const buf: [512]u8 = undefined;
+        var buf: [512]u8 = undefined;
         // FIXME: mangle internal funcs, not external
-        const host_entry_func_name = try std.fmt.bufPrint(&buf, "{s}_HOSTENTRY", .{name});
+        const host_entry_func_name = try std.fmt.bufPrintZ(&buf, "{s}_HOSTENTRY", .{name});
 
         // FIXME: use temp alloc
         const host_entry_func_thunk_ops = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, param_types.len);
@@ -1403,10 +1403,11 @@ const Compilation = struct {
 
         const host_entry_func = byn.c.BinaryenAddFunction(
             self.module.c(),
-            host_entry_func_name,
+            host_entry_func_name.ptr,
             param_type_byn,
             result_type.byn,
-            byn_local_types,
+            @ptrCast(byn_local_types.ptr),
+            @intCast(byn_local_types.len),
             byn.c.BinaryenBlock(
                 self.module.c(),
                 null,
@@ -1422,9 +1423,6 @@ const Compilation = struct {
                         name,
                         host_entry_func_thunk_ops.ptr,
                         host_entry_func_thunk_ops.len,
-                    ),
-                    byn.c.BinaryenAtomicWait(
-                        self.module.c
                     ),
                 }),
                 2,
@@ -3930,8 +3928,8 @@ const Compilation = struct {
                     // TODO: use stackPrintKnownMaxes
                     var buf: [64]u8 = undefined;
                     const return_slot_export = try std.fmt.bufPrint(&buf, "ASYNC_RET_{}", .{user_func.data.id});
-                    byn.c.BinaryenAddGlobal(self.module.c(), return_slot_export, byn_result, true, null);
-                    byn.c.BinaryenAddGlobalExport(self.module.c(), return_slot_export, return_slot_export);
+                    _ = byn.c.BinaryenAddGlobal(self.module.c(), return_slot_export.ptr, byn_result, true, null);
+                    _ = byn.c.BinaryenAddGlobalExport(self.module.c(), return_slot_export.ptr, return_slot_export.ptr);
                 }
 
                 std.debug.assert(func != null);
@@ -3945,10 +3943,10 @@ const Compilation = struct {
         byn.c.BinaryenAddFunctionImport(self.module.c(), "asyncify_start_rewind", "asyncify", "start_rewind", byn.c.BinaryenTypeInt32(), byn.c.BinaryenNone());
         byn.c.BinaryenAddFunctionImport(self.module.c(), "asyncify_stop_rewind", "asyncify", "stop_rewind", byn.c.BinaryenNone(), byn.c.BinaryenNone());
 
-        self.module.addFunction("_start", .none, .none, &.{}, byn.Expression.block(
+        const start_func = self.module.addFunction("_start", .none, .none, &.{}, byn.Expression.block(
             self.module,
             null,
-            &[_]*byn.Expression{
+            @constCast(&[_]*byn.Expression{
                 @ptrCast(byn.c.BinaryenStore(
                     self.module.c(),
                     4,
@@ -3969,10 +3967,11 @@ const Compilation = struct {
                     byn.c.BinaryenTypeInt32(),
                     main_mem_name,
                 )),
-            }
-        ) catch |e| switch (e) { error.Null => unreachable });
+            }),
+            .none,
+        ) catch |e| switch (e) { error.Null => unreachable }) orelse unreachable;
 
-        byn.c.BinaryenSetStart();
+        byn.c.BinaryenSetStart(self.module.c(), @ptrCast(start_func));
 
         for (graphlt_module.getRoot().value.module.items) |idx| {
             const decl = graphlt_module.get(idx);

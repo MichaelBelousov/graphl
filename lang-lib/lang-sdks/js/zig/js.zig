@@ -98,6 +98,7 @@ fn _compileSource(
                             .pure => .func,
                         },
                     },
+                    .@"async" = entry.value_ptr.@"async",
                 },
             };
 
@@ -143,6 +144,7 @@ pub const BasicMutNodeDescJson = struct {
 pub const UserFuncJson = struct {
     id: usize,
     node: BasicMutNodeDescJson,
+    @"async": bool,
 };
 
 const jsonStrToGraphlType = graphl.helpers.jsonStrToGraphlType;
