@@ -3898,13 +3898,6 @@ const Compilation = struct {
             }
         }
 
-        // add asyncify imports
-        // NOTE: using asyncify instead of AtomicWait since AtomicWait can't occur in the main thread of browsers
-        byn.c.BinaryenAddFunctionImport(self.module.c(), "asyncify_start_unwind", "asyncify", "start_unwind", byn.c.BinaryenTypeInt32(), byn.c.BinaryenNone());
-        byn.c.BinaryenAddFunctionImport(self.module.c(), "asyncify_stop_unwind", "asyncify", "stop_unwind", byn.c.BinaryenNone(), byn.c.BinaryenNone());
-        byn.c.BinaryenAddFunctionImport(self.module.c(), "asyncify_start_rewind", "asyncify", "start_rewind", byn.c.BinaryenTypeInt32(), byn.c.BinaryenNone());
-        byn.c.BinaryenAddFunctionImport(self.module.c(), "asyncify_stop_rewind", "asyncify", "stop_rewind", byn.c.BinaryenNone(), byn.c.BinaryenNone());
-
         const start_func = self.module.addFunction("_start", .none, .none, &.{}, byn.Expression.block(
             self.module,
             null,

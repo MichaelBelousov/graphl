@@ -488,9 +488,10 @@ describe("js sdk", () => {
       (typeof (foo) i32)
       (define (foo) (return (* 2 (IntPromise))))
     `, {
-      NoClusterId: {
-        outputs: [{ type: GraphlTypes.u64 }],
+      IntPromise: {
+        outputs: [{ type: GraphlTypes.i32 }],
         kind: "pure",
+        async: true,
         async impl() {
           return 5;
         }

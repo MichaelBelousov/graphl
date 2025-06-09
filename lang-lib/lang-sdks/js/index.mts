@@ -788,6 +788,7 @@ async function compileGraphltSourceImpl(
                     outputs: v.outputs?.map((out, j) => ({ name: `p${j}`, type: outputToType(out, ctx).name })) ?? [],
                     tags: ["host"],
                 },
+                async: v.async,
             }
         ]),
     );
