@@ -45,6 +45,7 @@ pub const BasicMutNodeDescJson = struct {
 pub const UserFuncJson = struct {
     id: usize,
     node: BasicMutNodeDescJson,
+    @"async": bool = false,
 };
 
 pub const InitOptsJson = struct {
@@ -130,6 +131,7 @@ pub fn convertUserFuncs(a: std.mem.Allocator, user_funcs_json: std.json.ArrayHas
                 },
                 .description = entry.value_ptr.node.description,
             },
+            .@"async" = entry.value_ptr.@"async",
         };
     }
 

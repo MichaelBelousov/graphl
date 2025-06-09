@@ -601,14 +601,16 @@ const Compilation = struct {
 
     type_intrinsics_generated: std.AutoHashMapUnmanaged(byn.c.BinaryenType, void) = .{},
 
-    // FIXME: support multiple diagnostics
+    // FIXME: support outputting multiple diagnostics
     diag: *Diagnostic,
 
     // according to binaryen docs, there are optimizations if you
     // do not use the first 1Kb
     pub const mem_start = 1024;
+    pub const async_lock_sz = 4;
+    pub const async_lock = 1024;
 
-    pub const transfer_seg_start = mem_start;
+    pub const transfer_seg_start = mem_start + async_lock_sz;
 
     // TODO: rename to general transfer buffer
     pub const str_transfer_seg_size = 4096;
@@ -3731,6 +3733,7 @@ const Compilation = struct {
         const UserFuncDef = struct {
             params: []Type,
             results: []Type,
+            @"async": bool,
 
             pub fn name(_self: @This(), a: std.mem.Allocator) ![:0]u8 {
                 // NOTE: could use an arraylist writer with initial capacity
@@ -3746,6 +3749,9 @@ const Compilation = struct {
                     _ = try buf_writer.write("_");
                     _ = try buf_writer.write(result.name);
                 }
+                if (_self.@"async") {
+                    _ = try buf_writer.write("_ASYNC");
+                }
 
                 return try a.dupeZ(u8, buf_writer.getWritten());
             }
@@ -3753,6 +3759,7 @@ const Compilation = struct {
             /// a user func thunk will copy its argument fields into transfer memory, with the host
             /// requesting any arrays. Then the user function will write any arrays and transfer the
             /// result fields.
+            /// @param 'name' must be the result of @This().name()
             pub fn addImport(_self: @This(), ctx: *Compilation, in_name: [:0]const u8) !void {
                 const param_types = try ctx.arena.allocator().alloc(byn.c.BinaryenType, 1 + _self.params.len);
                 //defer ctx.arena.allocator().free(param_types); // consider using diff allocator
@@ -3815,17 +3822,18 @@ const Compilation = struct {
                 const params = user_func.data.node.inputs[val_pin_start..];
                 const results = user_func.data.node.outputs[val_pin_start..];
 
-                const def = UserFuncDef{
+                const userfunc_def = UserFuncDef{
                     .params = try self.arena.allocator().alloc(Type, params.len),
                     .results = try self.arena.allocator().alloc(Type, results.len),
+                    .@"async" = user_func.data.@"async",
                 };
                 const byn_params = try self.arena.allocator().alloc(byn.c.BinaryenType, params.len);
 
-                for (params, def.params, byn_params) |param, *param_type, *byn_param| {
+                for (params, userfunc_def.params, byn_params) |param, *param_type, *byn_param| {
                     param_type.* = param.kind.primitive.value;
                     byn_param.* = try self.getBynType(param.kind.primitive.value);
                 }
-                for (results, def.results) |result, *result_type| {
+                for (results, userfunc_def.results) |result, *result_type| {
                     result_type.* = result.kind.primitive.value;
                 }
 
@@ -3838,11 +3846,11 @@ const Compilation = struct {
                     byn_arg.* = byn.Expression.localGet(self.module, @intCast(i), @enumFromInt(try self.getBynType(p.kind.primitive.value)));
                 }
 
-                const import_entry = try userfunc_imports.getOrPut(self.arena.allocator(), def);
+                const import_entry = try userfunc_imports.getOrPut(self.arena.allocator(), userfunc_def);
 
                 const thunk_name = _: {
                     if (!import_entry.found_existing) {
-                        import_entry.value_ptr.* = try def.name(self.arena.allocator());
+                        import_entry.value_ptr.* = try userfunc_def.name(self.arena.allocator());
                     }
                     break :_ import_entry.value_ptr.*;
                 };
@@ -3856,18 +3864,39 @@ const Compilation = struct {
                     //
                     else try self.getBynType(results[0].kind.primitive.value);
 
-                const func = self.module.addFunction(
-                    name,
-                    @enumFromInt(byn_param),
-                    @enumFromInt(byn_result),
-                    &.{},
-                    @ptrCast(byn.c.BinaryenCall(
+
+                const body: byn.Expression
+                = if (userfunc_def.@"async")
+                    @ptrCast(byn.c.BinaryenBlock(
+                        byn.c.BinaryenCall(
+                            self.module.c(),
+                            thunk_name,
+                            @ptrCast(byn_args.items.ptr),
+                            @intCast(byn_args.items.len),
+                            byn_result,
+                        ),
+                        byn.c.BinaryenAtomicWait(
+                            self.module.c(),
+                            thunk_name,
+                            @ptrCast(byn_args.items.ptr),
+                            @intCast(byn_args.items.len),
+                            byn_result,
+                        )
+                    ))
+                else @ptrCast(byn.c.BinaryenCall(
                         self.module.c(),
                         thunk_name,
                         @ptrCast(byn_args.items.ptr),
                         @intCast(byn_args.items.len),
                         byn_result,
-                    )),
+                    ));
+
+                const func = self.module.addFunction(
+                    name,
+                    @enumFromInt(byn_param),
+                    @enumFromInt(byn_result),
+                    &.{},
+                    body,
                 );
 
                 std.debug.assert(func != null);
@@ -4027,6 +4056,9 @@ const Compilation = struct {
             graphl_meta_custom_data_json.ptr,
             @intCast(graphl_meta_custom_data_json.len),
         );
+
+        // FIXME: is there a stringref lowering pass?
+        byn.c.BinaryenModuleRunPasses(self.module.c(), &.{"asyncify"}, 1);
 
         if (opts.optimize != .none) {
             byn.c.BinaryenSetOptimizeLevel(1);

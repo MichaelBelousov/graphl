@@ -482,6 +482,23 @@ describe("js sdk", () => {
     );
   });
 
+  it.only("async import", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (import IntPromise "host/IntPromise")
+      (typeof (foo) i32)
+      (define (foo) (return (* 2 (IntPromise))))
+    `, {
+      NoClusterId: {
+        outputs: [{ type: GraphlTypes.u64 }],
+        kind: "pure",
+        async impl() {
+          return 5;
+        }
+      },
+    });
+    assert.deepStrictEqual(await program.functions.foo(), 10);
+  });
+
   it.skip("logs structs", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (foo) i32)
