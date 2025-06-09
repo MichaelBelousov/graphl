@@ -461,7 +461,10 @@ type WasmInstance = WebAssembly.Instance & {
     },
 };
 
-type UserFuncCollection = Map<number, Function>;
+type UserFuncCollection = Map<number, {
+    impl: Function,
+    paused: boolean,
+}>;
 
 // calls of a userfunc from graphl looks like:
 // - graphl passes all inputs as arguments
@@ -477,33 +480,63 @@ type UserFuncCollection = Map<number, Function>;
 //   if the outputs were a struct or multi, graphl reads it with "__graphl_read_struct_{s}_fields"
 // - NOTE: should just write arrays in the empty space after struct members, to avoid chattyness
 // - graphl calls "__graphl_write_struct_{s}_array(struct, arraySlotIndex, offset)" each time it needs an array
-function makeCallUserFunc(
-    inputs: UserFuncInput[],
-    outputs: UserFuncOutput[],
+function makeCallUserFunc<F extends (...args: any[]) => any>(
+    desc: UserFuncDesc<F>,
     wasm: WasmInstance,
     userFuncs: UserFuncCollection,
     ctx: GraphlContext,
 ): [string, Function] {
     const key = [
-        "callUserFunc",
-        ...inputs.map(i => typeof i.type === "string" ? i.type : i.type.name),
+        desc.async ? "callUserFuncAsync" : "callUserFunc",
+        ...desc.inputs?.map(i => typeof i.type === "string" ? i.type : i.type.name) ?? [],
         "R",
-        ...outputs.map(o => typeof o.type === "string" ? o.type : o.type.name),
+        ...desc.outputs?.map(o => typeof o.type === "string" ? o.type : o.type.name) ?? [],
     ].join("_");
 
     return [
         key,
         (funcId: number, ...abiParams: any[]) => {
-            const userFunc = userFuncs.get(funcId);
-            assert(userFunc, `No user function with id ${funcId}, this is a bug`);
+            const userFuncEntry = userFuncs.get(funcId);
+            assert(userFuncEntry, `No user function with id ${funcId}, this is a bug`);
+
             const jsParams = abiParams.map((p, i) => graphlValToJsVal(
                 p,
-                inputToType(inputs[i], ctx),
+                inputToType(desc.inputs![i], ctx),
                 wasm,
             ));
-            const jsRes = userFunc.call(undefined, ...jsParams);
-            const returnType = typeFromTypeArray(key, outputs.map((o) => outputToType(o, ctx)));
-            return jsValToGraphlVal(jsRes, returnType, wasm);
+            const returnType = typeFromTypeArray(key, desc.outputs?.map((o) => outputToType(o, ctx)) ?? []);
+
+            if (desc.async) {
+                // FIXME: keep this in sync with the compiler impl via globals or versioning!
+                const view = new Int32Array(wasm.exports.memory.buffer);
+                const DATA_ADDR = 1024; // see compiler-wasm.zig -> asyncify_seg_start
+
+                // based on: https://kripken.github.io/blog/wasm/2019/07/16/asyncify.html
+                if (!userFuncEntry.paused) {
+                    // need to pause
+                    view[DATA_ADDR >> 2] = DATA_ADDR + 8;
+                    view[DATA_ADDR + 4 >> 2] = 1024;
+                    wasm.exports.asyncify_start_unwind(DATA_ADDR);
+                    userFuncEntry.paused = true;
+                    const jsResPromise = userFuncEntry.impl.call(undefined, ...jsParams);
+                    jsResPromise
+                        .then((jsRes: ReturnType<F>) => {
+                            const graphlRes = jsValToGraphlVal(jsRes, returnType, wasm);
+                            wasm.exports[`ASYNC_RETSLOT_${funcId}`] = graphlRes;
+                            wasm.exports.asyncify_start_rewind(DATA_ADDR);
+                            assert(ctx.currentEntry !== undefined);
+                            wasm.exports[ctx.currentEntry]();
+                        });
+                } else {
+                    // need to resume
+                    wasm.exports.asyncify_stop_rewind();
+                    userFuncEntry.paused = false;
+                }
+            } else {
+                const jsRes = userFuncEntry.impl.call(undefined, ...jsParams);
+                return jsValToGraphlVal(jsRes, returnType, wasm);
+            }
+
         }
     ];
 }
@@ -513,6 +546,7 @@ export interface UserFuncDesc<F extends (...args: any[]) => any>{
     outputs?: UserFuncOutput[],
     impl?: F,
     kind?: "func" | "pure",
+    async?: boolean;
 }
 
 export interface GraphlProgram<Funcs extends Record<string, (...args: any[]) => any>> {
@@ -600,6 +634,7 @@ function parseGraphlMeta(wasmBuffer: ArrayBufferLike): GraphlMeta {
 
 interface GraphlContext {
     types: Record<string, GraphlType>;
+    currentEntry: string | undefined;
 }
 
 export async function instantiateProgramFromWasmBuffer<Funcs extends Record<string, (...args: any[]) => any>>(
@@ -614,10 +649,11 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
     const neededUserFuncs = new Map(graphlMeta.host.functions.map(f => [f.name, f.id]));
     const userFuncEnvImports: any = {};
 
-    const userFuncs = new Map<number, Function>() ;
+    const userFuncs: UserFuncCollection = new Map() ;
 
     const ctx: GraphlContext = {
-        types: {...GraphlTypes},
+        types: { ...GraphlTypes },
+        currentEntry: undefined,
     };
 
     const functionMap = new Map<string, {
@@ -651,10 +687,13 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
         const id = neededUserFuncs.get(name);
         // ignore unnecessary user funcs
         if (id === undefined) continue;
-        userFuncs.set(id, userFuncDesc.impl ?? (() => {}));
+        userFuncs.set(id, {
+            impl: userFuncDesc.impl ?? (() => {}),
+            paused: false,
+        });
         neededUserFuncs.delete(name);
 
-        const [key, impl] = makeCallUserFunc(userFuncDesc.inputs ?? [], userFuncDesc.outputs ?? [], wasmExports, userFuncs, ctx);
+        const [key, impl] = makeCallUserFunc(userFuncDesc, wasmExports, userFuncs, ctx);
         if (!(key in userFuncEnvImports)) {
             userFuncEnvImports[key] = impl;
         }
@@ -696,22 +735,26 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
     return {
         functions: Object.fromEntries(
             Object.entries(wasm.instance.exports)
-            .filter(([_key, graphlFunc]) => typeof graphlFunc === "function")
-            .map(([key, graphlFunc]) => [key, (...args: any[]) => {
-                const fnInfo = functionMap.get(key)!;
-                const graphlArgs = args.map((arg, i) => jsValToGraphlVal(
-                    arg,
-                    inputToType(fnInfo.inputs[i], ctx),
-                    wasmExports,
-                ));
-                const graphlRes = (graphlFunc as Function)(...graphlArgs);
-                if (fnInfo.outputs.length === 0)
-                    return undefined;
-                if (fnInfo.outputs.length === 1)
-                    return graphlValToJsVal(graphlRes, outputToType(fnInfo.outputs[0], ctx), wasmExports);
-                const returnType = typeFromTypeArray(key, fnInfo.outputs.map((o) => outputToType(o, ctx)));
-                return graphlValToJsVal(graphlRes, returnType, wasmExports);
-            }])
+            .filter(([exportName, graphlFunc]) => exportName.endsWith("_HOSTENTRY") && typeof graphlFunc === "function")
+            .map(([exportName, graphlFunc]) => {
+                const key = exportName.slice(0, -"_HOSTENTRY".length);
+                return [key, (...args: any[]) => {
+                    const fnInfo = functionMap.get(key)!;
+                    const graphlArgs = args.map((arg, i) => jsValToGraphlVal(
+                        arg,
+                        inputToType(fnInfo.inputs[i], ctx),
+                        wasmExports,
+                    ));
+                    ctx.currentEntry = exportName;
+                    const graphlRes = (graphlFunc as Function).apply(null, graphlArgs);
+                    if (fnInfo.outputs.length === 0)
+                        return undefined;
+                    if (fnInfo.outputs.length === 1)
+                        return graphlValToJsVal(graphlRes, outputToType(fnInfo.outputs[0], ctx), wasmExports);
+                    const returnType = typeFromTypeArray(key, fnInfo.outputs.map((o) => outputToType(o, ctx)));
+                    return graphlValToJsVal(graphlRes, returnType, wasmExports);
+                }]
+            })
         ) as any,
         _wasmInstance: wasm.instance as WasmInstance,
     };
@@ -721,10 +764,18 @@ export async function compileGraphltSource(
   source: string,
   hostEnv: Record<string, UserFuncDesc<any>> = {},
 ): Promise<Uint8Array> {
-    const builtinCtx: GraphlContext = {
+    const ctx: GraphlContext = {
         types: {...GraphlTypes },
+        currentEntry: undefined,
     };
+    return compileGraphltSourceImpl(source, hostEnv, ctx);
+}
 
+async function compileGraphltSourceImpl(
+  source: string,
+  hostEnv: Record<string, UserFuncDesc<any>> = {},
+  ctx: GraphlContext,
+): Promise<Uint8Array> {
     const userFuncDescs = Object.fromEntries(
         Object.entries(hostEnv).map(([k, v], i) => [
             k,
@@ -734,8 +785,8 @@ export async function compileGraphltSource(
                     name: k,
                     //hidden: false,
                     kind: v.kind,
-                    inputs: v.inputs?.map((inp, j) => ({ name: `p${j}`, type: inputToType(inp, builtinCtx).name })) ?? [],
-                    outputs: v.outputs?.map((out, j) => ({ name: `p${j}`, type: outputToType(out, builtinCtx).name })) ?? [],
+                    inputs: v.inputs?.map((inp, j) => ({ name: `p${j}`, type: inputToType(inp, ctx).name })) ?? [],
+                    outputs: v.outputs?.map((out, j) => ({ name: `p${j}`, type: outputToType(out, ctx).name })) ?? [],
                     tags: ["host"],
                 },
             }

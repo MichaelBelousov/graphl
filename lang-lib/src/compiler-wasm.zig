@@ -601,19 +601,25 @@ const Compilation = struct {
 
     type_intrinsics_generated: std.AutoHashMapUnmanaged(byn.c.BinaryenType, void) = .{},
 
-    // FIXME: support outputting multiple diagnostics
+    // FIXME: support multiple diagnostics
     diag: *Diagnostic,
 
     // according to binaryen docs, there are optimizations if you
     // do not use the first 1Kb
     pub const mem_start = 1024;
-    pub const async_lock_sz = 4;
-    pub const async_lock = 1024;
 
-    pub const transfer_seg_start = mem_start + async_lock_sz;
+    // TODO: set this at the wasm _start function
+    pub const asyncify_seg_start = mem_start;
+    pub const asyncify_fat_pointer_size = 8;
+    pub const asyncify_stack_data_start = asyncify_seg_start + asyncify_fat_pointer_size;
+    pub const asyncify_stack_data_size = 2040;
+    pub const asyncify_seg_size = asyncify_stack_data_size + asyncify_fat_pointer_size;
+    pub const asyncify_seg_end = mem_start + asyncify_seg_size;
 
     // TODO: rename to general transfer buffer
     pub const str_transfer_seg_size = 4096;
+    pub const transfer_seg_start = mem_start + asyncify_seg_size;
+
 
     pub const Slot = struct {
         // FIXME: remove? doing heap structs for now
@@ -1387,7 +1393,47 @@ const Compilation = struct {
 
         std.debug.assert(func != null);
 
-        const export_ref = byn.c.BinaryenAddFunctionExport(self.module.c(), name, name);
+        const buf: [512]u8 = undefined;
+        // FIXME: mangle internal funcs, not external
+        const host_entry_func_name = try std.fmt.bufPrint(&buf, "{s}_HOSTENTRY", .{name});
+
+        // FIXME: use temp alloc
+        const host_entry_func_thunk_ops = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, param_types.len);
+        defer self.arena.allocator().free(host_entry_func_thunk_ops);
+
+        const host_entry_func = byn.c.BinaryenAddFunction(
+            self.module.c(),
+            host_entry_func_name,
+            param_type_byn,
+            result_type.byn,
+            byn_local_types,
+            byn.c.BinaryenBlock(
+                self.module.c(),
+                null,
+                @constCast(&[2]byn.c.BinaryenExpressionRef{
+                    byn.c.BinaryenCall(
+                        self.module.c(),
+                        name,
+                        host_entry_func_thunk_ops.ptr,
+                        host_entry_func_thunk_ops.len,
+                    ),
+                    byn.c.BinaryenCall(
+                        self.module.c(),
+                        name,
+                        host_entry_func_thunk_ops.ptr,
+                        host_entry_func_thunk_ops.len,
+                    ),
+                    byn.c.BinaryenAtomicWait(
+                        self.module.c
+                    ),
+                }),
+                2,
+                result_type.byn,
+            ),
+        );
+        std.debug.assert(host_entry_func != null);
+
+        const export_ref = byn.c.BinaryenAddFunctionExport(self.module.c(), host_entry_func_name, host_entry_func_name);
         std.debug.assert(export_ref != null);
     }
 
@@ -3739,7 +3785,11 @@ const Compilation = struct {
                 // NOTE: could use an arraylist writer with initial capacity
                 var buf: [1024]u8 = undefined;
                 var buf_writer = std.io.fixedBufferStream(&buf);
-                _ = try buf_writer.write("callUserFunc_");
+                _ = try buf_writer.write("callUserFunc");
+                if (_self.@"async") {
+                    _ = try buf_writer.write("Async");
+                }
+                _ = try buf_writer.write("_");
                 for (_self.params) |param| {
                     _ = try buf_writer.write(param.name);
                     _ = try buf_writer.write("_");
@@ -3749,9 +3799,6 @@ const Compilation = struct {
                     _ = try buf_writer.write("_");
                     _ = try buf_writer.write(result.name);
                 }
-                if (_self.@"async") {
-                    _ = try buf_writer.write("_ASYNC");
-                }
 
                 return try a.dupeZ(u8, buf_writer.getWritten());
             }
@@ -3760,7 +3807,7 @@ const Compilation = struct {
             /// requesting any arrays. Then the user function will write any arrays and transfer the
             /// result fields.
             /// @param 'name' must be the result of @This().name()
-            pub fn addImport(_self: @This(), ctx: *Compilation, in_name: [:0]const u8) !void {
+            fn addHostApi(_self: @This(), ctx: *Compilation, in_name: [:0]const u8) !void {
                 const param_types = try ctx.arena.allocator().alloc(byn.c.BinaryenType, 1 + _self.params.len);
                 //defer ctx.arena.allocator().free(param_types); // consider using diff allocator
                 param_types[0] = byn.c.BinaryenTypeInt32();
@@ -3864,44 +3911,68 @@ const Compilation = struct {
                     //
                     else try self.getBynType(results[0].kind.primitive.value);
 
-
-                const body: byn.Expression
-                = if (userfunc_def.@"async")
-                    @ptrCast(byn.c.BinaryenBlock(
-                        byn.c.BinaryenCall(
-                            self.module.c(),
-                            thunk_name,
-                            @ptrCast(byn_args.items.ptr),
-                            @intCast(byn_args.items.len),
-                            byn_result,
-                        ),
-                        byn.c.BinaryenAtomicWait(
-                            self.module.c(),
-                            thunk_name,
-                            @ptrCast(byn_args.items.ptr),
-                            @intCast(byn_args.items.len),
-                            byn_result,
-                        )
-                    ))
-                else @ptrCast(byn.c.BinaryenCall(
-                        self.module.c(),
-                        thunk_name,
-                        @ptrCast(byn_args.items.ptr),
-                        @intCast(byn_args.items.len),
-                        byn_result,
-                    ));
-
                 const func = self.module.addFunction(
                     name,
                     @enumFromInt(byn_param),
                     @enumFromInt(byn_result),
                     &.{},
-                    body,
+                    @ptrCast(byn.c.BinaryenCall(
+                        self.module.c(),
+                        thunk_name,
+                        @ptrCast(byn_args.items.ptr),
+                        @intCast(byn_args.items.len),
+                        byn_result,
+                    )),
                 );
+
+                // add export for async returns
+                if (user_func.data.@"async") {
+                    // TODO: use stackPrintKnownMaxes
+                    var buf: [64]u8 = undefined;
+                    const return_slot_export = try std.fmt.bufPrint(&buf, "ASYNC_RET_{}", .{user_func.data.id});
+                    byn.c.BinaryenAddGlobal(self.module.c(), return_slot_export, byn_result, true, null);
+                    byn.c.BinaryenAddGlobalExport(self.module.c(), return_slot_export, return_slot_export);
+                }
 
                 std.debug.assert(func != null);
             }
         }
+
+        // add asyncify imports
+        // NOTE: using asyncify instead of AtomicWait since AtomicWait can't occur in the main thread of browsers
+        byn.c.BinaryenAddFunctionImport(self.module.c(), "asyncify_start_unwind", "asyncify", "start_unwind", byn.c.BinaryenTypeInt32(), byn.c.BinaryenNone());
+        byn.c.BinaryenAddFunctionImport(self.module.c(), "asyncify_stop_unwind", "asyncify", "stop_unwind", byn.c.BinaryenNone(), byn.c.BinaryenNone());
+        byn.c.BinaryenAddFunctionImport(self.module.c(), "asyncify_start_rewind", "asyncify", "start_rewind", byn.c.BinaryenTypeInt32(), byn.c.BinaryenNone());
+        byn.c.BinaryenAddFunctionImport(self.module.c(), "asyncify_stop_rewind", "asyncify", "stop_rewind", byn.c.BinaryenNone(), byn.c.BinaryenNone());
+
+        self.module.addFunction("_start", .none, .none, &.{}, byn.Expression.block(
+            self.module,
+            null,
+            &[_]*byn.Expression{
+                @ptrCast(byn.c.BinaryenStore(
+                    self.module.c(),
+                    4,
+                    0,
+                    4, // FIXME: store alignment on type?
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start)),
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start + asyncify_fat_pointer_size)),
+                    byn.c.BinaryenTypeInt32(),
+                    main_mem_name,
+                )),
+                @ptrCast(byn.c.BinaryenStore(
+                    self.module.c(),
+                    4,
+                    0,
+                    4, // FIXME: store alignment on type?
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start + @sizeOf(u32))),
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_end)),
+                    byn.c.BinaryenTypeInt32(),
+                    main_mem_name,
+                )),
+            }
+        ) catch |e| switch (e) { error.Null => unreachable });
+
+        byn.c.BinaryenSetStart();
 
         for (graphlt_module.getRoot().value.module.items) |idx| {
             const decl = graphlt_module.get(idx);
@@ -3934,7 +4005,7 @@ const Compilation = struct {
         {
             var import_iter = userfunc_imports.iterator();
             while (import_iter.next()) |import_entry| {
-                try import_entry.key_ptr.addImport(self, import_entry.value_ptr.*);
+                try import_entry.key_ptr.addHostApi(self, import_entry.value_ptr.*);
             }
         }
 
@@ -4057,14 +4128,17 @@ const Compilation = struct {
             @intCast(graphl_meta_custom_data_json.len),
         );
 
-        // FIXME: is there a stringref lowering pass?
-        byn.c.BinaryenModuleRunPasses(self.module.c(), &.{"asyncify"}, 1);
+        // FIXME: make these better
+        byn.c.BinaryenSetOptimizeLevel(switch (opts.optimize) {
+            .size => 1,
+            .speed => 3,
+            // NOTE: currently always doing some optimization cuz our relooper usage can generate invalid code without it
+            .none => 1,
+        });
+        byn.c.BinaryenModuleOptimize(self.module.c());
 
-        if (opts.optimize != .none) {
-            byn.c.BinaryenSetOptimizeLevel(1);
-            // FIXME: should at least optimize out extraneous branching?
-            byn.c.BinaryenModuleOptimize(self.module.c());
-        }
+        // instrument optimized code with asyncify
+        byn.c.BinaryenModuleRunPasses(self.module.c(), &.{"asyncify"}, 1);
 
         if (!byn._BinaryenModuleValidateWithOpts(
             self.module.c(),

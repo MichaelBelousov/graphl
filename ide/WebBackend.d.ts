@@ -103,6 +103,7 @@ export declare interface BasicMutNodeDescJson {
 export declare type UserFuncJson = BasicMutNodeDescJson & {
   // FIXME: patched in by WebBackend.js
   id?: number;
+  async?: boolean;
 }
 
 export declare interface MenuOption {
