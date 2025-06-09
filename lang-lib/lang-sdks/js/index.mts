@@ -735,9 +735,8 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
     return {
         functions: Object.fromEntries(
             Object.entries(wasm.instance.exports)
-            .filter(([exportName, graphlFunc]) => exportName.endsWith("_HOSTENTRY") && typeof graphlFunc === "function")
-            .map(([exportName, graphlFunc]) => {
-                const key = exportName.slice(0, -"_HOSTENTRY".length);
+            .filter(([, graphlFunc]) => typeof graphlFunc === "function")
+            .map(([key, graphlFunc]) => {
                 return [key, (...args: any[]) => {
                     const fnInfo = functionMap.get(key)!;
                     const graphlArgs = args.map((arg, i) => jsValToGraphlVal(
@@ -745,7 +744,7 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
                         inputToType(fnInfo.inputs[i], ctx),
                         wasmExports,
                     ));
-                    ctx.currentEntry = exportName;
+                    ctx.currentEntry = key;
                     const graphlRes = (graphlFunc as Function).apply(null, graphlArgs);
                     if (fnInfo.outputs.length === 0)
                         return undefined;

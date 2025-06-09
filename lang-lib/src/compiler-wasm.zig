@@ -1393,45 +1393,7 @@ const Compilation = struct {
 
         std.debug.assert(func != null);
 
-        var buf: [512]u8 = undefined;
-        // FIXME: mangle internal funcs, not external
-        const host_entry_func_name = try std.fmt.bufPrintZ(&buf, "{s}_HOSTENTRY", .{name});
-
-        // FIXME: use temp alloc
-        const host_entry_func_thunk_ops = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, param_types.len);
-        defer self.arena.allocator().free(host_entry_func_thunk_ops);
-
-        const host_entry_func = byn.c.BinaryenAddFunction(
-            self.module.c(),
-            host_entry_func_name.ptr,
-            param_type_byn,
-            result_type.byn,
-            @ptrCast(byn_local_types.ptr),
-            @intCast(byn_local_types.len),
-            byn.c.BinaryenBlock(
-                self.module.c(),
-                null,
-                @constCast(&[2]byn.c.BinaryenExpressionRef{
-                    byn.c.BinaryenCall(
-                        self.module.c(),
-                        name,
-                        host_entry_func_thunk_ops.ptr,
-                        host_entry_func_thunk_ops.len,
-                    ),
-                    byn.c.BinaryenCall(
-                        self.module.c(),
-                        name,
-                        host_entry_func_thunk_ops.ptr,
-                        host_entry_func_thunk_ops.len,
-                    ),
-                }),
-                2,
-                result_type.byn,
-            ),
-        );
-        std.debug.assert(host_entry_func != null);
-
-        const export_ref = byn.c.BinaryenAddFunctionExport(self.module.c(), host_entry_func_name, host_entry_func_name);
+        const export_ref = byn.c.BinaryenAddFunctionExport(self.module.c(), name, name);
         std.debug.assert(export_ref != null);
     }
 
@@ -4137,7 +4099,7 @@ const Compilation = struct {
         byn.c.BinaryenModuleOptimize(self.module.c());
 
         // instrument optimized code with asyncify
-        byn.c.BinaryenModuleRunPasses(self.module.c(), &.{"asyncify"}, 1);
+        byn.c.BinaryenModuleRunPasses(self.module.c(), @constCast(&[_][*c]const u8{"asyncify".ptr}).ptr, 1);
 
         if (!byn._BinaryenModuleValidateWithOpts(
             self.module.c(),

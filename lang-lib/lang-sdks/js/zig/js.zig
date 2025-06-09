@@ -144,7 +144,7 @@ pub const BasicMutNodeDescJson = struct {
 pub const UserFuncJson = struct {
     id: usize,
     node: BasicMutNodeDescJson,
-    @"async": bool,
+    @"async": bool = false,
 };
 
 const jsonStrToGraphlType = graphl.helpers.jsonStrToGraphlType;
