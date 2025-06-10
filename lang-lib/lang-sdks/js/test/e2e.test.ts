@@ -482,13 +482,14 @@ describe("js sdk", () => {
     );
   });
 
-  it.only("async import", async () => {
+  it("async import", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
-      (import IntPromise "host/IntPromise")
+      (import Int5Promise "host/Int5Promise")
+      (import Times2Promise "host/Times2Promise")
       (typeof (foo) i32)
-      (define (foo) (return (* 2 (IntPromise))))
+      (define (foo) (return (* (Int5Promise) (Times2Promise 6))))
     `, {
-      IntPromise: {
+      Int5Promise: {
         outputs: [{ type: GraphlTypes.i32 }],
         kind: "pure",
         async: true,
@@ -496,8 +497,17 @@ describe("js sdk", () => {
           return 5;
         }
       },
+      Times2Promise: {
+        inputs: [{ type: GraphlTypes.i32 }],
+        outputs: [{ type: GraphlTypes.i32 }],
+        kind: "pure",
+        async: true,
+        async impl(val: number) {
+          return val * 2;
+        }
+      },
     });
-    assert.deepStrictEqual(await program.functions.foo(), 10);
+    assert.deepStrictEqual(await program.functions.foo(), 60);
   });
 
   it.skip("logs structs", async () => {

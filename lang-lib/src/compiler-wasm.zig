@@ -723,16 +723,6 @@ const Compilation = struct {
             main_mem_name, // name
         );
 
-        std.debug.assert(byn.c.BinaryenAddGlobal(
-            result.module.c(),
-            stack_ptr_name,
-            byn.c.BinaryenTypeInt32(),
-            true,
-            // FIXME: note that the ro_data_offset is currently this same number, but since those are data segments
-            // I think it's actually fine... need to double check though
-            byn.c.BinaryenConst(result.module.c(), byn.c.BinaryenLiteralInt32(@intCast(mem_start + str_transfer_seg_size))),
-        ) != null);
-
         // FIXME: do string deduplication/interning
         byn.c.BinaryenAddDataSegment(
             result.module.c(),
@@ -5147,5 +5137,4 @@ test {
     t.refAllDecls(@import("./compiler-tests-types.zig"));
 }
 
-const bytebox = @import("bytebox");
 const byn = @import("binaryen");

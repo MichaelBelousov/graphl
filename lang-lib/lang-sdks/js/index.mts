@@ -507,7 +507,7 @@ function makeCallUserFunc<F extends (...args: any[]) => any>(
             const returnType = typeFromTypeArray(key, desc.outputs?.map((o) => outputToType(o, ctx)) ?? []);
 
             if (desc.async) {
-                // FIXME: keep this in sync with the compiler impl via globals or versioning!
+                // FIXME: keep this (and below other numbers) in sync with the compiler impl via globals or versioning!
                 const view = new Int32Array(wasm.exports.memory.buffer);
                 const DATA_ADDR = 1024; // see compiler-wasm.zig -> asyncify_seg_start
 
@@ -515,17 +515,26 @@ function makeCallUserFunc<F extends (...args: any[]) => any>(
                 if (!userFuncEntry.paused) {
                     // need to pause
                     view[DATA_ADDR >> 2] = DATA_ADDR + 8;
-                    view[DATA_ADDR + 4 >> 2] = 1024;
+                    view[DATA_ADDR + 4 >> 2] = DATA_ADDR + 2048;
                     wasm.exports.asyncify_start_unwind(DATA_ADDR);
+                    ctx.unwindCount += 1;
                     userFuncEntry.paused = true;
                     const jsResPromise = userFuncEntry.impl.call(undefined, ...jsParams);
                     jsResPromise
                         .then((jsRes: ReturnType<F>) => {
                             const graphlRes = jsValToGraphlVal(jsRes, returnType, wasm);
-                            wasm.exports[`ASYNC_RETSLOT_${funcId}`] = graphlRes;
+                            wasm.exports[`ASYNC_RET_${funcId}`].value = graphlRes;
                             wasm.exports.asyncify_start_rewind(DATA_ADDR);
                             assert(ctx.currentEntry !== undefined);
-                            wasm.exports[ctx.currentEntry]();
+
+                            const initialUnwindCount = ctx.unwindCount;
+                            const execResult = wasm.exports[ctx.currentEntry]();
+                            // TODO: maybe add wrapper functions which set a global in the wasm to make sure
+                            // we reached the end instead of this?
+                            const reachedEnd = ctx.unwindCount === initialUnwindCount
+                            if (reachedEnd) {
+                                ctx.finishCurrentExec(execResult);
+                            }
                         });
                 } else {
                     // need to resume
@@ -549,7 +558,7 @@ export interface UserFuncDesc<F extends (...args: any[]) => any>{
     async?: boolean;
 }
 
-export interface GraphlProgram<Funcs extends Record<string, (...args: any[]) => any>> {
+export interface GraphlProgram<Funcs extends Record<string, (...args: any[]) => Promise<any>>> {
     functions: Funcs
     _wasmInstance: WasmInstance
 }
@@ -634,7 +643,22 @@ function parseGraphlMeta(wasmBuffer: ArrayBufferLike): GraphlMeta {
 
 interface GraphlContext {
     types: Record<string, GraphlType>;
+    /** should start as undefined */
     currentEntry: string | undefined;
+    /** should start as 0 */
+    unwindCount: number,
+    finishCurrentExec: (res: any) => void;
+}
+
+namespace GraphlContext {
+    export function init(): GraphlContext {
+        return {
+            types: { ...GraphlTypes },
+            currentEntry: undefined,
+            unwindCount: 0,
+            finishCurrentExec: undefined as any,
+        };
+    }
 }
 
 export async function instantiateProgramFromWasmBuffer<Funcs extends Record<string, (...args: any[]) => any>>(
@@ -651,10 +675,7 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
 
     const userFuncs: UserFuncCollection = new Map() ;
 
-    const ctx: GraphlContext = {
-        types: { ...GraphlTypes },
-        currentEntry: undefined,
-    };
+    const ctx = GraphlContext.init();
 
     const functionMap = new Map<string, {
         name: string,
@@ -737,22 +758,50 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
             Object.entries(wasm.instance.exports)
             .filter(([, graphlFunc]) => typeof graphlFunc === "function")
             .map(([key, graphlFunc]) => {
-                return [key, (...args: any[]) => {
-                    const fnInfo = functionMap.get(key)!;
-                    const graphlArgs = args.map((arg, i) => jsValToGraphlVal(
-                        arg,
-                        inputToType(fnInfo.inputs[i], ctx),
-                        wasmExports,
-                    ));
-                    ctx.currentEntry = key;
-                    const graphlRes = (graphlFunc as Function).apply(null, graphlArgs);
-                    if (fnInfo.outputs.length === 0)
-                        return undefined;
-                    if (fnInfo.outputs.length === 1)
-                        return graphlValToJsVal(graphlRes, outputToType(fnInfo.outputs[0], ctx), wasmExports);
-                    const returnType = typeFromTypeArray(key, fnInfo.outputs.map((o) => outputToType(o, ctx)));
-                    return graphlValToJsVal(graphlRes, returnType, wasmExports);
-                }]
+                return [key, (...args: any[]) => new Promise((resolve, reject) => {
+                    try {
+                        // FIXME: with this design, you may not call other graphl exports from hostEnv funcs...
+                        // would you want to do that?
+                        ctx.finishCurrentExec = (res: any) => {
+                            wasm.instance.exports.asyncify_stop_unwind();
+                            resolve(res);
+                        };
+                        ctx.currentEntry = key;
+
+                        const fnInfo = functionMap.get(key)!;
+                        const graphlArgs = args.map((arg, i) => jsValToGraphlVal(
+                            arg,
+                            inputToType(fnInfo.inputs[i], ctx),
+                            wasmExports,
+                        ));
+                        const initialUnwindCount = ctx.unwindCount;
+                        const graphlRes = (graphlFunc as Function).apply(null, graphlArgs);
+
+                        // TODO: maybe add wrapper functions which set a global in the wasm to make sure
+                        // we reached the end instead of this?
+                        const reachedEnd = ctx.unwindCount === initialUnwindCount
+                        if (!reachedEnd) {
+                            return;
+                        }
+
+                        ctx.finishCurrentExec(graphlRes);
+
+                        let jsResult;
+
+                        if (fnInfo.outputs.length === 0) {
+                            jsResult = undefined;
+                        } else if (fnInfo.outputs.length === 1) {
+                            jsResult = graphlValToJsVal(graphlRes, outputToType(fnInfo.outputs[0], ctx), wasmExports);
+                        } else {
+                            const returnType = typeFromTypeArray(key, fnInfo.outputs.map((o) => outputToType(o, ctx)));
+                            jsResult = graphlValToJsVal(graphlRes, returnType, wasmExports);
+                        }
+
+                        ctx.finishCurrentExec(jsResult);
+                    } catch (err) {
+                        reject(err);
+                    }
+                })]
             })
         ) as any,
         _wasmInstance: wasm.instance as WasmInstance,
@@ -763,10 +812,7 @@ export async function compileGraphltSource(
   source: string,
   hostEnv: Record<string, UserFuncDesc<any>> = {},
 ): Promise<Uint8Array> {
-    const ctx: GraphlContext = {
-        types: {...GraphlTypes },
-        currentEntry: undefined,
-    };
+    const ctx = GraphlContext.init();
     return compileGraphltSourceImpl(source, hostEnv, ctx);
 }
 
