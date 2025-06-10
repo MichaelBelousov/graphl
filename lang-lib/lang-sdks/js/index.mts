@@ -69,6 +69,7 @@ export namespace GraphlTypes {
     export const string: GraphlType = { name: "string", kind: "primitive", size: 0 };
     export const code: GraphlType = { name: "string", kind: "primitive", size: 0 };
     export const rgba: GraphlType = { name: "rgba", kind: "primitive", size: 4 };
+    export const extern: GraphlType = { name: "extern", kind: "primitive", size: 0 };
 
     // TODO: parse structs out of graphl meta section
     // of graphl output
@@ -108,7 +109,7 @@ function typeFromTypeArray(name: string, types: GraphlType[]): GraphlType {
 }
 
 // FIXME: use keyof GraphlTypes?
-type GraphlTypeKey = "string" | "vec3" | "i32" | "u64" | "bool" | "f64" | "rgba" | "i64" | "u32" | "code";
+type GraphlTypeKey = "string" | "vec3" | "i32" | "u64" | "bool" | "f64" | "rgba" | "i64" | "u32" | "code" | "extern";
 
 export interface UserFuncInput {
     name?: string;
