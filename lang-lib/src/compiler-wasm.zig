@@ -3735,6 +3735,55 @@ const Compilation = struct {
         optimize: Optimize = .none,
     };
 
+    fn defaultInitExprForType(self: *@This(), @"type": Type) !byn.c.BinaryenExpressionRef {
+        switch (@"type".subtype) {
+            .@"struct" => |struct_info| {
+                const ops = try self.arena.allocator().alloc(byn.c.BinaryenExpressionRef, struct_info.field_types.len);
+                for (ops, struct_info.field_types) |*op, field_type| {
+                    op.* = try self.defaultInitExprForType(field_type);
+                }
+                return byn.c.BinaryenStructNew(self.module.c(), ops.ptr, @intCast(ops.len), try self.getBynHeapType(@"type"));
+            },
+            .primitive => {
+                if (@"type" == primitive_types.u32_) {
+                    return byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0));
+                } else if (@"type" == primitive_types.u64_) {
+                    return byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt64(0));
+                } else if (@"type" == primitive_types.i32_) {
+                    return byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0));
+                } else if (@"type" == primitive_types.i64_) {
+                    return byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt64(0));
+                } else if (@"type" == primitive_types.f32_) {
+                    return byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat32(0));
+                } else if (@"type" == primitive_types.f64_) {
+                    return byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralFloat64(0));
+                } else if (@"type" == primitive_types.bool_) {
+                    return byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0));
+                } else if (@"type" == primitive_types.rgba) {
+                    return byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0));
+                } else if (@"type" == primitive_types.string) {
+                    return byn.c.BinaryenArrayNew(
+                        self.module.c(),
+                        try self.getBynHeapType(primitive_types.string),
+                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                    );
+                } else if (@"type" == primitive_types.code) {
+                    return byn.c.BinaryenArrayNew(
+                        self.module.c(),
+                        try self.getBynHeapType(primitive_types.string),
+                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                        byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                    );
+                } else {
+                    std.debug.panic("unhandled default expr for primitive type '{s}'", .{@"type".name});
+                }
+            },
+            .func => unreachable,
+            .array => unreachable,
+        }
+    }
+
     pub fn compileModule(self: *@This(), graphlt_module: *const ModuleContext, opts: Opts) ![]const u8 {
         const UserFuncDef = struct {
             params: []Type,
@@ -3865,68 +3914,106 @@ const Compilation = struct {
                 const byn_param = byn.c.BinaryenTypeCreate(byn_params.ptr, @intCast(byn_params.len));
 
                 // FIXME: need a struct return type here...
-                const byn_result = if (results.len > 1) byn.c.BinaryenTypeInt32()
+                const byn_result = if (results.len > 1) std.debug.panic("unimplemented multi result return for userfunc: '{s}'", .{user_func.data.node.name})
                     //
                     else if (results.len == 0) byn.c.BinaryenTypeNone()
                     //
                     else try self.getBynType(results[0].kind.primitive.value);
 
-                const func = self.module.addFunction(
-                    name,
-                    @enumFromInt(byn_param),
-                    @enumFromInt(byn_result),
-                    &.{},
-                    @ptrCast(byn.c.BinaryenCall(
-                        self.module.c(),
-                        thunk_name,
-                        @ptrCast(byn_args.items.ptr),
-                        @intCast(byn_args.items.len),
-                        byn_result,
-                    )),
-                );
+                const func = _: {
+                    if (user_func.data.@"async" and results.len > 0) {
+                        // TODO: use stackPrintKnownMaxes
+                        var buf: [64]u8 = undefined;
+                        // add export for async returns
+                        const ret_slot_exp_name = try std.fmt.bufPrintZ(&buf, "ASYNC_RET_{}", .{user_func.data.id});
+                        _ = byn.c.BinaryenAddGlobal(
+                            self.module.c(),
+                            ret_slot_exp_name.ptr,
+                            byn_result,
+                            true,
+                            // FIXME: support multiple returns, as noted above will panic as unimplemented
+                            try self.defaultInitExprForType(results[0].kind.primitive.value),
+                        );
+                        _ = byn.c.BinaryenAddGlobalExport(self.module.c(), ret_slot_exp_name.ptr, ret_slot_exp_name.ptr);
 
-                // add export for async returns
-                if (user_func.data.@"async") {
-                    // TODO: use stackPrintKnownMaxes
-                    var buf: [64]u8 = undefined;
-                    const return_slot_export = try std.fmt.bufPrint(&buf, "ASYNC_RET_{}", .{user_func.data.id});
-                    _ = byn.c.BinaryenAddGlobal(self.module.c(), return_slot_export.ptr, byn_result, true, null);
-                    _ = byn.c.BinaryenAddGlobalExport(self.module.c(), return_slot_export.ptr, return_slot_export.ptr);
-                }
+                        break :_ self.module.addFunction(
+                            name,
+                            @enumFromInt(byn_param),
+                            @enumFromInt(byn_result),
+                            &.{},
+                            byn.Expression.block(
+                                self.module,
+                                null,
+                                @constCast(@ptrCast(&[_]byn.c.BinaryenExpressionRef{
+                                    byn.c.BinaryenDrop(
+                                        self.module.c(),
+                                        byn.c.BinaryenCall(
+                                            self.module.c(),
+                                            thunk_name,
+                                            @ptrCast(byn_args.items.ptr),
+                                            @intCast(byn_args.items.len),
+                                            byn_result,
+                                        )
+                                    ),
+                                    byn.c.BinaryenGlobalGet(
+                                        self.module.c(),
+                                        ret_slot_exp_name.ptr,
+                                        byn_result,
+                                    ),
+                                })),
+                                @enumFromInt(byn_result),
+                            ) catch |e| switch (e) { error.Null => unreachable },
+                        );
+                    } else {
+                        break :_ self.module.addFunction(
+                            name,
+                            @enumFromInt(byn_param),
+                            @enumFromInt(byn_result),
+                            &.{},
+                            @ptrCast(byn.c.BinaryenCall(
+                                self.module.c(),
+                                thunk_name,
+                                @ptrCast(byn_args.items.ptr),
+                                @intCast(byn_args.items.len),
+                                byn_result,
+                            )),
+                        );
+                    }
+                };
 
                 std.debug.assert(func != null);
             }
         }
 
-        const start_func = self.module.addFunction("_start", .none, .none, &.{}, byn.Expression.block(
-            self.module,
-            null,
-            @constCast(&[_]*byn.Expression{
-                @ptrCast(byn.c.BinaryenStore(
-                    self.module.c(),
-                    4,
-                    0,
-                    4, // FIXME: store alignment on type?
-                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start)),
-                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start + asyncify_fat_pointer_size)),
-                    byn.c.BinaryenTypeInt32(),
-                    main_mem_name,
-                )),
-                @ptrCast(byn.c.BinaryenStore(
-                    self.module.c(),
-                    4,
-                    0,
-                    4, // FIXME: store alignment on type?
-                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start + @sizeOf(u32))),
-                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_end)),
-                    byn.c.BinaryenTypeInt32(),
-                    main_mem_name,
-                )),
-            }),
-            .none,
-        ) catch |e| switch (e) { error.Null => unreachable }) orelse unreachable;
+        // const start_func = self.module.addFunction("_start", .none, .none, &.{}, byn.Expression.block(
+        //     self.module,
+        //     null,
+        //     @constCast(&[_]*byn.Expression{
+        //         @ptrCast(byn.c.BinaryenStore(
+        //             self.module.c(),
+        //             4,
+        //             0,
+        //             4, // FIXME: store alignment on type?
+        //             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start)),
+        //             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start + asyncify_fat_pointer_size)),
+        //             byn.c.BinaryenTypeInt32(),
+        //             main_mem_name,
+        //         )),
+        //         @ptrCast(byn.c.BinaryenStore(
+        //             self.module.c(),
+        //             4,
+        //             0,
+        //             4, // FIXME: store alignment on type?
+        //             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start + @sizeOf(u32))),
+        //             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_end)),
+        //             byn.c.BinaryenTypeInt32(),
+        //             main_mem_name,
+        //         )),
+        //     }),
+        //     .none,
+        // ) catch |e| switch (e) { error.Null => unreachable }) orelse unreachable;
 
-        byn.c.BinaryenSetStart(self.module.c(), @ptrCast(start_func));
+        // byn.c.BinaryenSetStart(self.module.c(), @ptrCast(start_func));
 
         for (graphlt_module.getRoot().value.module.items) |idx| {
             const decl = graphlt_module.get(idx);
