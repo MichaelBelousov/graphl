@@ -507,6 +507,7 @@ const BinaryenHelper = struct {
 
         entry.value_ptr.* = byn_heap_type;
 
+        // FIXME: asyncify doesn't work on non-nullable types?
         const byn_type = byn.c.BinaryenTypeFromHeapType(byn_heap_type, false);
         BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), graphl_type, byn_type) catch unreachable;
 
@@ -3975,35 +3976,35 @@ const Compilation = struct {
             }
         }
 
-        // const start_func = self.module.addFunction("_start", .none, .none, &.{}, byn.Expression.block(
-        //     self.module,
-        //     null,
-        //     @constCast(&[_]*byn.Expression{
-        //         @ptrCast(byn.c.BinaryenStore(
-        //             self.module.c(),
-        //             4,
-        //             0,
-        //             4, // FIXME: store alignment on type?
-        //             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start)),
-        //             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start + asyncify_fat_pointer_size)),
-        //             byn.c.BinaryenTypeInt32(),
-        //             main_mem_name,
-        //         )),
-        //         @ptrCast(byn.c.BinaryenStore(
-        //             self.module.c(),
-        //             4,
-        //             0,
-        //             4, // FIXME: store alignment on type?
-        //             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start + @sizeOf(u32))),
-        //             byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_end)),
-        //             byn.c.BinaryenTypeInt32(),
-        //             main_mem_name,
-        //         )),
-        //     }),
-        //     .none,
-        // ) catch |e| switch (e) { error.Null => unreachable }) orelse unreachable;
+        const start_func = self.module.addFunction("_start", .none, .none, &.{}, byn.Expression.block(
+            self.module,
+            null,
+            @constCast(&[_]*byn.Expression{
+                @ptrCast(byn.c.BinaryenStore(
+                    self.module.c(),
+                    4,
+                    0,
+                    4, // FIXME: store alignment on type?
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start)),
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start + asyncify_fat_pointer_size)),
+                    byn.c.BinaryenTypeInt32(),
+                    main_mem_name,
+                )),
+                @ptrCast(byn.c.BinaryenStore(
+                    self.module.c(),
+                    4,
+                    0,
+                    4, // FIXME: store alignment on type?
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_start + @sizeOf(u32))),
+                    byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(asyncify_seg_end)),
+                    byn.c.BinaryenTypeInt32(),
+                    main_mem_name,
+                )),
+            }),
+            .none,
+        ) catch |e| switch (e) { error.Null => unreachable }) orelse unreachable;
 
-        // byn.c.BinaryenSetStart(self.module.c(), @ptrCast(start_func));
+        byn.c.BinaryenSetStart(self.module.c(), @ptrCast(start_func));
 
         for (graphlt_module.getRoot().value.module.items) |idx| {
             const decl = graphlt_module.get(idx);
