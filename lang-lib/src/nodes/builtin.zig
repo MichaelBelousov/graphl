@@ -208,6 +208,7 @@ pub const jsonStrToGraphlType: std.StaticStringMap(Type) = _: {
         .{ "bool", primitive_types.bool_ },
         .{ "rgba", primitive_types.rgba },
         .{ "vec3", nonprimitive_types.vec3 },
+        .{ "extern", primitive_types.@"extern" },
     });
 };
 
@@ -527,6 +528,8 @@ pub const primitive_types = struct {
     pub const symbol: Type = &TypeInfo{ .name = "symbol", .size = 4 };
     // FIXME: consolidate with empty type
     pub const @"void": Type = &TypeInfo{ .name = "void", .size = 0 };
+    /// handle to a host value, currently can't be separated into separate types
+    pub const @"extern": Type = &TypeInfo{ .name = "extern", .size = 0 };
 
     // FIXME: consider moving this to live in compound_types
     pub const string: Type = &TypeInfo{
