@@ -426,7 +426,7 @@ function graphlValToJsVal(
     }
 }
 
-const TRANSFER_BUF_PTR = 1024;
+const TRANSFER_BUF_PTR = 1024 + 2048;
 // FIXME: maybe the tranfer buffer should be one wasm page size
 const TRANSFER_BUF_LEN = 4096;
 const getTransferBufView = (w: WasmInstance) => new DataView(w.exports.memory.buffer, TRANSFER_BUF_PTR, TRANSFER_BUF_LEN);

@@ -590,7 +590,7 @@ const Compilation = struct {
     _sexp_compiled: []Slot,
 
     // FIXME: figure out how segments works cuz I haven't figured it out yet
-    ro_data_offset: u32 = mem_start + str_transfer_seg_size,
+    ro_data_offset: u32 = static_mem_end,
 
     module: *byn.Module,
     arena: std.heap.ArenaAllocator,
@@ -622,6 +622,8 @@ const Compilation = struct {
     // TODO: rename to general transfer buffer
     pub const str_transfer_seg_size = 4096;
     pub const transfer_seg_start = mem_start + asyncify_seg_size;
+
+    pub const static_mem_end = transfer_seg_start + str_transfer_seg_size;
 
 
     pub const Slot = struct {
@@ -1855,7 +1857,7 @@ const Compilation = struct {
                                     @ptrCast(byn.Expression.binaryOp(
                                         self.module,
                                         byn.Expression.Op.addInt32(),
-                                        @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(mem_start))),
+                                        @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(transfer_seg_start))),
                                         @ptrCast(byn.Expression.binaryOp(
                                             self.module,
                                             byn.Expression.Op.subInt32(),
@@ -1933,7 +1935,7 @@ const Compilation = struct {
                         @ptrCast(byn.Expression.binaryOp(
                             self.module,
                             byn.Expression.Op.addInt32(),
-                            @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(mem_start))),
+                            @ptrCast(byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(transfer_seg_start))),
                             @ptrCast(byn.c.BinaryenLocalGet(self.module.c(), 3, @intFromEnum(byn.Type.i32))),
                         )),
                         byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
@@ -2004,7 +2006,7 @@ const Compilation = struct {
                                 // (array.set TYPE
                                 //     (i32.load type
                                 //         (local.get $arr)
-                                //         (local.get mem_start+$offset+$index)))
+                                //         (local.get transfer_seg_start+$offset+$index)))
                                 byn.c.BinaryenArraySet(
                                     self.module.c(),
                                     byn.c.BinaryenLocalGet(self.module.c(), 0, str_byn_type),
@@ -2024,7 +2026,7 @@ const Compilation = struct {
                                         byn.c.BinaryenBinary(
                                             self.module.c(),
                                             byn.c.BinaryenAddInt32(),
-                                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(mem_start)),
+                                            byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(transfer_seg_start)),
                                             byn.c.BinaryenBinary(
                                                 self.module.c(),
                                                 byn.c.BinaryenAddInt32(),
