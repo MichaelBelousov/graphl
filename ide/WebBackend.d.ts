@@ -1,6 +1,6 @@
 // TODO: type check with this file isn't working
 
-import { GraphlProgram } from "@graphl/compiler-js";
+import { GraphlProgram, GraphlTypeKey } from "@graphl/compiler-js";
 
 /** @see {./src/web-app.zig} */
 
@@ -17,21 +17,7 @@ export declare function Ide<Funcs extends AnyFuncs>(
   opts?: Ide.Options
 ): Promise<Ide<Funcs>>;
 
-export declare type PrimitiveType =
-  | "u64"
-  | "u32"
-  | "i32"
-  | "i64"
-  | "f32"
-  | "f64"
-  | "string"
-  | "code"
-  | "bool"
-  | "rgba"
-  | "vec3"
-;
-
-export declare type Type = PrimitiveType;
+export declare type Type = GraphlTypeKey;
 
 export declare type InputInitState =
   | { node: number, outPin: number }
@@ -71,7 +57,7 @@ export declare interface GraphInitState {
 
 export declare interface PinJson {
   name: string;
-  type: PrimitiveType;
+  type: GraphlTypeKey;
   description?: string;
 }
 

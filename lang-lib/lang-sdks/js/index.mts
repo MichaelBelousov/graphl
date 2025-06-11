@@ -108,8 +108,7 @@ function typeFromTypeArray(name: string, types: GraphlType[]): GraphlType {
     };
 }
 
-// FIXME: use keyof GraphlTypes?
-type GraphlTypeKey = "string" | "vec3" | "i32" | "u64" | "bool" | "f64" | "rgba" | "i64" | "u32" | "code" | "extern";
+export type GraphlTypeKey = keyof typeof GraphlTypes;
 
 export interface UserFuncInput {
     name?: string;
@@ -435,6 +434,13 @@ const getTransferBufUint8Array = (w: WasmInstance) => new Uint8Array(w.exports.m
 type WasmInstance = WebAssembly.Instance & {
     exports: {
         memory: WebAssembly.Memory;
+
+        // undefined if there are no async host functions
+        asyncify_start_unwind(storagePtr: number): void;
+        asyncify_start_rewind(storagePtr: number): void;
+        asyncify_stop_unwind(): void;
+        asyncify_stop_rewind(): void;
+
         __graphl_create_array_string(size: number): WasmHeapType;
         // FIXME: rename to include _string
         __graphl_read_array(str: WasmHeapType, offset: number, length: number): void;
@@ -459,6 +465,8 @@ type WasmInstance = WebAssembly.Instance & {
          * reads bytes from the transfer buffer for a graphl array at the spec
          */
         [K: `__graphl_read_struct_${string}_array`]: (struct: WasmHeapType, arraySlotIndex: number, offset: number, length: number) => void,
+
+        [graphlFunc: string]: Function | WebAssembly.Memory | WebAssembly.Global,
     },
 };
 
@@ -524,12 +532,12 @@ function makeCallUserFunc<F extends (...args: any[]) => any>(
                     jsResPromise
                         .then((jsRes: ReturnType<F>) => {
                             const graphlRes = jsValToGraphlVal(jsRes, returnType, wasm);
-                            wasm.exports[`ASYNC_RET_${funcId}`].value = graphlRes;
+                            (wasm.exports[`ASYNC_RET_${funcId}`] as WebAssembly.Global).value = graphlRes;
                             wasm.exports.asyncify_start_rewind(DATA_ADDR);
                             assert(ctx.currentEntry !== undefined);
 
                             const initialUnwindCount = ctx.unwindCount;
-                            const execResult = wasm.exports[ctx.currentEntry]();
+                            const execResult = (wasm.exports[ctx.currentEntry] as Function)();
                             // TODO: maybe add wrapper functions which set a global in the wasm to make sure
                             // we reached the end instead of this?
                             const reachedEnd = ctx.unwindCount === initialUnwindCount
@@ -776,7 +784,7 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
                                 // FIXME: with this design, you may not call other graphl exports from hostEnv funcs...
                                 // would you want to do that?
                                 ctx.finishCurrentExec = (res: any) => {
-                                    wasm.instance.exports.asyncify_stop_unwind();
+                                    (wasm.instance as WasmInstance).exports.asyncify_stop_unwind();
                                     resolve(res);
                                 };
                                 ctx.currentEntry = key;
