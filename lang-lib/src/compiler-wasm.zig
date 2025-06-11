@@ -444,7 +444,7 @@ const BinaryenHelper = struct {
     var type_map: std.AutoHashMapUnmanaged(Type, byn.c.BinaryenType) = .{};
     var heap_type_map: std.AutoHashMapUnmanaged(Type, byn.c.BinaryenHeapType) = .{};
 
-    /// whether this type can be put in a local in wasm
+    /// whether this type can be written to memory in wasm
     pub fn isValueType(graphl_type: Type) bool {
         return graphl_type == empty_type //
         or graphl_type == primitive_types.i32_ //
@@ -538,7 +538,10 @@ pub export fn _binaryen_helper_constructor() callconv(.C) void {
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.char_, byn.c.BinaryenTypeInt32()) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.void, byn.c.BinaryenTypeNone()) catch unreachable;
 
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.@"extern", byn.c.BinaryenTypeNullExternref()) catch unreachable;
+
     // TODO: do the same thing as guile hoot, use the stringref proposal but lower it to (array i8)
+    // (could implement that as a binaryen pass if it doesn't exist already?)
     const tb: byn.c.TypeBuilderRef = byn.c.TypeBuilderCreate(1);
     byn.c.TypeBuilderSetArrayType(tb, 0, byn.c.BinaryenTypeInt32(), byn.c.BinaryenPackedTypeInt8(), 1);
 
@@ -3764,6 +3767,11 @@ const Compilation = struct {
                         try self.getBynHeapType(primitive_types.string),
                         byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
                         byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(0)),
+                    );
+                } else if (@"type" == primitive_types.@"extern") {
+                    return byn.c.BinaryenRefNull(
+                        self.module.c(),
+                        try self.getBynType(primitive_types.@"extern"),
                     );
                 } else {
                     std.debug.panic("unhandled default expr for primitive type '{s}'", .{@"type".name});

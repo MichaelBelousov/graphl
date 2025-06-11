@@ -759,35 +759,58 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
             Object.entries(wasm.instance.exports)
             .filter(([, graphlFunc]) => typeof graphlFunc === "function")
             .map(([key, graphlFunc]) => {
-                return [key, (...args: any[]) => new Promise((resolve, reject) => {
-                    try {
-                        // FIXME: with this design, you may not call other graphl exports from hostEnv funcs...
-                        // would you want to do that?
-                        ctx.finishCurrentExec = (res: any) => {
-                            wasm.instance.exports.asyncify_stop_unwind();
-                            resolve(res);
-                        };
-                        ctx.currentEntry = key;
+                return [key, (...args: any[]) => {
+                    const fnInfo = functionMap.get(key)!;
+                    const graphlArgs = args.map((arg, i) => jsValToGraphlVal(
+                        arg,
+                        inputToType(fnInfo.inputs[i], ctx),
+                        wasmExports,
+                    ));
 
-                        const fnInfo = functionMap.get(key)!;
-                        const graphlArgs = args.map((arg, i) => jsValToGraphlVal(
-                            arg,
-                            inputToType(fnInfo.inputs[i], ctx),
-                            wasmExports,
-                        ));
-                        const initialUnwindCount = ctx.unwindCount;
-                        const graphlRes = (graphlFunc as Function).apply(null, graphlArgs);
+                    if ("asyncify_stop_unwind" in wasm.instance.exports) {
+                        return new Promise((resolve, reject) => {
+                            try {
+                                let graphlRes;
+                                const initialUnwindCount = ctx.unwindCount;
 
-                        // TODO: maybe add wrapper functions which set a global in the wasm to make sure
-                        // we reached the end instead of this?
-                        const reachedEnd = ctx.unwindCount === initialUnwindCount
-                        if (!reachedEnd) {
-                            return;
-                        }
+                                // FIXME: with this design, you may not call other graphl exports from hostEnv funcs...
+                                // would you want to do that?
+                                ctx.finishCurrentExec = (res: any) => {
+                                    wasm.instance.exports.asyncify_stop_unwind();
+                                    resolve(res);
+                                };
+                                ctx.currentEntry = key;
 
-                        ctx.finishCurrentExec(graphlRes);
+                                graphlRes = (graphlFunc as Function).apply(null, graphlArgs);
 
+                                let jsResult;
+
+                                if (fnInfo.outputs.length === 0) {
+                                    jsResult = undefined;
+                                } else if (fnInfo.outputs.length === 1) {
+                                    jsResult = graphlValToJsVal(graphlRes, outputToType(fnInfo.outputs[0], ctx), wasmExports);
+                                } else {
+                                    const returnType = typeFromTypeArray(key, fnInfo.outputs.map((o) => outputToType(o, ctx)));
+                                    jsResult = graphlValToJsVal(graphlRes, returnType, wasmExports);
+                                }
+
+                                // TODO: maybe add wrapper functions which set a global in the wasm to make sure
+                                // we reached the end instead of this?
+                                const reachedEnd = ctx.unwindCount === initialUnwindCount
+                                if (!reachedEnd) {
+                                    return;
+                                }
+
+                                ctx.finishCurrentExec(jsResult);
+                            } catch (err) {
+                                reject(err);
+                            }
+                        });
+
+                    } else {
+                        // not asyncified
                         let jsResult;
+                        const graphlRes = (graphlFunc as Function).apply(null, graphlArgs);
 
                         if (fnInfo.outputs.length === 0) {
                             jsResult = undefined;
@@ -798,11 +821,9 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
                             jsResult = graphlValToJsVal(graphlRes, returnType, wasmExports);
                         }
 
-                        ctx.finishCurrentExec(jsResult);
-                    } catch (err) {
-                        reject(err);
+                        return jsResult;
                     }
-                })]
+                }]
             })
         ) as any,
         _wasmInstance: wasm.instance as WasmInstance,

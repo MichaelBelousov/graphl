@@ -510,6 +510,36 @@ describe("js sdk", () => {
     assert.deepStrictEqual(await program.functions.foo(), 60);
   });
 
+  it("extern", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (import MakeExtern "host/MakeExtern")
+      (import TakeExtern "host/TakeExtern")
+      (typeof (foo) extern)
+      (define (foo) (return (TakeExtern (MakeExtern))))
+    `, {
+      TakeExtern: {
+        inputs: [{ type: GraphlTypes.extern }],
+        outputs: [{ type: GraphlTypes.extern }],
+        kind: "pure",
+        impl(val: Uint8Array) {
+          const result = val.slice();
+          for (let i = 0; i < result.length; ++i) {
+            result[i] *= 2;
+          }
+          return result;
+        },
+      },
+      MakeExtern: {
+        outputs: [{ type: GraphlTypes.extern }],
+        kind: "pure",
+        impl() {
+          return new Uint8Array([1, 2, 3, 4]);
+        }
+      },
+    });
+    assert.deepStrictEqual(program.functions.foo(), new Uint8Array([2, 4, 6, 8]));
+  });
+
   it.skip("logs structs", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (foo) i32)

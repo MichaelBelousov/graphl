@@ -2186,6 +2186,10 @@ fn renderNode(
                             break :_ socket_center;
                         }
 
+                        if (input_desc.kind.primitive.value == graphl.primitive_types.@"extern") {
+                            break :_ socket_center;
+                        }
+
                         try dvui.label(@src(), "Unknown type: {s}", .{input_desc.kind.primitive.value.name}, .{ .id_extra = j });
                     }
 
