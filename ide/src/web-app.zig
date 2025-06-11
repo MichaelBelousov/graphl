@@ -37,8 +37,7 @@ pub fn frame() !void {
 
 // FIXME: just use the transfer buffer again
 export var result_buffer = std.mem.zeroes([4096]u8);
-// FIXME: using a large transfer buffer seems to maybe cause some issues?
-export var transfer_buffer: [8192]u8 = @splat(0xaa);
+export var transfer_buffer: [16384]u8 = undefined;
 export const transfer_buffer_len: usize = transfer_buffer.len;
 
 export fn onReceiveLoadedSource(in_ptr: ?[*]const u8, len: usize) void {

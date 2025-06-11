@@ -1320,7 +1320,7 @@ function assert(cond, errMessage = "Assertion failed") {
 
 const WASM_PAGE_SIZE = 64 * 1024;
 // FIXME: this is exported from the wasm, get it from that
-const INIT_BUFFER_SZ = 8192;
+const INIT_BUFFER_SZ = 16384;
 
 /**
  * @template {Record<string, (..._: any[]) => any>} T
@@ -1664,8 +1664,11 @@ export async function Ide(canvasElem, opts) {
             {
                 const write = utf8encoder.encodeInto(optsJson, transferBuffer());
                 // TODO: add assert lib!
-                if (write.read !== optsJson.length)
-                    throw Error(`options blob too large, max 1 WASM page size (16kB) allowed`);
+                if (write.read !== optsJson.length) {
+                    // FIXME: implement streaming json across the transfer buffer? Or maybe have a second imported memory?
+                    console.error("options blob", optsJson);
+                    throw Error(`options blob too large, max ${INIT_BUFFER_SZ} bytes allowed. File a bug report`);
+                }
             }
 
 
