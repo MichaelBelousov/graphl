@@ -507,7 +507,6 @@ const BinaryenHelper = struct {
 
         entry.value_ptr.* = byn_heap_type;
 
-        // FIXME: asyncify doesn't work on non-nullable types?
         const byn_type = byn.c.BinaryenTypeFromHeapType(byn_heap_type, false);
         BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), graphl_type, byn_type) catch unreachable;
 
@@ -609,7 +608,7 @@ const Compilation = struct {
     // do not use the first 1Kb
     pub const mem_start = 1024;
 
-    // TODO: set this at the wasm _start function
+    // TODO: remove this if asyncify isn't being used
     pub const asyncify_seg_start = mem_start;
     pub const asyncify_fat_pointer_size = 8;
     pub const asyncify_stack_data_start = asyncify_seg_start + asyncify_fat_pointer_size;
@@ -4169,8 +4168,19 @@ const Compilation = struct {
         });
         byn.c.BinaryenModuleOptimize(self.module.c());
 
-        // instrument optimized code with asyncify
-        byn.c.BinaryenModuleRunPasses(self.module.c(), @constCast(&[_][*c]const u8{"asyncify".ptr}).ptr, 1);
+        // only apply asyncify pass if we see any async functions because
+        // 1. asyncify seems to broken if you have any reference types: https://github.com/WebAssembly/binaryen/issues/3739
+        // 2. the instrumentation it adds has non-neglible overhead
+        {
+            var next = self.user_context.funcs.first;
+            while (next) |curr| : (next = curr.next) {
+                if (curr.data.@"async") {
+                    // instrument optimized code with asyncify
+                    byn.c.BinaryenModuleRunPasses(self.module.c(), @constCast(&[_][*c]const u8{"asyncify".ptr}).ptr, 1);
+                    break;
+                }
+            }
+        }
 
         if (!byn._BinaryenModuleValidateWithOpts(
             self.module.c(),

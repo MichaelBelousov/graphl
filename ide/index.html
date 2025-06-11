@@ -59,6 +59,18 @@
             const ideOpts = {
               allowRunning: true,
               userFuncs: {
+                "ReturnExtern": {
+                  outputs: [{ name: "", type: "extern" }],
+                  impl() {
+                    return new Uint8Array([1,2,3,4]);
+                  },
+                },
+                "UseExtern": {
+                  inputs: [{ name: "", type: "extern" }],
+                  impl(arg) {
+                    console.log(arg);
+                  },
+                },
                 "Confetti": {
                   inputs: [{ name: "ParticleCount", type: "i32", description: "amount of confetti particles" }],
                   outputs: [],
