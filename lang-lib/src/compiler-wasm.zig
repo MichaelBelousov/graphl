@@ -2392,7 +2392,7 @@ const Compilation = struct {
                             try self.compileExpr(arg_idx, fn_ctx);
                             const arg_slot = &self._sexp_compiled[arg_idx];
                             // type
-                            operands[operand_idx] = byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt64(@bitCast(@intFromPtr(arg_slot.type))));
+                            operands[operand_idx] = byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt64(@intCast(@intFromPtr(arg_slot.type))));
                             // value
                             operands[operand_idx + 1] = byn.c.BinaryenLocalGet(self.module.c(), arg_slot.local_index, try self.getBynType(arg_slot.type));
                         }

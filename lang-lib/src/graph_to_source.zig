@@ -58,7 +58,7 @@ pub const GraphBuilder = struct {
     nodes: JsonIntArrayHashMap(NodeId, IndexedNode, 10) = .{},
 
     branch_joiner_map: std.AutoHashMapUnmanaged(NodeId, NodeId) = .{},
-    is_join_set: std.DynamicBitSetUnmanaged,
+    is_join_set: std.AutoHashMap(NodeId, void),
 
     // use a comptime struct member instead cuz this should always be 0 (and should always exist)
     entry_id: ?NodeId = null,
@@ -224,7 +224,7 @@ pub const GraphBuilder = struct {
 
     // FIXME: replace pointers with indices into an allocator? Could be faster
     pub fn isJoin(self: @This(), node: *const IndexedNode) bool {
-        return self.is_join_set.isSet(node.id);
+        return self.is_join_set.get(node.id) != null;
     }
 
     pub fn format(
@@ -306,7 +306,7 @@ pub const GraphBuilder = struct {
 
         var self = Self{
             .env = env,
-            .is_join_set = try std.DynamicBitSetUnmanaged.initEmpty(alloc, 0),
+            .is_join_set = std.AutoHashMap(NodeId, void).init(alloc),
             // initialized below
             .result_node = result_node,
             .result_node_basic_desc = result_node_basic_desc,
@@ -334,7 +334,7 @@ pub const GraphBuilder = struct {
         self.imports.deinit(alloc);
 
         self.branch_joiner_map.deinit(alloc);
-        self.is_join_set.deinit(alloc);
+        self.is_join_set.deinit();
         {
             var node_iter = self.nodes.map.iterator();
             while (node_iter.next()) |*node| {
@@ -554,8 +554,10 @@ pub const GraphBuilder = struct {
     // FIXME: rename from "compile"
     // FIXME: emit move name to the graph
     pub fn compile(self: *@This(), in_alloc: std.mem.Allocator, name: []const u8, mod_ctx: *ModuleContext, diagnostic: ?*Diagnostics) !void {
+        self.branch_joiner_map.clearRetainingCapacity();
         try self.branch_joiner_map.ensureTotalCapacity(in_alloc, self.branch_count);
-        try self.is_join_set.resize(in_alloc, self.nodes.map.count(), false);
+        self.is_join_set.clearRetainingCapacity();
+        try self.is_join_set.ensureTotalCapacity(self.branch_count);
 
         // FIXME: this causes a crash in non-debug builds
         var analysis_arena = std.heap.ArenaAllocator.init(in_alloc);
@@ -678,7 +680,7 @@ pub const GraphBuilder = struct {
     /// first traverse all nodes getting for each its single end (or null if multiple), and its tree size
     pub fn analyzeNodes(self: *@This(), alloc: std.mem.Allocator) NodeAnalysisErr!void {
         errdefer self.branch_joiner_map.clearAndFree(alloc);
-        errdefer self.is_join_set.unsetAll();
+        errdefer self.is_join_set.clearRetainingCapacity();
 
         var analysis_ctx: AnalysisCtx = .{};
         defer analysis_ctx.deinit(alloc);
@@ -737,7 +739,7 @@ pub const GraphBuilder = struct {
 
         if (result) |joiner| {
             try self.branch_joiner_map.put(alloc, branch.id, joiner.id);
-            self.is_join_set.set(joiner.id);
+            try self.is_join_set.put(joiner.id, {});
         }
 
         return result;
@@ -809,14 +811,15 @@ pub const GraphBuilder = struct {
         mod_ctx: *ModuleContext,
 
         const NodeData = packed struct {
-            visited: u1,
-            depth: u32, // TODO: u31
+            visited: u1 = 0,
+            depth: u32 = 0, // TODO: u31
         };
 
         pub const Block = std.ArrayListUnmanaged(u32);
 
         const Context = struct {
-            node_data: *std.MultiArrayList(NodeData),
+            // NOTE: this entire file should be removed so ignore this bad ness
+            node_data: *std.AutoHashMap(NodeId, NodeData),
             label_counter: u32 = 1,
             // FIXME: use unmanaged
             node_labels: *std.AutoHashMap(NodeId, [:0]const u8),
@@ -824,25 +827,29 @@ pub const GraphBuilder = struct {
 
             pub fn init(
                 alloc: std.mem.Allocator,
+                nodes: *const JsonIntArrayHashMap(NodeId, IndexedNode, 10),
                 args: struct {
-                    node_count: usize,
-                    node_data: *std.MultiArrayList(NodeData),
+                    node_data: *std.AutoHashMap(NodeId, NodeData),
                     // TODO: could create a perfect hash map for the node set upfront...
                     node_labels: *std.AutoHashMap(NodeId, [:0]const u8),
                     label_to_sexp_idx: *std.StringHashMap(u32),
                 },
             ) !@This() {
+                _ = alloc;
+
                 var self = @This(){
                     .node_data = args.node_data,
                     .node_labels = args.node_labels,
                     .label_to_sexp_idx = args.label_to_sexp_idx,
                 };
 
-                // TODO: can this be done better?
-                try self.node_data.resize(alloc, args.node_count);
-                var slices = self.node_data.slice();
-                @memset(slices.items(.visited)[0..self.node_data.len], 0);
-                @memset(slices.items(.depth)[0..self.node_data.len], 0);
+                try self.node_data.ensureTotalCapacity(nodes.map.count());
+                {
+                    var iter = nodes.map.iterator();
+                    while (iter.next()) |node| {
+                        self.node_data.putAssumeCapacity(node.key_ptr.*, .{});
+                    }
+                }
 
                 return self;
             }
@@ -878,8 +885,8 @@ pub const GraphBuilder = struct {
             defer block.deinit(alloc);
 
             // FIXME: clean up this mess
-            var node_data = std.MultiArrayList(NodeData){};
-            defer node_data.deinit(alloc);
+            var node_data = std.AutoHashMap(NodeId, NodeData).init(alloc);
+            defer node_data.deinit();
 
             var node_labels = std.AutoHashMap(NodeId, [:0]const u8).init(alloc);
             defer node_labels.deinit();
@@ -887,8 +894,7 @@ pub const GraphBuilder = struct {
             var label_to_sexp_idx = std.StringHashMap(u32).init(alloc);
             defer label_to_sexp_idx.deinit();
 
-            var ctx = try Context.init(alloc, .{
-                .node_count = self.graph.nodes.map.count(),
+            var ctx = try Context.init(alloc, &self.graph.nodes, .{
                 .node_data = &node_data,
                 .node_labels = &node_labels,
                 .label_to_sexp_idx = &label_to_sexp_idx,
@@ -909,16 +915,16 @@ pub const GraphBuilder = struct {
 
         pub fn onNode(self: @This(), alloc: std.mem.Allocator, node_id: NodeId, state: State, context: *Context) Error!void {
             // FIXME: not handled
-            if (context.node_data.items(.visited)[node_id] == 1) {
-                if (context.node_data.items(.depth)[node_id] < state.depth)
+            if (context.node_data.get(node_id).?.visited == 1) {
+                if (context.node_data.get(node_id).?.depth < state.depth)
                     return error.CyclesNotSupported;
                 return;
             }
 
             const node = self.graph.nodes.map.getPtr(node_id) orelse std.debug.panic("onNode: couldn't find node by id={}", .{node_id});
 
-            context.node_data.items(.visited)[node_id] = 1;
-            context.node_data.items(.depth)[node_id] = state.depth;
+            context.node_data.getPtr(node_id).?.visited = 1;
+            context.node_data.getPtr(node_id).?.depth = state.depth;
 
             const next_state = State{
                 .block = state.block,
