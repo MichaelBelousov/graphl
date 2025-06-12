@@ -919,7 +919,7 @@ export interface GraphlHostEnv<Funcs extends Record<string, (...args: any[]) => 
 
 export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Record<string, (...args: any[]) => any>>(
     source: string,
-    hostEnv: GraphlHostEnv = {},
+    hostEnv: GraphlHostEnv<Funcs> = {},
 ): Promise<GraphlProgram<Funcs>> {
     const compiledWasm = await compileGraphltSource(source, hostEnv);
     return instantiateProgramFromWasmBuffer(compiledWasm.buffer, hostEnv);
