@@ -66,10 +66,10 @@ export namespace GraphlTypes {
     export const f32: GraphlType = { name: "f32", kind: "primitive", size: 4 };
     export const f64: GraphlType = { name: "f64", kind: "primitive", size: 8 };
     // FIXME: is this really a primtive? bad name
-    export const string: GraphlType = { name: "string", kind: "primitive", size: 0 };
+    export const string: GraphlType = { name: "string", kind: "primitive", size: 4 };
     export const code: GraphlType = { name: "string", kind: "primitive", size: 0 };
     export const rgba: GraphlType = { name: "rgba", kind: "primitive", size: 4 };
-    export const extern: GraphlType = { name: "extern", kind: "primitive", size: 0 };
+    export const extern: GraphlType = { name: "extern", kind: "primitive", size: 4 };
 
     // TODO: parse structs out of graphl meta section
     // of graphl output
@@ -166,6 +166,7 @@ function jsValToGraphlStructVal(
     if (graphlNativeValSym in jsVal)
         return jsVal[graphlNativeValSym];
 
+    const externSlotQueue = [] as any[];
     const arraySlotQueue = [] as { fullData: Uint8Array }[];
 
     function jsValToGraphlStructMem(jsVal: any, subStructType: GraphlType, offset: number) {
@@ -234,6 +235,8 @@ function jsValToGraphlStructVal(
                     `received non-string value '${JSON.stringify(fieldValue)}' for field '${fieldName}' of struct ${fieldType.name}`,
                 );
                 arraySlotQueue.push({ fullData: new TextEncoder().encode(fieldValue) });
+            } else if (fieldType === GraphlTypes.extern) {
+                externSlotQueue.push(fieldValue);
             } else if (fieldType.kind === "struct") {
                 jsValToGraphlStructMem(fieldValue, fieldType, offset + fieldOffset);
             } else {
@@ -258,6 +261,10 @@ function jsValToGraphlStructVal(
             }
             i += 1;
         }
+    }
+
+    for (let i = 0; i < externSlotQueue.length; ++ i) {
+        wasm.exports[`__graphl_set_struct_${graphlType.name}_extern`](graphlStructVal, i, externSlotQueue[i]);
     }
 
     return graphlStructVal;
@@ -313,6 +320,7 @@ function graphlStructValToJsVal(
     const _arrayCount = wasm.exports[`__graphl_write_struct_${graphlType.name}_fields`](graphlVal);
 
     const arraySlotQueue = [] as { obj: any, fieldName: string }[];
+    const externSlotQueue = [] as { obj: any, fieldName: string }[];
 
     const result: any = {};
 
@@ -350,6 +358,8 @@ function graphlStructValToJsVal(
                 result[fieldName] = Boolean(transferBufView.getInt32(fieldOffset, true));
             } else if (fieldType === GraphlTypes.string) {
                 arraySlotQueue.push({ obj: result, fieldName })
+            } else if (fieldType === GraphlTypes.extern) {
+                externSlotQueue.push({ obj: result, fieldName })
             } else if (fieldType.kind === "struct") {
                 result[fieldName] = {};
                 // FIXME: bad struct val
@@ -390,6 +400,11 @@ function graphlStructValToJsVal(
             arraySlot.obj[arraySlot.fieldName] = new TextDecoder().decode(fullData);
             i += 1;
         }
+    }
+
+    for (let i = 0; i < externSlotQueue.length; ++ i) {
+        const externSlot = externSlotQueue[i];
+        externSlot.obj[externSlot.fieldName] = wasm.exports[`__graphl_get_struct_${graphlType.name}_extern`](graphlVal, i);
     }
 
     return result;
@@ -451,6 +466,8 @@ type WasmInstance = WebAssembly.Instance & {
          * @returns the amount of arrays in the struct
          */
         [K: `__graphl_write_struct_${string}_fields`]: (struct: WasmHeapType) => number,
+        // FIXME: the arraySlotIndex should be based on the position of the slot in the struct, not the position out of
+        // array elements only
         /**
          * writes the bytes of a graphl array at the specified array slot index of a struct into the transfer buffer
          * @returns the amount of bytes written which may be the transfer buffer size meaning this should
@@ -465,6 +482,14 @@ type WasmInstance = WebAssembly.Instance & {
          * reads bytes from the transfer buffer for a graphl array at the spec
          */
         [K: `__graphl_read_struct_${string}_array`]: (struct: WasmHeapType, arraySlotIndex: number, offset: number, length: number) => void,
+        /**
+         * set an extern field of a struct
+         */
+        [K: `__graphl_set_struct_${string}_extern`]: (struct: WasmHeapType, slotIndex: number, value: any) => void,
+        /**
+         * get an extern field of a struct
+         */
+        [K: `__graphl_get_struct_${string}_extern`]: (struct: WasmHeapType, slotIndex: number) => any,
 
         [graphlFunc: string]: Function | WebAssembly.Memory | WebAssembly.Global,
     },
@@ -888,9 +913,13 @@ async function compileGraphltSourceImpl(
     return compiledWasm;
 }
 
+export interface GraphlHostEnv<Funcs extends Record<string, (...args: any[]) => any>> {
+    [func: string]: UserFuncDesc<Funcs[string]>;
+}
+
 export async function compileGraphltSourceAndInstantiateProgram<Funcs extends Record<string, (...args: any[]) => any>>(
     source: string,
-    hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
+    hostEnv: GraphlHostEnv = {},
 ): Promise<GraphlProgram<Funcs>> {
     const compiledWasm = await compileGraphltSource(source, hostEnv);
     return instantiateProgramFromWasmBuffer(compiledWasm.buffer, hostEnv);

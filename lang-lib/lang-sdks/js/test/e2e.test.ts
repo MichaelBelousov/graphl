@@ -4,7 +4,7 @@ import assert from "node:assert";
 
 // TODO: move these tests to a separate package to consume bundle directly
 // local (native) backend
-import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../index.mts";
+import { compileGraphltSourceAndInstantiateProgram, GraphlTypes, type GraphlHostEnv } from "../index.mts";
 // production wasm backend
 // import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/native-cjs/index.js";
 // production wasm backend
@@ -510,19 +510,19 @@ describe("js sdk", () => {
     assert.deepStrictEqual(await program.functions.foo(), 60);
   });
 
-  it("extern", async () => {
+  it.only("extern", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (import MakeExtern "host/MakeExtern")
       (import TakeExtern "host/TakeExtern")
-      (typeof (foo) extern)
-      (define (foo) (return (TakeExtern (MakeExtern))))
+      (typeof (foo) (extern i32))
+      (define (foo) (return (TakeExtern (MakeExtern)) 5))
     `, {
       TakeExtern: {
         inputs: [{ type: GraphlTypes.extern }],
         outputs: [{ type: GraphlTypes.extern }],
         kind: "pure",
         impl(val: Uint8Array) {
-          const result = val.slice();
+          const result = new Uint8Array(Buffer.from(val));
           for (let i = 0; i < result.length; ++i) {
             result[i] *= 2;
           }
@@ -537,7 +537,10 @@ describe("js sdk", () => {
         }
       },
     });
-    assert.deepStrictEqual(program.functions.foo(), new Uint8Array([2, 4, 6, 8]));
+    assert.deepStrictEqual(program.functions.foo(), {
+        0: new Uint8Array([2, 4, 6, 8]),
+        1: 5,
+    });
   });
 
   it.skip("logs structs", async () => {

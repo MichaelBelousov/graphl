@@ -33,6 +33,8 @@ pub const StructType = struct {
     flat_array_count: u16,
     /// total amount of primitive fields if you recursively descend through all fields
     flat_primitive_slot_count: u16,
+    /// total amount of extern fields if you recursively descend through all fields
+    flat_extern_count: u16,
 
     pub fn initFromTypeList(alloc: std.mem.Allocator, arg: struct {
         field_names: []const [:0]const u8 = &.{},
@@ -42,6 +44,7 @@ pub const StructType = struct {
         var offset: u32 = 0;
         var flat_primitive_slot_count: u16 = 0;
         var flat_array_count: u16 = 0;
+        var flat_extern_count: u16 = 0;
 
         for (arg.field_types, field_offsets) |field_type, *field_offset| {
             field_offset.* = offset;
@@ -50,10 +53,13 @@ pub const StructType = struct {
                 .@"struct" => |substruct_type| {
                     flat_primitive_slot_count += substruct_type.flat_primitive_slot_count;
                     flat_array_count += substruct_type.flat_array_count;
+                    flat_extern_count += substruct_type.flat_extern_count;
                 },
                 .primitive => {
                     if (field_type == primitive_types.string) {
                         flat_array_count += 1;
+                    } else if (field_type == primitive_types.@"extern") {
+                        flat_extern_count += 1;
                     } else {
                         flat_primitive_slot_count += 1;
                     }
@@ -69,6 +75,7 @@ pub const StructType = struct {
             .size = total_size,
             .flat_primitive_slot_count = flat_primitive_slot_count,
             .flat_array_count = flat_array_count,
+            .flat_extern_count = flat_extern_count,
         };
     }
 };
@@ -529,13 +536,12 @@ pub const primitive_types = struct {
     // FIXME: consolidate with empty type
     pub const @"void": Type = &TypeInfo{ .name = "void", .size = 0 };
     /// handle to a host value, currently can't be separated into separate types
-    pub const @"extern": Type = &TypeInfo{ .name = "extern", .size = 0 };
+    pub const @"extern": Type = &TypeInfo{ .name = "extern", .size = 4 };
 
     // FIXME: consider moving this to live in compound_types
     pub const string: Type = &TypeInfo{
         .name = "string",
-        // FIXME: size is host-dependent, so should not be here tbh...
-        .size = 0,
+        .size = 4,
     };
 
     pub const rgba: Type = &TypeInfo{ .name = "rgba", .size = 4 };
@@ -587,6 +593,7 @@ pub const nonprimitive_types = struct {
             .field_offsets = &.{ 0, 8, 16 },
             .size = 24,
             .flat_array_count = 0,
+            .flat_extern_count = 0,
             .flat_primitive_slot_count = 3,
         } },
     };
