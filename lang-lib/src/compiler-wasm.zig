@@ -1450,7 +1450,7 @@ const Compilation = struct {
             return error.StructTooLarge;
         }
 
-        const prim_field_count = graphl_type.subtype.@"struct".flat_primitive_slot_count;
+        const field_count = graphl_type.subtype.@"struct".field_names.len;
         const array_field_count = graphl_type.subtype.@"struct".flat_array_count;
 
         const write_fields = _: {
@@ -1470,11 +1470,18 @@ const Compilation = struct {
 
             const impl = try self.arena.allocator().alloc(
                 byn.c.BinaryenExpressionRef,
-                prologue.len + graphl_type.subtype.@"struct".flat_primitive_slot_count + epilogue.len,
+                prologue.len + field_count + epilogue.len,
+            );
+
+            std.debug.assert(
+                field_count
+                == graphl_type.subtype.@"struct".flat_extern_count
+                + graphl_type.subtype.@"struct".flat_primitive_slot_count
+                + graphl_type.subtype.@"struct".flat_array_count
             );
 
             @memcpy(impl[0..prologue.len], prologue[0..]);
-            @memcpy(impl[prologue.len + prim_field_count ..], epilogue[0..]);
+            @memcpy(impl[prologue.len + field_count ..], epilogue[0..]);
 
             // FIXME: support nested structs
             {
@@ -1482,7 +1489,7 @@ const Compilation = struct {
                 defer field_iter_arena.deinit();
                 var field_iter = graphl_type.recursiveSubfieldIterator(field_iter_arena.allocator());
 
-                const field_exprs = impl[prologue.len .. prologue.len + prim_field_count];
+                const field_exprs = impl[prologue.len .. prologue.len + field_count];
                 // FIXME: gosh this is confusing
                 var i: u32 = 0;
                 var field_index: u32 = 0;
