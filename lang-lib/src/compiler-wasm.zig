@@ -4218,11 +4218,6 @@ const Compilation = struct {
             }
         }
 
-        //FIXME: remove this
-        //if (std.log.logEnabled(.debug, .graphlt_compiler)) {
-        byn._BinaryenModulePrintStderr(self.module.c());
-        //}
-
         // FIXME: define a compiler-version independent spec for this data
         var user_func_data = try std.ArrayListUnmanaged(struct {
             name: []const u8,
@@ -4345,6 +4340,12 @@ const Compilation = struct {
             .none => 1,
         });
         byn.c.BinaryenModuleOptimize(self.module.c());
+
+        //FIXME: remove this
+        //if (std.log.logEnabled(.debug, .graphlt_compiler)) {
+        byn._BinaryenModulePrintStderr(self.module.c());
+        //}
+
 
         // only apply asyncify pass if we see any async functions because
         // 1. asyncify seems to broken if you have any reference types: https://github.com/WebAssembly/binaryen/issues/3739

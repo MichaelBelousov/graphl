@@ -510,7 +510,7 @@ describe("js sdk", () => {
     assert.deepStrictEqual(await program.functions.foo(), 60);
   });
 
-  it.only("extern", async () => {
+  it("extern", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (import MakeExtern "host/MakeExtern")
       (import TakeExtern "host/TakeExtern")
