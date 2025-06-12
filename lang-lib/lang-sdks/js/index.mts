@@ -700,7 +700,7 @@ export async function instantiateProgramFromWasmBuffer<Funcs extends Record<stri
     hostEnv: Record<string, UserFuncDesc<Funcs[string]>> = {},
 ): Promise<GraphlProgram<Funcs>> {
     // need a level of indirection unfortunately (TBD if this works if we need the imports at instantiation)
-    const wasmExports: WasmInstance = { exports: undefined as any };
+    const wasmExports: WasmInstance = { exports: undefined } as any;
 
     const graphlMeta = parseGraphlMeta(data);
 
@@ -902,8 +902,6 @@ async function compileGraphltSourceImpl(
     const diagnostic = new zig.Diagnostic({});
     try {
         compiledWasm = zig.compileSource("unknown", source, userFuncDescsJson, diagnostic).typedArray;
-        if (process.env.ITUE_DEBUG_DUMP)
-            (await import("node:fs")).writeFileSync(process.env.ITUE_DEBUG_DUMP, compiledWasm)
     } catch (err: any) {
         // FIXME: add zigar types
         const diagStr = diagnostic.error.string;

@@ -35,6 +35,7 @@
     "build-debug": "NODE_ENV=development rollup -c && bun run build-types",
     "build-types": "tsc -p ./tsconfig.json",
     "build-native": "node ./native-build.mjs",
+    "build-local-test-js": "tsc -p ./tsconfig.local.json",
     "dev": "rollup -c -w",
     "test": "bun test ./test/*.test.ts",
     "test-node": "node --loader=node-zigar --experimental-transform-types ./test/*.test.ts",

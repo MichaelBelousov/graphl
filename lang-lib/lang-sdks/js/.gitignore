@@ -36,6 +36,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # output
 dist
 
+# test js output
+index.mjs
+index.js
+
 # zigar weird behavior
 # SEE: https://github.com/chung-leong/zigar/discussions/621
 node-zigar.config.json
