@@ -544,7 +544,7 @@ pub export fn _binaryen_helper_constructor() callconv(.C) void {
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.char_, byn.c.BinaryenTypeInt32()) catch unreachable;
     BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.void, byn.c.BinaryenTypeNone()) catch unreachable;
 
-    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.@"extern", byn.c.BinaryenTypeNullExternref()) catch unreachable;
+    BinaryenHelper.type_map.putNoClobber(BinaryenHelper.alloc.allocator(), primitive_types.@"extern", byn.c.BinaryenTypeExternref()) catch unreachable;
 
     // TODO: do the same thing as guile hoot, use the stringref proposal but lower it to (array i8)
     // (could implement that as a binaryen pass if it doesn't exist already?)
@@ -1682,7 +1682,7 @@ const Compilation = struct {
                             self.module.c(),
                             field_index,
                             byn.c.BinaryenLocalGet(self.module.c(), vars.param_struct_ref, struct_byn_type),
-                            byn.c.BinaryenLocalGet(self.module.c(), vars.param_extern_val, byn.c.BinaryenTypeNullExternref()),
+                            byn.c.BinaryenLocalGet(self.module.c(), vars.param_extern_val, byn.c.BinaryenTypeExternref()),
                         ),
                         null,
                     ));
@@ -1780,7 +1780,7 @@ const Compilation = struct {
                         self.module.c(),
                         byn.c.BinaryenRefNull(
                             self.module.c(),
-                            byn.c.BinaryenTypeNullExternref(),
+                            byn.c.BinaryenTypeExternref(),
                         ),
                     ),
                 );
@@ -1796,7 +1796,7 @@ const Compilation = struct {
                     struct_byn_type, // struct ref
                     byn.c.BinaryenTypeInt32(), // slot index
                 }).ptr, 2),
-                byn.c.BinaryenTypeNullExternref(),
+                byn.c.BinaryenTypeExternref(),
                 null,
                 0,
                 byn.c.BinaryenBlock(
