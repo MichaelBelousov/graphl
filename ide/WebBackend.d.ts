@@ -10,6 +10,7 @@ export declare interface Ide<Funcs extends AnyFuncs> {
   compile(): Promise<GraphlProgram<Funcs>>;
   exportWasm(): Promise<Uint8Array>;
   exportGraphlt(): Promise<string>;
+  exportGraphJson(): Promise<string>;
 }
 
 export declare function Ide<Funcs extends AnyFuncs>(

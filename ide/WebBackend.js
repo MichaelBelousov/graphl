@@ -1484,6 +1484,17 @@ export async function Ide(canvasElem, opts) {
                 resultPromise.cleanup();
             }
         },
+        async exportGraphJson() {
+            const resultPromise = setupSliceReturn();
+            try {
+                ideWasm.instance.exports.getGraphsJson();
+                const result = await resultPromise;
+                const content = utf8decoder.decode(result);
+                return content;
+            } finally {
+                resultPromise.cleanup();
+            }
+        },
         async compile() {
             const wasm = await this.exportWasm();
             return instantiateProgramFromWasmBuffer(wasm.buffer, opts.userFuncs);
