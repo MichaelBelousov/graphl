@@ -4,11 +4,11 @@ import assert from "node:assert";
 
 // TODO: move these tests to a separate package to consume bundle directly
 // local (native) backend
-import { compileGraphltSourceAndInstantiateProgram, GraphlTypes, type GraphlHostEnv } from "../index.mts";
-// production wasm backend
+// import { compileGraphltSourceAndInstantiateProgram, GraphlTypes, type GraphlHostEnv } from "../index.mts";
+// production native backend
 // import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/native-cjs/index.js";
 // production wasm backend
-//import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/cjs/index.js";
+import { compileGraphltSourceAndInstantiateProgram, GraphlTypes } from "../dist/cjs/index.js";
 
 if (typeof Bun === "undefined") {
   ({ describe, it } = (await import("node:test")) as any);

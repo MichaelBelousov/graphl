@@ -1434,8 +1434,8 @@ const Compilation = struct {
         write_fields: byn.c.BinaryenFunctionRef,
         write_array: byn.c.BinaryenFunctionRef,
         write_extern: byn.c.BinaryenFunctionRef,
-        read_extern: byn.c.BinaryenFunctionRef,
-        read_fields: byn.c.BinaryenFunctionRef,
+        read_extern: ?byn.c.BinaryenFunctionRef,
+        read_fields: ?byn.c.BinaryenFunctionRef,
     };
 
     fn addCopyIntrinsicFuncForHeapStruct(
@@ -1647,13 +1647,16 @@ const Compilation = struct {
         };
 
         const write_extern = _: {
+            if (graphl_type.subtype.@"struct".flat_extern_count == 0)
+                break :_ null;
+
             const vars = struct {
                 pub const param_struct_ref = 0;
                 pub const param_slot_idx = 1;
                 pub const param_extern_val = 2;
             };
 
-            var impl = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), graphl_type.subtype.@"struct".flat_extern_count + 1);
+            var impl = try std.ArrayListUnmanaged(byn.c.BinaryenExpressionRef).initCapacity(self.arena.allocator(), graphl_type.subtype.@"struct".flat_extern_count);
             //defer impl.de
 
             // FIXME: support nested structs
@@ -1687,7 +1690,11 @@ const Compilation = struct {
                     slot_index += 1;
                 }
 
-                impl.appendAssumeCapacity(byn.c.BinaryenUnreachable(self.module.c()));
+                // FIXME: for some reason the binaryen precompute pass, only when wasm-compiled,
+                // will consider this unreachable to be always reached and throw it
+                // impl.appendAssumeCapacity(
+                //     byn.c.BinaryenUnreachable()
+                // );
             }
 
             // FIXME: use a buf, pretty sure binaryen just copies this, no point bloating the arena
@@ -1719,6 +1726,9 @@ const Compilation = struct {
         };
 
         const read_extern = _: {
+            if (graphl_type.subtype.@"struct".flat_extern_count == 0)
+                break :_ null;
+
             const vars = struct {
                 pub const param_struct_ref = 0;
                 pub const param_slot_idx = 1;
@@ -1762,7 +1772,18 @@ const Compilation = struct {
                     slot_index += 1;
                 }
 
-                impl.appendAssumeCapacity(byn.c.BinaryenUnreachable(self.module.c()));
+                impl.appendAssumeCapacity(
+                    // FIXME: for some reason the binaryen precompute pass, only when wasm-compiled,
+                    // will consider this unreachable to be always reached and throw it
+                    //byn.c.BinaryenUnreachable(self.module.c())
+                    byn.c.BinaryenReturn(
+                        self.module.c(),
+                        byn.c.BinaryenRefNull(
+                            self.module.c(),
+                            byn.c.BinaryenTypeNullExternref(),
+                        ),
+                    ),
+                );
             }
 
             // FIXME: use a buf, pretty sure binaryen just copies this, no point bloating the arena
@@ -4341,10 +4362,10 @@ const Compilation = struct {
         });
         byn.c.BinaryenModuleOptimize(self.module.c());
 
-        //FIXME: remove this
-        //if (std.log.logEnabled(.debug, .graphlt_compiler)) {
-        byn._BinaryenModulePrintStderr(self.module.c());
-        //}
+        if (std.log.logEnabled(.debug, .graphlt_compiler)) {
+            log.debug("optimized code", .{});
+            byn._BinaryenModulePrintStderr(self.module.c());
+        }
 
 
         // only apply asyncify pass if we see any async functions because

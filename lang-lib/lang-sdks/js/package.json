@@ -38,9 +38,9 @@
     "build-local-test-js": "tsc -p ./tsconfig.local.json",
     "dev": "rollup -c -w",
     "test": "bun test ./test/*.test.ts",
-    "test-node": "node --loader=node-zigar --experimental-transform-types ./test/*.test.ts",
-    "test-node-only": "node --loader=node-zigar --test-only --experimental-transform-types ./test/*.test.ts",
-    "test-debug": "node --inspect-brk --loader=node-zigar --test-only --experimental-transform-types ./test/*.test.ts",
+    "test-node": "node --loader=node-zigar --experimental-transform-types",
+    "test-node-only": "node --loader=node-zigar --test-only --experimental-transform-types",
+    "test-debug": "node --inspect-brk --loader=node-zigar --test-only --experimental-transform-types",
     "preview": "vite preview"
   },
   "devDependencies": {
