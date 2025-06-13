@@ -1,3 +1,4 @@
+// FIXME: rename this file
 import { WASI, File, OpenFile, ConsoleStdout, PreopenDirectory } from '@bjorn3/browser_wasi_shim';
 import frontendWasmUrl from './zig-out/bin/dvui-frontend.wasm?url';
 import { downloadFile, uploadFile } from './localFileManip';
@@ -1532,7 +1533,7 @@ export async function Ide(canvasElem, opts) {
                         {
                             name: "Open",
                             async onClick() {
-                                const file = await uploadFile({ type: "text" });
+                                const file = await uploadFile({ type: "text", extensions: [".gr.json"] });
                                 const len = file.content.length;
                                 const ptr = ideWasm.instance.exports.transfer_buffer;
                                 // FIXME: bad memory limit, add an exported allocator interface

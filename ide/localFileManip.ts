@@ -34,14 +34,14 @@ export const downloadFile = async (opts: DownloadFileOpts) => {
   a.remove()
 }
 
-/** prompt the user to upload a file, currenlty only supports text */
-export const uploadFile = async (opts: { type: 'text' | 'dataurl' }) => {
+/** prompt the user to upload a file, currently only supports text */
+export const uploadFile = async (opts: { type: 'text' | 'dataurl', extensions?: string[]  } = {}) => {
   const result = await new Promise<{ name: string; content: string }>(
     (resolve, reject) => {
       // should probably just keep this available at all times
       const hiddenTree = document.createElement('div')
       hiddenTree.style.display = 'none'
-      hiddenTree.innerHTML = `<input type="file" id="temp-upload" />`
+      hiddenTree.innerHTML = `<input type="file" id="temp-upload" accept="${opts.extensions?.join(',') ?? ''}" />`
       const input = hiddenTree.children[0] as HTMLInputElement
       input.onchange = function() {
         try {
