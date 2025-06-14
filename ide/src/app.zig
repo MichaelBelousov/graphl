@@ -576,10 +576,11 @@ pub fn addGraph(
             graph.graphl_graph.entry_node,
             graph.graphl_graph.entry_node_basic_desc,
             .params,
-            // TODO: leak?
+            // FIXME: leak
+            // TODO: consider just not deiniting the input json in some paths...
             try gpa.dupe(u8, param.name),
             param.asPrimitivePin().value,
-            param.description,
+            if (param.description) |d| try gpa.dupeZ(u8, d) else null,
         );
     }
 
@@ -588,10 +589,10 @@ pub fn addGraph(
             graph.graphl_graph.result_node,
             graph.graphl_graph.result_node_basic_desc,
             .results,
-            // TODO: leak?
+            // TODO: consider just not deiniting the input json in some paths...
             try gpa.dupe(u8, result.name),
             result.asPrimitivePin().value,
-            result.description,
+            if (result.description) |d| try gpa.dupeZ(u8, d) else null,
         );
     }
 
@@ -2801,6 +2802,7 @@ pub fn onReceiveLoadedSource(self: *@This(), src: []const u8) !void {
     self.deinit();
     try self.init(init_opts);
 
+    // FIXME: prevent needing to dealloc stuff twice
     const parsed = try std.json.parseFromSlice([]GraphInitState, gpa, src, .{ .ignore_unknown_fields = true });
     defer parsed.deinit();
 

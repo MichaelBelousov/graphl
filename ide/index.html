@@ -195,6 +195,37 @@
                   "Call out to a javascript runtime to execute some JavaScript\n" +
                     "The last unterminated expression is returned",
                 },
+                "BlenderProcessMesh": {
+                  inputs: [
+                    {
+                      name: "geometry",
+                      type: "extern",
+                      description: "The geometry to process",
+                    },
+                    {
+                      name: "BlenderPath",
+                      type: "string",
+                      description:
+                      'Defaults to "blender" if empty.\n' +
+                        'Can be a full path to the exe or a name to look for in PATH',
+                    },
+                    {
+                      name: "ScriptPath",
+                      type: "string",
+                      description: "Path to a blender script to mutate the blender scene"
+                    },
+                  ],
+                  tags: ["blender"],
+                  outputs: [{ name: "", type: "extern" }],
+                  description: "Send the geometry through a local blender installation with a script to edit the geometry",
+                },
+                "VisibleInViewport": {
+                  inputs: [{ name: "element", type: "u64" }],
+                  outputs: [{ name: "", type: "bool" }],
+                  kind: "pure",
+                  tags: ["iTwin"],
+                  description: "true if the viewport has this element visible at export time",
+                },
               },
               menus: [{
                 name: "Test",
