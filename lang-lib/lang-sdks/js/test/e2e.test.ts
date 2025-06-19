@@ -149,6 +149,27 @@ describe("js sdk", () => {
     assert.strictEqual(takeResult, 5.6789);
   });
 
+  it("vec3 userfunc negate", async () => {
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+      (typeof (foo) vec3)
+      (define (foo) (return (negate (GetVec))))
+    `, {
+      GetVec: {
+        outputs: [{ type: GraphlTypes.vec3 }],
+        impl: () => ({ x: 1, y: 2.3, z: -4.506 }),
+      },
+    });
+
+    assert.partialDeepStrictEqual(
+      program.functions.foo(),
+      {
+        x: -1,
+        y: -2.3,
+        z: 4.506,
+      }
+    );
+  });
+
   it("pass string", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (first string) string)

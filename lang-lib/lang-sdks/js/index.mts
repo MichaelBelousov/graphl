@@ -176,7 +176,7 @@ function jsValToGraphlStructVal(
         for (let i = 0; i < subStructType.fieldNames.length; ++i) {
             const fieldName = subStructType.fieldNames[i];
             const fieldType = subStructType.fieldTypes[i];
-            const fieldOffset = subStructType.fieldOffsets[i];
+            const fieldOffset = offset + subStructType.fieldOffsets[i];
             const fieldValue = jsVal[fieldName];
 
             if (fieldType === GraphlTypes.f32) {
@@ -184,14 +184,14 @@ function jsValToGraphlStructVal(
                     typeof fieldValue === "number",
                     `received non-number value '${JSON.stringify(fieldValue)}' for field '${fieldName}' of struct ${fieldType.name}`,
                 );
-                transferBufView.setFloat32(offset, fieldValue, true);
+                transferBufView.setFloat32(fieldOffset, fieldValue, true);
 
             } else if (fieldType === GraphlTypes.f64) {
                 assert(
                     typeof fieldValue === "number",
                     `received non-number value '${JSON.stringify(fieldValue)}' for field '${fieldName}' of struct ${fieldType.name}`,
                 );
-                transferBufView.setFloat64(offset, fieldValue, true);
+                transferBufView.setFloat64(fieldOffset, fieldValue, true);
 
                 // TODO: support struct format for rgba
             } else if (fieldType === GraphlTypes.i32 || fieldType === GraphlTypes.rgba) {
@@ -200,7 +200,7 @@ function jsValToGraphlStructVal(
                     typeof fieldValue === "number" && fieldValue >= -(2**31) && fieldValue <= 2**31-1 && Math.round(fieldValue) === fieldValue,
                     `received value '${JSON.stringify(fieldValue)}' that was not a 32-bit signed integer for field '${fieldName}' of struct ${fieldType.name}`,
                 );
-                transferBufView.setInt32(offset, fieldValue, true);
+                transferBufView.setInt32(fieldOffset, fieldValue, true);
 
             } else if (fieldType === GraphlTypes.i64) {
                 assert(
@@ -208,26 +208,26 @@ function jsValToGraphlStructVal(
                     || (typeof fieldValue === "bigint" && fieldValue >= /* -2**63 */ -9223372036854775808n && fieldValue <= /* 2**63-1 */ 9223372036854775807n),
                     `received value '${JSON.stringify(fieldValue)}' that was not a 64-bit signed integer for field '${fieldName}' of struct ${fieldType.name}`,
                 );
-                transferBufView.setBigInt64(offset, BigInt(fieldValue), true);
+                transferBufView.setBigInt64(fieldOffset, BigInt(fieldValue), true);
             } else if (fieldType === GraphlTypes.u32) {
                 assert(
                     typeof fieldValue === "bigint" && fieldValue >= 0 && fieldValue <= 2**32-1,
                     `received value '${JSON.stringify(fieldValue)}' that was not a 32-bit unsigned number value for field '${fieldName}' of struct ${fieldType.name}`,
                 );
-                transferBufView.setBigInt64(offset, fieldValue, true);
+                transferBufView.setBigInt64(fieldOffset, fieldValue, true);
             } else if (fieldType === GraphlTypes.u64) {
                 assert(
                     (typeof fieldValue === "number" && fieldValue >= 0 && fieldValue <= Number.MAX_SAFE_INTEGER && Math.round(fieldValue) === fieldValue)
                     || (typeof fieldValue === "bigint" && fieldValue >= 0 && fieldValue <= /* 2**64-1 */ 0xffff_ffff_ffff_ffffn),
                     `received value '${JSON.stringify(fieldValue)}' that was not a 64-bit unsigned integer for field '${fieldName}' of struct ${fieldType.name}`,
                 );
-                transferBufView.setBigUint64(offset, BigInt(fieldValue), true);
+                transferBufView.setBigUint64(fieldOffset, BigInt(fieldValue), true);
             } else if (fieldType === GraphlTypes.bool) {
                 assert(
                     typeof fieldValue === "boolean",
                     `received value '${JSON.stringify(fieldValue)}' that was not a boolean value for field '${fieldName}' of struct ${fieldType.name}`,
                 );
-                transferBufView.setInt32(offset, fieldValue ? 1 : 0, true);
+                transferBufView.setInt32(fieldOffset, fieldValue ? 1 : 0, true);
             } else if (fieldType === GraphlTypes.string) {
                 // FIXME: should write an empty usize into memory for array references, even if they aren't used yet
                 assert(
@@ -238,7 +238,7 @@ function jsValToGraphlStructVal(
             } else if (fieldType === GraphlTypes.extern) {
                 externSlotQueue.push(fieldValue);
             } else if (fieldType.kind === "struct") {
-                jsValToGraphlStructMem(fieldValue, fieldType, offset + fieldOffset);
+                jsValToGraphlStructMem(fieldValue, fieldType, fieldOffset);
             } else {
                 throw Error(`unhandled field type: ${fieldType.name}`);
             }
