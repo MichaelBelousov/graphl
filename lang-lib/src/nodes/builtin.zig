@@ -67,6 +67,7 @@ pub const StructType = struct {
                 else => @panic("unimplemented"),
             }
         }
+
         const total_size = offset;
         return @This(){
             .field_names = arg.field_names,
@@ -150,7 +151,7 @@ pub const TypeInfo = struct {
                 .offset = self._total_offset,
             };
             // FIXME: hack
-            self._total_offset += if (result.type == primitive_types.string) 0 else result.type.size;
+            self._total_offset += result.type.size;
             self.moveToNextPrimitive();
             return result;
         }

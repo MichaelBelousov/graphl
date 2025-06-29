@@ -128,7 +128,7 @@ describe("js sdk", () => {
     assert.partialDeepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello" });
   });
 
-  it("return (string i32 bool)", async () => {
+  it("return (i32 string bool)", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (foo) (i32 string bool))
       (define (foo) (return 5 "hello" #t))
@@ -149,16 +149,21 @@ describe("js sdk", () => {
     assert.strictEqual(takeResult, 5.6789);
   });
 
-  it("vec3 userfunc negate", async () => {
+  it("vec3 return struct directly", async () => {
+    console.log("hello!")
     const program = await compileGraphltSourceAndInstantiateProgram(`
+      (import GetVec "host/GetVec")
       (typeof (foo) vec3)
       (define (foo) (return (negate (GetVec))))
     `, {
       GetVec: {
         outputs: [{ type: GraphlTypes.vec3 }],
-        impl: () => ({ x: 1, y: 2.3, z: -4.506 }),
+        impl: () => {
+          return { x: 1, y: 2.3, z: -4.506 };
+        },
       },
     });
+    console.log("compiled!")
 
     assert.partialDeepStrictEqual(
       program.functions.foo(),

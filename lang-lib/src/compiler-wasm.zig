@@ -1463,7 +1463,6 @@ const Compilation = struct {
             const epilogue = [_]byn.c.BinaryenExpressionRef{
                 byn.c.BinaryenReturn(
                     self.module.c(),
-                    // FIXME: implement
                     byn.c.BinaryenConst(self.module.c(), byn.c.BinaryenLiteralInt32(@intCast(array_field_count))),
                 ),
             };
