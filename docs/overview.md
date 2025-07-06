@@ -1,101 +1,98 @@
 # Graphl Overview
 
-Graphl is a revolutionary programming language that bridges the gap between textual and visual programming through true **text-visual isomorphism**. This means you can seamlessly convert between text-based code and visual node graphs without losing any information or functionality.
+Graphl is an experimental programming language exploring the idea of **text-visual isomorphism** - the ability to seamlessly convert between text-based code and visual node graphs without losing information.
 
 ## What is Graphl?
 
-Graphl consists of two complementary representations:
+Graphl has two representations:
 
-- **Graphl**: A visual programming language consisting of graphs of linked nodes that represent execution and data flow
-- **Graphlt**: A textual programming language using S-expressions to define functions, variables, and types
+- **Graphl**: A visual programming language using connected nodes to represent data and control flow
+- **Graphlt**: A textual language using S-expressions (like Lisp) to define functions and data
 
-The key innovation is that these two representations are **isomorphic** - meaning they contain exactly the same information and can be converted back and forth without any loss of meaning or functionality.
+The core idea is that these two forms are **isomorphic** - they contain the same information and can be converted back and forth without loss.
 
-## Text-Visual Isomorphism
+## Why This Matters
 
-Traditional visual programming languages often suffer from limitations:
-- Visual representations that can't express all the complexity of text-based code
-- One-way conversion from text to visual (but not back)
-- Loss of information when switching between representations
+Most visual programming tools can only show simplified versions of code, or only work one way (text to visual). Graphl tries to solve this by:
 
-Graphl solves these problems through its isomorphic design:
+1. **Bidirectional conversion**: Any visual program can become text, and vice versa
+2. **No information loss**: Converting back and forth preserves all details
+3. **Choose your view**: Work visually when it helps, or in text when that's clearer
 
-1. **Bidirectional conversion**: Any graphl visual program can be converted to graphlt text, and vice versa
-2. **Information preservation**: No data or logic is lost during conversion
-3. **Authoritative formatting**: Both representations have canonical formatting rules
-4. **Seamless workflow**: Developers can work in whichever representation suits their current task
+## Current Status
+
+Graphl is in **early experimental** stages. It works, but it's rough around the edges. The core compiler, JavaScript SDK, and basic visual IDE are functional for simple programs.
 
 ## Core Features
 
 ### Lisp-like Foundation
-Graphl is built on a Lisp-like foundation with S-expressions, providing:
+Built on S-expressions with:
 - Simple, consistent syntax
-- Powerful macro system for graph transformations
-- Functional programming paradigms
+- Functional programming style
+- Basic macro system
 
-### WebAssembly Backend
-The compiler targets WebAssembly, enabling:
-- High-performance execution in browsers
-- Easy integration with web applications
-- Portable deployment across platforms
+### WebAssembly Target
+Compiles to WebAssembly for:
+- Running in browsers
+- Decent performance
+- Easy integration with web apps
 
 ### Visual IDE
-The embedded visual IDE provides:
-- Real-time conversion between text and visual representations
-- Interactive node-based editing
-- Integrated debugging and execution
+A working visual editor that:
+- Shows programs as connected nodes
+- Converts between text and visual views
+- Lets you run and debug programs
 
-### Macro System
-Graphl's macro system operates on graphs, enabling:
-- Emulation of other graph-based scripting systems
-- Visual SQL query building
-- Custom workflow engines
-- Domain-specific visual languages
+## What You Can Do Today
 
-## Use Cases
+### Educational Use
+- Learn programming concepts through visual representation
+- See how data flows through programs
+- Switch between visual and text views to understand both
 
-### Educational Programming
-- Teach programming concepts through visual representation
-- Help students understand data flow and execution order
-- Seamlessly transition between visual and textual thinking
+### Simple Programs
+- Write basic functions and algorithms
+- Work with numbers, strings, and booleans
+- Build simple data processing pipelines
 
-### Workflow Automation
-- Create visual workflows that compile to efficient WebAssembly
-- Build domain-specific visual languages for various industries
-- Enable non-programmers to create complex logic visually
-
-### Data Processing
-- Visual data pipeline construction
-- Real-time data flow visualization
-- Integration with existing data processing systems
-
-### Web Development
-- Embed visual programming directly in web applications
-- Create interactive programming environments
-- Build visual configuration interfaces
+### Web Integration
+- Embed the visual editor in web pages
+- Compile programs to WebAssembly
+- Call JavaScript functions from Graphl code
 
 ## Design Philosophy
 
-Graphl is designed with several key principles:
+Graphl is built around:
 
-1. **Isomorphism first**: Both representations must be equally expressive
-2. **Lightweight**: Minimal overhead for browser deployment
-3. **Embeddable**: Easy integration into existing applications
-4. **Interoperable**: Seamless integration with other WebAssembly modules
-5. **Extensible**: Powerful macro system for customization
+1. **Isomorphism first**: Both text and visual must be equally powerful
+2. **Keep it simple**: Don't add features that break the core concept
+3. **Web-friendly**: Should work well in browsers
+4. **Interoperable**: Play nice with existing tools and languages
 
 ## Getting Started
 
-To start using Graphl:
+To try Graphl:
 
-1. **Try the online IDE**: Visit [graphl.tech/app](https://graphl.tech/app) to experiment with the visual editor
-2. **Use the JavaScript SDK**: Install `@graphl/compiler-js` to compile graphl programs in Node.js or browsers
-3. **Embed the IDE**: Integrate the visual editor into your own applications
-4. **Explore examples**: Check out the test suite for comprehensive usage examples
+1. **Clone and build**: Follow the [Contributing Guide](./contributing.md) to set up the development environment
+2. **Try the examples**: Look at the test programs in `lang-lib/lang-sdks/js/test/`
+3. **Read the SDK docs**: Learn how to use the [JavaScript SDK](./javascript-sdk.md)
+4. **Experiment**: Try the visual editor with simple programs
 
-## Next Steps
+## What's Next
 
-- [JavaScript SDK Usage](./javascript-sdk.md) - Learn how to use the compiler programmatically
-- [IDE Integration](./ide-integration.md) - Embed the visual editor in your applications
+- [JavaScript SDK Usage](./javascript-sdk.md) - How to use the compiler in your own projects
+- [IDE Integration](./ide-integration.md) - Embedding the visual editor
 - [Contributing](./contributing.md) - Help improve Graphl
-- [Roadmap](./roadmap.md) - See what's coming next
+- [Roadmap](./roadmap.md) - What we're working on next
+
+## Limitations
+
+Graphl is experimental and has many limitations:
+- Small standard library
+- Basic type system
+- Simple IDE with limited features
+- No package system or module imports
+- Performance isn't optimized
+- Documentation is incomplete
+
+We're working on these, but progress is gradual. This is a learning project exploring what's possible with text-visual isomorphism.

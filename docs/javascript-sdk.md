@@ -1,6 +1,6 @@
 # JavaScript SDK Usage
 
-The Graphl JavaScript SDK (`@graphl/compiler-js`) provides a complete compiler interface for compiling and executing Graphl programs in Node.js and browser environments.
+The Graphl JavaScript SDK lets you compile and run Graphl programs in Node.js and browsers. It's still experimental but functional for basic use cases.
 
 ## Installation
 
@@ -10,7 +10,7 @@ npm install @graphl/compiler-js
 
 ## Basic Usage
 
-### Compiling and Running a Simple Program
+### Simple Example
 
 ```javascript
 import { compileGraphltSourceAndInstantiateProgram } from '@graphl/compiler-js';
@@ -25,16 +25,16 @@ console.log(program.functions.add(5, 3)); // Output: 8
 
 ### Backend Options
 
-The SDK supports multiple backends:
+The SDK has two backends:
 
 ```javascript
-// Native backend (fastest, requires native compilation)
-import { compileGraphltSourceAndInstantiateProgram } from '@graphl/compiler-js/native-backend';
-
-// WebAssembly backend (cross-platform, browser-compatible)
+// WebAssembly backend (works everywhere, including browsers)
 import { compileGraphltSourceAndInstantiateProgram } from '@graphl/compiler-js/wasm-backend';
 
-// Auto-detect backend
+// Native backend (faster, Node.js only)
+import { compileGraphltSourceAndInstantiateProgram } from '@graphl/compiler-js/native-backend';
+
+// Auto-detect (uses native in Node.js, WebAssembly in browsers)
 import { compileGraphltSourceAndInstantiateProgram } from '@graphl/compiler-js';
 ```
 
@@ -42,7 +42,7 @@ import { compileGraphltSourceAndInstantiateProgram } from '@graphl/compiler-js';
 
 ### Basic Types
 
-Graphl supports several built-in types:
+Graphl supports these types:
 
 ```javascript
 const program = await compileGraphltSourceAndInstantiateProgram(`
@@ -52,22 +52,6 @@ const program = await compileGraphltSourceAndInstantiateProgram(`
 
 const result = program.functions.demo();
 console.log(result); // { 0: 42, 1: "hello", 2: true, 3: 3.14 }
-```
-
-### Vectors
-
-```javascript
-const program = await compileGraphltSourceAndInstantiateProgram(`
-  (typeof (makeVector) vec3)
-  (define (makeVector) (return (vec3 1.0 2.0 3.0)))
-  
-  (typeof (getZ vec3) f64)
-  (define (getZ v) (return (.z v)))
-`);
-
-const vector = program.functions.makeVector();
-console.log(vector); // { x: 1.0, y: 2.0, z: 3.0 }
-console.log(program.functions.getZ(vector)); // 3.0
 ```
 
 ### Control Flow
@@ -84,7 +68,7 @@ const program = await compileGraphltSourceAndInstantiateProgram(`
 console.log(program.functions.factorial(5)); // 120
 ```
 
-### Loops with Labels
+### Labels and Loops
 
 ```javascript
 const program = await compileGraphltSourceAndInstantiateProgram(`
@@ -106,9 +90,9 @@ console.log(program.functions.factorialIterative(10n)); // 3628800n
 
 ## Host Functions
 
-You can provide JavaScript functions that your Graphl program can call:
+You can call JavaScript functions from Graphl:
 
-### Basic Host Function
+### Simple Host Function
 
 ```javascript
 const program = await compileGraphltSourceAndInstantiateProgram(`
@@ -143,7 +127,7 @@ const program = await compileGraphltSourceAndInstantiateProgram(`
 `, {
   GetRandomNumber: {
     outputs: [{ type: GraphlTypes.f64 }],
-    kind: "pure", // Indicates this function has no side effects
+    kind: "pure", // No side effects
     impl() {
       return Math.random();
     }
@@ -153,38 +137,12 @@ const program = await compileGraphltSourceAndInstantiateProgram(`
 console.log(program.functions.demo()); // Random number between 0 and 1
 ```
 
-### Async Host Functions
-
-```javascript
-const program = await compileGraphltSourceAndInstantiateProgram(`
-  (import FetchData "host/FetchData")
-  (typeof (getData) string)
-  (define (getData) (return (FetchData "https://api.example.com/data")))
-`, {
-  FetchData: {
-    inputs: [{ type: GraphlTypes.string }],
-    outputs: [{ type: GraphlTypes.string }],
-    async: true,
-    async impl(url) {
-      const response = await fetch(url);
-      return await response.text();
-    }
-  }
-});
-
-// Note: Function becomes async when using async host functions
-const data = await program.functions.getData();
-console.log(data);
-```
-
-## GraphlTypes Reference
-
-The SDK provides type constants for use in host function definitions:
+## Type Reference
 
 ```javascript
 import { GraphlTypes } from '@graphl/compiler-js';
 
-// Numeric types
+// Numbers
 GraphlTypes.i32    // 32-bit signed integer
 GraphlTypes.i64    // 64-bit signed integer (BigInt in JS)
 GraphlTypes.u64    // 64-bit unsigned integer (BigInt in JS)
@@ -195,8 +153,8 @@ GraphlTypes.f64    // 64-bit float
 GraphlTypes.bool   // Boolean
 GraphlTypes.string // String
 GraphlTypes.vec3   // 3D vector { x, y, z }
-GraphlTypes.rgba   // RGBA color (32-bit integer)
-GraphlTypes.extern // External data (Uint8Array)
+GraphlTypes.rgba   // RGBA color (4 channel 8-bit per color)
+GraphlTypes.extern // External data (any JavaScript object)
 ```
 
 ## Advanced Features
@@ -222,7 +180,7 @@ console.log(result[0]); // Uint8Array [1, 2, 3, 4]
 console.log(result[1]); // 42
 ```
 
-### RGBA Color Handling
+### RGBA Colors
 
 ```javascript
 const program = await compileGraphltSourceAndInstantiateProgram(`
@@ -238,88 +196,18 @@ console.log(color); // Integer representation of RGBA
 console.log(program.functions.extractRed(color)); // 255
 ```
 
-## Error Handling
+## Limitations
 
-The compiler provides detailed error messages for syntax errors:
+The SDK is experimental and has limitations:
 
-```javascript
-try {
-  await compileGraphltSourceAndInstantiateProgram(`
-    (define (foo) (return 2)))  // Extra closing paren
-  `);
-} catch (error) {
-  console.error(error.message);
-  // "Closing parenthesis with no opener: at unknown:2:34"
-}
-```
-
-## Testing
-
-The SDK includes comprehensive test examples in `test/e2e.test.ts`. Run tests with:
-
-```bash
-bun test
-```
-
-## Performance Tips
-
-1. **Use the native backend** when possible for best performance
-2. **Mark pure functions** with `kind: "pure"` for optimization opportunities
-3. **Use appropriate integer types** (i32 vs i64) based on your needs
-4. **Batch operations** when working with host functions to reduce call overhead
-
-## Common Patterns
-
-### State Management
-
-```javascript
-const program = await compileGraphltSourceAndInstantiateProgram(`
-  (typeof counter i32)
-  (define counter 0)
-  
-  (typeof (increment) i32)
-  (define (increment) 
-    (begin
-      (set! counter (+ counter 1))
-      (return counter)))
-  
-  (typeof (getCounter) i32)
-  (define (getCounter) (return counter))
-`);
-
-console.log(program.functions.increment()); // 1
-console.log(program.functions.increment()); // 2
-console.log(program.functions.getCounter()); // 2
-```
-
-### Data Processing Pipeline
-
-```javascript
-const program = await compileGraphltSourceAndInstantiateProgram(`
-  (import ProcessStep1 "host/ProcessStep1")
-  (import ProcessStep2 "host/ProcessStep2")
-  
-  (typeof (pipeline string) string)
-  (define (pipeline input)
-    (return (ProcessStep2 (ProcessStep1 input))))
-`, {
-  ProcessStep1: {
-    inputs: [{ type: GraphlTypes.string }],
-    outputs: [{ type: GraphlTypes.string }],
-    impl: (input) => input.toUpperCase()
-  },
-  ProcessStep2: {
-    inputs: [{ type: GraphlTypes.string }],
-    outputs: [{ type: GraphlTypes.string }],
-    impl: (input) => `Processed: ${input}`
-  }
-});
-
-console.log(program.functions.pipeline("hello")); // "Processed: HELLO"
-```
+- **Error messages**: Often cryptic or unhelpful
+- **Performance**: Not optimized for speed
+- **Type system**: Basic, missing many features
+- **Standard library**: Very limited built-in functions
+- **Debugging**: Hard to debug compiled programs
 
 ## Next Steps
 
-- [IDE Integration](./ide-integration.md) - Learn how to embed the visual editor
+- [IDE Integration](./ide-integration.md) - Embed the visual editor
+- [Examples](../lang-lib/lang-sdks/js/test/) - Look at test cases for more examples
 - [Contributing](./contributing.md) - Help improve the SDK
-- [Examples](../lang-lib/lang-sdks/js/test/) - Browse comprehensive test examples
