@@ -5,30 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strconv"
 
-	"github.com/MichaelBelousov/graphl/lang-lib/lang-sdks/go/graphl_types"
+	//"github.com/MichaelBelousov/graphl/lang-lib/lang-sdks/go/graphl_types"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
-type ValU32 struct{ val uint32 }
-type ValU64 struct{ val uint64 }
-type ValI32 struct{ val int32 }
-type ValI64 struct{ val int64 }
-type ValF32 struct{ val float32 }
-type ValF64 struct{ val float64 }
-type ValString struct{ val String }
-
 type Val interface {
-	tryU32() (uint32, Error)
-	// tryU64() (uint64, Error)
-	// tryI32() (int32, Error)
-	// tryI64() (int64, Error)
-	// tryF32() (float32, Error)
-	// tryF64() (float64, Error)
-	// tryString() (string, Error)
+	tryU32() (uint32, error)
+	// tryU64() (uint64, error)
+	// tryI32() (int32, error)
+	// tryI64() (int64, error)
+	// tryF32() (float32, error)
+	// tryF64() (float64, error)
+	tryString() (string, error)
 
 	getU32() uint32
 	// getU64() uint64
@@ -36,38 +27,34 @@ type Val interface {
 	// getI64() int64
 	// getF32() float3
 	// getF64() float64
-	// getString() string
+	getString() string
 }
 
-func (val *Val) getU32() uint32 {
-	switch v := val.(type) {
-	case ValU32:
-		return v.val
-	default:
-		panic("value was not a u32")
-	}
-}
+type ValU32 uint32
+type ValU64 uint64
+type ValI32 int32
+type ValI64 int64
+type ValF32 float32
+type ValF64 float64
+type ValString string
 
-func (val *Val) tryU32() (uin32, Error) {
-	switch v := val.(type) {
-	case ValU32:
-		return v.val
-	default:
-		return Error("value was not a u32")
-	}
-}
+func (val ValU32) getU32() uint32 { return uint32(val) }
+func (val ValU32) tryU32() (uint32, error) { return uint32(val), nil }
+func (val ValU32) getString() uint32 { panic(errors.New("tried to get string from u32")) }
+func (val ValU32) tryString() (uint32, error) { return 0, errors.New("tried to get string from u32") }
 
 type HostFuncCtx struct {
 	args []Val
 }
 
-type HostEnv map[string]func(*void) *void
+type HostEnv map[string]func(interface{}) interface{}
 
 type Program struct {
 }
 
-func (p *Program) CallFunc() *void {
-
+func (p *Program) CallFunc() interface{} {
+	var empty interface{}
+	return empty
 }
 
 func CompileGraphltSource() {
@@ -78,6 +65,25 @@ func CompileGraphltSourceAndInstantiateProgram() {
 
 }
 
-func InstantiateProgramFromWasmBuffer() {
+func InstantiateProgramFromWasmBuffer(wasmBuff []byte) Program {
+	ctx := context.Background()
+	runtime := wazero.NewRuntime(ctx)
+	defer runtime.Close(ctx)
 
+	wasi_snapshot_preview1.MustInstantiate(ctx, runtime)
+	cfg := wazero.NewModuleConfig().WithStartFunctions("_initialize")
+	mod, err := runtime.InstantiateWithConfig(ctx, wasmBuff, cfg)
+	if err != nil {
+		log.Panicf("Failed to instantiate module: %v", err)
+	}
+
+	main := mod.ExportedFunction("main")
+	results, err := main.Call(ctx)
+	if err != nil {
+		log.Panicf("call main failed: %v", err)
+	}
+
+	fmt.Printf("result: %v", results)
+
+	return Program{}
 }
