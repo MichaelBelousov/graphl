@@ -1,5 +1,8 @@
 package graphl_compiler
 
+// #cgo CFLAGS: -g -Wall
+// #include "../c/graphl.h"
+import "C"
 import (
 	"context"
 	"errors"
@@ -154,17 +157,29 @@ type HostEnv map[string]func(interface{}) interface{}
 type Program struct {
 }
 
-func (p *Program) CallFunc() interface{} {
-	var empty interface{}
-	return empty
+type NoSuchFuncError struct {
+	funcName string
+}
+func (err *NoSuchFuncError) Error() string {
+	return fmt.Sprintf("No such function: %s", err.funcName)
+}
+
+
+func (p *Program) CallFunc(name string, args ...Val) (Val, error) {
+	return ValString("not implemented")
+}
+
+type CompileError struct {}
+func (err *CompileError) Error() string {
+	return "Compile Error"
 }
 
 func CompileGraphltSource() {
 
 }
 
-func CompileGraphltSourceAndInstantiateProgram() {
-
+func CompileGraphltSourceAndInstantiateProgram(source string) (Program, error) {
+	return Program{}, nil
 }
 
 func InstantiateProgramFromWasmBuffer(wasmBuff []byte) Program {

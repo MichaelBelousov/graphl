@@ -5,5 +5,8 @@ import (
 )
 
 func Test_basicSdk() {
+	program := CompileGraphltSourceAndInstantiateProgram(`
 
+	`)
+	program.CallFunc("hello")
 }
