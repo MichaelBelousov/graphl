@@ -1,0 +1,16 @@
+.{
+    .name = .graphl_c_api,
+    .version = "0.1.0",
+    .fingerprint = 0xe2af30889982f6ab,
+    .minimum_zig_version = "0.14.1",
+    .dependencies = .{
+        .graphl = .{
+            .path = "../../",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
