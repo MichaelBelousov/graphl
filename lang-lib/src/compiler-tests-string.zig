@@ -22,10 +22,10 @@ const Type = @import("./nodes/builtin.zig").Type;
 const SexpParser = @import("./sexp_parser.zig").Parser;
 
 // FIXME: use intrinsics as the base and merge/link in our functions
-const compile = @import("./compiler-wat.zig").compile;
-const compiled_prelude = @import("./compiler-wat.zig").compiled_prelude;
-const Diagnostic = @import("./compiler-wat.zig").Diagnostic;
-const expectWasmOutput = @import("./compiler-wat.zig").expectWasmOutput;
+const compile = @import("./compiler-wasm.zig").compile;
+const compiled_prelude = @import("./compiler-wasm.zig").compiled_prelude;
+const Diagnostic = @import("./compiler-wasm.zig").Diagnostic;
+const expectWasmOutput = @import("./compiler-wasm.zig").expectWasmOutput;
 
 test "(String-Equal \"hello\" \"hello\")" {
     var env = try Env.initDefault(t.allocator);

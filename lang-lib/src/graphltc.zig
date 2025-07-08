@@ -1,6 +1,6 @@
 const std = @import("std");
 const FileBuffer = @import("./FileBuffer.zig");
-const compiler = @import("./compiler-wat.zig");
+const compiler = @import("./compiler-wasm.zig");
 const Env = @import("./nodes/builtin.zig").Env;
 const helpers = @import("./nodes/builtin.zig");
 const SexpParser = @import("./sexp_parser.zig").Parser;
