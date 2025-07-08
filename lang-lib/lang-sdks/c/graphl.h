@@ -3,12 +3,12 @@
 
 #include <cstdint>
 
-typedef uint32_t status;
+typedef uint32_t graphl_status_t;
 #define GRAPHLSTATUS_OK 0
 #define GRAPHLSTATUS_UNKNOWN 1
 #define GRAPHLSTATUS_OOM 2
 
-status graphl_compileSource(
+const char* graphl_compileSource(
   const char* source_name,
   uint32_t source_name_len,
   const char* source_text,
@@ -17,7 +17,9 @@ status graphl_compileSource(
   const char* user_func_json,
   uint32_t user_func_json_len,
   /** null terminated string */
-  const char** bad_status_message
+  char** bad_status_message,
+  graphl_status_t* out_status_code,
+  uint32_t* result_len
 );
 
 #endif // GRAPHL_H

@@ -652,6 +652,62 @@ pub const BasicMutNodeDesc = struct {
     inputs: []Pin = &.{},
     outputs: []Pin = &.{},
     tags: []const []const u8 = &.{},
+
+    const JsonType = struct {
+        name: [:0]const u8,
+        description: ?[]const u8 = null,
+        hidden: bool = false,
+        //kind: graphl.helpers.NodeDescKind = .func,
+        kind: enum { func, pure } = .func,
+        inputs: []Pin = &.{},
+        outputs: []Pin = &.{},
+        tags: []const []const u8 = &.{},
+    };
+
+    pub fn jsonStringify(self: *const @This(), jws: anytype) std.mem.Allocator.Error!void {
+        const not_pure = self.inputs.len > 0 and self.inputs[0].isExec();
+        try jws.write(JsonType{
+            .name = self.name,
+            .description = self.description,
+            .hidden = self.hidden,
+            .kind = if (not_pure) .func else .pure, // FIXME: do something more intuitive
+            // FIXME: remove exec pins?
+            .inputs = self.inputs,
+            .outputs = self.outputs,
+            .tags = self.tags,
+        });
+    }
+
+    pub fn jsonParse(a: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
+        var raw_parsed = try std.json.innerParse(JsonType, a, source, options);
+
+        // add exec pins if it's not pure
+        if (raw_parsed.kind == .func) {
+            const exec_pins = 1;
+
+            // FIXME: use allocator.remap to avoid always allocating if the allocator can just bump the slice length!
+            const old_inputs = raw_parsed.inputs;
+            raw_parsed.inputs = try a.alloc(Pin, raw_parsed.inputs.len + exec_pins);
+            std.mem.copyBackwards(Pin, raw_parsed.inputs[1..], old_inputs);
+            raw_parsed.inputs[0] = Pin{ .name = "", .kind = .{ .primitive = .exec } };
+
+            const old_outputs = raw_parsed.outputs;
+            raw_parsed.outputs = try a.alloc(Pin, raw_parsed.outputs.len + exec_pins);
+            std.mem.copyBackwards(Pin, raw_parsed.outputs[1..], old_outputs);
+            raw_parsed.outputs[0] = Pin{ .name = "", .kind = .{ .primitive = .exec } };
+        }
+
+
+        return @This(){
+            .name = raw_parsed.name,
+            .description = raw_parsed.description,
+            .hidden = raw_parsed.hidden,
+            .kind = .func, // FIXME: do something more intuitive
+            .inputs = raw_parsed.inputs,
+            .outputs = raw_parsed.outputs,
+            .tags = raw_parsed.tags,
+        };
+    }
 };
 
 pub fn basicMutableNode(in_desc: *const BasicMutNodeDesc) NodeDesc {
