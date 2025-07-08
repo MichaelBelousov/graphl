@@ -2,11 +2,22 @@ package graphl_compiler
 
 import (
 	"testing"
+	"fmt"
 )
 
-func Test_basicSdk() {
-	program := CompileGraphltSourceAndInstantiateProgram(`
+func TestBasicSdk(t *testing.T) {
+	program, err := CompileGraphltSourceAndInstantiateProgram(`
 
 	`)
-	program.CallFunc("hello")
+
+	if err != nil {
+		t.Errorf("couldn't instantiate program: %v", err)
+	}
+
+	res, err := program.CallFunc("hello"); 
+	if err != nil {
+		t.Errorf("call func fail: %v", err)
+	}
+
+	fmt.Printf("result: %v", res)
 }

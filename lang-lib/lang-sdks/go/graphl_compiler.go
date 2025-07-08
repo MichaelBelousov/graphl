@@ -166,7 +166,7 @@ func (err *NoSuchFuncError) Error() string {
 
 
 func (p *Program) CallFunc(name string, args ...Val) (Val, error) {
-	return ValString("not implemented")
+	return nil, errors.New("not implemented")
 }
 
 type CompileError struct {}

@@ -1,7 +1,7 @@
 #ifndef GRAPHL_H
 #define GRAPHL_H
 
-#include <cstdint>
+#include <stdint.h>
 
 typedef uint32_t graphl_status_t;
 #define GRAPHLSTATUS_OK 0
