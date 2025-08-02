@@ -42,8 +42,6 @@ const customNodes: Record<string, graphl.UserFuncJson> = {
   },
 };
 
-
-
 const defaultPrimitives = [
   {
     type: 'sphere',
@@ -69,6 +67,7 @@ class ThreeJSViewer {
     this.primitives = [...defaultPrimitives];
 
     this.init();
+    this.updateScene();
     this.animate();
   }
 
@@ -132,7 +131,7 @@ class ThreeJSViewer {
     this.currentObjects = [];
   }
 
-  drawScene() {
+  updateScene() {
     this.clearScene();
 
     this.primitives.forEach(primitive => {
@@ -269,9 +268,9 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-window.drawScene = function(primitives) {
+window.updateScene = function(primitives) {
   if (viewer) {
-    viewer.drawScene(primitives);
+    viewer.updateScene(primitives);
   } else {
     console.error('ThreeJS viewer not initialized yet');
   }

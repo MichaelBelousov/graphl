@@ -3,3 +3,6 @@ node_modules
 
 # out
 dist
+
+# vite debugging
+.vite-inspect
