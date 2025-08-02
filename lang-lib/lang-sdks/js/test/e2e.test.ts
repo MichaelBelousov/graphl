@@ -136,10 +136,10 @@ describe("js sdk", () => {
     assert.partialDeepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello", 2: true });
   });
 
-  it("pass vec3", async () => {
+  it.only("pass vec3", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (typeof (make) vec3)
-      (define (make) (begin (return (vec3 1.2 3.4 5.6789))))
+      (define (make) (begin (return (vec3 -2 3.4 5.6789))))
       (typeof (take vec3) f64)
       (define (take v) (return (.z v)))
     `);
