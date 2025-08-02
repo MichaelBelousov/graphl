@@ -43,45 +43,21 @@ const customNodes: Record<string, graphl.UserFuncJson> = {
 };
 
 
-/** @type {graphl.Ide<any> | undefined} */
-let ide;
-/** @type {Promise<graphl.Ide<any>>} */
-const idePromise = graphl.Ide(canvasRef.current, {
-  allowRunning: false,
-  userFuncs: customNodes,
-  menus: [
-    {
-      // FIXME: add "templates" and "recents" for common stuff
-      name: "Sync",
-      onClick() {
 
-      },
-    },
-  ],
-  graphs: {
-    geometry: {
-      fixedSignature: true,
-      inputs: instanceFuncInputs,
-      outputs: [
-        {
-          name: "geometry",
-          type: "extern",
-          description: "resulting geometry output",
-        },
-      ],
-      nodes: [
-        {
-          id: 1,
-          type: "return",
-          inputs: {
-            0: { node: 0, outPin: 0 },
-            1: { bool: false },
-          },
-        }
-      ],
-    },
+const defaultPrimitives = [
+  {
+    type: 'sphere',
+    params: { radius: 1 },
+    position: [-2, 0, 0],
+    color: 0xff4444
+  },
+  {
+    type: 'cube',
+    params: { width: 1.5, height: 1.5, depth: 1.5 },
+    position: [2, 0, 0],
+    color: 0x4444ff
   }
-});
+];
 
 class ThreeJSViewer {
   constructor() {
@@ -90,9 +66,9 @@ class ThreeJSViewer {
     this.renderer = null;
     this.controls = null;
     this.currentObjects = [];
+    this.primitives = [...defaultPrimitives];
 
     this.init();
-    this.setupDefaultScene();
     this.animate();
   }
 
@@ -156,10 +132,10 @@ class ThreeJSViewer {
     this.currentObjects = [];
   }
 
-  drawScene(primitives) {
+  drawScene() {
     this.clearScene();
 
-    primitives.forEach(primitive => {
+    this.primitives.forEach(primitive => {
       const mesh = this.createMeshFromPrimitive(primitive);
       if (mesh) {
         this.scene.add(mesh);
@@ -234,25 +210,6 @@ class ThreeJSViewer {
     return mesh;
   }
 
-  setupDefaultScene() {
-    const defaultPrimitives = [
-      {
-        type: 'sphere',
-        params: { radius: 1 },
-        position: [-2, 0, 0],
-        color: 0xff4444
-      },
-      {
-        type: 'cube',
-        params: { width: 1.5, height: 1.5, depth: 1.5 },
-        position: [2, 0, 0],
-        color: 0x4444ff
-      }
-    ];
-
-    this.drawScene(defaultPrimitives);
-  }
-
   animate() {
     requestAnimationFrame(() => this.animate());
 
@@ -268,11 +225,48 @@ class ThreeJSViewer {
   }
 }
 
-let viewer;
-//let ideContainer = 
+let viewer: HTMLCanvasElement;
 
 window.addEventListener('DOMContentLoaded', () => {
   viewer = new ThreeJSViewer();
+
+  const ideCanvas = document.getElementById("left-canvas")
+  void graphl.Ide(ideCanvas, {
+    allowRunning: false,
+    userFuncs: customNodes,
+    menus: [
+      {
+        // FIXME: add "templates" and "recents" for common stuff
+        name: "Sync",
+        onClick() {
+
+        },
+      },
+    ],
+    graphs: {
+      geometry: {
+        fixedSignature: true,
+        inputs: [],
+        outputs: [
+          {
+            name: "geometry",
+            type: "extern",
+            description: "resulting geometry output",
+          },
+        ],
+        nodes: [
+          {
+            id: 1,
+            type: "return",
+            inputs: {
+              0: { node: 0, outPin: 0 },
+              1: { bool: false },
+            },
+          }
+        ],
+      },
+    }
+  });
 });
 
 window.drawScene = function(primitives) {
