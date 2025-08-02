@@ -260,9 +260,9 @@ window.addEventListener('DOMContentLoaded', () => {
           viewer.primitives = [];
           const program = await ide.compile();
           console.log(program);
-          const result = program.functions.geometry();
+          const _result = program.functions.geometry();
           console.log(result);
-          viewer.primitives = result;
+          viewer.updateScene();
         },
       },
     ],

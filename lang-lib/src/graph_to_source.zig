@@ -595,9 +595,6 @@ pub const GraphBuilder = struct {
 
             if (self.result_node_basic_desc.inputs.len < 1) return error.InvalidResultNode;
 
-            if (self.result_node_basic_desc.inputs[1].kind != .primitive) return error.InvalidResultNode;
-            if (self.result_node_basic_desc.inputs[1].kind.primitive != .value) return error.InvalidResultNode;
-
             for (self.result_node_basic_desc.inputs[1..]) |res_input| {
                 _ = try mod_ctx.addAndAppendToList(result_type_idx, .symbol(res_input.kind.primitive.value.name));
             }

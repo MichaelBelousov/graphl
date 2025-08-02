@@ -13,7 +13,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@graphl/ide": "../../ide",
+    "@graphl/ide": "../../ide/",
     "vite": "^7.0.6"
   }
 }

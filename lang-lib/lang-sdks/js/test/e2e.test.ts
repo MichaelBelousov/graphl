@@ -590,7 +590,7 @@ describe("js sdk", () => {
   });
 
 
-  it("geometry builder", async () => {
+  it("imperative geometry builder DSL", async () => {
     const viewer = {
       primitives: [],
     };
