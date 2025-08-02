@@ -41,7 +41,6 @@
     <!-- need tabIndex for the canvas to receive keydown/keyup/beforeinput events -->
     <canvas id="dvui-canvas" tabIndex="1"></canvas>
     <div id="react-app"></div>
-    <script type="module" src="./demo.tsx"></script>
     <script type="module">
       import * as graphl from "./WebBackend.js";
       import { downloadFile } from "./localFileManip.ts";
@@ -51,6 +50,59 @@
 
       /** @type {import("./WebBackend.js").Ide}  */
       let ide;
+      const geomNodes = {
+        // FIXME: why is this not in the base lang?
+        "Point": {
+          inputs: [
+            { name: "x", type: "f64" },
+            { name: "y", type: "f64" },
+            { name: "z", type: "f64" },
+          ],
+          outputs: [{ name: "", type: "vec3", }],
+          kind: "pure",
+          tags: ["geom"],
+          description: "create a sphere",
+          impl: (x, y, z) => ({ x, y, z }),
+        },
+        "Sphere": {
+          inputs: [
+            { name: "center", type: "vec3", desc: "point to place the sphere" },
+            { name: "radius", type: "f64" },
+            { name: "color", type: "string", desc: "color in RGB Hex e.g. ff00ff" },
+          ],
+          outputs: [],
+          //kind: "pure",
+          tags: ["geom"],
+          description: "create a sphere",
+          impl(center, radius, color) {
+            viewer.primitives.push({
+              type: 'sphere',
+              params: { radius },
+              position: [center.x, center.y, center.z],
+              color: parseInt(color ?? "ffffff", 16)
+            });
+          },
+        },
+        "Box": {
+          inputs: [
+            { name: "position", type: "vec3", desc: "point to place the box" },
+            { name: "dimensions", type: "vec3", desc: "width, height, depth" },
+            { name: "color", type: "string", desc: "color in RGB Hex e.g. ff00ff" },
+          ],
+          outputs: [],
+          //kind: "pure",
+          tags: ["geom"],
+          description: "create a sphere",
+          impl(position, dimensions, color) {
+            viewer.primitives.push({
+              type: 'cube',
+              params: { width: dimensions.x, height: dimensions.y, depth: dimensions.z },
+              position: [position.x, position.y, position.z],
+              color: parseInt(color ?? "ffffff", 16)
+            });
+          },
+        },
+      };
 
       async function main() {
         ide = await new Promise((resolve, reject) => {
@@ -226,6 +278,7 @@
                   tags: ["iTwin"],
                   description: "true if the viewport has this element visible at export time",
                 },
+                ...geomNodes,
               },
               menus: [{
                 name: "Test",
@@ -303,6 +356,73 @@
                         2: { node: 1, outPin: 0 },
                         3: { string: "/TwinSyncStudio/M_combinedMesh.M_combinedMesh" },
                         4: { bool: false },
+                      },
+                    }
+                  ],
+                },
+                geometry: {
+                  fixedSignature: true,
+                  inputs: [],
+                  outputs: [
+                    // {
+                    //   name: "geometry",
+                    //   type: "extern",
+                    //   description: "resulting geometry output",
+                    // },
+                  ],
+                  nodes: [
+                    {
+                      id: 1,
+                      type: "Point",
+                      inputs: {
+                        0: { float: -2 },
+                        1: { float: 0 },
+                        2: { float: 0 },
+                      },
+                    },
+                    {
+                      id: 2,
+                      type: "Point",
+                      inputs: {
+                        0: { float: 2 },
+                        1: { float: 0 },
+                        2: { float: 0 },
+                      },
+                    },
+                    {
+                      id: 3,
+                      type: "Point",
+                      inputs: {
+                        0: { float: 1.5 },
+                        1: { float: 1.5 },
+                        2: { float: 1.5 },
+                      },
+                    },
+                    {
+                      id: 4,
+                      type: "Sphere",
+                      inputs: {
+                        0: { node: 0, outPin: 0 },
+                        1: { node: 1, outPin: 0 },
+                        2: { float: 1 },
+                        3: { string: "FF4444" },
+                      },
+                    },
+                    {
+                      id: 5,
+                      type: "Box",
+                      inputs: {
+                        0: { node: 4, outPin: 0 },
+                        1: { node: 2, outPin: 0 },
+                        2: { node: 3, outPin: 0 },
+                        3: { string: "4444FF" },
+                      },
+                    },
+                    {
+                      id: 6,
+                      type: "return",
+                      inputs: {
+                        0: { node: 5, outPin: 0 },
                       },
                     }
                   ],
