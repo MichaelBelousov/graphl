@@ -138,11 +138,24 @@ describe("js sdk", () => {
 
   it.only("pass vec3", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
+      (import Point "host/Point")
       (typeof (make) vec3)
-      (define (make) (begin (return (vec3 -2 3.4 5.6789))))
+      (define (make) (begin (return (Point -2 3.4 5.6789))))
       (typeof (take vec3) f64)
       (define (take v) (return (.z v)))
-    `);
+    `, {
+      Point: {
+        inputs: [
+          { type: GraphlTypes.f64 },
+          { type: GraphlTypes.f64 },
+          { type: GraphlTypes.f64 },
+        ],
+        outputs: [{ type: GraphlTypes.vec3 }],
+        impl: (x, y, z) => {
+          return { x, y, z };
+        },
+      }
+    });
 
     const makeResult = program.functions.make();
     const takeResult = program.functions.take(makeResult);
