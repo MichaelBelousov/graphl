@@ -1,44 +1,59 @@
 import * as graphl from "@graphl/ide";
 
+// FIXME: types
+type GraphlVec3 = {x: number, y: number, z: number};
+
 const customNodes: Record<string, graphl.UserFuncJson> = {
-  "VisibleInViewport": {
-    inputs: [{ name: "element", type: "u64" }],
-    outputs: [{ name: "", type: "bool" }],
+  // FIXME: why is this not in the base lang?
+  "Point": {
+    inputs: [
+      { name: "x", type: "f64" },
+      { name: "y", type: "f64" },
+      { name: "z", type: "f64" },
+    ],
+    outputs: [{ name: "", type: "vec3", }],
     kind: "pure",
-    tags: ["iTwin"],
-    description: "true if the viewport has this element visible at export time",
+    tags: ["geom"],
+    description: "create a sphere",
+    impl: (x: number, y: number, z: number) => ({ x, y, z }),
   },
-
-  "ProjectCenter": {
-    inputs: [],
-    outputs: [{ name: "", type: "vec3" }],
-    kind: "pure",
-    tags: ["iTwin"],
-    description: "get the center of the project extents in iTwin coordinates",
+  "Sphere": {
+    inputs: [
+      { name: "center", type: "vec3", desc: "point to place the sphere" },
+      { name: "radius", type: "f64" },
+      { name: "color", type: "string", desc: "color in RGB Hex e.g. ff00ff" },
+    ],
+    outputs: [],
+    //kind: "pure",
+    tags: ["geom"],
+    description: "create a sphere",
+    impl(center: GraphlVec3, radius: number, color: string) {
+      viewer.primitives.push({
+        type: 'sphere',
+        params: { radius },
+        position: [center.x, center.y, center.z],
+        color: parseInt(color ?? "ffffff", 16)
+      });
+    },
   },
-
-  "Category": {
-    inputs: [{ name: "element", type: "u64" }],
-    outputs: [{ name: "", type: "u64" }],
-    tags: ["iTwin"],
-    description: "get the id of the category for a geometric element",
-    kind: "pure",
-  },
-
-  "Parent": {
-    inputs: [{ name: "element", type: "u64" }],
-    outputs: [{ name: "", type: "u64" }],
-    tags: ["iTwin"],
-    description: "get the id of the parent of an element",
-    kind: "pure",
-  },
-
-  "UserLabel": {
-    inputs: [{ name: "element", type: "u64" }],
-    outputs: [{ name: "", type: "string" }],
-    kind: "pure",
-    tags: ["iTwin"],
-    description: "get the user label of an element",
+  "Box": {
+    inputs: [
+      { name: "position", type: "vec3", desc: "point to place the box" },
+      { name: "dimensions", type: "vec3", desc: "width, height, depth" },
+      { name: "color", type: "string", desc: "color in RGB Hex e.g. ff00ff" },
+    ],
+    outputs: [],
+    //kind: "pure",
+    tags: ["geom"],
+    description: "create a sphere",
+    impl(position: GraphlVec3, dimensions: GraphlVec3, color: string) {
+      viewer.primitives.push({
+        type: 'cube',
+        params: { width: dimensions.x, height: dimensions.y, depth: dimensions.z },
+        position: [position.x, position.y, position.z],
+        color: parseInt(color ?? "ffffff", 16)
+      });
+    },
   },
 };
 
@@ -224,48 +239,106 @@ class ThreeJSViewer {
   }
 }
 
-let viewer: HTMLCanvasElement;
+let viewer: ThreeJSViewer;
 
 window.addEventListener('DOMContentLoaded', () => {
   viewer = new ThreeJSViewer();
 
   const ideCanvas = document.getElementById("left-canvas")
-  void graphl.Ide(ideCanvas, {
+
+  /** @type {graphl.Ide} */
+  let ide;
+  const idePromise = graphl.Ide(ideCanvas, {
     allowRunning: false,
     userFuncs: customNodes,
     menus: [
       {
         // FIXME: add "templates" and "recents" for common stuff
         name: "Sync",
-        onClick() {
-
+        async onClick() {
+          // FIXME: use a declarative impl instead of this mutable state stuff
+          viewer.primitives = [];
+          const program = await ide.compile();
+          console.log(program);
+          const result = program.functions.geometry();
+          console.log(result);
+          viewer.primitives = result;
         },
       },
     ],
+    // FIXME: must be synced with the default primitives!
     graphs: {
       geometry: {
         fixedSignature: true,
         inputs: [],
         outputs: [
-          {
-            name: "geometry",
-            type: "extern",
-            description: "resulting geometry output",
-          },
+          // {
+          //   name: "geometry",
+          //   type: "extern",
+          //   description: "resulting geometry output",
+          // },
         ],
         nodes: [
           {
             id: 1,
-            type: "return",
+            type: "Point",
+            inputs: {
+              0: { float: -2 },
+              1: { float: 0 },
+              2: { float: 0 },
+            },
+          },
+          {
+            id: 2,
+            type: "Point",
+            inputs: {
+              0: { float: 2 },
+              1: { float: 0 },
+              2: { float: 0 },
+            },
+          },
+          {
+            id: 3,
+            type: "Point",
+            inputs: {
+              0: { float: 1.5 },
+              1: { float: 1.5 },
+              2: { float: 1.5 },
+            },
+          },
+          {
+            id: 4,
+            type: "Sphere",
             inputs: {
               0: { node: 0, outPin: 0 },
-              1: { bool: false },
+              1: { node: 1, outPin: 0 },
+              2: { float: 1 },
+              3: { string: "FF4444" },
+            },
+          },
+          {
+            id: 5,
+            type: "Box",
+            inputs: {
+              0: { node: 4, outPin: 0 },
+              1: { node: 2, outPin: 0 },
+              2: { node: 3, outPin: 0 },
+              3: { string: "4444FF" },
+            },
+          },
+          {
+            id: 6,
+            type: "return",
+            inputs: {
+              0: { node: 5, outPin: 0 },
             },
           }
         ],
       },
     }
   });
+
+  idePromise.then(_ide => ide = _ide);
 });
 
 window.updateScene = function(primitives) {
