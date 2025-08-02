@@ -3,6 +3,7 @@ class ThreeJSViewer {
         this.scene = null;
         this.camera = null;
         this.renderer = null;
+        this.controls = null;
         this.currentObjects = [];
         
         this.init();
@@ -43,6 +44,13 @@ class ThreeJSViewer {
         directionalLight.shadow.mapSize.width = 2048;
         directionalLight.shadow.mapSize.height = 2048;
         this.scene.add(directionalLight);
+        
+        this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+        this.controls.enableDamping = true;
+        this.controls.dampingFactor = 0.05;
+        this.controls.enableZoom = true;
+        this.controls.enableRotate = true;
+        this.controls.enablePan = true;
         
         window.addEventListener('resize', () => this.onWindowResize());
     }
@@ -162,6 +170,8 @@ class ThreeJSViewer {
 
     animate() {
         requestAnimationFrame(() => this.animate());
+        
+        this.controls.update();
         
         this.currentObjects.forEach((obj, index) => {
             obj.rotation.x += 0.01;
