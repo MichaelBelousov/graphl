@@ -4,7 +4,16 @@
   "devDependencies": {
     "@types/bun": "latest"
   },
+  "scripts": {
+    "dev": "vite",
+    "preview": "vite preview",
+    "build": "vite build --mode production"
+  },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "@graphl/ide": "../../ide",
+    "vite": "^7.0.6"
   }
 }
