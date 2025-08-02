@@ -2465,6 +2465,8 @@ const Compilation = struct {
                     if (func.value.symbol.ptr == syms.@"return".value.symbol.ptr) {
                         const return_types = if (fn_ctx.return_count > 1)
                             fn_ctx.return_type.subtype.@"struct".field_types
+                        else if (fn_ctx.return_type == primitive_types.@"void")
+                                &.{}
                         else
                             &.{fn_ctx.return_type};
 

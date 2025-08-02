@@ -136,7 +136,7 @@ describe("js sdk", () => {
     assert.partialDeepStrictEqual(program.functions.foo(), { 0: 5,  1: "hello", 2: true });
   });
 
-  it.only("pass vec3", async () => {
+  it("pass vec3", async () => {
     const program = await compileGraphltSourceAndInstantiateProgram(`
       (import Point "host/Point")
       (typeof (make) vec3)
@@ -587,5 +587,89 @@ describe("js sdk", () => {
       (typeof (foo) i32)
       (define (foo) (begin (log 10) 20))
     `);
+  });
+
+
+  it("geometry builder", async () => {
+    const viewer = {
+      primitives: [],
+    };
+    
+    const customNodes = {
+      // FIXME: why is this not in the base lang?
+      "Point": {
+        inputs: [
+          { name: "x", type: "f64" },
+          { name: "y", type: "f64" },
+          { name: "z", type: "f64" },
+        ],
+        outputs: [{ name: "", type: "vec3", }],
+        kind: "pure",
+        tags: ["geom"],
+        description: "create a sphere",
+        impl: (x: number, y: number, z: number) => ({ x, y, z }),
+      },
+      "Sphere": {
+        inputs: [
+          { name: "center", type: "vec3", desc: "point to place the sphere" },
+          { name: "radius", type: "f64" },
+          { name: "color", type: "string", desc: "color in RGB Hex e.g. ff00ff" },
+        ],
+        outputs: [],
+        //kind: "pure",
+        tags: ["geom"],
+        description: "create a sphere",
+        impl(center: GraphlVec3, radius: number, color: string) {
+          viewer.primitives.push({
+            type: 'sphere',
+            params: { radius },
+            position: [center.x, center.y, center.z],
+            color: parseInt(color ?? "ffffff", 16)
+          });
+        },
+      },
+      "Box": {
+        inputs: [
+          { name: "position", type: "vec3", desc: "point to place the box" },
+          { name: "dimensions", type: "vec3", desc: "width, height, depth" },
+          { name: "color", type: "string", desc: "color in RGB Hex e.g. ff00ff" },
+        ],
+        outputs: [],
+        //kind: "pure",
+        tags: ["geom"],
+        description: "create a sphere",
+        impl(position: GraphlVec3, dimensions: GraphlVec3, color: string) {
+          viewer.primitives.push({
+            type: 'cube',
+            params: { width: dimensions.x, height: dimensions.y, depth: dimensions.z },
+            position: [position.x, position.y, position.z],
+            color: parseInt(color ?? "ffffff", 16)
+          });
+        },
+      },
+    };
+    const program = await compileGraphltSourceAndInstantiateProgram(`
+        (import Box "host/Box")
+        (import Sphere "host/Sphere")
+        (import Point "host/Point")
+        (typeof (geometry) ())
+        (define (geometry)
+          (begin (Sphere (Point -2
+                                0
+                                0)
+                         1
+                         "FF4444")
+                 (Box (Point 2
+                             0
+                             0)
+                      (Point 1.5
+                             1.5
+                             1.5)
+                      "4444FF")
+                 (return)))
+    `, customNodes as any);
+
+    program.functions.geometry();
+    assert(viewer.primitives.length === 2);
   });
 });
