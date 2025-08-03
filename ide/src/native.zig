@@ -162,27 +162,31 @@ pub fn main() !void {
             .{
                 .id = 1,
                 .node = .{
-                    .name = "Box",
+                    .name = "Sphere",
                     .inputs = try gpa.dupe(graphl.Pin, &.{
                         .{ .name = "", .kind = .{ .primitive = .exec } },
                         .{ .name = "center", .kind = .{ .primitive = .{ .value = graphl.nonprimitive_types.vec3 } } },
                         .{ .name = "radius", .kind = .{ .primitive = .{ .value = graphl.primitive_types.f64_ } } },
                         .{ .name = "color", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
                     }),
-                    .outputs = try gpa.dupe(graphl.Pin, &.{}),
+                    .outputs = try gpa.dupe(graphl.Pin, &.{
+                        .{ .name = "", .kind = .{ .primitive = .exec } },
+                    }),
                 },
             },
             .{
                 .id = 2,
                 .node = .{
-                    .name = "Sphere",
+                    .name = "Box",
                     .inputs = try gpa.dupe(graphl.Pin, &.{
                         .{ .name = "", .kind = .{ .primitive = .exec } },
                         .{ .name = "position", .kind = .{ .primitive = .{ .value = graphl.nonprimitive_types.vec3 } } },
                         .{ .name = "dimensions", .kind = .{ .primitive = .{ .value = graphl.nonprimitive_types.vec3 } } },
                         .{ .name = "color", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
                     }),
-                    .outputs = try gpa.dupe(graphl.Pin, &.{}),
+                    .outputs = try gpa.dupe(graphl.Pin, &.{
+                        .{ .name = "", .kind = .{ .primitive = .exec } },
+                    }),
                 },
             },
             .{
