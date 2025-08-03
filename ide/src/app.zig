@@ -23,26 +23,12 @@ const MAX_FUNC_NAME = 256;
 
 // FIXME: these need to have the App instance as an argument
 extern fn onClickReportIssue() void;
-extern fn requestPaste() void;
-
-/// expects text in a data-url like format with type application/graphl-json
-/// NOTE: I am not currently encoding the data part of the url, making it not really
-/// compliant
-pub fn pasteText(app: *App, clipboard: []const u8) void {
+fn requestPaste(app: *App) !void {
+    const clipboard = try dvui.clipboardText();
     const graphl_json = clipboard["data:application/graphl-json,".len..];
-
-    placeGraphlJsonToGraph(app.current_graph, gpa, graphl_json, .{ .allow_overwrite_entry = false }) catch |err| {
-        std.log.err("encountered error '{}' while interpreting clipboard to add to graph", .{err});
-        // NOTE: ignore errors
-        return;
-    };
+    try placeGraphlJsonToGraph(app.current_graph, gpa, graphl_json, .{ .allow_overwrite_entry = false });
 }
 
-// FIXME: oops, dvui has a clipboard access API already! just use that!
-/// put content into the host clipboard
-extern fn putClipboard(content_ptr: [*]const u8, content_len: usize) void;
-
-// FIXME:  maybe move putClipboard to web-app.zig?
 fn copySelectedToClipboard(app: *const App) !void {
     var json_result = try nodesToGraphlJson(gpa, &app.current_graph.selection, app.current_graph, true);
     defer json_result.deinit();
@@ -52,7 +38,7 @@ fn copySelectedToClipboard(app: *const App) !void {
     // TODO: create an std.ArrayList(u8) writer and write the json to that?
     const data_url = try std.fmt.allocPrint(gpa, "data:application/graphl-json,{s}", .{json});
     defer gpa.free(data_url);
-    putClipboard(data_url.ptr, data_url.len);
+    try dvui.clipboardTextSet(data_url);
 }
 
 pub fn getGraphsJson(app: *const App) ![]const u8 {
@@ -1614,9 +1600,8 @@ fn renderGraph(self: *@This(), canvas: *dvui.BoxWidget) !void {
                         try self.current_graph.selection.put(gpa, entry.key_ptr.*, {});
                     }
                 } else if (ke.action == .up and ke.code == .v and ctrlOnly(ke.mod)) {
-                    requestPaste();
+                    try self.requestPaste();
                 } else if (ke.action == .up and ke.code == .c and ctrlOnly(ke.mod)) {
-                    // TODO: use built in dvui clipboard support!
                     try copySelectedToClipboard(self);
                 } else if (ke.action == .up and ke.code == .x and ctrlOnly(ke.mod)) {
                     try copySelectedToClipboard(self);

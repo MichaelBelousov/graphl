@@ -146,10 +146,6 @@ fn _setInitOpts(in_json: []const u8) !void {
     };
 }
 
-export fn pasteText(clipboard_ptr: [*]const u8, clipboard_len: usize) void {
-    app.pasteText(clipboard_ptr[0..clipboard_len]);
-}
-
 // TODO: replace with save via grappl
 export fn getGraphsJson() void {
     const json = app.getGraphsJson() catch |err| {
