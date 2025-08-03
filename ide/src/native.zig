@@ -204,6 +204,43 @@ pub fn main() !void {
                     }),
                 },
             },
+            // add useless nodes to trigger hashmap expansions
+            .{
+                .id = 4,
+                .node = .{
+                    // FIXME: replace with just using the vec3 node which should exist...
+                    .name = "Useless1",
+                    .inputs = try gpa.dupe(graphl.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                    .outputs = try gpa.dupe(graphl.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                },
+            },
+            .{
+                .id = 5,
+                .node = .{
+                    // FIXME: replace with just using the vec3 node which should exist...
+                    .name = "Useless2",
+                    .inputs = try gpa.dupe(graphl.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                    .outputs = try gpa.dupe(graphl.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                },
+            },
+            .{
+                .id = 6,
+                .node = .{
+                    // FIXME: replace with just using the vec3 node which should exist...
+                    .name = "Useless3",
+                    .inputs = try gpa.dupe(graphl.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                    .outputs = try gpa.dupe(graphl.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                },
+            },
+            .{
+                .id = 7,
+                .node = .{
+                    // FIXME: replace with just using the vec3 node which should exist...
+                    .name = "Useless4",
+                    .inputs = try gpa.dupe(graphl.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                    .outputs = try gpa.dupe(graphl.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                },
+            },
         },
         .menus = &.{
             .{
