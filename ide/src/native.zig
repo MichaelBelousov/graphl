@@ -124,6 +124,7 @@ pub fn main() !void {
         .parameters = &.{},
         .results = &.{},
     });
+
     try graphs.putNoClobber(gpa, "main", .{
         .name = "main",
         .fixed_signature = true,
@@ -159,32 +160,43 @@ pub fn main() !void {
         .graphs = graphs,
         .user_funcs = &.{
             .{
-                .id = 0,
+                .id = 1,
                 .node = .{
                     .name = "Box",
                     .inputs = try gpa.dupe(graphl.Pin, &.{
                         .{ .name = "", .kind = .{ .primitive = .exec } },
-                        .{ .name = "elementId", .kind = .{ .primitive = .{ .value = graphl.primitive_types.u64_ } } },
-                        .{ .name = "code", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
+                        .{ .name = "center", .kind = .{ .primitive = .{ .value = graphl.nonprimitive_types.vec3 } } },
+                        .{ .name = "radius", .kind = .{ .primitive = .{ .value = graphl.primitive_types.f64_ } } },
+                        .{ .name = "color", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
                     }),
-                    .outputs = try gpa.dupe(graphl.Pin, &.{
-                        .{ .name = "", .kind = .{ .primitive = .exec } },
-                        .{ .name = "json", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
-                    }),
+                    .outputs = try gpa.dupe(graphl.Pin, &.{}),
                 },
             },
             .{
-                .id = 1,
+                .id = 2,
                 .node = .{
                     .name = "Sphere",
                     .inputs = try gpa.dupe(graphl.Pin, &.{
                         .{ .name = "", .kind = .{ .primitive = .exec } },
-                        .{ .name = "elementId", .kind = .{ .primitive = .{ .value = graphl.primitive_types.u64_ } } },
-                        .{ .name = "code", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
+                        .{ .name = "position", .kind = .{ .primitive = .{ .value = graphl.nonprimitive_types.vec3 } } },
+                        .{ .name = "dimensions", .kind = .{ .primitive = .{ .value = graphl.nonprimitive_types.vec3 } } },
+                        .{ .name = "color", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
+                    }),
+                    .outputs = try gpa.dupe(graphl.Pin, &.{}),
+                },
+            },
+            .{
+                .id = 3,
+                .node = .{
+                    // FIXME: replace with just using the vec3 node which should exist...
+                    .name = "Point",
+                    .inputs = try gpa.dupe(graphl.Pin, &.{
+                        .{ .name = "x", .kind = .{ .primitive = .{ .value = graphl.primitive_types.f64_ } } },
+                        .{ .name = "y", .kind = .{ .primitive = .{ .value = graphl.primitive_types.f64_ } } },
+                        .{ .name = "z", .kind = .{ .primitive = .{ .value = graphl.primitive_types.f64_ } } },
                     }),
                     .outputs = try gpa.dupe(graphl.Pin, &.{
-                        .{ .name = "", .kind = .{ .primitive = .exec } },
-                        .{ .name = "json", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
+                        .{ .name = "", .kind = .{ .primitive = .{ .value = graphl.nonprimitive_types.vec3 } } },
                     }),
                 },
             },

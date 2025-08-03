@@ -545,8 +545,10 @@ pub const GraphBuilder = struct {
         const start = self.nodes.map.getPtr(node_id) orelse return error.SourceNodeNotFound;
         _ = subpin_index;
 
-        if (pin_index >= start.inputs.len)
+        if (pin_index >= start.inputs.len) {
+            std.log.err("start pin_index = {}\n", .{pin_index});
             return error.StartIndexInvalid;
+        }
 
         start.inputs[pin_index] = .{ .value = value };
     }
