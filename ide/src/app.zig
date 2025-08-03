@@ -2275,8 +2275,6 @@ fn renderNode(
         }
     }
 
-    var ctrl_down = dvui.dataGet(null, box.data().id, "_ctrl", bool) orelse false;
-
     if (dvui.captured(box.data().id) and dvui.currentWindow().drag_state != .none)
         dvui.cursorSet(.hand);
 
@@ -2285,15 +2283,6 @@ fn renderNode(
     {
         const evts = dvui.events();
         for (evts) |*e| {
-            if (e.evt == .key and e.evt.key.matchBind("ctrl/cmd")) {
-                ctrl_down = (e.evt.key.action == .down or e.evt.key.action == .repeat);
-            }
-
-            var shift_down = false;
-            if (e.evt == .key and e.evt.key.matchBind("shift")) {
-                shift_down = (e.evt.key.action == .down or e.evt.key.action == .repeat);
-            }
-
             if (!box.matchEvent(e))
                 continue;
 
@@ -2348,8 +2337,6 @@ fn renderNode(
             }
         }
     }
-
-    dvui.dataSet(null, box.data().id, "_ctrl", ctrl_down);
 
     {
         const ctext = try dvui.context(@src(), .{ .rect = result }, .{ .expand = .both });
@@ -2837,7 +2824,26 @@ pub fn onReceiveLoadedSource(self: *@This(), src: []const u8) !void {
     //self.graphs = try sourceToGraph(gpa, self, src, &self.shared_env);
 }
 
+
+var shift_down = false;
+var ctrl_down = false;
+
 pub fn frame(self: *@This()) !void {
+    for (dvui.events()) |e| {
+        switch (e.evt) {
+            .key => |ke| {
+                // FIXME: https://github.com/david-vanderson/dvui/issues/504
+                if (ke.matchBind("ctrl/cmd")) {
+                    ctrl_down = (ke.action == .down or ke.action == .repeat);
+                }
+                if (ke.code == .left_shift or ke.code == .right_shift) {
+                    shift_down = (ke.action == .down or ke.action == .repeat);
+                }
+            },
+            else => {},
+        }
+    }
+
     // file menu
     if (self.init_opts.preferences.topbar.visible) {
         var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .expand = .horizontal });
