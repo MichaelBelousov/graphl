@@ -682,7 +682,7 @@ pub const GraphBuilder = struct {
         var analysis_ctx: AnalysisCtx = .{};
         defer analysis_ctx.deinit(alloc);
 
-        try analysis_ctx.node_data.ensureTotalCapacity(alloc, self.nodes.map.count());
+        try analysis_ctx.node_data.ensureTotalCapacity(alloc, @intCast(self.nodes.map.count()));
 
         // TODO: realize this ungodly crap will all be removed when I rewrite the IDE to mutate a
         // sexp in memory and there will no longer be a need to analyze the "graph" at all
@@ -840,7 +840,7 @@ pub const GraphBuilder = struct {
                     .label_to_sexp_idx = args.label_to_sexp_idx,
                 };
 
-                try self.node_data.ensureTotalCapacity(nodes.map.count());
+                try self.node_data.ensureTotalCapacity(@intCast(nodes.map.count()));
                 {
                     var iter = nodes.map.iterator();
                     while (iter.next()) |node| {

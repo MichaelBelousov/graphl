@@ -59,6 +59,7 @@ pub fn main() !void {
                         .{ .name = "json", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
                     }),
                 },
+                .@"async" = false,
             }
         },
         .menus = &.{
