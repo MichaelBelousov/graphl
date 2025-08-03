@@ -23,6 +23,7 @@ const MAX_FUNC_NAME = 256;
 
 // FIXME: these need to have the App instance as an argument
 extern fn onClickReportIssue() void;
+
 fn requestPaste(app: *App) !void {
     const clipboard = try dvui.clipboardText();
     const graphl_json = clipboard["data:application/graphl-json,".len..];
@@ -544,20 +545,14 @@ pub fn addEmptyGraph(
     return &new_graph.data;
 }
 
-// FIXME:
-// in some instance saving appears to remove parameter references?
-
-// FIXME: dedup with placeGraphlJsonToGraph
-pub fn addGraph(
+pub fn addGraphWithSignature(
     self: *@This(),
     init_state: *const GraphInitState,
     set_as_current: bool,
-    dont_format: bool,
 ) !*Graph {
     const graph = try self.addEmptyGraph(init_state.name, set_as_current, .{ .fixed_signature = init_state.fixed_signature });
-    const graph_desc = init_state;
 
-    for (graph_desc.parameters) |param| {
+    for (init_state.parameters) |param| {
         try self.addParamOrResult(
             graph.graphl_graph.entry_node,
             graph.graphl_graph.entry_node_basic_desc,
@@ -570,7 +565,7 @@ pub fn addGraph(
         );
     }
 
-    for (graph_desc.results) |result| {
+    for (init_state.results) |result| {
         try self.addParamOrResult(
             graph.graphl_graph.result_node,
             graph.graphl_graph.result_node_basic_desc,
@@ -581,6 +576,21 @@ pub fn addGraph(
             if (result.description) |d| try gpa.dupeZ(u8, d) else null,
         );
     }
+
+    return graph;
+}
+
+// FIXME:
+// in some instance saving appears to remove parameter references?
+
+// FIXME: dedup with placeGraphlJsonToGraph
+pub fn populateGraphNodes(
+    /// graph created with addGraphWithSignature
+    graph: *Graph, 
+    init_state: *const GraphInitState,
+    dont_format: bool,
+) !void {
+    const graph_desc = init_state;
 
     for (graph_desc.nodes.items) |node_desc| {
         const node_id: graphl.NodeId = @intCast(node_desc.id);
@@ -640,8 +650,6 @@ pub fn addGraph(
     if (!dont_format) {
         try graph.visual_graph.formatGraphNaive(gpa);
     }
-
-    return graph;
 }
 
 // FIXME: should this be undefined?
@@ -812,7 +820,9 @@ pub const GraphInitState = struct {
     fixed_signature: bool = false,
     // FIXME: why make this an ArrayList if it's basically immutable?
     nodes: std.ArrayListUnmanaged(App.NodeInitState) = .{},
+    // FIXME: require exec pins somehow?
     // FIXME: these pins can't have spaces in the names!
+    /// DOES NOT INCLUDE THE EXEC PINS, THOSE ARE ADDED BY DEFAULT
     parameters: []const graphl.Pin,
     results: []const graphl.Pin,
 
@@ -883,10 +893,24 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
 
     if (in_opts.graphs) |graphs| {
         var graph_iter = graphs.iterator();
+
+        // FIXME: use a doubly linked list for graphs to avoid this temporary data
+        var created_graphs = try std.ArrayListUnmanaged(*Graph).initCapacity(gpa, graphs.count());
+        defer created_graphs.deinit(gpa);
+
         while (graph_iter.next()) |entry| {
             const graph_desc = entry.value_ptr;
-            // FIXME: must I dupe this?
-            _ = try addGraph(self, graph_desc, true, false);
+            const created_graph = try self.addGraphWithSignature(graph_desc, true);
+            created_graphs.appendAssumeCapacity(created_graph);
+        }
+
+        {
+            var i: usize = 0;
+            while (graph_iter.next()) |entry| : (i += 1) {
+                const graph_desc = entry.value_ptr;
+                const created_graph = created_graphs.items[i];
+                try populateGraphNodes(created_graph, graph_desc, false);
+            }
         }
     } else {
         _ = try addEmptyGraph(self, "main", true, .{});
@@ -2791,8 +2815,16 @@ pub fn onReceiveLoadedSource(self: *@This(), src: []const u8) !void {
     const parsed = try std.json.parseFromSlice([]GraphInitState, gpa, src, .{ .ignore_unknown_fields = true });
     defer parsed.deinit();
 
+    // FIXME: make graphs data structure easier to iterate so we can avoid this unnecessary duplicate
+    var created_graphs = try std.ArrayListUnmanaged(*Graph).initCapacity(gpa, parsed.value.len);
+    defer created_graphs.deinit(gpa);
+
     for (parsed.value) |json_graph| {
-        _ = try self.addGraph(&json_graph, true, true);
+        const created_graph = try self.addGraphWithSignature(&json_graph, true);
+        created_graphs.appendAssumeCapacity(created_graph);
+    }
+    for (parsed.value, created_graphs.items) |json_graph, created_graph| {
+        try populateGraphNodes(created_graph, &json_graph, true);
     }
 
     if (self.init_opts.window) |window|

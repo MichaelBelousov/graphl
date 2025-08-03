@@ -7,14 +7,14 @@ const RaylibBackend = dvui.backend;
 const dvui = @import("dvui");
 
 const graphl = @import("graphl_core");
-const app = @import("./native-app.zig");
+const App = @import("./native-app.zig");
 
 const c = RaylibBackend.c;
 
 // FIXME:
 //const window_icon_png = @embedFile("zig-favicon.png");
 
-const gpa = app.gpa;
+const gpa = App.gpa;
 
 var show_dialog_outside_frame: bool = false;
 
@@ -42,13 +42,126 @@ pub fn main() !void {
     var win = try dvui.Window.init(@src(), gpa, backend.backend(), .{});
     defer win.deinit();
 
-    try app.init(.{
+
+    var graphs: App.GraphsInitState = .{};
+    try graphs.putNoClobber(gpa, "geometry", .{
+        .name = "geometry",
+        .fixed_signature = true,
+        .nodes = .fromOwnedSlice(try gpa.dupe(App.NodeInitState, &.{
+            .{
+                .id = 1,
+                .type_ = "Point",
+                .inputs = _: {
+                    var inputs: std.AutoHashMapUnmanaged(u16, App.InputInitState) = .{};
+                    errdefer inputs.deinit(gpa);
+                    try inputs.putNoClobber(gpa, 0, .{ .float = -2 });
+                    try inputs.putNoClobber(gpa, 1, .{ .float = 0 });
+                    try inputs.putNoClobber(gpa, 2, .{ .float = 0 });
+                    break :_ inputs;
+                },
+            },
+            .{
+                .id = 2,
+                .type_ = "Point",
+                .inputs = _: {
+                    var inputs: std.AutoHashMapUnmanaged(u16, App.InputInitState) = .{};
+                    errdefer inputs.deinit(gpa);
+                    try inputs.putNoClobber(gpa, 0, .{ .float = 2 });
+                    try inputs.putNoClobber(gpa, 1, .{ .float = 0 });
+                    try inputs.putNoClobber(gpa, 2, .{ .float = 0 });
+                    break :_ inputs;
+                },
+            },
+            .{
+                .id = 3,
+                .type_ = "Point",
+                .inputs = _: {
+                    var inputs: std.AutoHashMapUnmanaged(u16, App.InputInitState) = .{};
+                    errdefer inputs.deinit(gpa);
+                    try inputs.putNoClobber(gpa, 0, .{ .float = 1.5 });
+                    try inputs.putNoClobber(gpa, 1, .{ .float = 1.5 });
+                    try inputs.putNoClobber(gpa, 2, .{ .float = 1.5 });
+                    break :_ inputs;
+                },
+            },
+            .{
+                .id = 4,
+                .type_ = "Sphere",
+                .inputs = _: {
+                    var inputs: std.AutoHashMapUnmanaged(u16, App.InputInitState) = .{};
+                    errdefer inputs.deinit(gpa);
+                    try inputs.putNoClobber(gpa, 0, .{ .node = .{ .id = 0, .out_pin = 0 }});
+                    try inputs.putNoClobber(gpa, 1, .{ .node = .{ .id = 1, .out_pin = 0 }});
+                    try inputs.putNoClobber(gpa, 2, .{ .float = 1 });
+                    try inputs.putNoClobber(gpa, 3, .{ .string = "FF4444" });
+                    break :_ inputs;
+                },
+            },
+            .{
+                .id = 5,
+                .type_ = "Box",
+                .inputs = _: {
+                    var inputs: std.AutoHashMapUnmanaged(u16, App.InputInitState) = .{};
+                    errdefer inputs.deinit(gpa);
+                    try inputs.putNoClobber(gpa, 0, .{ .node = .{ .id = 4, .out_pin = 0 }});
+                    try inputs.putNoClobber(gpa, 1, .{ .node = .{ .id = 2, .out_pin = 0 }});
+                    try inputs.putNoClobber(gpa, 2, .{ .node = .{ .id = 3, .out_pin = 0 }});
+                    try inputs.putNoClobber(gpa, 3, .{ .string = "4444FF" });
+                    break :_ inputs;
+                },
+            },
+            .{
+                .id = 6,
+                .type_ = "return",
+                .inputs = _: {
+                    var inputs: std.AutoHashMapUnmanaged(u16, App.InputInitState) = .{};
+                    errdefer inputs.deinit(gpa);
+                    try inputs.putNoClobber(gpa, 0, .{ .node = .{ .id = 5, .out_pin = 0 }});
+                    break :_ inputs;
+                },
+            },
+        })),
+        .parameters = &.{},
+        .results = &.{},
+    });
+    try graphs.putNoClobber(gpa, "main", .{
+        .name = "main",
+        .fixed_signature = true,
+        .nodes = .fromOwnedSlice(try gpa.dupe(App.NodeInitState, &.{
+            .{
+                .id = 1,
+                .type_ = "geometry",
+                .inputs = _: {
+                    var inputs: std.AutoHashMapUnmanaged(u16, App.InputInitState) = .{};
+                    errdefer inputs.deinit(gpa);
+                    try inputs.putNoClobber(gpa, 0, .{ .node = .{ .id = 0, .out_pin = 0 }});
+                    break :_ inputs;
+                },
+            },
+            .{
+                .id = 2,
+                .type_ = "return",
+                .inputs = _: {
+                    var inputs: std.AutoHashMapUnmanaged(u16, App.InputInitState) = .{};
+                    errdefer inputs.deinit(gpa);
+                    try inputs.putNoClobber(gpa, 0, .{ .node = .{ .id = 1, .out_pin = 0 }});
+                    break :_ inputs;
+                },
+            },
+        })),
+        .parameters = &.{},
+        .results = &.{},
+    });
+
+
+    try App.init(.{
         .transfer_buffer = &transfer_buffer,
+        .graphs = graphs,
         .user_funcs = &.{
             .{
                 .id = 0,
                 .node = .{
-                    .name = "JavaScript-Eval",
+                    .name = "Box",
                     .inputs = try gpa.dupe(graphl.Pin, &.{
                         .{ .name = "", .kind = .{ .primitive = .exec } },
                         .{ .name = "elementId", .kind = .{ .primitive = .{ .value = graphl.primitive_types.u64_ } } },
@@ -59,8 +172,22 @@ pub fn main() !void {
                         .{ .name = "json", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
                     }),
                 },
-                .@"async" = false,
-            }
+            },
+            .{
+                .id = 1,
+                .node = .{
+                    .name = "Sphere",
+                    .inputs = try gpa.dupe(graphl.Pin, &.{
+                        .{ .name = "", .kind = .{ .primitive = .exec } },
+                        .{ .name = "elementId", .kind = .{ .primitive = .{ .value = graphl.primitive_types.u64_ } } },
+                        .{ .name = "code", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
+                    }),
+                    .outputs = try gpa.dupe(graphl.Pin, &.{
+                        .{ .name = "", .kind = .{ .primitive = .exec } },
+                        .{ .name = "json", .kind = .{ .primitive = .{ .value = graphl.primitive_types.string } } },
+                    }),
+                },
+            },
         },
         .menus = &.{
             .{
@@ -69,13 +196,13 @@ pub fn main() !void {
                     .{
                         .name = "compile",
                         .on_click = &(struct { pub fn impl(_: ?*anyopaque, _: ?*anyopaque) void {
-                            const graphlt = app.app.compileToGraphlt() catch |e| {
+                            const graphlt = App.app.compileToGraphlt() catch |e| {
                                 std.debug.print("graphlt compilation failed with '{}'", .{e});
                                 return;
                             };
                             defer gpa.free(graphlt);
                             std.debug.print("graphlt:\n{s}\n", .{graphlt});
-                            const wasm = app.app.compileToWasm() catch |e| {
+                            const wasm = App.app.compileToWasm() catch |e| {
                                 std.debug.print("wasm compilation failed with '{}'", .{e});
                                 return;
                             };
@@ -86,7 +213,7 @@ pub fn main() !void {
             },
         },
     });
-    defer app.deinit();
+    defer App.deinit();
 
     // small fonts look bad on the web, so bump the default theme up
     var theme = win.themes.get("Adwaita Light").?;
@@ -112,7 +239,7 @@ pub fn main() !void {
         // the previous frame's render
         backend.clear();
 
-        try app.frame();
+        try App.frame();
 
         // marks end of dvui frame, don't call dvui functions after this
         // - sends all dvui stuff to backend for rendering, must be called before renderPresent()
@@ -133,5 +260,5 @@ pub fn main() !void {
 }
 
 test {
-    std.testing.refAllDecls(app);
+    std.testing.refAllDecls(App);
 }

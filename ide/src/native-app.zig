@@ -17,7 +17,10 @@ var result_buffer = std.mem.zeroes([4096]u8);
 // TODO: using namespace?
 pub const GraphsInitState = App.GraphsInitState;
 pub const GraphInitState = App.GraphInitState;
+pub const InputInitState = App.InputInitState;
+pub const NodeInitState = App.NodeInitState;
 pub const addParamToCurrentGraph = App.addParamToCurrentGraph;
+
 
 pub fn init(in_init_opts: App.InitOptions) !void {
     // FIXME: should not destroy user input

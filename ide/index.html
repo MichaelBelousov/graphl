@@ -306,11 +306,20 @@
                     type: "i32",
                   }],
                   nodes: [
+                    // FIXME: out of order graph usage not supported!
+                    // {
+                    //   id: 3,
+                    //   type: "geometry",
+                    //   inputs: {
+                    //     0: { node: 0, outPin: 0 },
+                    //   }
+                    // },
                     {
                       id: 1,
                       type: "Confetti",
                       inputs: {
                         0: { node: 0, outPin: 0 },
+                        //0: { node: 3, outPin: 0 },
                         1: { int: 100 },
                       }
                     },
