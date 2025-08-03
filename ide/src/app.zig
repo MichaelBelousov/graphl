@@ -892,19 +892,22 @@ pub fn init(self: *@This(), in_opts: InitOptions) !void {
     }
 
     if (in_opts.graphs) |graphs| {
-        var graph_iter = graphs.iterator();
 
         // FIXME: use a doubly linked list for graphs to avoid this temporary data
         var created_graphs = try std.ArrayListUnmanaged(*Graph).initCapacity(gpa, graphs.count());
         defer created_graphs.deinit(gpa);
 
-        while (graph_iter.next()) |entry| {
-            const graph_desc = entry.value_ptr;
-            const created_graph = try self.addGraphWithSignature(graph_desc, true);
-            created_graphs.appendAssumeCapacity(created_graph);
+        {
+            var graph_iter = graphs.iterator();
+            while (graph_iter.next()) |entry| {
+                const graph_desc = entry.value_ptr;
+                const created_graph = try self.addGraphWithSignature(graph_desc, true);
+                created_graphs.appendAssumeCapacity(created_graph);
+            }
         }
 
         {
+            var graph_iter = graphs.iterator();
             var i: usize = 0;
             while (graph_iter.next()) |entry| : (i += 1) {
                 const graph_desc = entry.value_ptr;
