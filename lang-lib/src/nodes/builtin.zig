@@ -1388,19 +1388,9 @@ pub const Env = struct {
     }
 
     fn registerNode(self: *@This(), a: std.mem.Allocator, node_desc: *const NodeDesc) !void {
-        for (node_desc.tags) |tag| {
-            try self._tag_set.put(a, tag, {});
-            const tag_set_res = try self._nodes_by_tag.getOrPut(a, tag);
-            if (!tag_set_res.found_existing) {
-                tag_set_res.value_ptr.* = .{};
-            }
-            const tag_set = tag_set_res.value_ptr;
-            try tag_set.putNoClobber(a, node_desc, {});
-        }
+        const tags = if (node_desc.tags.len > 0 ) node_desc.tags else &[_][]const u8{"other"};
 
-        // FIXME: make a better way to get untagged nodes
-        if (node_desc.tags.len == 0) {
-            const tag = "other";
+        for (tags) |tag| {
             try self._tag_set.put(a, tag, {});
             const tag_set_res = try self._nodes_by_tag.getOrPut(a, tag);
             if (!tag_set_res.found_existing) {
