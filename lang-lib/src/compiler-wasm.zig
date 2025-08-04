@@ -5343,6 +5343,157 @@ pub fn expectWasmOutput(
     // }
 }
 
+test "compile many user funcs" {
+    const user_funcs_list = &.{
+        .{
+            .id = 1,
+            .node = .{
+                .name = "Sphere",
+                .inputs = try t.allocator.dupe(Pin, &.{
+                    .{ .name = "", .kind = .{ .primitive = .exec } },
+                    .{ .name = "center", .kind = .{ .primitive = .{ .value = nonprimitive_types.vec3 } } },
+                    .{ .name = "radius", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+                    .{ .name = "color", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+                }),
+                .outputs = try t.allocator.dupe(Pin, &.{
+                    .{ .name = "", .kind = .{ .primitive = .exec } },
+                }),
+            },
+        },
+        .{
+            .id = 2,
+            .node = .{
+                .name = "Box",
+                .inputs = try t.allocator.dupe(Pin, &.{
+                    .{ .name = "", .kind = .{ .primitive = .exec } },
+                    .{ .name = "position", .kind = .{ .primitive = .{ .value = nonprimitive_types.vec3 } } },
+                    .{ .name = "dimensions", .kind = .{ .primitive = .{ .value = nonprimitive_types.vec3 } } },
+                    .{ .name = "color", .kind = .{ .primitive = .{ .value = primitive_types.string } } },
+                }),
+                .outputs = try t.allocator.dupe(Pin, &.{
+                    .{ .name = "", .kind = .{ .primitive = .exec } },
+                }),
+            },
+        },
+        .{
+            .id = 3,
+            .node = .{
+                // FIXME: replace with just using the vec3 node which should exist...
+                .name = "Point",
+                .inputs = try t.allocator.dupe(Pin, &.{
+                    .{ .name = "x", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+                    .{ .name = "y", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+                    .{ .name = "z", .kind = .{ .primitive = .{ .value = primitive_types.f64_ } } },
+                }),
+                .outputs = try t.allocator.dupe(Pin, &.{
+                    .{ .name = "", .kind = .{ .primitive = .{ .value = nonprimitive_types.vec3 } } },
+                }),
+            },
+        },
+        // add useless nodes to trigger hashmap expansions
+        .{
+            .id = 4,
+            .node = .{
+                // FIXME: replace with just using the vec3 node which should exist...
+                .name = "Useless1",
+                .inputs = try t.allocator.dupe(Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                .outputs = try t.allocator.dupe(Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+            },
+        },
+        .{
+            .id = 5,
+            .node = .{
+                // FIXME: replace with just using the vec3 node which should exist...
+                .name = "Useless2",
+                .inputs = try t.allocator.dupe(Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                .outputs = try t.allocator.dupe(Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+            },
+        },
+        .{
+            .id = 6,
+            .node = .{
+                // FIXME: replace with just using the vec3 node which should exist...
+                .name = "Useless3",
+                .inputs = try t.allocator.dupe(Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                .outputs = try t.allocator.dupe(Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+            },
+        },
+        .{
+            .id = 7,
+            .node = .{
+                // FIXME: replace with just using the vec3 node which should exist...
+                .name = "Useless4",
+                .inputs = try t.allocator.dupe(Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                .outputs = try t.allocator.dupe(Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+            },
+        },
+    };
+
+    var user_funcs = std.SinglyLinkedList(UserFunc){};
+
+    for (user_funcs_list) |user_func| {
+        const node = try t.allocator.create(std.SinglyLinkedList(UserFunc).Node);
+        node.* = std.SinglyLinkedList(UserFunc).Node{
+            .data = user_func,
+        };
+        user_funcs.prepend(user_func);
+    }
+    // defer t.allocator.destroy(user_func_1);
+    // defer t.allocator.free(user_func_1.data.node.inputs);
+    // defer t.allocator.free(user_func_1.data.node.outputs);
+
+    var parsed = try SexpParser.parse(t.allocator,
+        \\(meta version 1) \\(import Useless4
+        \\        "host/Useless4")
+        \\(import Useless3
+        \\        "host/Useless3")
+        \\(import Useless2
+        \\        "host/Useless2")
+        \\(import Useless1
+        \\        "host/Useless1")
+        \\(import Point
+        \\        "host/Point")
+        \\(import Box
+        \\        "host/Box")
+        \\(import Sphere
+        \\        "host/Sphere")
+        \\(typeof (main)
+        \\        ())
+        \\(define (main)
+        \\        (begin (geometry)
+        \\               (return)))
+        \\(typeof (geometry)
+        \\        ())
+        \\(define (geometry)
+        \\        (begin (Sphere (Point -2
+        \\                              0
+        \\                              0)
+        \\                       1
+        \\                       "FF4444")
+        \\               (Box (Point 2
+        \\                           0
+        \\                           0)
+        \\                    (Point 1.5
+        \\                           1.5
+        \\                           1.5)
+        \\                    "4444FF")
+        \\               (return)))
+        \\
+    , null);
+
+    defer parsed.deinit();
+
+    var diagnostic = Diagnostic.init();
+    if (compile(t.allocator, &parsed.module, &user_funcs, &diagnostic)) |wasm| {
+        defer t.allocator.free(wasm);
+        // FIXME: add expectation
+        //try expectWasmEqualsWat(expected, wasm);
+    } else |err| {
+        std.debug.print("err {}:\n{}", .{ err, diagnostic });
+        try t.expect(false);
+    }
+}
+
 test {
     // TODO: move to compiler/tests directory
     //t.refAllDecls(@import("./compiler-tests-string.zig"));

@@ -1,6 +1,6 @@
 const std = @import("std");
 const FileBuffer = @import("./FileBuffer.zig");
-const compiler = @import("./compiler-wat.zig");
+const compiler = @import("./compiler-wasm.zig");
 const Env = @import("./nodes/builtin.zig").Env;
 const helpers = @import("./nodes/builtin.zig");
 const SexpParser = @import("./sexp_parser.zig").Parser;
@@ -23,7 +23,102 @@ pub fn main() !void {
     defer env.deinit(alloc);
 
     var user_funcs = std.SinglyLinkedList(compiler.UserFunc){};
-    var user_func_id: usize = 0;
+
+    // FIXME: temp
+    const user_funcs_list = [_]compiler.UserFunc{
+        .{
+            .id = 1,
+            .node = .{
+                .name = "Sphere",
+                .inputs = try alloc.dupe(helpers.Pin, &.{
+                    .{ .name = "", .kind = .{ .primitive = .exec } },
+                    .{ .name = "center", .kind = .{ .primitive = .{ .value = helpers.nonprimitive_types.vec3 } } },
+                    .{ .name = "radius", .kind = .{ .primitive = .{ .value = helpers.primitive_types.f64_ } } },
+                    .{ .name = "color", .kind = .{ .primitive = .{ .value = helpers.primitive_types.string } } },
+                }),
+                .outputs = try alloc.dupe(helpers.Pin, &.{
+                    .{ .name = "", .kind = .{ .primitive = .exec } },
+                }),
+            },
+        },
+        .{
+            .id = 2,
+            .node = .{
+                .name = "Box",
+                .inputs = try alloc.dupe(helpers.Pin, &.{
+                    .{ .name = "", .kind = .{ .primitive = .exec } },
+                    .{ .name = "position", .kind = .{ .primitive = .{ .value = helpers.nonprimitive_types.vec3 } } },
+                    .{ .name = "dimensions", .kind = .{ .primitive = .{ .value = helpers.nonprimitive_types.vec3 } } },
+                    .{ .name = "color", .kind = .{ .primitive = .{ .value = helpers.primitive_types.string } } },
+                }),
+                .outputs = try alloc.dupe(helpers.Pin, &.{
+                    .{ .name = "", .kind = .{ .primitive = .exec } },
+                }),
+            },
+        },
+        .{
+            .id = 3,
+            .node = .{
+                // FIXME: replace with just using the vec3 node which should exist...
+                .name = "Point",
+                .inputs = try alloc.dupe(helpers.Pin, &.{
+                    .{ .name = "x", .kind = .{ .primitive = .{ .value = helpers.primitive_types.f64_ } } },
+                    .{ .name = "y", .kind = .{ .primitive = .{ .value = helpers.primitive_types.f64_ } } },
+                    .{ .name = "z", .kind = .{ .primitive = .{ .value = helpers.primitive_types.f64_ } } },
+                }),
+                .outputs = try alloc.dupe(helpers.Pin, &.{
+                    .{ .name = "", .kind = .{ .primitive = .{ .value = helpers.nonprimitive_types.vec3 } } },
+                }),
+            },
+        },
+        // add useless nodes to trigger hashmap expansions
+        .{
+            .id = 4,
+            .node = .{
+                // FIXME: replace with just using the vec3 node which should exist...
+                .name = "Useless1",
+                .inputs = try alloc.dupe(helpers.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                .outputs = try alloc.dupe(helpers.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+            },
+        },
+        .{
+            .id = 5,
+            .node = .{
+                // FIXME: replace with just using the vec3 node which should exist...
+                .name = "Useless2",
+                .inputs = try alloc.dupe(helpers.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                .outputs = try alloc.dupe(helpers.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+            },
+        },
+        .{
+            .id = 6,
+            .node = .{
+                // FIXME: replace with just using the vec3 node which should exist...
+                .name = "Useless3",
+                .inputs = try alloc.dupe(helpers.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                .outputs = try alloc.dupe(helpers.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+            },
+        },
+        .{
+            .id = 7,
+            .node = .{
+                // FIXME: replace with just using the vec3 node which should exist...
+                .name = "Useless4",
+                .inputs = try alloc.dupe(helpers.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+                .outputs = try alloc.dupe(helpers.Pin, &.{ .{ .name = "", .kind = .{ .primitive = .exec } } }),
+            },
+        },
+    };
+
+    for (&user_funcs_list) |user_func| {
+        const node = try alloc.create(std.SinglyLinkedList(compiler.UserFunc).Node);
+        node.* = std.SinglyLinkedList(compiler.UserFunc).Node{
+            .data = user_func,
+        };
+        user_funcs.prepend(node);
+    }
+
+    var user_func_id: usize = user_funcs_list.len;
 
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--env")) {
@@ -41,7 +136,7 @@ pub fn main() !void {
                 return error.EnvNoRPar;
             };
 
-            const func_name = arg_val[0..lpar];
+            const func_name = try alloc.dupeZ(u8, arg_val[0..lpar]);
             const params_src = arg_val[lpar + 1 .. rpar];
             // one extra for exec, one extra cuz no trailing comma
             const param_count = 2 + std.mem.count(u8, params_src, ",");
@@ -101,16 +196,16 @@ pub fn main() !void {
         defer fb.free(alloc);
 
         var parse_diag = SexpParser.Diagnostic{ .source = fb.buffer };
-        const parsed = SexpParser.parse(alloc, fb.buffer, &parse_diag) catch |parse_err| {
+        var parsed = SexpParser.parse(alloc, fb.buffer, &parse_diag) catch |parse_err| {
             std.debug.print("Parse error {} in '{s}':\n{}\n", .{ parse_err, arg, parse_diag });
             exit_code = parse_err;
             continue;
         };
 
-        defer parsed.deinit(alloc);
+        defer parsed.deinit();
 
         var compile_diag = compiler.Diagnostic.init();
-        const wat = compiler.compile(alloc, &parsed, &env, &user_funcs, &compile_diag) catch |compile_err| {
+        const wat = compiler.compile(alloc, &parsed.module, &user_funcs, &compile_diag) catch |compile_err| {
             // FIXME: somehow the pointer in diag (part of &parsed) is invalid when we reach here
             std.debug.print("Compile error {} in '{s}':\n{}\n", .{ compile_err, arg, compile_diag });
             exit_code = compile_err;
