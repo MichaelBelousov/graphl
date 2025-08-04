@@ -14,7 +14,7 @@ const customNodes: Record<string, graphl.UserFuncJson> = {
     outputs: [{ name: "", type: "vec3", }],
     kind: "pure",
     tags: ["geom"],
-    description: "create a sphere",
+    description: "create a point",
     impl: (x: number, y: number, z: number) => ({ x, y, z }),
   },
   "Sphere": {
@@ -45,7 +45,7 @@ const customNodes: Record<string, graphl.UserFuncJson> = {
     outputs: [],
     //kind: "pure",
     tags: ["geom"],
-    description: "create a sphere",
+    description: "create a box",
     impl(position: GraphlVec3, dimensions: GraphlVec3, color: string) {
       viewer.primitives.push({
         type: 'cube',
@@ -258,10 +258,9 @@ window.addEventListener('DOMContentLoaded', () => {
         async onClick() {
           // FIXME: use a declarative impl instead of this mutable state stuff
           viewer.primitives = [];
+          console.log(await ide.exportGraphlt());
           const program = await ide.compile();
-          console.log(program);
           const _result = program.functions.geometry();
-          console.log(_result);
           viewer.updateScene();
         },
       },
