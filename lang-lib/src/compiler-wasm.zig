@@ -1046,7 +1046,9 @@ const Compilation = struct {
             }),
         };
 
-        _ = self.env.addNode(self.arena.allocator(), graphl_builtin.basicNode(node_desc)) catch |err| switch (err) {
+        // FIXME: this is a horrible foot gun...
+        // we must use the same allocator that env is deinited with!
+        _ = self.env.addNode(self.arena.child_allocator, graphl_builtin.basicNode(node_desc)) catch |err| switch (err) {
             error.EnvAlreadyExists => unreachable,
             else => |nonEnvErr| return nonEnvErr,
         };
