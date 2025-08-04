@@ -94,7 +94,8 @@ pub const Diagnostic = struct {
             idx: u32,
             from: Type,
             to: Type,
-        }
+        },
+        NoTypeForDecl: u32,
     };
 
     const Code = error{
@@ -116,6 +117,7 @@ pub const Diagnostic = struct {
         AccessNonExistentField,
         StructTooLarge,
         UnsupportedTypeCoercion,
+        NoTypeForDecl,
     };
 
     pub fn init() @This() {
@@ -588,6 +590,7 @@ const Compilation = struct {
         func_decls: std.StringHashMapUnmanaged(DeferredFuncDeclInfo) = .{},
         /// typeof's of functions that need function param names
         func_types: std.StringHashMapUnmanaged(DeferredFuncTypeInfo) = .{},
+        func_node_descs: std.StringHashMapUnmanaged(*graphl_builtin.NodeDesc) = .{},
     } = .{},
 
     defined_structs: std.ArrayListUnmanaged(Type) = .{},
@@ -852,10 +855,6 @@ const Compilation = struct {
         };
 
         try self.deferred.func_decls.put(alloc, func_name, func_desc);
-
-        if (self.deferred.func_types.get(func_name)) |func_type| {
-            try self.finishCompileTypedFunc(func_name, func_desc, func_type);
-        }
 
         return true;
     }
@@ -1176,47 +1175,46 @@ const Compilation = struct {
 
         try self.deferred.func_types.put(alloc, func_name, func_type_desc);
 
-        if (self.deferred.func_decls.getPtr(func_name)) |func_decl| {
-            try self.finishCompileTypedFunc(func_name, func_decl.*, func_type_desc);
-        }
-
         return true;
     }
 
-    fn finishCompileTypedFunc(self: *@This(), name: [:0]const u8, func_decl: DeferredFuncDeclInfo, func_type: DeferredFuncTypeInfo) !void {
-        // NOTE: technically we can free the deferred function infos after this function
-
+    fn defineFuncInEnv(self: *@This(), name: [:0]const u8, func_decl: DeferredFuncDeclInfo, func_type: DeferredFuncTypeInfo) !*graphl_builtin.NodeDesc {
         if (func_type.param_types.len != func_decl.param_names.len) {
             // FIXME: this should have both define and typeof included
             self.diag.err = .{ .ParamCountConflict = func_decl.define_body_idx };
             return error.ParamCountConflict;
         }
 
-        // TODO: configure std.log.debug
-        //std.log.debug("compile func: '{s}'\n", .{name});
-        // now that we have func
-        const node_desc = _: {
-            const slot = try self.arena.allocator().create(graphl_builtin.BasicMutNodeDesc);
-            slot.* = .{
-                .name = name,
-                .kind = .func,
-                // FIXME: can I reuse pins?
-                .inputs = try self.arena.allocator().alloc(Pin, func_type.param_types.len + 1),
-                .outputs = try self.arena.allocator().alloc(Pin, func_type.result_types.len + 1),
-            };
-            slot.inputs[0] = Pin{ .name = "in", .kind = .{ .primitive = .exec } };
+        const slot = try self.arena.allocator().create(graphl_builtin.BasicMutNodeDesc);
 
-            for (slot.inputs[1..], func_decl.param_names, func_type.param_types) |*pin, pn, pt| {
-                pin.* = Pin{ .name = pn, .kind = .{ .primitive = .{ .value = pt } } };
-            }
-            slot.outputs[0] = Pin{ .name = "out", .kind = .{ .primitive = .exec } };
-            for (slot.outputs[1..], func_type.result_types) |*pin, rt| {
-                pin.* = Pin{ .name = "FIXME", .kind = .{ .primitive = .{ .value = rt } } };
-            }
-            // we must use the same allocator that env is deinited with!
-            break :_ try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(slot));
+        slot.* = .{
+            .name = name,
+            .kind = .func,
+            // FIXME: can I reuse pins?
+            .inputs = try self.arena.allocator().alloc(Pin, func_type.param_types.len + 1),
+            .outputs = try self.arena.allocator().alloc(Pin, func_type.result_types.len + 1),
         };
+        slot.inputs[0] = Pin{ .name = "in", .kind = .{ .primitive = .exec } };
 
+        for (slot.inputs[1..], func_decl.param_names, func_type.param_types) |*pin, pn, pt| {
+            pin.* = Pin{ .name = pn, .kind = .{ .primitive = .{ .value = pt } } };
+        }
+        slot.outputs[0] = Pin{ .name = "out", .kind = .{ .primitive = .exec } };
+        for (slot.outputs[1..], func_type.result_types) |*pin, rt| {
+            pin.* = Pin{ .name = "FIXME", .kind = .{ .primitive = .{ .value = rt } } };
+        }
+
+        // we must use the same allocator that env is deinited with!
+        return try self.env.addNode(self.arena.child_allocator, graphl_builtin.basicMutableNode(slot));
+    }
+
+    fn finishCompileTypedFunc(
+        self: *@This(),
+        name: [:0]const u8,
+        func_decl: DeferredFuncDeclInfo,
+        func_type: DeferredFuncTypeInfo,
+        node_desc: *graphl_builtin.NodeDesc,
+    ) !void {
         const result_types = try self.arena.allocator().alloc(byn.c.BinaryenType, func_type.result_types.len);
         defer self.arena.allocator().free(result_types); // FIXME: what is the binaryen ownership model?
         for (result_types, func_type.result_types) |*wasm_t, graphl_t| {
@@ -4219,17 +4217,50 @@ const Compilation = struct {
                     if (!did_compile) {
                         self.diag.err = Diagnostic.Error{ .BadTopLevelForm = idx };
                         log.err("{}", .{self.diag});
-                        return error.badTopLevelForm;
+                        return error.BadTopLevelForm;
                     }
                 },
                 else => {
                     self.diag.err = Diagnostic.Error{ .BadTopLevelForm = idx };
                     log.err("{}", .{self.diag});
                     log.err("{}", .{self.diag});
-                    return error.badTopLevelForm;
+                    return error.BadTopLevelForm;
                 },
             }
         }
+
+        // FIXME: evaluate them in order if possible instead of leaving it all till the end
+        {
+            var func_decl_iter = self.deferred.func_decls.iterator();
+            while (func_decl_iter.next()) |entry| {
+                // FIXME: remove this allocation somehow
+                const func_name = try self.arena.allocator().dupeZ(u8, entry.key_ptr.*);
+                const func_decl = entry.value_ptr;
+                const func_type = self.deferred.func_types.getPtr(entry.key_ptr.*) orelse {
+                    self.diag.err = Diagnostic.Error{ .BadTopLevelForm = func_decl.define_body_idx };
+                    return error.NoTypeForDecl;
+                };
+
+                const node_desc = try self.defineFuncInEnv(func_name, func_decl.*, func_type.*);
+                try self.deferred.func_node_descs.put(self.arena.allocator(), entry.key_ptr.*, node_desc);
+            }
+        }
+
+        {
+            var func_decl_iter = self.deferred.func_decls.iterator();
+            while (func_decl_iter.next()) |entry| {
+                // FIXME: remove this allocation somehow
+                const func_name = try self.arena.allocator().dupeZ(u8, entry.key_ptr.*);
+                const func_decl = entry.value_ptr;
+                const func_type = self.deferred.func_types.getPtr(entry.key_ptr.*) orelse {
+                    self.diag.err = Diagnostic.Error{ .BadTopLevelForm = func_decl.define_body_idx };
+                    return error.NoTypeForDecl;
+                };
+                const func_node_desc = self.deferred.func_node_descs.get(entry.key_ptr.*).?;
+                try self.finishCompileTypedFunc(func_name, func_decl.*, func_type.*, func_node_desc);
+            }
+        }
+
 
         //byn.c.BinaryenAddFunctionImport(ctx.module.c(), in_name, "__graphl_host_log_msg", in_name, byn.c.BinaryenTypeCreate(@constCast([1])), byn.c.BinaryenNone());
 
