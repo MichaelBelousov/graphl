@@ -74,16 +74,9 @@ pub fn getGraphsJson(app: *const App) ![]const u8 {
     return std.json.stringifyAlloc(gpa, json_graphs.items, .{});
 }
 
-// // FIXME: should use the new std.heap.SmpAllocator in release mode off wasm
-// //const gpa = gpa_instance.allocator();
-// var gpa_instance = if (builtin.mode == .Debug) std.heap.GeneralPurposeAllocator(.{
-//     .retain_metadata = true,
-//     .never_unmap = true,
-//     //.verbose_log = true,
-// }){} else std.heap.c_allocator;
-
+// NOTE: using c_allocator cuz we link with libc for now
 // FIXME: add a frame arena
-// FIXME: use raw_c_allocator for arenas!
+// FIXME: use raw_c_allocator for arenas?
 pub const gpa = std.heap.c_allocator;
 
 const NodeSet = std.AutoHashMapUnmanaged(graphl.NodeId, void);
