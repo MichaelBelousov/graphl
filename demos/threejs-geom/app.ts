@@ -261,7 +261,7 @@ window.addEventListener('DOMContentLoaded', () => {
           const program = await ide.compile();
           console.log(program);
           const _result = program.functions.geometry();
-          console.log(result);
+          console.log(_result);
           viewer.updateScene();
         },
       },
