@@ -1047,7 +1047,9 @@ class Dvui {
                 return;
             }
 
-            const scale = window.devicePixelRatio;
+            // FIXME: https://github.com/david-vanderson/dvui/issues/508 
+            //const scale = window.devicePixelRatio;
+            const scale = 1.0;
             //console.log("wxh " + w + "x" + h + " scale " + scale);
             this.gl.canvas.width = Math.round(w * scale);
             this.gl.canvas.height = Math.round(h * scale);
