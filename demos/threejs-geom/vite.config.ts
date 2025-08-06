@@ -6,6 +6,7 @@ export default defineConfig(async ({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ""));
 
   return {
+    base: "/graphl-geom-demo",
     server: {
       port: 3000,
     },

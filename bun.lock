@@ -7,7 +7,7 @@
     "demos/threejs-geom": {
       "name": "threejs-geom",
       "dependencies": {
-        "@graphl/ide": "../../ide/",
+        "@graphl/ide": "../../ide",
         "vite": "^7.0.6",
       },
       "devDependencies": {
